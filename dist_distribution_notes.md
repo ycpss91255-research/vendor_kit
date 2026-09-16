@@ -43,7 +43,7 @@
 | tool-owned | wrapper、lib、runtime 腳本 | 每次落地直接覆蓋；不允許手改 | 否（`.base/`） |
 | seed-once | Dockerfile、entrypoint、`.setup.conf`、`main.yaml` | init 時建立一次，之後屬於使用者；需變更時輸出 patch 由使用者決定 | 是 |
 | opt-in | hooks | 不預設產生 stub，需要時才建立 | 是 |
-| 版本記錄 | `.base-ref` | 使用者或 Renovate 修改 | 是 |
+| 版本記錄 | `.version` | 一個工具一行（`名稱 = image@sha256:…`，附 tag 供人看）；使用者或 Renovate 修改 | 是 |
 | 產生物 | `compose.yaml`、`.env.generated`、印記檔 | 由工具產生 | 否 |
 
 ### init
@@ -53,27 +53,27 @@ init 仍由 base 提供，只是來源從 subtree 改為 image。init 不是獨�
 ## 4. 流程
 
 **執行 `just <verb>`**
-1. 讀 `.base-ref`
+1. 讀 `.version`
 2. image 不在本地 → `docker pull`
-3. `.base/` 印記與 `.base-ref` 不一致、尚未安裝、或印記不可讀 → `docker run --rm`（host UID/GID）執行引擎 `land`；剛落地成功即直接進入第 5 步，不再 verify
+3. `.base/` 印記與 `.version` 不一致、尚未安裝、或印記不可讀 → `docker run --rm`（host UID/GID）執行引擎 `land`；剛落地成功即直接進入第 5 步，不再 verify
 4. 印記一致時 → 執行引擎 `verify` 比對 `.base/` 工具檔 hash（不含使用者檔案），被手改則報錯中止
 5. 執行 `.base/` 內 wrapper → `docker compose …`
 
-**升級**：改 `.base-ref` → just → 新版 image 落地。升級邏輯在新版 image 內，不會有「舊工具升級自己」的問題。
+**升級**：改 `.version` → just → 新版 image 落地。升級邏輯在新版 image 內，不會有「舊工具升級自己」的問題。
 
-**回退**：`git revert` `.base-ref` 的變更 → just → 舊版 image 重新落地。不需額外 rollback 紀錄。
+**回退**：`git revert` `.version` 的變更 → just → 舊版 image 重新落地。不需額外 rollback 紀錄。
 
 ## 5. 可追溯性（出 bug 時）
 
 ```
-downstream commit → .base-ref（版本）→ image label（base commit SHA）→ base 原始碼
+downstream commit → .version（版本）→ image label（base commit SHA）→ base 原始碼
 ```
 
 必要條件：
 - image 加 label：base commit SHA、版本、source repo
 - `.base/` 內寫印記檔：寫入的版本 + 各檔案 hash
-- GHCR tag 不覆蓋；仍被任何 downstream `.base-ref` 引用的版本不可刪（寫成 CI 規則；未被引用版本的清理策略見 §8 第 3 項）
-- `git bisect` 在 `.base-ref` 上即可定位是哪次升級引入問題
+- GHCR tag 不覆蓋；仍被任何 downstream `.version` 引用的版本不可刪（寫成 CI 規則；未被引用版本的清理策略見 §8 第 3 項）
+- `git bisect` 在 `.version` 上即可定位是哪次升級引入問題
 
 ## 6. 可行性注意事項
 
@@ -96,7 +96,7 @@ downstream commit → .base-ref（版本）→ image label（base commit SHA）�
 
 | # | 議題 | 目前傾向 |
 |---|---|---|
-| 1 | `.base-ref` 用 tag、digest，或 `tag@digest` 並寫 | 未定；tag 較易讀，前提是 tag 不可覆蓋。需確認 GHCR 是否有原生 immutable tag 設定 |
+| 1 | `.version` 記什麼 | **已定**：一個 `.version` 檔，一個工具一行 `名稱 = image@sha256:…`，tag 以註解附在同行供人閱讀；工具只認 digest |
 | 2 | `.base/` 是否進 git | 傾向不進 git |
 | 3 | image 清理策略 | 被引用的版本一律保留；未被引用的版本可定期清理（週期未定） |
 | 4 | image cache 範圍（機器共用 vs 每 repo 隔離） | 未定 |
@@ -105,3 +105,34 @@ downstream commit → .base-ref（版本）→ image label（base commit SHA）�
 | 7 | 既有 15 個 repo 的遷移順序 | 建議從 v0.41 直接跳新機制，不先走 v0.42/v0.43 subtree 遷移；試點 urg_node_humble（簡單）+ isaac（複雜） |
 | 8 | vendor_kit 既有 issue 的處置 | #7、#13 等 rollback 相關議題可能失效，需逐一重審 |
 | 9 | agent_harness 是否納入同一機制 | 其內容（AGENTS.md、skills）必須實體在 repo 且使用者會修改，屬 seed-once 性質，需確認 manifest 能否涵蓋 |
+
+## 9. 出貨物清單（安裝後 downstream repo 的實際樣貌）
+
+image 只是運送容器，不會出現在 repo；repo 裡看到的是安裝工具從 image 寫出來的檔案。以同時使用 base 與 agent_harness 的專案為例：
+
+```
+my_robot_project/
+├── .version                ← 進 git   使用者維護：一行一個工具的版本（digest）
+├── justfile                ← 進 git   啟動器；第一次由人放進去，之後幾乎不動
+├── Dockerfile              ← 進 git   使用者檔案：第一次安裝時從 base 模板建立，之後歸使用者
+├── entrypoint.sh           ← 進 git
+├── .setup.conf             ← 進 git
+├── .github/workflows/main.yaml ← 進 git
+├── hooks/                  ← 進 git   選用：使用者指定才建立
+├── AGENTS.md               ← 進 git   使用者檔案：來自 agent_harness 模板
+├── .base/                  ← 不進 git  base 的工具檔，每次安裝整批重寫，不可手改
+│   ├── wrapper/ lib/ runtime/
+│   └── .stamp              ←            印記檔：安裝版本 + 每個工具檔的指紋
+├── .harness/               ← 不進 git  agent_harness 的工具檔，同上
+├── compose.yaml            ← 不進 git  wrapper 執行時產生
+└── .env.generated          ← 不進 git
+```
+
+`.version` 範例：
+
+```
+base    = ghcr.io/ycpss91255-docker/base-dist@sha256:3f2a9c…    # v0.43.0
+harness = ghcr.io/ycpss91255-research/agent_harness-dist@sha256:8b1d…  # v0.5.2
+```
+
+`git ls-files` 只會看到 `.version`、`justfile`、使用者檔案；`.base/`、`.harness/` 是第一次跑 `just` 才長出來的。
