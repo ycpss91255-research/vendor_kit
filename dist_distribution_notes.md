@@ -72,7 +72,7 @@ downstream commit → .base-ref（版本）→ image label（base commit SHA）�
 必要條件：
 - image 加 label：base commit SHA、版本、source repo
 - `.base/` 內寫印記檔：寫入的版本 + 各檔案 hash
-- GHCR 舊版本不刪、tag 不覆蓋（寫成 CI 規則）
+- GHCR tag 不覆蓋；仍被任何 downstream `.base-ref` 引用的版本不可刪（寫成 CI 規則；未被引用版本的清理策略見 §8 第 3 項）
 - `git bisect` 在 `.base-ref` 上即可定位是哪次升級引入問題
 
 ## 6. 可行性注意事項
@@ -98,7 +98,7 @@ downstream commit → .base-ref（版本）→ image label（base commit SHA）�
 |---|---|---|
 | 1 | `.base-ref` 用 tag、digest，或 `tag@digest` 並寫 | 未定；tag 較易讀，前提是 tag 不可覆蓋。需確認 GHCR 是否有原生 immutable tag 設定 |
 | 2 | `.base/` 是否進 git | 傾向不進 git |
-| 3 | image 清理策略 | 保留；定期清理未被引用的版本 |
+| 3 | image 清理策略 | 被引用的版本一律保留；未被引用的版本可定期清理（週期未定） |
 | 4 | image cache 範圍（機器共用 vs 每 repo 隔離） | 未定 |
 | 5 | launcher 契約版本與更新方式 | 未定 |
 | 6 | 本地開發模式的切換方式 | 未定 |
