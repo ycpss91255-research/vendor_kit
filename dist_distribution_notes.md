@@ -2,7 +2,7 @@
 
 > 日期：2026-09-16
 > 範圍：取代 base 目前以 `git subtree` + symlink 分發 dist 的方式。**base 本體（Dockerfile 模板、wrapper、lib 等）不變**，只調整「dist 怎麼送進 downstream repo」。
-> 配套圖：`dist_distribution.drawio`（1 架構圖、2 流程：launcher、3 流程：版本生命週期、4 流程：引擎）
+> 配套圖：`dist_distribution.drawio`（1 架構圖、2 流程：啟動器、3 流程：版本生命週期、4 流程：安裝工具）
 
 ---
 
