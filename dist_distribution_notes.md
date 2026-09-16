@@ -2,7 +2,8 @@
 
 > 日期：2026-09-16
 > 範圍：取代 base 目前以 `git subtree` + symlink 分發 dist 的方式。**base 本體（Dockerfile 模板、wrapper、lib 等）不變**，只調整「dist 怎麼送進 downstream repo」。
-> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 框架定義、3 流程：使用者指令、4 流程：版本生命週期、5 流程：vendor_kit 內部、6 名詞說明、7 原型對照）
+> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 框架定義、3 流程：使用者指令、4 流程：版本生命週期、5 流程：vendor_kit 內部、6 原型對照；名詞表在各頁底部）
+> 圖面審查：每輪改完跑 `.claude/workflows/diagram-review.js`（Claude 子代理 + codex 雙軌審查）
 > 可執行原型：`../proto/`（vendor_kit / tool / project 三個資料夾，見 §9）
 
 ---
@@ -144,6 +145,10 @@ downstream commit → .version（版本）→ image label（base commit SHA）�
 | 8 | vendor_kit 既有 issue 的處置 | #7、#13 等 rollback 相關議題可能失效，需逐一重審 |
 | 9 | agent_harness 是否納入同一機制 | 其內容（AGENTS.md、skills）屬 init.toml 類；先做只服務 base 的最小版本，再驗證通用性 |
 | 10 | 是否保留自動遷移 `just upgrade --migrate` | 預設不動；等 dist 路徑契約穩定後再評估 |
+| 11 | `diff` 是否做三方比對（舊模板→新模板 vs 使用者檔→新模板） | §6 建議三方；圖與原型目前是二方，待決 |
+| 12 | `verify` 的基準：印記檔 vs 重新從 image 取；是否比對檔案集合、權限、symlink | §6 建議從 image；圖與原型目前只比印記的內容 hash，待決 |
+| 13 | 並行安裝的 lock | §6 建議要；圖與原型目前只有暫存目錄＋原子改名，待決 |
+| 14 | 模板是否帶入變數（專案名等）渲染 | 目前只複製；圖上標「待定」 |
 
 ## 9. 出貨物清單（安裝後 downstream repo 的實際樣貌）
 
