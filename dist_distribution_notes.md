@@ -2,8 +2,8 @@
 
 > 日期：2026-09-16
 > 範圍：取代 base 目前以 `git subtree` + symlink 分發 dist 的方式。**base 本體（Dockerfile 模板、wrapper、lib 等）不變**，只調整「dist 怎麼送進 downstream repo」。
-> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 出貨路徑、3 流程：啟動器、4 流程：版本生命週期、5 流程：安裝工具、6 名詞說明、7 原型對照）
-> 可執行原型：`../proto/`（vendor_kit / base / downstream 三個資料夾，見 §9）
+> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 框架定義、3 流程：使用者指令、4 流程：版本生命週期、5 流程：vendor_kit 內部、6 名詞說明、7 原型對照）
+> 可執行原型：`../proto/`（vendor_kit / tool / project 三個資料夾，見 §9）
 
 ---
 
@@ -32,14 +32,14 @@
 
 | 元件 | 職責 |
 |---|---|
-| vendor_kit | 通用安裝工具（`land / init / verify / diff`），打包成 `vendor_kit:vN` image；本身以 Python 實作、只在容器內執行 |
+| vendor_kit | 通用安裝工具（`install / init / verify / diff`），打包成 `vendor_kit:vN` image；本身以 Python 實作、只在容器內執行。安裝目錄 `.<name>/`，name = `.version` 裡的工具名（由啟動器以 `--name` 傳入） |
 | base | 本體不變；release 時 `FROM vendor_kit:vN` 加入 `dist/` 與 `init.toml`，推出 `base-dist:vX` |
 | 其他工具（agent_harness …） | 同樣 `FROM vendor_kit`，打包自己的 dist |
 | downstream repo | 只記錄使用的版本 + 一個極薄的 launcher（justfile） |
 
 ### 出貨規則（只有兩條）
 
-1. **`dist/` 底下全部出貨**，寫進下游的 `.base/`；每次 upgrade 整批覆蓋（原子替換），下游不可改。base 今天的 `upgrade.sh` 第 1 步 `git subtree pull` 就是這個行為，只是範圍從整個 repo 縮到 `dist/`。
+1. **`dist/` 底下全部出貨**，寫進下游的 `.<name>/`（name = 工具名；base 就是 `.base/`）；每次 upgrade 整批覆蓋（原子替換），下游不可改。base 今天的 `upgrade.sh` 第 1 步 `git subtree pull` 就是這個行為，只是範圍從整個 repo 縮到 `dist/`。
 2. **`init.toml` 列的檔案**，`init` 時再複製一份到指定路徑；已存在則跳過，之後歸下游所有，upgrade 不碰。
 
 ```toml
@@ -70,12 +70,12 @@ hooks 由 init 明確生成（對齊 `init.sh` 現況），不設 opt-in 類別�
 
 ### init
 
-`init` 是獨立命令（`just init`），只在專案第一次接上 base 時執行一次；`land` 永不建立或修改使用者檔案（使用者刻意刪除的檔案不會復活）。`init` 對已存在的檔案一律跳過，所以新舊 repo 用同一個指令。
+`init` 是獨立命令（`just init`），只在專案第一次接上工具時執行一次；`install` 永不建立或修改使用者檔案（使用者刻意刪除的檔案不會復活）。`init` 對已存在的檔案一律跳過，所以新舊 repo 用同一個指令。
 
 ### 自動提醒（升級）
 
-- **Renovate**（主要）：`customManagers` 用 regex 追蹤 `.version` 中 `ghcr.io/…:tag@sha256:…`（`datasourceTemplate: docker`；tag 為 `currentValue`、digest 為 `currentDigest`），上游有新版就開 PR；15 個 repo 共用一份 preset。PR 的 CI 跑 land + wrapper smoke test。
-- **`just upgrade`**（手動備援）：查 GHCR 最新版 → 改 `.version` → land → diff。細節待議。
+- **Renovate**（主要）：`customManagers` 用 regex 追蹤 `.version` 中 `ghcr.io/…:tag@sha256:…`（`datasourceTemplate: docker`；tag 為 `currentValue`、digest 為 `currentDigest`），上游有新版就開 PR；15 個 repo 共用一份 preset。PR 的 CI 跑 install + wrapper smoke test。
+- **`just upgrade`**（手動備援）：查 GHCR 最新版 → 改 `.version` → install → diff。細節待議。
 - base 端 release 時可加 `repository_dispatch` 推播給 downstream 當即時通知（選配）。
 
 ### 前例與定位
@@ -87,9 +87,9 @@ hooks 由 init 明確生成（對齊 `init.sh` 現況），不設 opt-in 類別�
 **執行 `just <verb>`**
 1. 讀 `.version`
 2. image 不在本地 → `docker pull`
-3. `.base/` 印記與 `.version` 不一致、尚未安裝、或印記不可讀 → `docker run --rm`（host UID/GID）執行引擎 `land`；剛落地成功即直接進入第 5 步，不再 verify
-4. 印記一致時 → 執行引擎 `verify` 比對 `.base/` 工具檔 hash（不含使用者檔案），被手改則報錯中止
-5. 執行 `.base/` 內 wrapper → `docker compose …`
+3. `.<name>/` 印記與 `.version` 不一致、尚未安裝、或印記不可讀 → `docker run --rm`（host UID/GID）執行 `install`；剛安裝成功即直接進入第 5 步，不再 verify
+4. 印記一致時 → 執行 `verify` 比對 `.<name>/` 每檔 hash，被手改則報錯中止
+5. 執行 `.<name>/` 內 wrapper → `docker compose …`
 
 **升級**：改 `.version` → just → 新版 image 落地。升級邏輯在新版 image 內，不會有「舊工具升級自己」的問題。
 
@@ -134,8 +134,8 @@ downstream commit → .version（版本）→ image label（base commit SHA）�
 
 | # | 議題 | 目前傾向 |
 |---|---|---|
-| 1 | `.version` 記什麼 | **已定**：一個 `.version` 檔，一個工具一行 `名稱 = image@sha256:…`，tag 以註解附在同行供人閱讀；工具只認 digest |
-| 2 | `.base/` 是否進 git | 傾向不進 git |
+| 1 | `.version` 記什麼 | **已定**：一個 `.version` 檔（TOML，`[tools]` 下一個工具一行 `name = "ghcr.io/…:tag@sha256:…"`）；digest 鎖內容、tag 供 Renovate 判斷版本系列；name 決定安裝目錄 `.<name>/` |
+| 2 | `.<name>/` 是否進 git | **已定**：不進 git |
 | 3 | image 清理策略 | 被引用的版本一律保留；未被引用的版本可定期清理（週期未定） |
 | 4 | image cache 範圍（機器共用 vs 每 repo 隔離） | 未定 |
 | 5 | launcher 契約版本與更新方式 | 傾向 `justfile` 由 vendor_kit 出貨（因為它綁 vendor_kit 子命令介面）；第一次進專案的 bootstrap 方式未定 |
@@ -151,17 +151,17 @@ image 只是運送容器，不會出現在 repo；repo 裡看到的是安裝工�
 
 ```
 my_robot_project/
-├── .version                ← 進 git   使用者維護：一行一個工具的版本（digest）
+├── .version                ← 進 git   Renovate／just upgrade 改；一行一個工具（tag@digest）
 ├── justfile                ← 進 git   啟動器；第一次由人放進去，之後幾乎不動
 ├── Dockerfile              ← 進 git   使用者檔案：第一次安裝時從 base 模板建立，之後歸使用者
 ├── entrypoint.sh           ← 進 git
-├── .setup.conf             ← 進 git
+├── setup.toml              ← 進 git
 ├── .github/workflows/main.yaml ← 進 git
-├── hooks/                  ← 進 git   選用：使用者指定才建立
+├── script/hooks/           ← 進 git   init 建立的 stub
 ├── AGENTS.md               ← 進 git   使用者檔案：來自 agent_harness 模板
 ├── .base/                  ← 不進 git  base 的工具檔，每次安裝整批重寫，不可手改
 │   ├── wrapper/ lib/ runtime/
-│   └── .stamp              ←            印記檔：安裝版本 + 每個工具檔的指紋
+│   └── .stamp              ←            印記檔：安裝版本 + 每個檔案的指紋
 ├── .harness/               ← 不進 git  agent_harness 的工具檔，同上
 ├── compose.yaml            ← 不進 git  wrapper 執行時產生
 └── .env.generated          ← 不進 git
@@ -169,9 +169,10 @@ my_robot_project/
 
 `.version` 範例：
 
-```
-base    = ghcr.io/ycpss91255-docker/base-dist@sha256:3f2a9c…    # v0.43.0
-harness = ghcr.io/ycpss91255-research/agent_harness-dist@sha256:8b1d…  # v0.5.2
+```toml
+[tools]
+base    = "ghcr.io/ycpss91255-docker/base-dist:v0.43.0@sha256:3f2a9c…"
+harness = "ghcr.io/ycpss91255-research/agent_harness-dist:v0.5.2@sha256:8b1d…"
 ```
 
 `git ls-files` 只會看到 `.version`、`justfile`、使用者檔案；`.base/`、`.harness/` 是第一次跑 `just` 才長出來的。
