@@ -2,7 +2,7 @@
 
 > 日期：2026-09-16
 > 範圍：取代 base 目前以 `git subtree` + symlink 分發 dist 的方式。**base 本體（Dockerfile 模板、wrapper、lib 等）不變**，只調整「dist 怎麼送進 downstream repo」。
-> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 框架定義、3 流程：使用者指令、4 流程：版本生命週期、5 流程：vendor_kit 內部、6 原型對照；名詞表在各頁底部）
+> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 框架定義、3 流程：使用者指令、4 流程：版本生命週期、5 流程：vendor_kit 內部、6 原型對照、7 repo 結構與測試分層；名詞表在各頁底部）
 > 圖面審查：每輪改完跑 `.claude/workflows/diagram-review.js`（Claude 子代理 + codex 雙軌審查）
 > 可執行原型：`../proto/`（vendor_kit / tool / project 三個資料夾，見 §9）
 
@@ -181,3 +181,38 @@ harness = "ghcr.io/ycpss91255-research/agent_harness-dist:v0.5.2@sha256:8b1d…"
 ```
 
 `git ls-files` 只會看到 `.version`、`justfile`、使用者檔案；`.base/`、`.harness/` 是第一次跑 `just` 才長出來的。
+
+## 10. vendor_kit repo 結構與測試分層（第 7 頁；決策日期 2026-09-17）
+
+**決策：單一 container、單一 Python package（7 個模組），但測試分層與隔離全部用「強制閘門」實現，不靠提醒或紀錄。**
+
+### 目錄（tool-first：`test/<工具>/<層級>/`）
+
+```
+vendor_kit/
+├── src/vendor_kit/        cli.py dist_reader.py repo_fs.py template.py stamp.py diff.py report.py（= 第 1 頁 7 個模組）
+├── test/
+│   ├── lint/{ruff,import-linter}/ + mirror_check.py
+│   ├── pytest/unit/            test_<模組>.py ×7（鏡射 src）
+│   ├── pytest/integration/     test_install.py test_init.py test_verify.py test_perf_verify.py test_diff.py
+│   ├── pytest/system/          docker run 整個 image（CI 主機）
+│   ├── pytest/acceptance/      第 3 頁三條泳道：假專案裡真的打 just（CI 主機）
+│   └── fixtures/               假 dist/、init.toml、VERSION
+├── Dockerfile                  stage：runtime → test-base → lint / unit-test / install-test / init-test / verify-test / diff-test；runtime → release → smoke
+├── docker-bake.hcl             group validate（六個測試 stage）、group release（release + smoke）
+└── doc/adr/
+```
+
+### 強制閘門（違反就 CI 紅）
+
+| 層 | 閘門 | 實作 |
+|---|---|---|
+| lint | ruff；import-linter 契約（cli → dist_reader\|repo_fs → template\|diff\|stamp\|report；cli/template/diff/stamp/report 不准直接 import pathlib/shutil/os/io）；鏡射檢查（每個 src 模組必有 test_<模組>.py） | `lint` stage |
+| unit | conftest 把 open()/Path.read_*/write_*/socket 換成 `pytest.fail` | `unit-test` stage |
+| integration | conftest 禁 subprocess/socket；只給 tmp 目錄；只走 `cli.main()`；一個子命令一個 stage、各自只 COPY 自己的檔；`verify` 200 檔 < 0.5s | 四個 `*-test` stage |
+| system / acceptance | 不准 import vendor_kit，只准 docker run + 檔案系統 | CI 主機（待寫） |
+| release | `release` 只 FROM `runtime`（BuildKit 不會執行、也不會打包任何 test stage）；`smoke` FROM release 真的跑一次 install + verify，失敗就不 push | `release`、`smoke` stage |
+
+前例：Docker multi-stage test stage、Google Small/Medium/Large、pytest src layout、import-linter；ROS 2 `system_tests`／REP-2004、Linux KUnit（in-tree）vs kselftest（out-of-tree）。層級名稱依 ISTQB（unit / integration / system / acceptance）；smoke 是類型不是層級。
+
+原型狀態（2026-09-17）：`docker buildx bake validate` 六個 stage 全綠；`bake release` 含 smoke 通過；`proto/project` 的 `just init / build / diff` 走完整流程。system / acceptance 測試與 ADR 待寫。
