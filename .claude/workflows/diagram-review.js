@@ -58,8 +58,9 @@ ${CRITERIA}
    (a) 下面這段審查標準與本輪改動；(b) 「附件：決策紀錄」= ${notes} 的全文；(c) 「附件：drawio XML」= ${xml} 的全文（用 \`\`\`xml 包起來）。
    codex 的 sandbox 讀不到本機檔案，所以檔案內容一定要直接貼進 brief。
 2. 執行（在 ${notes} 所在目錄）：
-   timeout 900 codex exec --sandbox read-only ${pngs.map(p => '-i ' + p.path).join(' ')} - < <brief檔> 2>&1
-   把輸出存檔並讀取。codex 的回答在最後一個「codex」標記之後、「tokens used」之前。
+   timeout 580 codex exec --sandbox read-only ${pngs.map(p => '-i ' + p.path).join(' ')} - < <brief檔> > <輸出檔> 2>&1
+   必須用 Bash 前景執行、timeout 參數設 600000；絕對不要 run_in_background，也不要用 Monitor 等待——你一結束回合，workflow 就會把你當作完成。
+   跑完後讀取輸出檔。codex 的回答在最後一個「codex」標記之後、「tokens used」之前。若 codex 逾時或沒有回答，findings 回傳空陣列、verdict 寫「codex 逾時」。
 3. 把 codex 指出的每個問題轉成 findings；codex 的最終判定放進 verdict。不要加入你自己的意見。
 
 要貼進 brief 的審查標準與要求（請用繁體中文寫進去）：
