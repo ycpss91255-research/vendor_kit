@@ -192,13 +192,15 @@ harness = "ghcr.io/ycpss91255-research/agent_harness-dist:v0.5.2@sha256:8b1d…"
 vendor_kit/
 ├── src/vendor_kit/        cli.py dist_reader.py repo_fs.py template.py stamp.py diff.py report.py（= 第 1 頁 7 個模組）
 ├── test/
-│   ├── lint/{ruff,import-linter}/ + mirror_check.py
+│   ├── lint/{ruff,import-linter}/ + mirror_check.py + blackbox_check.py
 │   ├── pytest/unit/            test_<模組>.py ×7（鏡射 src）
 │   ├── pytest/integration/     test_install.py test_init.py test_verify.py test_perf_verify.py test_diff.py
 │   ├── pytest/system/          docker run 整個 image（CI 主機）
 │   ├── pytest/acceptance/      第 3 頁三條泳道：假專案裡真的打 just（CI 主機）
-│   └── fixtures/               假 dist/、init.toml、VERSION
-├── Dockerfile                  stage：runtime → test-base → lint / unit-test / install-test / init-test / verify-test / diff-test；runtime → release → smoke
+│   ├── fixtures/               假 dist/、init.toml、VERSION、project/（假專案：justfile）、tool_image/（假工具 image 的 Dockerfile）
+│   └── (system / acceptance 各有 conftest.py：sys.modules["vendor_kit"] = None)
+├── Dockerfile                  runtime 的基底 = toml-bridge image（ghcr.io/ycpss91255-docker/toml-bridge@sha256:0a01f9…，提供 Python 與 TOML 工具）
+│                               stage：runtime → test-base → lint / unit-test / install-test / init-test / verify-test / diff-test；runtime → release → smoke
 ├── docker-bake.hcl             group validate（六個測試 stage）、group release（release + smoke）
 └── doc/adr/
 ```
@@ -207,12 +209,12 @@ vendor_kit/
 
 | 層 | 閘門 | 實作 |
 |---|---|---|
-| lint | ruff；import-linter 契約（cli → dist_reader\|repo_fs → template\|diff\|stamp\|report；cli/template/diff/stamp/report 不准直接 import pathlib/shutil/os/io）；鏡射檢查（每個 src 模組必有 test_<模組>.py） | `lint` stage |
+| lint | ruff；黑箱檢查；import-linter 契約（cli → dist_reader\|repo_fs → template\|diff\|stamp\|report；cli/template/diff/stamp/report 不准直接 import pathlib/shutil/os/io）；鏡射檢查（每個 src 模組必有 test_<模組>.py） | `lint` stage |
 | unit | conftest 把 open()/Path.read_*/write_*/socket 換成 `pytest.fail` | `unit-test` stage |
 | integration | conftest 禁 subprocess/socket；只給 tmp 目錄；只走 `cli.main()`；一個子命令一個 stage、各自只 COPY 自己的檔；`verify` 200 檔 < 0.5s | 四個 `*-test` stage |
-| system / acceptance | 不准 import vendor_kit，只准 docker run + 檔案系統 | CI 主機（待寫） |
+| system / acceptance | lint 的 `blackbox_check.py`：測試檔不准 import vendor_kit；conftest 再把 `sys.modules["vendor_kit"]` 設為 None；只准 docker run／just + 檔案系統 | CI 主機（`.github/workflows/ci.yaml`） |
 | release | `release` 只 FROM `runtime`（BuildKit 不會執行、也不會打包任何 test stage）；`smoke` FROM release 真的跑一次 install + verify，失敗就不 push | `release`、`smoke` stage |
 
 前例：Docker multi-stage test stage、Google Small/Medium/Large、pytest src layout、import-linter；ROS 2 `system_tests`／REP-2004、Linux KUnit（in-tree）vs kselftest（out-of-tree）。層級名稱依 ISTQB（unit / integration / system / acceptance）；smoke 是類型不是層級。
 
-原型狀態（2026-09-17）：`docker buildx bake validate` 六個 stage 全綠；`bake release` 含 smoke 通過；`proto/project` 的 `just init / build / diff` 走完整流程。system / acceptance 測試與 ADR 待寫。
+原型狀態（2026-09-17）：`docker buildx bake validate` 六個 stage 全綠；`bake release` 含 smoke（install + verify）通過；system 4 個、acceptance 4 個測試在主機 pytest 通過；`proto/project` 的 `just init / build / diff` 走完整流程；ADR-0001「測試分層與強制閘門」已寫（`proto/vendor_kit/doc/adr/`）。
