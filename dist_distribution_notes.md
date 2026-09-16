@@ -2,7 +2,8 @@
 
 > 日期：2026-09-16
 > 範圍：取代 base 目前以 `git subtree` + symlink 分發 dist 的方式。**base 本體（Dockerfile 模板、wrapper、lib 等）不變**，只調整「dist 怎麼送進 downstream repo」。
-> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 出貨路徑、3 流程：啟動器、4 流程：版本生命週期、5 流程：安裝工具、6 名詞說明）
+> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 出貨路徑、3 流程：啟動器、4 流程：版本生命週期、5 流程：安裝工具、6 名詞說明、7 原型對照）
+> 可執行原型：`../proto/`（vendor_kit / base / downstream 三個資料夾，見 §9）
 
 ---
 
@@ -31,24 +32,55 @@
 
 | 元件 | 職責 |
 |---|---|
-| vendor_kit | 通用落地引擎 + manifest 規格，打包成 `vendor_kit:vN` image |
-| base | 本體不變；release 時 `FROM vendor_kit:vN` 加入 dist、init 模板、manifest，推出 `base-dist:vX` |
+| vendor_kit | 通用安裝工具（`land / init / verify / diff`），打包成 `vendor_kit:vN` image；本身以 Python 實作、只在容器內執行 |
+| base | 本體不變；release 時 `FROM vendor_kit:vN` 加入 `dist/` 與 `init.toml`，推出 `base-dist:vX` |
 | 其他工具（agent_harness …） | 同樣 `FROM vendor_kit`，打包自己的 dist |
 | downstream repo | 只記錄使用的版本 + 一個極薄的 launcher（justfile） |
 
-### 檔案所有權（manifest 核心）
+### 出貨規則（只有兩條）
+
+1. **`dist/` 底下全部出貨**，寫進下游的 `.base/`；每次 upgrade 整批覆蓋（原子替換），下游不可改。base 今天的 `upgrade.sh` 第 1 步 `git subtree pull` 就是這個行為，只是範圍從整個 repo 縮到 `dist/`。
+2. **`init.toml` 列的檔案**，`init` 時再複製一份到指定路徑；已存在則跳過，之後歸下游所有，upgrade 不碰。
+
+```toml
+# init.toml（放在工具 repo 根目錄，跟 dist/ 一起進 image）
+[[file]]
+src  = "dockerfile/Dockerfile"     # 相對 dist/
+dest = "Dockerfile"                # 相對下游 repo 根目錄
+
+[[file]]
+src  = "template/hooks/"           # 目錄整個複製
+dest = "script/hooks/"
+```
 
 | 類別 | 例子 | 行為 | 進 git |
 |---|---|---|---|
-| tool-owned | wrapper、lib、runtime 腳本 | 每次落地直接覆蓋；不允許手改 | 否（`.base/`） |
-| seed-once | Dockerfile、entrypoint、`.setup.conf`、`main.yaml` | init 時建立一次，之後屬於使用者；需變更時輸出 patch 由使用者決定 | 是 |
-| opt-in | hooks | 不預設產生 stub，需要時才建立 | 是 |
-| 版本記錄 | `.version` | 一個工具一行（`名稱 = image@sha256:…`，附 tag 供人看）；使用者或 Renovate 修改 | 是 |
-| 產生物 | `compose.yaml`、`.env.generated`、印記檔 | 由工具產生 | 否 |
+| `dist/` 全部 | wrapper、lib、runtime、模板、config、smoke 測試 | 每次 upgrade 整批覆蓋 | 否（`.base/`） |
+| `init.toml` 列的 | Dockerfile、entrypoint、setup.toml、main.yaml、hooks、.gitignore | init 建立一次，之後屬於使用者；upgrade 時 `diff` 顯示差異、不自動改 | 是 |
+| 版本記錄 | `.version` | 由 Renovate 或 `just upgrade` 改；使用者只 merge | 是 |
+| 產生物 | `compose.yaml`、`.env`、印記檔 | 由工具產生 | 否 |
+
+hooks 由 init 明確生成（對齊 `init.sh` 現況），不設 opt-in 類別。
+
+**與 base 今天 `upgrade.sh` 的差異（刻意改變）**：今天第 3～5 步會自動改寫使用者的 `Dockerfile`、`script/entrypoint.sh`（`dockerfile_migrate.sh` 的 16 個遷移）、`main.yaml`（`@tag` sed）、`.gitignore`。新架構下工具不改使用者檔：
+- `main.yaml` 的 `@tag` → Renovate github-actions manager 更新
+- `Dockerfile` 遷移 → `just diff` 顯示，使用者自己改。**前提是 base 遵守 ADR-0006 的 `dist/` 路徑契約不亂搬**；那 16 個遷移的根因幾乎全是 base 內部搬路徑
+- `.gitignore` → 列入 `init.toml`，init 建一次
+- 若日後仍需自動遷移，加明確的 `just upgrade --migrate`，預設不動（待決議）
 
 ### init
 
-init 仍由 base 提供，只是來源從 subtree 改為 image。init 不是獨立命令，而是 `land` 的內部步驟：每次 land 遇到缺少的 seed-once／opt-in 檔案就建立，已存在則保留（opt-in 需使用者指定才建立）。
+`init` 是獨立命令（`just init`），只在專案第一次接上 base 時執行一次；`land` 永不建立或修改使用者檔案（使用者刻意刪除的檔案不會復活）。`init` 對已存在的檔案一律跳過，所以新舊 repo 用同一個指令。
+
+### 自動提醒（升級）
+
+- **Renovate**（主要）：`customManagers` 用 regex 追蹤 `.version` 中 `ghcr.io/…:tag@sha256:…`（`datasourceTemplate: docker`；tag 為 `currentValue`、digest 為 `currentDigest`），上游有新版就開 PR；15 個 repo 共用一份 preset。PR 的 CI 跑 land + wrapper smoke test。
+- **`just upgrade`**（手動備援）：查 GHCR 最新版 → 改 `.version` → land → diff。細節待議。
+- base 端 release 時可加 `repository_dispatch` 推播給 downstream 當即時通知（選配）。
+
+### 前例與定位
+
+方案沒有完整前例；各部分對應：Gradle Wrapper（薄啟動器 + 版本檔 + 自動下載）、Dev Container Features / Homebrew bottles（GHCR 當檔案倉庫、digest 鎖版本）、Copier（初始檔歸使用者 + 升級 diff）、Carvel vendir（宣告式目錄同步的 manifest/lock 設計）、OpenAPI Generator docker CLI（以 image 出貨、bind mount 寫回專案）。
 
 ## 4. 流程
 
@@ -83,6 +115,12 @@ downstream commit → .version（版本）→ image label（base commit SHA）�
 - image 保留、只刪 container；每次重 pull 會變慢、受 rate limit 影響、離線失效
 - 離線機器：`docker save` / `docker load` 預載 image
 - 需預留**本地開發模式**：來源暫時指向本機 base checkout，開發 base 時不必每次發佈
+- **rootless Docker / userns-remap / 遠端 daemon**：`-u UID:GID` 不通吃、bind mount 掛不到遠端；要偵測並明寫支援範圍
+- **多架構**：Apple Silicon、Jetson 需各自的 vendor_kit image；`.version` 鎖 image **index** digest
+- **私有 GHCR**：使用者與 Renovate 各自需要 token
+- **替換原子性**：並行 `just`、安裝中斷 → 先寫暫存目錄再換名，並加 lock
+- **驗證邊界**：印記可被寫，驗證基準應來自鎖定的 image；比對檔案集合、執行權限、symlink，不只內容 hash
+- **`diff` 需三方比對**（舊模板→新模板 vs 使用者檔→新模板），否則使用者修改會淹沒真正的升級需求
 
 ## 7. 已排除的方向
 
@@ -100,11 +138,12 @@ downstream commit → .version（版本）→ image label（base commit SHA）�
 | 2 | `.base/` 是否進 git | 傾向不進 git |
 | 3 | image 清理策略 | 被引用的版本一律保留；未被引用的版本可定期清理（週期未定） |
 | 4 | image cache 範圍（機器共用 vs 每 repo 隔離） | 未定 |
-| 5 | launcher 契約版本與更新方式 | 未定 |
+| 5 | launcher 契約版本與更新方式 | 傾向 `justfile` 由 vendor_kit 出貨（因為它綁 vendor_kit 子命令介面）；第一次進專案的 bootstrap 方式未定 |
 | 6 | 本地開發模式的切換方式 | 未定 |
 | 7 | 既有 15 個 repo 的遷移順序 | 建議從 v0.41 直接跳新機制，不先走 v0.42/v0.43 subtree 遷移；試點 urg_node_humble（簡單）+ isaac（複雜） |
 | 8 | vendor_kit 既有 issue 的處置 | #7、#13 等 rollback 相關議題可能失效，需逐一重審 |
-| 9 | agent_harness 是否納入同一機制 | 其內容（AGENTS.md、skills）必須實體在 repo 且使用者會修改，屬 seed-once 性質，需確認 manifest 能否涵蓋 |
+| 9 | agent_harness 是否納入同一機制 | 其內容（AGENTS.md、skills）屬 init.toml 類；先做只服務 base 的最小版本，再驗證通用性 |
+| 10 | 是否保留自動遷移 `just upgrade --migrate` | 預設不動；等 dist 路徑契約穩定後再評估 |
 
 ## 9. 出貨物清單（安裝後 downstream repo 的實際樣貌）
 
