@@ -2,7 +2,7 @@
 
 > 日期：2026-09-16
 > 範圍：取代 base 目前以 `git subtree` + symlink 分發 dist 的方式。**base 本體（Dockerfile 模板、wrapper、lib 等）不變**，只調整「dist 怎麼送進 downstream repo」。
-> 配套圖：`dist_distribution.drawio`（1 架構圖、2 流程：啟動器、3 流程：版本生命週期、4 流程：安裝工具）
+> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 出貨路徑、3 流程：啟動器、4 流程：版本生命週期、5 流程：安裝工具、6 名詞說明）
 
 ---
 
@@ -48,15 +48,15 @@
 
 ### init
 
-init 仍由 base 提供，只是來源從 subtree 改為 image：image 第一次執行時建立 seed-once 檔案。
+init 仍由 base 提供，只是來源從 subtree 改為 image。init 不是獨立命令，而是 `land` 的內部步驟：每次 land 遇到缺少的 seed-once／opt-in 檔案就建立，已存在則保留（opt-in 需使用者指定才建立）。
 
 ## 4. 流程
 
 **執行 `just <verb>`**
 1. 讀 `.base-ref`
 2. image 不在本地 → `docker pull`
-3. `.base/` 印記與 `.base-ref` 不一致 → `docker run --rm`（host UID/GID）落地；首次則同時 init
-4. 比對 `.base/` 檔案 hash，被手改則報錯
+3. `.base/` 印記與 `.base-ref` 不一致、尚未安裝、或印記不可讀 → `docker run --rm`（host UID/GID）執行引擎 `land`；剛落地成功即直接進入第 5 步，不再 verify
+4. 印記一致時 → 執行引擎 `verify` 比對 `.base/` 工具檔 hash（不含使用者檔案），被手改則報錯中止
 5. 執行 `.base/` 內 wrapper → `docker compose …`
 
 **升級**：改 `.base-ref` → just → 新版 image 落地。升級邏輯在新版 image 內，不會有「舊工具升級自己」的問題。
