@@ -59,7 +59,7 @@ dest = "script/hooks/"
 |---|---|---|---|
 | `dist/` 全部 | wrapper、lib、runtime、模板、config、smoke 測試 | 每次 upgrade 整批覆蓋 | 否（`.base/`） |
 | `init.toml` 列的 | Dockerfile、entrypoint、setup.toml、main.yaml、hooks、.gitignore | init 建立一次，之後屬於使用者；upgrade 時 `diff` 顯示差異、不自動改 | 是 |
-| 版本記錄 | `.version` | 由 Renovate 或 `just upgrade` 改；使用者只 merge | 是 |
+| 版本記錄 | `.version` | 由 Renovate 或 `just vendor_kit upgrade` 改；使用者只 merge | 是 |
 | 產生物 | `compose.yaml`、`.env`、印記檔 | 由工具產生 | 否 |
 
 hooks 由 init 明確生成（對齊 `init.sh` 現況），不設 opt-in 類別。
@@ -68,16 +68,16 @@ hooks 由 init 明確生成（對齊 `init.sh` 現況），不設 opt-in 類別�
 - `main.yaml` 的 `@tag` → Renovate github-actions manager 更新
 - `Dockerfile` 遷移 → `just diff` 顯示，使用者自己改。**前提是 base 遵守 ADR-0006 的 `dist/` 路徑契約不亂搬**；那 16 個遷移的根因幾乎全是 base 內部搬路徑
 - `.gitignore` → 列入 `init.toml`，init 建一次
-- 若日後仍需自動遷移，加明確的 `just upgrade --migrate`，預設不動（待決議）
+- 若日後仍需自動遷移，加明確的 `just vendor_kit upgrade --migrate`，預設不動（待決議）
 
 ### init
 
-`init` 是獨立命令（`just init`），只在專案第一次接上工具時執行一次；`install` 永不建立或修改使用者檔案（使用者刻意刪除的檔案不會復活）。`init` 對已存在的檔案一律跳過，所以新舊 repo 用同一個指令。
+`init` 是獨立命令（`just vendor_kit init`），只在專案第一次接上工具時執行一次；`install` 永不建立或修改使用者檔案（使用者刻意刪除的檔案不會復活）。`init` 對已存在的檔案一律 warn、不覆蓋（仍存基準），所以新舊 repo 用同一個指令。
 
 ### 自動提醒（升級）
 
 - **Renovate**（主要）：`customManagers` 用 regex 追蹤 `.version` 中 `ghcr.io/…:tag@sha256:…`（`datasourceTemplate: docker`；tag 為 `currentValue`、digest 為 `currentDigest`），上游有新版就開 PR；15 個 repo 共用一份 preset。PR 的 CI 跑 install + wrapper smoke test。
-- **`just upgrade`**（手動備援）：查 GHCR 最新版 → 改 `.version` → install → diff。細節待議。
+- **`just vendor_kit upgrade <name>`**（手動備援）：查 registry 最新版 → 只改 `.version` 那行就停；之後由 ensure 重裝、人打 `just vendor_kit diff`。細節見 §8 #15。
 - base 端 release 時可加 `repository_dispatch` 推播給 downstream 當即時通知（選配）。
 
 ### 前例與定位
@@ -141,15 +141,16 @@ downstream commit → .version（版本）→ image label（base commit SHA）�
 | 3 | image 清理策略 | 被引用的版本一律保留；未被引用的版本可定期清理（週期未定） |
 | 4 | image cache 範圍（機器共用 vs 每 repo 隔離） | 未定 |
 | 5 | launcher 契約版本與更新方式 | **已定（§12、issue #20）**：啟動器 = `.vendor_kit/`，由 `bootstrap` 子命令寫出、進 git、人不改；`.version` 有 `vendor_kit = "…"` 一行，升級時換 `vendor.just`／`tools.just`／`.stamp`（`baseline/` 不動）；使用者的 `justfile` 只 import 它。第一次進專案 = release 附的 `bootstrap.sh`（跑完自刪） |
-| 6 | 本地開發模式的切換方式 | **已定（issue #21，第 4 頁）**：`.version.local` 覆蓋檔（同格式、不進 git，bootstrap 寫進 .gitignore），`<name> = "path:../tool"` 那行優先；用 vendor_kit image 掛本機 dist 安裝，印記第一行 `dev:<路徑>`，verify 跳過只印警告、每次重新複製；`just dev <name> <path>`／`just undev <name>`。不用環境變數（出問題要能從檔案追） |
+| 6 | 本地開發模式的切換方式 | **已定（issue #21，第 4 頁）**：`.version.local` 覆蓋檔（同格式、不進 git，bootstrap 寫進 .gitignore），`<name> = "path:../tool"` 那行優先；用 vendor_kit image 掛本機 dist 安裝，印記第一行 `dev:<路徑>`，verify 跳過只印警告、每次重新複製；`just vendor_kit dev <name> <path>`／`just vendor_kit undev <name>`。不用環境變數（出問題要能從檔案追） |
 | 7 | 既有 15 個 repo 的遷移順序 | 建議從 v0.41 直接跳新機制，不先走 v0.42/v0.43 subtree 遷移；試點 urg_node_humble（簡單）+ isaac（複雜） |
 | 8 | vendor_kit 既有 issue 的處置 | #7、#13 等 rollback 相關議題可能失效，需逐一重審 |
 | 9 | agent_harness 是否納入同一機制 | 其內容（AGENTS.md、skills）屬 init.toml 類；先做只服務 base 的最小版本，再驗證通用性 |
-| 10 | 是否保留自動遷移 `just upgrade --migrate` | 預設不動；等 dist 路徑契約穩定後再評估 |
-| 11 | `diff` 是否做三方比對 | **已定（issue #22，第 5 頁）**：三方、只顯示不寫回；基準 = `.vendor_kit/baseline/<name>/`（每工具一份，進 git，人不改、納入檢查）；init 從第一版就寫基準（碰到已存在的檔 → warn、不覆蓋、仍存基準）；`just accept <name>` 更新基準；結束狀態 0 沒差異／1 工具有改／2 可能重疊；兩個工具 init 到同一 dest → 報錯；第一版檔案層級五分類＋兩份 diff，第二版自寫 diff3 |
+| 10 | 是否保留自動遷移 `just vendor_kit upgrade --migrate` | 預設不動；等 dist 路徑契約穩定後再評估 |
+| 11 | `diff` 是否做三方比對 | **已定（issue #22，第 5 頁）**：三方、只顯示不寫回；基準 = `.vendor_kit/baseline/<name>/`（每工具一份，進 git，人不改、納入檢查）；init 從第一版就寫基準（碰到已存在的檔 → warn、不覆蓋、仍存基準）；`just vendor_kit accept <name>` 更新基準；結束狀態 0 沒差異／1 工具有改／2 可能重疊；兩個工具 init 到同一 dest → 報錯；第一版檔案層級五分類＋兩份 diff，第二版自寫 diff3 |
 | 12 | `verify` 的基準 | **已定（issue #23，第 5 頁）**：基準 = `.version` 鎖定的 image 內 `/dist`（verify 本來就在該工具容器內跑，不多起容器、不上網）；兩棵樹比對：檔案集合（缺、多都失敗，只豁免 .stamp）＋ sha256 ＋ 執行位（單向）＋ 型別（第一版禁 symlink）；不比 mtime／owner；印記降為「已裝版本」快取鍵（第一行 = `--self`），不簽章；失敗中止不自動重裝；第一版不做 stat 快取 |
 | 13 | 並行安裝的 lock | **已定（issue #24，第 5 頁）**：flock 鎖專案目錄本身（不建鎖檔；install／accept 排他、verify 共享）；拿到鎖後重讀 .version 與印記，已是目標版本就跳過複製仍 verify；逾時預設 60 秒（環境變數可改，0 = 立即失敗）；鎖不支援 → 直接失敗，`VENDOR_KIT_NO_LOCK=1` 才放行，不退回 mkdir 鎖；暫存目錄亂數名並清殘留；`docker run --init`；平台 = Linux amd64／arm64（含 WSL2） |
 | 14 | 模板是否帶入變數（專案名等）渲染 | 目前只複製；圖上標「待定」 |
+| 15 | 升級與回退（第 11 頁） | **已定（雙軌一致，2026-09-17）**：A Renovate = 專案自己的 CI 深淺自決，vendor_kit 出貨契約檢查腳本 `test/ci/check.sh` 與 `renovate.json`（只含 extends，指向 vendor_kit repo 內共用 preset；GitLab 自架 renovate-runner），bootstrap 寫出後歸專案。B `just vendor_kit upgrade <name> [版本] [--dry-run\|--check]` = 只把 `.version` 那行改成最新（或指定）版本就停、不裝、不 diff，成功訊息寫「尚未安裝，下一步 just vendor_kit diff <name>」；查 registry 在容器內用 OCI 標準 API（GHCR、GitLab 同一套）；「最新」只認 `v主.次.修`、預設略過預發行版；digest 取 multi-arch index 並確認含 amd64＋arm64；憑證 = 唯讀掛 `~/.docker/config.json` 或環境變數 token。C vendor_kit 自我升級 = 先換自己：舊啟動器發現 `vendor_kit` 行變了 → 用新 image 跑 `bootstrap`（呼叫方式凍結為契約）重寫 `.vendor_kit/` 程式檔（`baseline/` 不動）→ 第一版停下來印「請重打一次指令」；相容性（issue #14）：image LABEL 帶契約版本號，啟動器用 `docker image inspect` 比對。D 回退 = `git revert` 那個 commit（Renovate 的 merge commit 用 `-m 1`）；不強制 accept 與 `.version` 同一 commit；baseline 落後或超前 `.version` 都是合法中間狀態，diff 印出方向，CI 只警告不紅；使用者檔由人決定。**待回覆**：image 公開或私有；upgrade 不給 name 要拒絕（要 name 或 `--all`）？`--all` 含不含 vendor_kit 自身？C 第一版「停下來要求重跑」可接受？`.vendor_kit/` 重寫後由誰 commit？ |
 
 ## 9. 出貨物清單（安裝後 downstream repo 的實際樣貌）
 
@@ -157,7 +158,7 @@ image 只是運送容器，不會出現在 repo；repo 裡看到的是安裝工�
 
 ```
 my_robot_project/
-├── .version                ← 進 git   Renovate／just upgrade 改；一行一個工具（tag@digest）
+├── .version                ← 進 git   Renovate／just vendor_kit upgrade 改；一行一個工具（tag@digest）
 ├── justfile                ← 進 git   使用者自己的指令清單；第一行 import .vendor_kit/（bootstrap 建立，之後歸使用者）
 ├── .vendor_kit/            ← 進 git   啟動器本體：vendor.just（標準指令）、tools.just（由 .version 衍生）、.stamp（vendor_kit 版本）；bootstrap 寫出，人不改，升級只換這三個
 │   └── baseline/<name>/    ← 進 git   三方比對的基準：init／accept 存的模板副本＋metadata；人不改
@@ -228,43 +229,30 @@ vendor_kit/
 
 原型狀態（2026-09-17）：`docker buildx bake validate` 六個 stage 全綠；`bake release` 含 release-test（install + verify）通過；system 4 個、acceptance 4 個測試在主機 pytest 通過；`proto/project` 的 `just init / build / diff` 走完整流程；ADR-0001「測試分層與強制閘門」已寫（`proto/vendor_kit/doc/adr/`）。
 
-## 11. 使用者介面：just 指令表（第 9 頁）
+## 11. 使用者介面：依角色的指令表（第 9 頁）
 
-使用者只會碰 justfile 提供的指令。**命名空間定案（2026-09-17）**：vendor_kit 的 recipe 全部放在 `vendor_kit` 命名空間，不佔頂層——`just vendor_kit init / diff / accept / upgrade / dev / undev`；bootstrap 寫出的根 justfile 只有一行 `mod? vendor_kit '.vendor_kit/vendor.just'`；工具的 tool.just 用自己的命名空間（例 `mod? docker` → `just docker build`）。每個工具指令前的自動檢查由工具的 recipe 呼叫 `just vendor_kit ensure`（對專案目錄上鎖 → 印記第一行 ≠ 有效版本（`.version.local` 優先）→ install；相同 → verify（`.<name>/` 跟 image 內 dist 逐檔比）；失敗就中止；本機路徑 → 只印警告）。指令表分「常用（日常）」與「不常用（第一次／升級／開發工具本身）」兩區；dev／undev 的形式（給路徑 vs 選項式）仍待使用者回覆。
+使用者只會碰 justfile 提供的指令。**命名空間定案（2026-09-17）**：vendor_kit 的 recipe 全部放在 `vendor_kit` 命名空間，不佔頂層——`just vendor_kit init / diff / accept / upgrade / dev / undev`；bootstrap 寫出的根 justfile 只有一行 `mod? vendor_kit '.vendor_kit/vendor.just'`；工具的 tool.just 用自己的命名空間（例 `mod? docker` → `just docker build`）。每個工具指令前的自動檢查由工具的 recipe 呼叫 `just vendor_kit ensure`（對專案目錄上鎖 → 印記第一行 ≠ 有效版本（`.version.local` 優先）→ install；相同 → verify（`.<name>/` 跟 image 內 dist 逐檔比）；失敗就中止；本機路徑 → 只印警告）。verify 與 ensure 不開放給人單獨打。
 
-**vendor_kit 提供（每個專案都一樣）**
+**指令表依四個角色分組（2026-09-17）**，每一列都要回答「為什麼必要（沒有它會怎樣）」與「使用情景（誰、多常）」；dev／undev 的形式（給路徑 vs 選項式）仍待使用者回覆。
 
-| 指令 | 什麼時候 | 做什麼 | 背後 |
+| 角色 | 指令 | 為什麼必要 | 使用情景 |
 |---|---|---|---|
-| `just vendor_kit init` | 第一次接上工具 | 安裝 `.<name>/`，照 init.toml 建立初始檔（已存在：warn、不覆蓋），並把這版模板存成基準 `.vendor_kit/baseline/<name>/` | 容器：install → init |
-| `just vendor_kit diff` | 升級之後 | 三方比對：印出「工具改了什麼」「你改了什麼」，不改檔；結束狀態 0／1／2 | 容器：diff |
-| `just vendor_kit accept <name>` | 看完 diff、跟進完 | 把新版模板存成基準 | 容器：accept |
-| `just vendor_kit dev <name> <path>` / `just vendor_kit undev <name>`（形式待回覆） | 開發工具本身時 | 寫／刪 `.version.local`，把工具指到本機路徑（不驗證只警告） | 容器：--dev install |
-| `just vendor_kit upgrade` | 沒有 Renovate 時手動升級 | 改 .version 為最新 → 重裝 → 顯示差異（細節待議，§8 #5） | 查 GHCR → 改 .version → install → diff |
-| （自動）`just vendor_kit ensure` | 每個工具指令前 | 檢查／安裝／驗證 | 容器：install 或 verify |
+| A 使用者（拿專案成果來用） | `just <模組> run` / `stop`（工具有提供才有） | 不用懂 docker compose 參數就能把成果跑起來、停掉 | 每次要用時一次；用完一次 |
+| B 開發者（天天在專案裡寫程式） | `just <模組> build / run / exec / stop` ＋ `just vendor_kit diff` | 四個 = 一個容器的一生（做出來→開起來→進去用→關掉），由工具定義、換工具就換一套；diff 讓升級後知道工具改了什麼、自己的 Dockerfile 要不要跟進（結束狀態 0／1／2） | build 改 Dockerfile 或第一次；run/stop 每天；exec 每天多次；diff 每次升級後一次 |
+| C 專案維護者（接工具、處理升級） | `bootstrap.sh`（release 附）、`just vendor_kit init`、`just vendor_kit upgrade <name>`、`just vendor_kit accept <name>` | bootstrap 是第一個入口；init 建立初始檔＋存基準 `.vendor_kit/baseline/<name>/`（已存在 warn 不覆蓋）；upgrade 是沒有 Renovate 時唯一改 `.version` 的方式；accept 不做的話下次 diff 會把舊改動再報一次 | 一個專案一次；每個工具一次；很少；每次升級一次 |
+| D 工具開發者（改工具本身） | `just vendor_kit dev <name> <路徑>` / `just vendor_kit undev <name>` | 改工具本身時不必每改一行就出 image；undev 立即回正式版 | 少數人；開發期間／結束時 |
 
-verify 不開放給使用者單獨打：它是每個指令前的守門。
-
-**工具 `<name>` 提供（由工具的 dist/ 決定，每個工具可以不同；以「容器工作流」工具為例）**
-
-| 指令 | 做什麼 | 背後 |
-|---|---|---|
-| `just <模組> build`（例 `just docker build`） | 建置專案自己的 image | `.<name>/` 的 build 腳本 → docker compose build |
-| `just <模組> run` | 啟動專案容器 | run 腳本 → docker compose up |
-| `just <模組> exec` | 進到容器裡下指令 | exec 腳本 → docker compose exec |
-| `just <模組> stop` | 停掉並移除容器 | stop 腳本 → docker compose down |
-
-為什麼是這四個：一個容器的一生 = 做出來 → 開起來 → 進去用 → 關掉，一個階段一個指令；換工具就換一套。每個工具指令前後可掛使用者自己的 hooks（`script/hooks/pre|post/<指令>.sh`，init 建立的空殼）。
+每個工具指令前後可掛使用者自己的 hooks（`script/hooks/pre|post/<指令>.sh`，init 建立的空殼）。
 
 ## 12. bootstrap：第一次把 vendor_kit 接進專案（第 10 頁；決策日期 2026-09-17）
 
 **決策：啟動器由 vendor_kit 寫出並擁有；第一次靠 release 附的一支腳本，跑完自刪。**
 
 1. 使用者從 vendor_kit 的 GitHub release 頁下載 `bootstrap.sh`，在專案目錄執行。
-2. 腳本只做四件事：檢查主機有 docker / git / just → `docker run --rm -u UID:GID -v $PWD:/repo vendor_kit:vN --name vendor_kit --self <image> bootstrap` → 問「要現在接一個工具嗎？」（要就把 `<name> = "image"` 寫進 `.version`，再 `just init`）→ 刪掉自己。主機不需要 Python。
+2. 腳本只做四件事：檢查主機有 docker / git / just → `docker run --rm -u UID:GID -v $PWD:/repo vendor_kit:vN --name vendor_kit --self <image> bootstrap` → 問「要現在接一個工具嗎？」（要就把 `<name> = "image"` 寫進 `.version`，再 `just vendor_kit init`）→ 刪掉自己。主機不需要 Python。
 3. `bootstrap` 子命令寫出：
-   - `.vendor_kit/vendor.just`（標準指令 install / init / diff / accept / upgrade 與每個指令前的 `_ensure`）、`.vendor_kit/tools.just`（由 `.version` 衍生的每工具 recipe，每次 install 後重寫）、`.vendor_kit/.stamp`（vendor_kit 自己的版本 + vendor.just 指紋）——由 vendor_kit 擁有，人不改，進 git；`.vendor_kit/baseline/<name>/` 之後由 init／accept 寫（持久資料，升級不動）；
+   - `.vendor_kit/vendor.just`（`vendor_kit` 命名空間的標準指令 init / diff / accept / upgrade / dev / undev 與工具指令前呼叫的 `ensure`）、`.vendor_kit/tools.just`（由 `.version` 衍生的每工具 recipe，每次 install 後重寫）、`.vendor_kit/.stamp`（vendor_kit 自己的版本 + vendor.just 指紋）——由 vendor_kit 擁有，人不改，進 git；`.vendor_kit/baseline/<name>/` 之後由 init／accept 寫（持久資料，升級不動）；
    - `justfile`（第一行 `mod? vendor_kit '.vendor_kit/vendor.just'`，其餘歸使用者）、`.version`（先只有 `vendor_kit = "…"` 一行）——已存在就不動。
-4. 之後 vendor_kit 出新版：`.version` 的 `vendor_kit` 那行改掉（Renovate 或 `just upgrade`）→ `.vendor_kit/` 的 `vendor.just`、`tools.just`、`.stamp` 換新（`baseline/` 不動）；使用者的 `justfile` 永遠不會被動到。
+4. 之後 vendor_kit 出新版：`.version` 的 `vendor_kit` 那行改掉（Renovate 或 `just vendor_kit upgrade vendor_kit`）→ 先換自己（§8 #15 C）：`.vendor_kit/` 的 `vendor.just`、`tools.just`、`.stamp` 換新（`baseline/` 不動）；使用者的 `justfile` 永遠不會被動到。
 
 原型：`proto/vendor_kit/src/vendor_kit/launcher.py` 產生 `.vendor_kit/` 內容；`cli.bootstrap()` 寫出。
