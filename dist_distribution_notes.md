@@ -224,24 +224,24 @@ vendor_kit/
 
 前例：Docker multi-stage test stage、Google Small/Medium/Large、pytest src layout、import-linter；ROS 2 `system_tests`／REP-2004、Linux KUnit（in-tree）vs kselftest（out-of-tree）。層級名稱依 ISTQB（unit / integration / system / acceptance）；smoke 是類型不是層級：這裡指 env-test，先於所有測試。
 
-印記第一行的來源：工具 repo 的 `Dockerfile.dist` 在出貨時把 image 識別字串（tag@digest）寫進 image 內的 `/dist/VERSION`；`install` 把它抄到 `.<name>/.stamp` 第一行，啟動器就是拿這行跟 `.version` 該行的值比。fixtures 裡的 `VERSION` 是假的（`fixture-dist:v0.1.0`）。
+印記第一行的來源（issue #23 改定）：啟動器把 `.version` 該行的字串用 `--self` 傳進容器，`install` 寫進 `.<name>/.stamp` 第一行，啟動器就拿這行跟 `.version` 比；image 內的 `/dist/VERSION` 只是給人看的識別字串（也解掉 `Dockerfile.dist` 要把自己的 digest 寫進自身的循環）。fixtures 裡的 `VERSION` 是假的（`fixture-dist:v0.1.0`）。
 
 原型狀態（2026-09-17）：`docker buildx bake validate` 六個 stage 全綠；`bake release` 含 release-test（install + verify）通過；system 4 個、acceptance 4 個測試在主機 pytest 通過；`proto/project` 的 `just init / build / diff` 走完整流程；ADR-0001「測試分層與強制閘門」已寫（`proto/vendor_kit/doc/adr/`）。
 
 ## 11. 使用者介面：just 指令表（第 9 頁）
 
-使用者只會碰 justfile 提供的指令；每個指令執行前都先自動走第 3 頁「日常」的檢查（`_ensure`：對專案目錄上鎖 → 印記第一行 ≠ .version → install；相同 → verify（`.<name>/` 跟 image 內 dist 逐檔比）；失敗就中止）。版本檔讀取順序：`.version.local`（若有）> `.version`。
+使用者只會碰 justfile 提供的指令。**命名空間定案（2026-09-17）**：vendor_kit 的 recipe 全部放在 `vendor_kit` 命名空間，不佔頂層——`just vendor_kit init / diff / accept / upgrade / dev / undev`；bootstrap 寫出的根 justfile 只有一行 `mod? vendor_kit '.vendor_kit/vendor.just'`；工具的 tool.just 用自己的命名空間（例 `mod? docker` → `just docker build`）。每個工具指令前的自動檢查由工具的 recipe 呼叫 `just vendor_kit ensure`（對專案目錄上鎖 → 印記第一行 ≠ 有效版本（`.version.local` 優先）→ install；相同 → verify（`.<name>/` 跟 image 內 dist 逐檔比）；失敗就中止；本機路徑 → 只印警告）。指令表分「常用（日常）」與「不常用（第一次／升級／開發工具本身）」兩區；dev／undev 的形式（給路徑 vs 選項式）仍待使用者回覆。
 
 **vendor_kit 提供（每個專案都一樣）**
 
 | 指令 | 什麼時候 | 做什麼 | 背後 |
 |---|---|---|---|
-| `just init` | 第一次接上工具 | 安裝 `.<name>/`，照 init.toml 建立初始檔（已存在：warn、不覆蓋），並把這版模板存成基準 `.vendor_kit/baseline/<name>/` | 容器：install → init |
-| `just diff` | 升級之後 | 三方比對：印出「工具改了什麼」「你改了什麼」，不改檔；結束狀態 0／1／2 | 容器：diff |
-| `just accept <name>` | 看完 diff、跟進完 | 把新版模板存成基準 | 容器：accept |
-| `just dev <name> <path>` / `just undev <name>` | 開發工具本身時 | 寫／刪 `.version.local`，把工具指到本機路徑（不驗證只警告） | 容器：--dev install |
-| `just upgrade` | 沒有 Renovate 時手動升級 | 改 .version 為最新 → 重裝 → 顯示差異（細節待議，§8 #5） | 查 GHCR → 改 .version → install → diff |
-| （自動 `_ensure`） | 每個指令前 | 檢查／安裝／驗證 | 容器：install 或 verify |
+| `just vendor_kit init` | 第一次接上工具 | 安裝 `.<name>/`，照 init.toml 建立初始檔（已存在：warn、不覆蓋），並把這版模板存成基準 `.vendor_kit/baseline/<name>/` | 容器：install → init |
+| `just vendor_kit diff` | 升級之後 | 三方比對：印出「工具改了什麼」「你改了什麼」，不改檔；結束狀態 0／1／2 | 容器：diff |
+| `just vendor_kit accept <name>` | 看完 diff、跟進完 | 把新版模板存成基準 | 容器：accept |
+| `just vendor_kit dev <name> <path>` / `just vendor_kit undev <name>`（形式待回覆） | 開發工具本身時 | 寫／刪 `.version.local`，把工具指到本機路徑（不驗證只警告） | 容器：--dev install |
+| `just vendor_kit upgrade` | 沒有 Renovate 時手動升級 | 改 .version 為最新 → 重裝 → 顯示差異（細節待議，§8 #5） | 查 GHCR → 改 .version → install → diff |
+| （自動）`just vendor_kit ensure` | 每個工具指令前 | 檢查／安裝／驗證 | 容器：install 或 verify |
 
 verify 不開放給使用者單獨打：它是每個指令前的守門。
 
@@ -249,10 +249,10 @@ verify 不開放給使用者單獨打：它是每個指令前的守門。
 
 | 指令 | 做什麼 | 背後 |
 |---|---|---|
-| `just build` | 建置專案自己的 image | `.<name>/` 的 build 腳本 → docker compose build |
-| `just run` | 啟動專案容器 | run 腳本 → docker compose up |
-| `just exec` | 進到容器裡下指令 | exec 腳本 → docker compose exec |
-| `just stop` | 停掉並移除容器 | stop 腳本 → docker compose down |
+| `just <模組> build`（例 `just docker build`） | 建置專案自己的 image | `.<name>/` 的 build 腳本 → docker compose build |
+| `just <模組> run` | 啟動專案容器 | run 腳本 → docker compose up |
+| `just <模組> exec` | 進到容器裡下指令 | exec 腳本 → docker compose exec |
+| `just <模組> stop` | 停掉並移除容器 | stop 腳本 → docker compose down |
 
 為什麼是這四個：一個容器的一生 = 做出來 → 開起來 → 進去用 → 關掉，一個階段一個指令；換工具就換一套。每個工具指令前後可掛使用者自己的 hooks（`script/hooks/pre|post/<指令>.sh`，init 建立的空殼）。
 
@@ -264,7 +264,7 @@ verify 不開放給使用者單獨打：它是每個指令前的守門。
 2. 腳本只做四件事：檢查主機有 docker / git / just → `docker run --rm -u UID:GID -v $PWD:/repo vendor_kit:vN --name vendor_kit --self <image> bootstrap` → 問「要現在接一個工具嗎？」（要就把 `<name> = "image"` 寫進 `.version`，再 `just init`）→ 刪掉自己。主機不需要 Python。
 3. `bootstrap` 子命令寫出：
    - `.vendor_kit/vendor.just`（標準指令 install / init / diff / accept / upgrade 與每個指令前的 `_ensure`）、`.vendor_kit/tools.just`（由 `.version` 衍生的每工具 recipe，每次 install 後重寫）、`.vendor_kit/.stamp`（vendor_kit 自己的版本 + vendor.just 指紋）——由 vendor_kit 擁有，人不改，進 git；`.vendor_kit/baseline/<name>/` 之後由 init／accept 寫（持久資料，升級不動）；
-   - `justfile`（第一行 `import '.vendor_kit/vendor.just'`，其餘歸使用者）、`.version`（先只有 `vendor_kit = "…"` 一行）——已存在就不動。
+   - `justfile`（第一行 `mod? vendor_kit '.vendor_kit/vendor.just'`，其餘歸使用者）、`.version`（先只有 `vendor_kit = "…"` 一行）——已存在就不動。
 4. 之後 vendor_kit 出新版：`.version` 的 `vendor_kit` 那行改掉（Renovate 或 `just upgrade`）→ `.vendor_kit/` 的 `vendor.just`、`tools.just`、`.stamp` 換新（`baseline/` 不動）；使用者的 `justfile` 永遠不會被動到。
 
 原型：`proto/vendor_kit/src/vendor_kit/launcher.py` 產生 `.vendor_kit/` 內容；`cli.bootstrap()` 寫出。
