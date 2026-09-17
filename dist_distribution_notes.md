@@ -33,7 +33,7 @@
 
 | 元件 | 職責 |
 |---|---|
-| vendor_kit | 通用安裝工具（`install / init / verify / diff`），打包成 `vendor_kit:vN` image；本身以 Python 實作、只在容器內執行。安裝目錄 `.<name>/`，name = `.version` 裡的工具名（由啟動器以 `--name` 傳入） |
+| vendor_kit | 通用安裝工具（`install / init / verify / diff`，第一次另有 `bootstrap` 寫出啟動器，§12），打包成 `vendor_kit:vN` image；本身以 Python 實作、只在容器內執行。安裝目錄 `.<name>/`，name = `.version` 裡的工具名（由啟動器以 `--name` 傳入） |
 | base | 本體不變；release 時 `FROM vendor_kit:vN` 加入 `dist/` 與 `init.toml`，推出 `base-dist:vX` |
 | 其他工具（agent_harness …） | 同樣 `FROM vendor_kit`，打包自己的 dist |
 | downstream repo | 只記錄使用的版本 + 一個極薄的 launcher（justfile） |
@@ -139,7 +139,7 @@ downstream commit → .version（版本）→ image label（base commit SHA）�
 | 2 | `.<name>/` 是否進 git | **已定**：不進 git |
 | 3 | image 清理策略 | 被引用的版本一律保留；未被引用的版本可定期清理（週期未定） |
 | 4 | image cache 範圍（機器共用 vs 每 repo 隔離） | 未定 |
-| 5 | launcher 契約版本與更新方式 | 傾向 `justfile` 由 vendor_kit 出貨（因為它綁 vendor_kit 子命令介面）；第一次進專案的 bootstrap 方式未定 |
+| 5 | launcher 契約版本與更新方式 | **已定（§12）**：啟動器 = `.vendor_kit/`，由 `bootstrap` 子命令寫出、進 git、人不改；`.version` 有 `vendor_kit = "…"` 一行，升級時整個 `.vendor_kit/` 換新；使用者的 `justfile` 只 import 它。第一次進專案 = release 附的 `bootstrap.sh`（跑完自刪） |
 | 6 | 本地開發模式的切換方式 | 未定 |
 | 7 | 既有 15 個 repo 的遷移順序 | 建議從 v0.41 直接跳新機制，不先走 v0.42/v0.43 subtree 遷移；試點 urg_node_humble（簡單）+ isaac（複雜） |
 | 8 | vendor_kit 既有 issue 的處置 | #7、#13 等 rollback 相關議題可能失效，需逐一重審 |
@@ -157,7 +157,8 @@ image 只是運送容器，不會出現在 repo；repo 裡看到的是安裝工�
 ```
 my_robot_project/
 ├── .version                ← 進 git   Renovate／just upgrade 改；一行一個工具（tag@digest）
-├── justfile                ← 進 git   啟動器；第一次由人放進去，之後幾乎不動
+├── justfile                ← 進 git   使用者自己的指令清單；第一行 import .vendor_kit/（bootstrap 建立，之後歸使用者）
+├── .vendor_kit/            ← 進 git   啟動器本體：vendor.just（標準指令）、tools.just（由 .version 衍生）、.stamp（vendor_kit 版本）；bootstrap 寫出，人不改，升級整個換新
 ├── Dockerfile              ← 進 git   使用者檔案：第一次安裝時從 base 模板建立，之後歸使用者
 ├── entrypoint.sh           ← 進 git
 ├── setup.toml              ← 進 git
@@ -176,11 +177,12 @@ my_robot_project/
 
 ```toml
 [tools]
+vendor_kit = "ghcr.io/ycpss91255-research/vendor_kit:v1.0.0@sha256:…"     # 啟動器自己的版本
 base    = "ghcr.io/ycpss91255-docker/base-dist:v0.43.0@sha256:3f2a9c…"
 harness = "ghcr.io/ycpss91255-research/agent_harness-dist:v0.5.2@sha256:8b1d…"
 ```
 
-`git ls-files` 只會看到 `.version`、`justfile`、使用者檔案；`.base/`、`.harness/` 是第一次跑 `just` 才長出來的。
+`git ls-files` 只會看到 `.version`、`justfile`、`.vendor_kit/`、使用者檔案；`.base/`、`.harness/` 是第一次跑 `just` 才長出來的。
 
 ## 10. vendor_kit repo 結構與測試分層（第 7、8 頁；決策日期 2026-09-17）
 
@@ -248,3 +250,16 @@ verify 不開放給使用者單獨打：它是每個指令前的守門。
 | `just stop` | 停掉並移除容器 | stop 腳本 → docker compose down |
 
 為什麼是這四個：一個容器的一生 = 做出來 → 開起來 → 進去用 → 關掉，一個階段一個指令；換工具就換一套。每個工具指令前後可掛使用者自己的 hooks（`script/hooks/pre|post/<指令>.sh`，init 建立的空殼）。
+
+## 12. bootstrap：第一次把 vendor_kit 接進專案（第 10 頁；決策日期 2026-09-17）
+
+**決策：啟動器由 vendor_kit 寫出並擁有；第一次靠 release 附的一支腳本，跑完自刪。**
+
+1. 使用者從 vendor_kit 的 GitHub release 頁下載 `bootstrap.sh`，在專案目錄執行。
+2. 腳本只做四件事：檢查主機有 docker / git / just → `docker run --rm -u UID:GID -v $PWD:/repo vendor_kit:vN --name vendor_kit --self <image> bootstrap` → 問「要現在接一個工具嗎？」（要就把 `<name> = "image"` 寫進 `.version`，再 `just init`）→ 刪掉自己。主機不需要 Python。
+3. `bootstrap` 子命令寫出：
+   - `.vendor_kit/vendor.just`（標準指令 install / init / diff / upgrade 與每個指令前的 `_ensure`）、`.vendor_kit/tools.just`（由 `.version` 衍生的每工具 recipe，每次 install 後重寫）、`.vendor_kit/.stamp`（vendor_kit 自己的版本 + vendor.just 指紋）——整個目錄由 vendor_kit 擁有，人不改，進 git；
+   - `justfile`（第一行 `import '.vendor_kit/vendor.just'`，其餘歸使用者）、`.version`（先只有 `vendor_kit = "…"` 一行）——已存在就不動。
+4. 之後 vendor_kit 出新版：`.version` 的 `vendor_kit` 那行改掉（Renovate 或 `just upgrade`）→ `.vendor_kit/` 整個換新，跟 `.<name>/` 一樣；使用者的 `justfile` 永遠不會被動到。
+
+原型：`proto/vendor_kit/src/vendor_kit/launcher.py` 產生 `.vendor_kit/` 內容；`cli.bootstrap()` 寫出。
