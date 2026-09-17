@@ -219,6 +219,8 @@ vendor_kit/
 
 前例：Docker multi-stage test stage、Google Small/Medium/Large、pytest src layout、import-linter；ROS 2 `system_tests`／REP-2004、Linux KUnit（in-tree）vs kselftest（out-of-tree）。層級名稱依 ISTQB（unit / integration / system / acceptance）；smoke 是類型不是層級：這裡指 env-test，先於所有測試。
 
+印記第一行的來源：工具 repo 的 `Dockerfile.dist` 在出貨時把 image 識別字串（tag@digest）寫進 image 內的 `/dist/VERSION`；`install` 把它抄到 `.<name>/.stamp` 第一行，啟動器就是拿這行跟 `.version` 該行的值比。fixtures 裡的 `VERSION` 是假的（`fixture-dist:v0.1.0`）。
+
 原型狀態（2026-09-17）：`docker buildx bake validate` 六個 stage 全綠；`bake release` 含 release-test（install + verify）通過；system 4 個、acceptance 4 個測試在主機 pytest 通過；`proto/project` 的 `just init / build / diff` 走完整流程；ADR-0001「測試分層與強制閘門」已寫（`proto/vendor_kit/doc/adr/`）。
 
 ## 11. 使用者介面：just 指令表（第 9 頁）
