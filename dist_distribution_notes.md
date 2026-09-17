@@ -2,7 +2,7 @@
 
 > 日期：2026-09-16
 > 範圍：取代 base 目前以 `git subtree` + symlink 分發 dist 的方式。**base 本體（Dockerfile 模板、wrapper、lib 等）不變**，只調整「dist 怎麼送進 downstream repo」。
-> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 框架定義、3 流程：使用者指令、4 流程：版本生命週期、5 流程：vendor_kit 內部、6 原型對照、7 repo 結構與測試分層；名詞表在各頁底部）
+> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 框架定義、3 流程：使用者指令、4 流程：版本生命週期、5 流程：vendor_kit 內部、6 原型對照、7 資料夾架構、8 測試分層與強制閘門、9 使用者介面：just 指令表；名詞表在各頁底部）
 > 圖面審查：每輪改完跑 `.claude/workflows/diagram-review.js`（Claude 子代理 + codex 雙軌審查）
 > 可執行原型：`../proto/`（vendor_kit / tool / project 三個資料夾，見 §9）
 
@@ -182,7 +182,7 @@ harness = "ghcr.io/ycpss91255-research/agent_harness-dist:v0.5.2@sha256:8b1d…"
 
 `git ls-files` 只會看到 `.version`、`justfile`、使用者檔案；`.base/`、`.harness/` 是第一次跑 `just` 才長出來的。
 
-## 10. vendor_kit repo 結構與測試分層（第 7 頁；決策日期 2026-09-17）
+## 10. vendor_kit repo 結構與測試分層（第 7、8 頁；決策日期 2026-09-17）
 
 **決策：單一 container、單一 Python package（7 個模組），但測試分層與隔離全部用「強制閘門」實現，不靠提醒或紀錄。**
 
@@ -192,6 +192,7 @@ harness = "ghcr.io/ycpss91255-research/agent_harness-dist:v0.5.2@sha256:8b1d…"
 vendor_kit/
 ├── src/vendor_kit/        cli.py dist_reader.py repo_fs.py template.py stamp.py diff.py report.py（= 第 1 頁 7 個模組）
 ├── test/
+│   ├── env/check.sh            環境檢查（smoke）：python3 ≥ 3.11、tomllib、vendor_kit 進入點、toml-bridge、WORKDIR
 │   ├── lint/{ruff,import-linter}/ + mirror_check.py + blackbox_check.py
 │   ├── pytest/unit/            test_<模組>.py ×7（鏡射 src）
 │   ├── pytest/integration/     test_install.py test_init.py test_verify.py test_perf_verify.py test_diff.py
@@ -200,8 +201,8 @@ vendor_kit/
 │   ├── fixtures/               假 dist/、init.toml、VERSION、project/（假專案：justfile）、tool_image/（假工具 image 的 Dockerfile）
 │   └── (system / acceptance 各有 conftest.py：sys.modules["vendor_kit"] = None)
 ├── Dockerfile                  runtime 的基底 = toml-bridge image（ghcr.io/ycpss91255-docker/toml-bridge@sha256:0a01f9…，提供 Python 與 TOML 工具）
-│                               stage：runtime → test-base → lint / unit-test / install-test / init-test / verify-test / diff-test；runtime → release → smoke
-├── docker-bake.hcl             group validate（六個測試 stage）、group release（release + smoke）
+│                               stage：runtime → env-test → test-base → lint / unit-test / install-test / init-test / verify-test / diff-test；runtime → release → release-test
+├── docker-bake.hcl             group validate（env-test + 六個測試 stage）、group release（release + release-test）
 └── doc/adr/
 ```
 
@@ -209,12 +210,39 @@ vendor_kit/
 
 | 層 | 閘門 | 實作 |
 |---|---|---|
+| smoke（環境檢查） | `env-test` stage 跑 `test/env/check.sh`；`test-base FROM env-test`，所以環境不對就沒有任何測試會跑（環境檢查先於一切） | `env-test` stage |
 | lint | ruff；黑箱檢查；import-linter 契約（cli → dist_reader\|repo_fs → template\|diff\|stamp\|report；cli/template/diff/stamp/report 不准直接 import pathlib/shutil/os/io）；鏡射檢查（每個 src 模組必有 test_<模組>.py） | `lint` stage |
 | unit | conftest 把 open()/Path.read_*/write_*/socket 換成 `pytest.fail` | `unit-test` stage |
 | integration | conftest 禁 subprocess/socket；只給 tmp 目錄；只走 `cli.main()`；一個子命令一個 stage、各自只 COPY 自己的檔；`verify` 200 檔 < 0.5s | 四個 `*-test` stage |
 | system / acceptance | lint 的 `blackbox_check.py`：測試檔不准 import vendor_kit；conftest 再把 `sys.modules["vendor_kit"]` 設為 None；只准 docker run／just + 檔案系統 | CI 主機（`.github/workflows/ci.yaml`） |
-| release | `release` 只 FROM `runtime`（BuildKit 不會執行、也不會打包任何 test stage）；`smoke` FROM release 真的跑一次 install + verify，失敗就不 push | `release`、`smoke` stage |
+| release | `release` 只 FROM `runtime`（BuildKit 不會執行、也不會打包任何 test stage）；`release-test` FROM release 真的跑一次 install + verify，失敗就不 push | `release`、`release-test` stage |
 
-前例：Docker multi-stage test stage、Google Small/Medium/Large、pytest src layout、import-linter；ROS 2 `system_tests`／REP-2004、Linux KUnit（in-tree）vs kselftest（out-of-tree）。層級名稱依 ISTQB（unit / integration / system / acceptance）；smoke 是類型不是層級。
+前例：Docker multi-stage test stage、Google Small/Medium/Large、pytest src layout、import-linter；ROS 2 `system_tests`／REP-2004、Linux KUnit（in-tree）vs kselftest（out-of-tree）。層級名稱依 ISTQB（unit / integration / system / acceptance）；smoke 是類型不是層級：這裡指 env-test，先於所有測試。
 
-原型狀態（2026-09-17）：`docker buildx bake validate` 六個 stage 全綠；`bake release` 含 smoke（install + verify）通過；system 4 個、acceptance 4 個測試在主機 pytest 通過；`proto/project` 的 `just init / build / diff` 走完整流程；ADR-0001「測試分層與強制閘門」已寫（`proto/vendor_kit/doc/adr/`）。
+原型狀態（2026-09-17）：`docker buildx bake validate` 六個 stage 全綠；`bake release` 含 release-test（install + verify）通過；system 4 個、acceptance 4 個測試在主機 pytest 通過；`proto/project` 的 `just init / build / diff` 走完整流程；ADR-0001「測試分層與強制閘門」已寫（`proto/vendor_kit/doc/adr/`）。
+
+## 11. 使用者介面：just 指令表（第 9 頁）
+
+使用者只會碰 justfile 提供的指令；每個指令執行前都先自動走第 3 頁「日常」的檢查（`_ensure`：印記第一行 ≠ .version → install；相同 → verify；verify 失敗就中止）。
+
+**vendor_kit 提供（每個專案都一樣）**
+
+| 指令 | 什麼時候 | 做什麼 | 背後 |
+|---|---|---|---|
+| `just init` | 第一次接上工具 | 安裝 `.<name>/`，照 init.toml 建立初始檔（已存在不動） | 容器：install → init |
+| `just diff` | 升級之後 | 顯示新版模板 vs 你的初始檔差異，不改檔 | 容器：diff |
+| `just upgrade` | 沒有 Renovate 時手動升級 | 改 .version 為最新 → 重裝 → 顯示差異（細節待議，§8 #5） | 查 GHCR → 改 .version → install → diff |
+| （自動 `_ensure`） | 每個指令前 | 檢查／安裝／驗證 | 容器：install 或 verify |
+
+verify 不開放給使用者單獨打：它是每個指令前的守門。
+
+**工具 `<name>` 提供（由工具的 dist/ 決定，每個工具可以不同；以「容器工作流」工具為例）**
+
+| 指令 | 做什麼 | 背後 |
+|---|---|---|
+| `just build` | 建置專案自己的 image | `.<name>/` 的 build 腳本 → docker compose build |
+| `just run` | 啟動專案容器 | run 腳本 → docker compose up |
+| `just exec` | 進到容器裡下指令 | exec 腳本 → docker compose exec |
+| `just stop` | 停掉並移除容器 | stop 腳本 → docker compose down |
+
+為什麼是這四個：一個容器的一生 = 做出來 → 開起來 → 進去用 → 關掉，一個階段一個指令；換工具就換一套。每個工具指令前後可掛使用者自己的 hooks（`script/hooks/pre|post/<指令>.sh`，init 建立的空殼）。
