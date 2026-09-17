@@ -24,7 +24,7 @@
 
 - Host 只安裝 **Docker + Git + just**（不可要求 Python 等）
 - 允許使用網路（可從 GHCR pull image）
-- **泛用、不綁定單一平台**：Linux amd64／arm64（含 Jetson，對齊 base）、macOS Docker Desktop、Windows Docker Desktop（WSL2）都要能用；任何只在單一平台成立的機制（例如檔案鎖）不能當正確性的依據（2026-09-17 補）
+- **泛用、不綁定單一平台**（2026-09-17 定）：主要目標 Linux／Ubuntu amd64 與 arm64（含 Jetson，對齊 base）；macOS Docker Desktop 要能用；Windows 只支援「在 WSL2 裡用」（repo 放 WSL 的 ext4，不管原生 Windows／PowerShell）。任何只在單一平台成立的機制（例如檔案鎖）不能當正確性的依據
 
 ## 3. 決策：以 GHCR image 分發 dist
 
