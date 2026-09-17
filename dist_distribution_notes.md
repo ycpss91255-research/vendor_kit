@@ -2,7 +2,7 @@
 
 > 日期：2026-09-16
 > 範圍：取代 base 目前以 `git subtree` + symlink 分發 dist 的方式。**base 本體（Dockerfile 模板、wrapper、lib 等）不變**，只調整「dist 怎麼送進 downstream repo」。
-> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 框架定義、3 流程：使用者指令、4 流程：版本生命週期、5 流程：vendor_kit 內部、6 原型對照、7 資料夾架構、8 測試分層與強制閘門、9 使用者介面：just 指令表；名詞表在各頁底部）
+> 配套圖：`dist_distribution.drawio`（1 vendor_kit 架構圖、2 框架定義、3 流程：使用者指令、4 流程：版本生命週期、5 流程：vendor_kit 內部、6 原型對照、7 資料夾架構、8 測試分層與強制閘門、9 使用者介面：just 指令表、10 流程：bootstrap、11 流程：升級與回退（初版，待決處以便條標示）；名詞表在各頁底部）
 > 圖面審查：每輪改完跑 `.claude/workflows/diagram-review.js`（Claude 子代理 + codex 雙軌審查）
 > 可執行原型：`../proto/`（vendor_kit / tool / project 三個資料夾，見 §9）
 
