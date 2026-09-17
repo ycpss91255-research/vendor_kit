@@ -146,9 +146,9 @@ downstream commit → .version（版本）→ image label（base commit SHA）�
 | 8 | vendor_kit 既有 issue 的處置 | #7、#13 等 rollback 相關議題可能失效，需逐一重審 |
 | 9 | agent_harness 是否納入同一機制 | 其內容（AGENTS.md、skills）屬 init.toml 類；先做只服務 base 的最小版本，再驗證通用性 |
 | 10 | 是否保留自動遷移 `just vendor_kit upgrade --migrate` | 預設不動；等 dist 路徑契約穩定後再評估 |
-| 11 | `diff` 是否做三方比對 | **已定（issue #22，第 5 頁）**：三方、只顯示不寫回；基準 = `.vendor_kit/baseline/<name>/`（每工具一份，進 git，人不改、納入檢查）；init 從第一版就寫基準（碰到已存在的檔 → warn、不覆蓋、仍存基準）；`just vendor_kit accept <name>` 更新基準；結束狀態 0 沒差異／1 工具有改／2 可能重疊；兩個工具 init 到同一 dest → 報錯；第一版檔案層級五分類＋兩份 diff，第二版自寫 diff3 |
+| 11 | `diff` 是否做三方比對 | **已定（issue #22，第 5 頁）**：三方、只顯示不寫回；基準 = `.vendor_kit/baseline/<name>/`（每工具一份，進 git，人不改；diff 前檢查其指紋，不符視同無基準 → 二方比對並提示）；init 從第一版就寫基準（碰到已存在的檔 → warn、不覆蓋、仍存基準）；`just vendor_kit accept <name>` 更新基準；結束狀態 0 沒差異／1 工具有改／2 可能重疊；兩個工具 init 到同一 dest → 報錯；第一版檔案層級五分類＋兩份 diff，第二版自寫 diff3 |
 | 12 | `verify` 的基準 | **已定（issue #23，第 5 頁）**：基準 = `.version` 鎖定的 image 內 `/dist`（verify 本來就在該工具容器內跑，不多起容器、不上網）；兩棵樹比對：檔案集合（缺、多都失敗，只豁免 .stamp）＋ sha256 ＋ 執行位（單向）＋ 型別（第一版禁 symlink）；不比 mtime／owner；印記降為「已裝版本」快取鍵（第一行 = `--self`），不簽章；失敗中止不自動重裝；第一版不做 stat 快取 |
-| 13 | 並行安裝的 lock | **已定（issue #24，第 5 頁）**：flock 鎖專案目錄本身（不建鎖檔；install／accept 排他、verify 共享）；拿到鎖後重讀 .version 與印記，已是目標版本就跳過複製仍 verify；逾時預設 60 秒（環境變數可改，0 = 立即失敗）；鎖不支援 → 直接失敗，`VENDOR_KIT_NO_LOCK=1` 才放行，不退回 mkdir 鎖；暫存目錄亂數名並清殘留；`docker run --init`；平台 = Linux amd64／arm64（含 WSL2） |
+| 13 | 並行安裝的 lock | **已定（issue #24，第 5 頁）**：flock 鎖專案目錄本身（不建鎖檔；install／accept 排他、verify 共享）；拿到鎖後重讀 .version 與印記，已是目標版本就跳過複製仍 verify；逾時預設 60 秒（環境變數可改，0 = 立即失敗）；鎖不支援 → 直接失敗，`VENDOR_KIT_NO_LOCK=1` 才放行，不退回 mkdir 鎖；暫存目錄亂數名並清殘留（含：兩次改名之間中斷時，下次 install 先把改到旁邊的舊目錄改回來）；`docker run --init`；平台 = Linux amd64／arm64（含 WSL2） |
 | 14 | 模板是否帶入變數（專案名等）渲染 | 目前只複製；圖上標「待定」 |
 | 15 | 升級與回退（第 11 頁） | **已定（雙軌一致，2026-09-17）**：A Renovate = 專案自己的 CI 深淺自決，vendor_kit 出貨契約檢查腳本 `test/ci/check.sh` 與 `renovate.json`（只含 extends，指向 vendor_kit repo 內共用 preset；GitLab 自架 renovate-runner），bootstrap 寫出後歸專案。B `just vendor_kit upgrade <name> [版本] [--dry-run\|--check]` = 只把 `.version` 那行改成最新（或指定）版本就停、不裝、不 diff，成功訊息寫「尚未安裝，下一步 just vendor_kit diff <name>」；查 registry 在容器內用 OCI 標準 API（GHCR、GitLab 同一套）；「最新」只認 `v主.次.修`、預設略過預發行版；digest 取 multi-arch index 並確認含 amd64＋arm64；憑證 = 唯讀掛 `~/.docker/config.json` 或環境變數 token。C vendor_kit 自我升級 = 先換自己：舊啟動器發現 `vendor_kit` 行變了 → 用新 image 跑 `bootstrap`（呼叫方式凍結為契約）重寫 `.vendor_kit/` 程式檔（`baseline/` 不動）→ 第一版停下來印「請重打一次指令」；相容性（issue #14）：image LABEL 帶契約版本號，啟動器用 `docker image inspect` 比對。D 回退 = `git revert` 那個 commit（Renovate 的 merge commit 用 `-m 1`）；不強制 accept 與 `.version` 同一 commit；baseline 落後或超前 `.version` 都是合法中間狀態，diff 印出方向，CI 只警告不紅；使用者檔由人決定。**待回覆**：image 公開或私有；upgrade 不給 name 要拒絕（要 name 或 `--all`）？`--all` 含不含 vendor_kit 自身？C 第一版「停下來要求重跑」可接受？`.vendor_kit/` 重寫後由誰 commit？ |
 
@@ -250,7 +250,7 @@ vendor_kit/
 
 1. 使用者從 vendor_kit 的 GitHub release 頁下載 `bootstrap.sh`，在專案目錄執行。
 2. 腳本只做四件事：檢查主機有 docker / git / just → `docker run --rm -u UID:GID -v $PWD:/repo vendor_kit:vN --name vendor_kit --self <image> bootstrap` → 問「要現在接一個工具嗎？」（要就把 `<name> = "image"` 寫進 `.version`，再 `just vendor_kit init`）→ 刪掉自己。主機不需要 Python。
-3. `bootstrap` 子命令寫出：
+3. `bootstrap` 子命令寫出（另：`test/ci/check.sh` 與 `renovate.json` 進 git、之後歸專案；`.gitignore` 加一行 `.version.local`）：
    - `.vendor_kit/vendor.just`（`vendor_kit` 命名空間的標準指令 init / diff / accept / upgrade / dev / undev 與工具指令前呼叫的 `ensure`）、`.vendor_kit/tools.just`（由 `.version` 衍生的每工具 recipe，每次 install 後重寫）、`.vendor_kit/.stamp`（vendor_kit 自己的版本 + vendor.just 指紋）——由 vendor_kit 擁有，人不改，進 git；`.vendor_kit/baseline/<name>/` 之後由 init／accept 寫（持久資料，升級不動）；
    - `justfile`（第一行 `mod? vendor_kit '.vendor_kit/vendor.just'`，其餘歸使用者）、`.version`（先只有 `vendor_kit = "…"` 一行）——已存在就不動。
 4. 之後 vendor_kit 出新版：`.version` 的 `vendor_kit` 那行改掉（Renovate 或 `just vendor_kit upgrade vendor_kit`）→ 先換自己（§8 #15 C）：`.vendor_kit/` 的 `vendor.just`、`tools.just`、`.stamp` 換新（`baseline/` 不動）；使用者的 `justfile` 永遠不會被動到。
