@@ -1,0 +1,72 @@
+fix(changelog): a branch open across an RC cut files its entry under the release it did not ship in
+## A branch open across an RC cut files its entry under the RC it did not ship in
+
+Observed on `origin/main` right now:
+
+```
+$ grep -n 'record no suite total\|^## \[' doc/changelog/CHANGELOG.md | head -3
+155:## [Unreleased]
+200:## [v0.43.0-rc1] - 2026-09-04
+203:- **`doc/test/TEST.md` and `doc/test/unit.md` record no suite total any more
+```
+
+`v0.43.0-rc1` was tagged at `26abad24`. #978 merged as PR #1038 **after** that
+tag. Its entry is nevertheless inside the `[v0.43.0-rc1]` section, so the
+changelog now says rc1 shipped something rc1 does not contain.
+
+## Why it happens, and why it will keep happening
+
+`release-bump.sh` promotes the live section by **renaming the heading**: the
+existing `## [Unreleased]` becomes `## [vX.Y.Z] - <date>` and a fresh empty
+`## [Unreleased]` is inserted above it.
+
+A branch opened before the cut wrote its entry under a heading that said
+`[Unreleased]` at the time. After the cut, that same block of lines is the RC
+section. git merges the entry into the block it was written against -- which is
+now labelled with a release the branch never shipped in. **Nothing conflicts**,
+because the branch added lines and main renamed a heading well above them.
+
+So the failure is silent and it fires for **every** branch open across a cut.
+The RC window is exactly when several branches are in flight, which is when it
+fires most.
+
+## It has already been paid for once, by hand
+
+PR #1037's branch hit the same thing and fixed it for itself -- commit
+`001ac873`, "fix(changelog): keep this branch's entries out of the release it
+did not ship in". PR #1038's branch did not, and nothing noticed. One branch
+remembering is not a mechanism.
+
+## What is wrong to conclude
+
+Not "the author should have checked". The author cannot see it: on their branch
+the heading still reads `[Unreleased]`, and the gate is green on both sides.
+The information that decides it -- *was this entry written before or after the
+tag* -- exists only in the merge, and only in the relationship between the
+entry's commit and the tag's commit.
+
+## Direction
+
+The `changelog-entry` lint already parses the sections. It could ask, of every
+entry inside a **released** section: is the commit that introduced this line an
+ancestor of that release's tag? `git log -L` or a blame over the section gives
+that, and the tag is named by the heading. An entry newer than its own release
+tag is the defect, stated exactly.
+
+Cost to weigh before building it: released sections are otherwise never
+checked, deliberately -- "they are a historical record, and rewriting a shipped
+entry falsifies it". A blame-based rule reads history for every entry in every
+released section on every run, which is the whole file. Scoping it to sections
+whose tag is newer than the merge-base with main would keep it to the live
+series.
+
+Cheaper alternative worth costing first: have `release-bump.sh` leave a marker
+at the promoted heading recording the sha it promoted, so the lint compares a
+sha rather than walking blame.
+
+Found while landing base#926, whose merge surfaced it. The misplaced entry is
+corrected there; this issue is the mechanism, not that instance.
+
+Refs #926, refs #978, refs ycpss91255-docker/docker_harness#289
+
+

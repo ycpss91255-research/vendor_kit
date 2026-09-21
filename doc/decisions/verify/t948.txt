@@ -1,0 +1,121 @@
+fix(docker): just has four provenance paths and no shared version
+## Context
+
+From the measured third-party version audit of `base` (2026-08-28). The audit
+flagged this as the single largest divergence in the repo, and as the half of
+the silent-drift pair whose cause is the *absence* of a named version:
+
+> `just` drifts because nothing names a version. hadolint is stale because
+> something names a version and nobody re-reads it.
+
+`just` is the project's only control surface -- every container operation goes
+through a recipe -- so a version spread here is a spread across the whole
+interface.
+
+## Problem
+
+`just` reaches a developer through **four independent provenance paths, none of
+which shares a version with any other**, and the project presents them as
+interchangeable:
+
+| path | file:line | mechanism | measured version |
+|---|---|---|---|
+| apt (advised in the docs) | `dist/script/base/init.sh:1041` (`apt install just`) | distro package | **1.21.0** on Ubuntu 24.04 |
+| apk (the test-tools image) | `dockerfile/Dockerfile.test-tools:120` bare `apk add ... just` | distro package, UNPINNED | **1.37.0** |
+| official installer (this host, and the bootstrap) | `dist/script/base/init.sh:1045`, `:1078` (`just.systems/install.sh`, no version arg) | installer, always latest | **1.52.0** measured on host |
+| `extractions/setup-just` (CI) | `.github/workflows/self-test.yaml:1051`, **`just-version` input OMITTED** | action, installs latest | **1.58.0**, moves daily |
+
+**37 minors across four paths.** `init.sh:1041-1045` presents apt / brew /
+cargo / the installer as a menu of equivalent options; measured, the apt option
+is 37 minors behind the installer option.
+
+Why this is behaviour-changing and not cosmetic:
+
+- Integration specs exercise `just upgrade-check` **inside the image at
+  1.37.0**. A recipe using 1.38+ syntax passes on a developer host (1.52.0) and
+  fails in CI. Worse: a semantic change between 1.37 and 1.58 makes the
+  in-image test assert something the real user path no longer does -- and stays
+  green while doing it.
+- `setup-just` with no `just-version` means the e2e job runs against whatever
+  `just` released most recently. A parsing change turns the suite red on a day
+  nobody touched the repo, and the diff that appears to have "caused" it is
+  unrelated.
+
+**Bumping Alpine does not fix this.** Measured: Alpine 3.24 ships just 1.48.1,
+and `Dockerfile.test-tools:120` would still be a bare unpinned `apk add`. The
+EOL bump (see Related) and this pin are independent fixes.
+
+### Three mechanisms that should each have caught it, each individually blind
+
+1. `dist/.hadolint.yaml:6` ignores **DL3018 -- "Pin versions in apk add"**.
+   The exact rule for the exact line at `Dockerfile.test-tools:120`, disabled
+   by policy (comment: "aligned with DL3008 strategy").
+2. `.github/workflows/release-test-tools.yaml:246` runs
+   `docker run --rm "${image}" just --version` and asserts **only exit 0**.
+   It catches removal of `just`, never staleness of it -- as with all 14 smoke
+   checks in that step.
+3. `script/test/test.sh:652-664` documents the hole in prose: the content-hash
+   tag keys on Dockerfile **bytes**, so unchanged bytes produce the same tag
+   regardless of what `apk` resolves to. The comment explicitly names
+   "`apk add` package versions, the alpine tag" as what the digest cannot see.
+
+Nothing in the repo compares any pair of the four versions against each other.
+
+## Proposal
+
+- Pin `just` explicitly in `dockerfile/Dockerfile.test-tools:120` (pinned
+  `apk add just=<version>` against the chosen Alpine series, or fetch a fixed
+  release the way shellcheck / hadolint already are at `:43-47`).
+- Set `just-version:` explicitly on `extractions/setup-just@v4` in
+  `self-test.yaml:1051` to the same version, so CI and the image agree.
+- Pass a version to the `just.systems/install.sh` bootstrap at
+  `init.sh:1078`, and correct the apt hint at `:1041` so the docs stop
+  implying that a 1.21.0 apt install is equivalent.
+- Add a check that the four paths agree -- or at minimum that the image's
+  `just` and CI's `just` are the same version. The project already knows how
+  to force a single path: `hadolint.sh:40` dies telling you to use the
+  container rather than a host binary.
+- Reconsider the DL3018 ignore at `dist/.hadolint.yaml:6`, at least for the
+  test-tools Dockerfile, now that its cost is measured.
+
+## Acceptance criteria
+
+- [ ] `just --version` is identical in the test-tools image and in the CI e2e
+      job, and that equality is asserted by a test, not by inspection.
+- [ ] `self-test.yaml:1051` passes an explicit `just-version`.
+- [ ] The `release-test-tools.yaml` smoke check asserts the `just` version
+      string rather than exit 0.
+- [ ] `init.sh` no longer advertises a 1.21.0-era apt install as equivalent to
+      the installer path without saying so.
+
+## Out of scope
+
+- Pinning all ~22 apk packages at `Dockerfile.test-tools:120-121`; those are
+  bounded by the Alpine pin and are a wider policy question.
+- The Alpine EOL bump itself (separate issue -- and, measured, it does not
+  resolve this one).
+- Building the watch mechanism alongside (PR #TBD -- placeholder, main session
+  to fill in), which is what would surface the next such drift.
+
+## Related
+
+All six issues below come from the same measured audit (2026-08-28).
+
+- refs #946 -- **bumping alpine does NOT fix this.** Measured: alpine 3.24
+  still ships just 1.48.1 and `Dockerfile.test-tools:120` would still be an
+  unpinned `apk add`. #946 changes 1.37.0 to 1.48.1; the four-path divergence
+  and the missing pin survive it.
+- refs #947 -- the other half of the silent-drift pair (a version named and
+  never re-read, vs. no version named at all). Opposite fixes, both needed.
+- refs #950 -- apk packages, the `just.systems` installer and the omitted
+  `just-version` input are all outside dependabot's single `github-actions`
+  entry.
+- refs #951 -- the DL3008 ignore at `dist/.hadolint.yaml:4` is the sibling of
+  the DL3018 ignore at `:6` that blinded mechanism 1 above; the two ignores
+  share a stated rationale, so revisiting one implicates the other.
+- The watch being built alongside: PR #TBD (placeholder -- main session to fill
+  in). Of the three mechanisms that were each individually blind here, the
+  watch is the one designed to catch a version that moves without the file
+  changing.
+
+

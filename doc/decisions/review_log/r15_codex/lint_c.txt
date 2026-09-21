@@ -1,0 +1,14 @@
+頁數 16；條目 129（warn 44、info 85）
+| 規則 | warn | info |
+|---|---|---|
+| dangling | 0 | 2 |
+| decision | 0 | 8 |
+| endcolor | 0 | 2 |
+| xref | 0 | 5 |
+| term-diff | 0 | 0 |
+| base | 0 | 0 |
+| color | 0 | 0 |
+| termcov | 44 | 16 |
+| onething | 0 | 52 |
+| event-name | 0 | 0 |
+→ r15_c_out/lint.md, lint.json

@@ -1,0 +1,7 @@
+只准用 search_web 與 read_url_content 兩個工具，不要用 run_command。
+題目：容器 registry 的使用上限與替代品。我們的工具（vendor_kit）把工具 repo 的 dist/ 打成 `FROM scratch` 純資料多架構 image（通常 < 50 MB）推到 GHCR，下游專案用 docker pull 取得；引擎 image 也在 GHCR（公開）。想知道：
+(1) GHCR（ghcr.io）的上限：公開 image 的儲存／頻寬是否免費無限？私有 image 的儲存與 data transfer 額度（Free／Pro／Team／Enterprise）、超額計費；單一 layer／manifest 大小上限；匿名 pull 的 rate limit（有沒有像 Docker Hub 那種 100 pulls/6h）；已認證 pull 的 API rate limit；tag 數量上限。
+(2) GitLab Container Registry（registry.gitlab.com 與 self-managed）：免費方案的儲存與 transfer 額度（gitlab.com Free 的 storage 10 GB／transfer 限制）、超額行為、匿名 pull 是否允許、rate limit；self-managed 有無上限。
+(3) 其他免費／低成本替代：Docker Hub（rate limit 數字、免費私有 repo 數）、Quay.io、AWS ECR Public、Cloudflare R2 + OCI、自架 registry:2／Harbor／Zot；哪些支援多架構 index 與 `FROM scratch` image。
+(4) 從 GHCR 換到 GitLab registry 或自架時，對「以 `<host>/<org>/<name>:<tag>@sha256:<index digest>` 鎖版本」的工具有沒有差別（digest 是否跨 registry 一致：同一 image 用 `docker buildx imagetools` 或 `crane copy` 複製後 index digest 是否相同）。
+每題附官方文件 URL（GitHub Docs、GitLab Docs、Docker Docs 優先），數字要標日期／方案；不確定要標明。繁體中文。

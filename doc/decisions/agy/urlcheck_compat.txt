@@ -1,0 +1,50 @@
+200 https://compose-spec.io/
+200 https://copier.readthedocs.io/en/stable/configuring/#min_copier_version
+200 https://copier.readthedocs.io/en/stable/updating/
+200 https://developer.hashicorp.com/terraform/language/state
+200 https://developer.hashicorp.com/terraform/language/v1-compatibility-promises
+200 https://doc.rust-lang.org/cargo/commands/cargo-update.html
+200 https://docs.astral.sh/uv/concepts/projects/sync/#lockfile-format
+200 https://docs.docker.com/compose/compose-file/04-version-and-name/
+200 https://docs.gradle.org/current/userguide/feature_lifecycle.html
+200 https://docs.gradle.org/current/userguide/gradle_wrapper.html
+200 https://docs.npmjs.com/cli/v10/configuring-npm/package-lock-json
+200 https://docs.renovatebot.com/config-overview/#config-migration
+404 https://docs.renovatebot.com/renovate-config-validator/
+200 https://git-scm.com/docs/git-config#Documentation/git-config.txt-corerepositoryFormatVersion
+200 https://git-scm.com/docs/gitrepository-layout
+404 https://just.systems/man/en/settings/minimum-version.html
+200 https://kubernetes.io/docs/reference/using-api/deprecation-policy/
+200 https://pnpm.io/git#lockfiles
+200 https://pre-commit.com/#pre-commit-configyaml---top-level
+200 https://python-poetry.org/docs/cli/#lock
+404 https://rust-lang.github.io/rfcs/3301-cargo-lockfile-v4.html
+200 https://semver.org/#semantic-versioning-specification-semverorg
+200 https://yarnpkg.com/configuration/yarnrc
+200 https://docs.renovatebot.com/config-validation/
+200 https://just.systems/man/en/settings.html
+200 https://rust-lang.github.io/rfcs/
+200 https://github.com/rust-lang/cargo/pull/12852
+200 https://helm.sh/docs/topics/charts/
+200 https://docs.docker.com/reference/compose-file/version-and-name/
+200 https://docs.astral.sh/uv/concepts/projects/layout/
+200 https://pre-commit.com/
+200 https://pnpm.io/settings
+200 https://python-poetry.org/docs/basic-usage/
+404 https://yarnpkg.com/features/lockfile
+404 https://docs.gradle.org/current/userguide/upgrading_major_version_8.html
+uv versioning 200
+200 https://docs.astral.sh/uv/concepts/resolution/#lockfile-versioning
+200 https://docs.gradle.org/current/userguide/upgrading_version_8.html
+200 https://docs.gradle.org/current/userguide/upgrading_version_7.html
+200 https://docs.docker.com/reference/compose-file/legacy-versions/
+# --- 原文抽查（gh api / curl 取得的來源，存於 compat_src/）---
+verified hashicorp/terraform internal/states/statefile/read.go  (format version guard, legacy v1-3 upgraded, v0 binary rejected)
+verified rust-lang/cargo src/resolver/encode.rs + resolve.rs   (V1..V4 + with_rust_version MSRV table; error "does not understand this lock file")
+verified doc.rust-lang.org/nightly/cargo/CHANGELOG.html         (1.78 stabilize v4 #12852; 1.83 default v4 #14595)
+verified npm/cli workspaces/arborist/lib/shrinkwrap.js           (maxLockfileVersion=4, ELOCKFILEVERSION refusal; parse-conflict-json)
+verified yarnpkg/berry packages/yarnpkg-core/sources/Project.ts  (LOCKFILE_VERSION=10; __metadata.version; lockfileNeedsRefresh)
+verified python-poetry/poetry src/poetry/packages/locker.py      (_VERSION 2.1, _READ_VERSION_RANGE ">=1,<3", warn/raise)
+verified pre-commit/pre-commit pre_commit/clientlib.py           (check_min_version error text)
+verified casey/just src/compile_error.rs + CHANGELOG 1.55.0     ("justfile requires just {minimum} or later")
+verified docker/compose 1.29.2 compose/config/config.py          (version regex ^[1-3]+(\.\d+)?$, v1 rejected)

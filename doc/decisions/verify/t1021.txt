@@ -1,0 +1,117 @@
+fix(adr): nothing allocates an ADR number, so three parallel branches all took 00000030 and every gate stayed green
+## What happened
+
+Three branches in flight today each created `doc/adr/00000030-*.md`:
+
+| branch | record |
+|---|---|
+| `docs/826-827-config-convention` | config component layout and preset selector |
+| `feat/829-dep-bump-automation` | ABI-gated dependency-bump auto-release |
+| `refactor/945-entrypoint-orchestrator` | base owns the container entry point |
+
+Each read the tree, saw `00000029` as the highest, and took the next free
+number. **Every one of them was right**, by the only rule there is. Nothing
+allocates the number, so parallel work collides by construction rather than by
+mistake.
+
+## Why the lint does not save you
+
+`adr_structure.sh` and the numbering check run against **one tree**. On each
+branch alone the number is unique and every gate is green. The collision only
+exists in the union, and the union first exists when the second PR merges --
+at which point the fix is a renumber under a red required check, on a branch
+whose author has moved on.
+
+Today that cost was paid by hand: `#829` renumbered to `00000031` across 4
+files, `#945` to `00000032` across **14** -- `CONTEXT.md`, `doc/adr/README.md`
+(index row, the audit keep-list, two "postdate the audit" notes), the
+changelog, an amended ADR's pointer, six spec files, three catalogue
+documents, a lib, and a workflow. Every one of those is a place a renumber can
+be done incompletely and stay green, because a stale `ADR-00000030` in prose
+is not something any gate reads.
+
+## The shape
+
+This is the repo's recurring defect one level up: **a roster nothing owns**.
+The ADR number is derived from a directory listing, and a directory listing is
+a snapshot of one worktree. It is the same class as the `needs:` lists in
+#1009 and the `REQUIRED_TOOLS` copies in #1010 -- correct when written, with
+nothing to notice when the world moves underneath.
+
+## Options, none of them free
+
+1. **Allocate from the remote, not the tree.** `git ls-remote --heads` plus
+   the merged history gives the numbers already claimed by open branches. Cost:
+   a network call in the ADR creation path, and it is still racy for two
+   branches created in the same minute.
+2. **Do not number until merge.** Author as `doc/adr/draft-<slug>.md`; a
+   merge-time hook assigns the number and rewrites references. Cost: the
+   record's own identity is unstable while it is under review, and every
+   cross-reference has to be by slug until then.
+3. **Number by content, not sequence.** A short hash of the slug. Cost: the
+   ordering that makes `doc/adr/` readable chronologically is gone, and every
+   existing reference is to a sequential number.
+4. **Keep the collision, make it cheap.** Accept that parallel branches
+   collide, and add a `just` verb that renumbers a record and every reference
+   to it in one step, deriving the reference set rather than taking a list.
+   Cost: the collision still reaches a red check; only the repair gets cheap.
+
+Option 4 is the smallest change and the only one that does not alter what an
+ADR number means. It also happens to be the one that has to exist anyway: the
+14-file renumber done by hand today is exactly the operation it automates, and
+"derive the reference set" is the property that stops the next renumber being
+incomplete-but-green.
+
+## Acceptance
+
+- Two branches that both allocate the same number are detectable **before**
+  the second merges, or the repair is a single command with derived reference
+  coverage.
+- A renumber that misses a reference fails a gate. Today it does not: prose
+  naming a stale ADR number is read by nothing.
+- Whatever is chosen is recorded, because "take the next free number" is
+  currently written down as the rule and it is the rule that produced this.
+
+## It has happened again, and this time one of the colliding records is this issue's own fix
+
+Measured just now across the unlanded worktrees:
+
+```
+base-numbers  00000034-adr-numbers-collide-and-the-repair-is-a-verb.md
+base-927m     00000034-release-fanout-is-pushed-and-membership-is-scanned.md
+```
+
+`origin/main` is at 00000033. Both branches read the tree, saw 33 as the
+highest, and took 34. **Both were right by the only rule there is** -- which is
+this issue's thesis, now demonstrated by the branch that answers it.
+
+Four other unlanded branches (`base-1060`, `base-1022`, `base-1030`,
+`base-1035`) each carry 00000033 -- the same number, already on main, arriving
+from a merge rather than an allocation. Those are fine. The collision is the
+two 34s.
+
+## What this says about the chosen remedy
+
+The issue chose option 4: keep the collision, make the repair one step
+(`just adr renumber`). That still looks right -- neither branch did anything
+wrong, and no allocator short of a lock would have prevented it.
+
+But the two-instance case sharpens one of the costs the branch already
+recorded: the renumber verb **refuses a number two records claim** rather than
+guessing. So when the second of these lands, the repair is not one command --
+it is abort the merge, renumber on the branch, re-merge. The verb makes the
+*reference sweep* one step, not the *collision resolution*.
+
+That is the honest boundary of option 4 and it is worth stating in the ADR
+rather than discovered at the merge: the verb removes the 14-file hand sweep,
+which was the expensive half; it does not remove the merge round-trip.
+
+## Immediate, unrelated to the fix
+
+A third record is being written now (the compose-location / test-taxonomy ADR)
+and takes **00000035**, chosen by looking at the unlanded worktrees rather than
+at `doc/adr/` -- which is the manual workaround this issue exists to remove,
+and which nothing enforces.
+
+Refs #927, refs #1024.
+

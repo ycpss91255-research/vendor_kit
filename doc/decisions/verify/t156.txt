@@ -1,0 +1,108 @@
+upgrade.sh --check uses string equality, not semver — reports prerelease as 'needing downgrade'
+## Symptom
+
+After upgrading a downstream repo to a prerelease (`v0.12.0-rc1`) via the documented fallback path, `make upgrade-check` reports an "update" that is actually a downgrade, and exits 1:
+
+```
+$ make upgrade-check
+./template/upgrade.sh --check
+[upgrade] Local:  v0.12.0-rc1
+[upgrade] Latest: v0.11.0
+[upgrade] Update available: v0.12.0-rc1 → v0.11.0
+make: *** [Makefile:28: upgrade-check] Error 1
+```
+
+`make upgrade` would then "upgrade" the subtree from rc1 back to v0.11.0.
+
+## Root cause
+
+`upgrade.sh` `_check()` at line 126:
+
+```bash
+if [[ "${local_ver}" == "${latest_ver}" ]]; then
+  _log "Already up to date."
+  return 0
+else
+  _log "Update available: ${local_ver} → ${latest_ver}"
+  return 1
+fi
+```
+
+It does string equality, not semver comparison. Combined with `_get_latest_version` (line 105) which intentionally filters to stable tags only (`^v\d+\.\d+\.\d+$`, no `-rcN` suffix), this means:
+
+- Local at stable v0.11.0, latest stable v0.12.0: works (rc tags ignored — correct)
+- Local at prerelease v0.12.0-rc1, latest stable v0.11.0: **broken** — reports "update" that is a downgrade, exits 1
+
+## Expected behaviour
+
+Three states, three outcomes:
+
+| Comparison | Output | Exit |
+|---|---|---|
+| Local == latest stable | `Already up to date.` | 0 |
+| Local < latest stable | `Update available: <local> → <latest>` | 1 |
+| Local > latest stable (prerelease ahead) | `Local is ahead of latest stable (running prerelease).` | 0 |
+
+`upgrade.sh <ver>` (the upgrade path) probably needs the same fix to refuse implicit downgrades — `_upgrade` at line 142 only short-circuits when `local == target`, so `./template/upgrade.sh v0.11.0` from a v0.12.0-rc1 base would silently downgrade. Worth confirming in the same fix.
+
+## Suggested fix
+
+Use `sort -V` (GNU coreutils, available in Debian bookworm CI image) for semver-aware comparison. RC suffix ordering: `v0.12.0-rc1` < `v0.12.0-rc2` < `v0.12.0` per Semantic Versioning. `sort -V` handles this correctly:
+
+```bash
+$ printf '%s\n' v0.11.0 v0.12.0-rc1 v0.12.0-rc2 v0.12.0 | sort -V
+v0.11.0
+v0.12.0-rc1
+v0.12.0-rc2
+v0.12.0
+```
+
+Sketch:
+
+```bash
+_check() {
+  local local_ver latest_ver newer
+  local_ver="$(_get_local_version)"
+  latest_ver="$(_get_latest_version)"
+  [[ -z "${latest_ver}" ]] && _error "..."
+  _log "Local:  ${local_ver}"
+  _log "Latest: ${latest_ver}"
+
+  if [[ "${local_ver}" == "${latest_ver}" ]]; then
+    _log "Already up to date."
+    return 0
+  fi
+
+  newer=$(printf '%s\n%s\n' "${local_ver}" "${latest_ver}" | sort -V | tail -1)
+  if [[ "${newer}" == "${local_ver}" ]]; then
+    _log "Local is ahead of latest stable (running prerelease)."
+    return 0
+  else
+    _log "Update available: ${local_ver} → ${latest_ver}"
+    return 1
+  fi
+}
+```
+
+## Tests to add
+
+Unit tests in `template/test/unit/upgrade_spec.bats`:
+
+- `_check` exits 0 when local == latest
+- `_check` exits 1 when local < latest stable (existing)
+- `_check` exits 0 when local is prerelease ahead of latest stable (new — regression for this issue)
+- `_check` exits 0 when local is later stable than fetched latest (defensive — shouldn't happen but covers if `_get_latest_version` ever drifts)
+- `_upgrade <older>` from a newer local refuses with a clear "downgrade" error (new — defensive against silent downgrade)
+
+## Discovered while
+
+Validating v0.12.0-rc1 release. Not blocking promotion to stable v0.12.0 — once every repo is on stable, this code path stops triggering. But this should be fixed before the next prerelease cycle (any future `-rcN`) so RC validation flows don't trip on it.
+
+## Workaround until fixed
+
+Don't run `make upgrade` / `make upgrade-check` while the local subtree is at a prerelease. Manually pin the next stable when it's published:
+
+```bash
+./template/upgrade.sh v0.12.0   # explicit version, bypasses the broken check
+```
+Shipped in [v0.12.1](https://github.com/ycpss91255-docker/template/releases/tag/v0.12.1). 15 downstream repos that were stuck on stale subtrees (#151) have all been bumped, so the next `make upgrade-check` round will exercise the fixed comparator.

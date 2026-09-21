@@ -1,0 +1,91 @@
+fix(ci): the shellcheck job runs an unpinned binary, so the local gate cannot predict it
+## The disagreement
+
+base#1032's branch passed the local gate (`ci-and-stamp.sh`, rc=0, zero not_ok)
+and then failed CI on `shellcheck`:
+
+```
+^-- SC2120 (warning): _clean_coverage references arguments, but none are ever passed.
+```
+
+Same driver (`./script/test/test.sh --shellcheck-only`), same file, same commit.
+Three different binaries were involved and they do not agree:
+
+| where | binary | SC2120 on this code |
+|---|---|---|
+| local gate | `v0.11.0`, pinned in `dockerfile/Dockerfile.test-tools:163`, run inside the test-tools image | **not reported** |
+| CI `shellcheck` job | whatever `ubuntu-latest` ships pre-installed, **unpinned** | reported, job red |
+| a developer host | `0.10.0` from `~/.local/bin` | reported |
+
+## Why this one is not caught by the pin machinery
+
+`.github/workflows/self-test.yaml:269` says it outright:
+
+> `# shellcheck is pre-installed, no buildx / test-tools image needed.`
+
+That is the whole configuration. The job runs the driver against a binary this
+repo never names, so:
+
+- the `tool-pin` markers cannot cover it -- there is no version to mark;
+- `pin-coverage`, whose job is "every version this tree names is declared",
+  cannot see it either, because the tree names no version here. The lint is
+  working correctly; the value is simply outside its reach.
+
+So the one place in the pipeline that decides a required check is the one place
+running an undeclared tool.
+
+## The consequence, which is worse than one red PR
+
+**The local gate cannot predict CI on the lint phase, and cannot be made to.**
+The gate exists so a change can be proven before it is pushed; that promise is
+void for any shellcheck finding, in either direction:
+
+- CI red on a gate-green branch, as here -- costs a round trip, which is the
+  cheap failure;
+- **CI green on a finding the pinned v0.11.0 would have caught** -- the
+  expensive one, and it is silent. `ubuntu-latest`'s image is updated
+  continuously (the failing run reported image versions `20260828.587` and
+  `20260831.293.1`), so which of the two shellchecks is stricter can change
+  without a commit anywhere in this repo.
+
+That last point is the reason this is not "just bump something": the behaviour
+of a required check is a function of GitHub's release schedule.
+
+## What the fix has to establish
+
+Not a version number -- **one binary**. The `shellcheck` job should run the same
+shellcheck the gate runs, and the obvious candidate is the one already pinned
+and already built: the test-tools image.
+
+The job's comment gives the reason it does not: avoiding the buildx and image
+pull for a job that needs one binary. That is a real cost and worth keeping in
+view -- the job currently completes in 43s, and the point of splitting it out
+was to keep the lint phase cheap. So the options differ in how they pay it:
+
+1. **Pull the binary, not the image.** Install the pinned `SHELLCHECK_VERSION`
+   in the job the way `Dockerfile.test-tools:174` does -- a release tarball from
+   `koalaman/shellcheck`, one download, no buildx. Reads the version from the
+   same declaration, so the pin machinery covers it.
+2. **Run the job in the test-tools image.** Exact parity by construction, at the
+   cost of the image obtain the comment is avoiding.
+3. **Declare the runner's version and check it.** Cheapest, and it does not
+   actually fix anything -- it converts a silent divergence into a loud one,
+   which is better than today but still two binaries.
+
+Recommendation is (1): it keeps the job's cost profile, and it makes the version
+a declared thing that `pin-coverage` can then see.
+
+## Also worth deciding
+
+Whether any OTHER CI job runs a tool the tree does not pin. The `shellcheck`
+job was found by accident, through a PR that happened to trip a rule the two
+versions disagree about. Nothing looked for it, and nothing would have.
+
+## Immediate state
+
+base#1032 is unblocked by a code change both versions accept (passing
+`"${REPO_ROOT}"` explicitly rather than suppressing the warning, which is the
+better code anyway). This issue is the underlying divergence, which that change
+does not address.
+
+

@@ -1,0 +1,158 @@
+epic: TOML config format unification (ADR-37)
+Epic tracking the TOML config format unification (ADR-00000037).
+
+Replaces the current INI `.setup.conf` + flat `.env.local` pipeline
+with four TOML files split by service boundary, type-aware merge
+semantics, and a containerised TOML parser (`toml-bridge`).
+
+## Architecture reference
+
+- Decision: `doc/adr/00000037-toml-config-format-unification.md`
+- Visual: `doc/arch/overview.html`
+- Convention: `doc/adr/00000038-architecture-diagrams-in-doc-arch.md`
+
+## Baseline (2026-09-06)
+
+| Component | Size | Key file |
+|---|---|---|
+| INI tokenizer + accessors | 747 lines, 18 functions | conf.sh |
+| Template .setup.conf | 322 lines, 15 sections | dist/.setup.conf |
+| Compose emitter | 1,476 lines, ~30 helpers | compose_emit.sh |
+| Env emitter | 445 lines, 4 functions | env_emit.sh |
+| Overlay/merge (section-replace) | 70 lines | `_conf_load_layers()` |
+| TUI | 2,930 lines, 16 `_edit_section_*` | setup_tui.sh |
+| Files referencing .setup.conf | 24 files | across dist/ |
+| Existing migration functions | 36 `_migrate_*` | 2,233 lines |
+
+## Dependency chain
+
+```
+D9  containerised TOML parser (toml-bridge + vendored tomli)
+ └─> D3  conf.sh -> TOML parser bridge
+      ├─> D4  type-aware merge (scalar key-level, array replace)
+      ├─> D8  [environment] service boundary split
+      ├─> D1  .setup.conf -> setup.toml + setup.local.toml
+      │    └─> D5  compose_emit.sh reads TOML
+      ├─> D2  .env.local -> .env.toml + .env.local.toml
+      │    └─> D6  env_emit.sh reads TOML
+      └─> D7  24-file .setup.conf reference cleanup
+           └─> D10 downstream one-time migration converter
+```
+
+Critical path: D9 -> D3 -> D4 -> D1/D2 -> D5/D6 -> D7 -> D10
+
+- [ ] **D9** #1128 — containerised TOML parser (toml-bridge + vendored tomli)
+- [ ] **D3** #1129 — replace conf.sh INI parser with TOML bridge
+- [ ] **D4** #1130 — type-aware merge semantics for TOML layers
+- [ ] **D8** #1131 — split environment section by service boundary
+- [ ] **D1** #1132 — migrate .setup.conf to setup.toml
+- [ ] **D2** #1133 — migrate .env.local to .env.toml + .env.local.toml
+- [ ] **D5** #1134 — update compose_emit.sh to read TOML
+- [ ] **D6** #1135 — update env_emit.sh to read TOML
+- [ ] **D7** #1136 — clean up 24-file .setup.conf reference list
+- [ ] **D10** #1137 — downstream one-time INI-to-TOML migration converter
+- [ ] **D11** #1138 — TOML config schema validation
+
+## Work item details
+
+Type: M = mechanical (agent can execute), D = needs design discussion.
+
+- **D9** #1128 [M] Containerised TOML parser: `Dockerfile.toml-bridge`
+  image with vendored `tomli`, invoked via `docker run`. No new host
+  dependency (host contract stays Docker + Git + `just`).
+  multi_run#26 is the precedent.
+
+- **D3** #1129 [D] Replace conf.sh (747 lines): bash shim calls
+  `docker run toml-bridge`, same accessor interface as `_ini_tokenize`
+  but reads TOML.
+
+- **D4** #1130 [D] Type-aware merge: scalar `[table]` keys -> key-level
+  merge; `[[array of tables]]` -> array replace. Replaces
+  `_conf_load_layers()` section-replace. Industry consensus 6/8.
+
+- **D8** #1131 [D] `[environment]` service boundary split: infra env
+  (`DISPLAY`, `NVIDIA_VISIBLE_DEVICES`, `PULSE_SERVER`) stays in
+  `setup.toml`; service runtime env (`ROS_MASTER_URI`, `LOG_LEVEL`)
+  moves to `.env.toml`. Template ships empty; downstream repos need
+  survey.
+
+- **D1** #1132 [M] File format migration: `.setup.conf` (322 lines, 15
+  sections) -> `setup.toml`. `.setup.conf.local` -> `setup.local.toml`.
+  Numbered keys (`mount_N`, `arg_N`) -> `[[array of tables]]`.
+
+- **D2** #1133 [M] File format migration: `.env.local` (flat KEY=VALUE)
+  -> `.env.local.toml` (typed TOML). New `.env.toml` for committed
+  service env defaults.
+
+- **D5** #1134 [M] compose_emit.sh (1,476 lines): change input layer
+  from conf.sh INI accessors to TOML accessors. Output (compose.yaml)
+  unchanged.
+
+- **D6** #1135 [M] env_emit.sh (445 lines): change input layer from
+  conf.sh INI accessors to TOML accessors. Output (.env / .env.local /
+  .env.generated) unchanged.
+
+- **D7** #1136 [M] Reference cleanup: 24 files under dist/ reference
+  `.setup.conf` by string literal. Each needs update to the TOML
+  filename. Gate: zero `.setup.conf` string literals remaining.
+
+- **D10** #1137 [D] Downstream migration converter: one-time
+  `setup.conf -> setup.toml` + `.env.local -> .env.local.toml`
+  converter in init.sh, gated on file existence. Same pattern as the
+  `.env -> .env.local` migration (ADR-00000003 2026-08-26 amendment).
+
+- **D11** #1138 [D] JSON Schema validation of parsed TOML structure.
+  Natural follow-up per ADR-37 Consequences.
+
+## Out of scope (tracked separately)
+
+- TUI freeze/rebuild (2,930 lines): TUI is frozen until TOML migration
+  completes per ADR-37. Rebuild or replacement (possibly config-manager
+  Web UI) follows the migration.
+- config-manager Web UI: separate project, may replace TUI.
+
+## Decisions recorded
+
+- D9 parser: containerised `toml-bridge` with vendored `tomli`, no host
+  Python dependency (ADR-37 sec. Containerised parsing)
+- [environment] split: by service boundary, not wholesale migration
+  (ADR-37 amendment 2026-09-06)
+- Host parsing: linear architecture, no chicken-and-egg
+  (ADR-37 amendment 2026-09-06)
+
+## Quantitative completion criteria
+
+- 0 `.setup.conf` string literals in dist/
+- 0 `_ini_tokenize` calls
+- conf.sh replaced or emptied
+- All 15 INI sections mapped to TOML tables/arrays
+- Type-aware merge passing tests (scalar + array)
+- Downstream converter tested on >= 3 consumer repos
+
+
+## Grilling Q8 decision: section structure reorganization
+
+### Question
+
+setup.toml's 15 sections are TUI-oriented (each maps to a `_edit_section_*` screen). From Docker's perspective, these categories don't exist — compose spec has its own field structure. Should the TOML migration also reorganize sections to align with Docker?
+
+### Decision: phased approach (option C)
+
+**Phase 1 (this epic, D1-D10):** Format migration only. Keep the 15 sections as-is, just convert INI to TOML syntax. Scope stays bounded.
+
+**Phase 2 (future epic):** Restructure sections to align with Docker compose spec. Requires:
+- D11 (#1138) schema validation done first
+- #1096 compose service surface coverage analysis complete
+- TUI rebuild planned (currently frozen per ADR-37)
+
+### Rationale
+
+1. Format migration is already 10 sub-issues. Adding structural reorganization doubles the risk.
+2. Structural reorganization needs schema (D11) to know the target structure.
+3. TUI is frozen — no urgency to decouple section structure from TUI grouping.
+4. Two clean migrations are safer than one large migration that changes format AND structure simultaneously.
+
+### Note on [environment]
+
+Current `[environment]` section is a catch-all for user-defined env vars. The TUI designed the section boundaries; Docker doesn't have these categories. In phase 2, the TUI will own its own grouping/view layer instead of the config structure mirroring TUI screens.
+

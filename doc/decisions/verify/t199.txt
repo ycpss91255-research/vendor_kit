@@ -1,0 +1,129 @@
+feat(setup): setup.conf [build] context + additional_contexts for subdirectory-layout repos
+## Problem
+
+`setup.sh` hardcodes `context: .` in the generated `compose.yaml` (i.e. the `docker/` subfolder is always the build context). There is no `setup.conf` option to override this per repo.
+
+For repos that keep source code and `pyproject.toml` at the repo root but place docker assets under a `docker/` subdirectory (typical Python repo layout), this means:
+
+- `COPY pyproject.toml ...` / `COPY src/ ...` in the Dockerfile cannot find the files — they are outside the build context.
+- `pip install -e <repo_root>` at build time is impossible.
+- The only workaround is a runtime `pip install` in `entrypoint.sh`, which is slower and less reproducible.
+
+## Where the hardcoding lives
+
+`template/script/docker/setup.sh` has at least 3 occurrences of `context: .`:
+
+- L929 — devel service
+- L1105 — runtime service `extends:` block
+- L1121 — test service
+
+`template/setup.conf` `[build]` section has no `context` key:
+
+```ini
+[build]
+target_arch =
+network = auto
+arg_1 = APT_MIRROR_UBUNTU=...
+# no context = ...
+```
+
+## Proposed solution
+
+Add two optional fields to the `[build]` section of `setup.conf`:
+
+```ini
+[build]
+# Build context root passed to compose's `build.context`.
+# Default "." (the docker/ subfolder). Set to ".." when the repo keeps
+# source / pyproject.toml at the repo root.
+context = .
+
+# Optional additional named build contexts (one entry per line, format: <name>=<path>).
+# Exposed inside the Dockerfile via `COPY --from=<name> <src> <dst>`.
+# Allows pulling files from outside the main context without changing the context root.
+# Examples:
+#   additional_context_1 = repo=..
+#   additional_context_2 = vendor=../third_party
+```
+
+`setup.sh` changes:
+
+- Read `[build] context` instead of hardcoding `context: .` (3 locations).
+- Read `[build] additional_context_*` entries and emit an `additional_contexts:` block in the generated `compose.yaml` (omit the block entirely when no entries are present).
+
+## Backwards compatibility
+
+The default `context = .` preserves current behavior. No existing downstream repo needs to change.
+
+## Use case
+
+`ycpss91255-docker/seggpt` — wants to `pip install -e .` at build time to bake the Python package into the image, instead of relying on a runtime entrypoint install.
+
+After thinking about this more, I want to revise the proposal: **drop the `[build] context` field, keep only `[additional_contexts]`, and add TUI support.**
+
+## Why drop `context`
+
+Setting `context = ..` flips the build context to the repo root, but the template's `Dockerfile.example` (and every downstream Dockerfile derived from it) is written assuming `context: .` (i.e. the `docker/` subfolder). Every `COPY template/ /template/`, `COPY script/ /script/`, `COPY test/ /smoke_test/` line would have to be rewritten as `COPY docker/template/ ...` etc. That's a much bigger blast radius than the original use case (`pip install -e .` from a sibling source tree) actually needs, and it silently breaks downstream Dockerfiles for anyone who flips the switch.
+
+## Revised scope
+
+### 1. `setup.conf` — new section only
+
+```ini
+[additional_contexts]
+# Optional named build contexts forwarded to compose's `build.additional_contexts`.
+# Each entry: context_<N> = <name>=<path>
+# Path is relative to the compose.yaml location (i.e. the docker/ subfolder).
+# Use inside Dockerfile via `COPY --from=<name> <src> <dst>`.
+# Examples:
+#   context_1 = repo=..
+#   context_2 = vendor=../third_party
+```
+
+Main `context: .` stays hardcoded — template Dockerfile layout untouched.
+
+### 2. `setup.sh` changes
+
+- Parse `[additional_contexts]` section (numbered keys, same pattern as `[volumes] mount_*`).
+- When ≥1 entry present, emit an `additional_contexts:` block under each service's `build:` in the generated `compose.yaml`. Otherwise omit the block entirely.
+
+### 3. `setup_tui.sh` — new TUI flow
+
+Add a screen for managing additional contexts, mirroring the existing volumes management flow:
+
+- List existing entries (`<name>=<path>`)
+- Add new entry (prompt for name + path)
+- Remove entry
+- Edit entry
+
+This way users running `./build.sh` interactively can configure named contexts without hand-editing `setup.conf`.
+
+### 4. i18n
+
+4 language tables (`_TUI_MSG_EN/ZH/ZH_CN/JA`) get new keys for the additional-contexts screen.
+
+## Use case (unchanged)
+
+`ycpss91255-docker/seggpt` adds:
+
+```ini
+[additional_contexts]
+context_1 = repo=..
+```
+
+Then in its `Dockerfile`:
+
+```dockerfile
+COPY --from=repo pyproject.toml /build/
+COPY --from=repo src/ /build/src/
+RUN pip install -e /build
+```
+
+## Backwards compatibility
+
+No section, no behavior change — all 17 existing downstream repos see no diff.
+
+## BuildKit requirement
+
+`additional_contexts` is a BuildKit feature (Compose v2.17+). `build-push-action` and modern `docker compose build` already use BuildKit by default, so no extra plumbing.
+

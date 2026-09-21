@@ -1,0 +1,8 @@
+只准用 search_web 與 read_url_content 兩個工具，不要用 run_command。
+題目：大型／主流開源專案在 GitHub Actions 上的 CI 架構怎麼切。我們的 repo（vendor_kit：一個 Python 引擎打成多架構容器 image + POSIX sh 啟動器 + just；測試分層 lint → unit → integration → release build → system → acceptance）想知道主流做法，特別是：
+(1) workflow 檔的切法：是一個大 `ci.yml` 還是多個（pr.yml／main.yml／release.yml／nightly.yml）？push 到分支／PR 跑哪一組，merge 進 main 跑哪一組，tag／release 又是哪一組？各組之間怎麼共用步驟（reusable workflow `workflow_call`、composite action、`needs:` 鏈、matrix）？
+(2) 「main 一個入口＋很多 action」的模式：有沒有專案用一個總控 workflow 依事件分派到多個 job／reusable workflow？優缺點？
+(3) 分支保護／merge queue／required checks 怎麼跟 workflow 對應；PR 上只跑快的、merge 後跑完整的（或反過來）的實例。
+(4) 多架構容器 image 的 build／test／push 慣例：PR 只 build 不 push？main 推 `:edge`／sha tag？tag 推 release？`docker/build-push-action` + `buildx` + QEMU 的典型；跨架構測試怎麼跑（QEMU vs 原生 arm runner）。
+(5) release 流程：tag 觸發 vs release-please／semantic-release；artifact 上傳到 GitHub Release 的慣例。
+請以這些專案為例逐一看它們 `.github/workflows/` 的實際檔案：docker/cli 或 docker/buildx、moby/moby、kubernetes/kubernetes（或 kind）、casey/just、astral-sh/uv 或 ruff、renovatebot/renovate、cli/cli（gh）、python/cpython、rust-lang/cargo；每個列出：workflow 檔清單、觸發事件分組、是否用 reusable workflow／composite action、PR vs main vs tag 各跑什麼。每題附 URL；不確定要標明；繁體中文；最後給「對我們 repo 的建議架構」。

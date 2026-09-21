@@ -1,0 +1,141 @@
+chore(labels): adopt the canonical five-role triage vocabulary
+## Context
+
+Two repos in the org already implement a canonical five-role triage label
+vocabulary, where every label string is exactly its role name:
+
+- `ycpss91255-research/vendor_kit`
+- `ycpss91255-docker/agent_harness`
+
+`agent_harness` documents the vocabulary and its rationale in
+`doc/agents/triage-labels.md`. The point of the vocabulary is that skills and
+agents can name a role (`needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`, `wontfix`) and have it resolve to the same label string in
+every repo, with no per-repo translation table.
+
+This repo is partway there. Live label state, observed with
+`gh label list -R ycpss91255-docker/base`:
+
+| label | colour | description |
+| --- | --- | --- |
+| `ready-for-agent` | `#0E8A16` | Spec is fully specified and ready for an agent to implement |
+| `wontfix` | `#ffffff` | This will not be worked on |
+| `triage` | `#fbca04` | Newly filed; awaiting review / categorization (needs a maintainer or bot to sort) |
+| `upstream` | `#d4c5f9` | Blocked on / tracking an upstream project fix |
+| `backlog` | `#666666` | Tracked for later; deferred - not actively worked on right now |
+| `bug`, `documentation`, `enhancement` | | org category labels |
+| `dependencies`, `github_actions` | | Dependabot's own PR labels |
+| `duplicate`, `invalid`, `question`, `good first issue`, `help wanted` | | GitHub stock defaults, never customised |
+
+## Problem
+
+Three of the five roles have no label at all here: `needs-triage`,
+`needs-info` and `ready-for-human`. An issue waiting on its reporter is
+indistinguishable by label, and work that needs a human rather than an agent
+cannot be marked as such.
+
+The `triage` label is a genuine custom label, not one of GitHub's defaults.
+Its description ("Newly filed; awaiting review / categorization") is exactly
+the `needs-triage` role, and it already carries **30 issues**. It is the
+`needs-triage` state under a non-canonical name.
+
+`question` is a different matter. It is **not** a synonym for `needs-info`.
+Verified live: it carries GitHub's stock description "Further information is
+requested" at GitHub's stock colour `#d876e3`, identical to a freshly created
+repo. It is an undeleted default, not a deliberate alias, and must not be
+renamed into `needs-info` as if it were one. It currently carries exactly one
+issue, the closed #765.
+
+Alongside it, `duplicate`, `invalid`, `good first issue` and `help wanted` are
+stock defaults with zero issues and zero pull requests between them. Nothing
+in the org reads them.
+
+## Proposal
+
+Adopt the canonical vocabulary. The target state for the five roles, with
+names, colours and descriptions taken from the reference implementation
+(`gh label list -R ycpss91255-research/vendor_kit`):
+
+| name | colour | description |
+| --- | --- | --- |
+| `needs-triage` | `#fbca04` | Maintainer needs to evaluate this issue |
+| `needs-info` | `#d876e3` | Waiting on reporter for more information |
+| `ready-for-agent` | `#0E8A16` | Spec is fully specified and ready for an agent to implement |
+| `ready-for-human` | `#1D76DB` | Requires human implementation: judgment calls, external access, or manual testing |
+| `wontfix` | `#ffffff` | This will not be worked on |
+
+`ready-for-agent` and `wontfix` already match this exactly. No change needed
+to either.
+
+**1. Rename `triage` to `needs-triage`, do not delete and recreate.**
+
+Deleting a label that is in use strips it from every issue that carries it,
+and that is not recoverable through the UI. `triage` is on 30 issues.
+`gh label edit` preserves every existing assignment:
+
+```
+gh label edit triage -R ycpss91255-docker/base \
+  --name "needs-triage" \
+  --description "Maintainer needs to evaluate this issue"
+```
+
+The colour is already `#fbca04` and needs no change.
+
+**2. Create the two roles that have no existing carrier.**
+
+```
+gh label create needs-info -R ycpss91255-docker/base \
+  --color "d876e3" \
+  --description "Waiting on reporter for more information"
+
+gh label create ready-for-human -R ycpss91255-docker/base \
+  --color "1D76DB" \
+  --description "Requires human implementation: judgment calls, external access, or manual testing"
+```
+
+Note that `#d876e3` is also the colour GitHub gives stock `question`. Once
+`question` is gone the collision goes away; until then the two look alike in
+the sidebar, which is one more reason not to leave both standing.
+
+**3. Retire the unused stock defaults.**
+
+Check usage before every delete, without exception:
+
+```
+gh issue list -R ycpss91255-docker/base --label "<name>" --state all
+```
+
+`duplicate`, `invalid`, `good first issue` and `help wanted` came back empty
+when this issue was written, so they can be deleted outright:
+
+```
+gh label delete duplicate -R ycpss91255-docker/base --yes
+gh label delete invalid -R ycpss91255-docker/base --yes
+gh label delete "good first issue" -R ycpss91255-docker/base --yes
+gh label delete "help wanted" -R ycpss91255-docker/base --yes
+```
+
+`question` needs a deliberate decision rather than a blind delete: it is on
+closed issue #765, so deleting it strips the label from that issue. Either
+accept that on a closed issue, or leave `question` in place. What it must not
+become is `needs-info`.
+
+## Acceptance criteria
+
+- [ ] `gh label list -R ycpss91255-docker/base` shows all five of `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
+- [ ] Each of the five has the colour and description given in the table above.
+- [ ] No label named `triage` remains.
+- [ ] `gh issue list -R ycpss91255-docker/base --label needs-triage --state all` returns the same 30 issues that `triage` carried, proving the rename preserved assignments rather than delete-and-recreate losing them.
+- [ ] `duplicate`, `invalid`, `good first issue` and `help wanted` are gone.
+- [ ] `question` has been explicitly decided on, and in no case was it renamed into `needs-info`.
+- [ ] `backlog`, `upstream`, `bug`, `documentation`, `enhancement`, `dependencies` and `github_actions` are untouched.
+
+## Out of scope
+
+- Relabelling existing issues into the new `needs-info` and `ready-for-human` states. This issue creates the vocabulary; applying it is ordinary triage.
+- `backlog` and `upstream`. Both are orthogonal to the state machine: an issue can be `ready-for-agent` and `backlog` at once.
+- `dependencies` and `github_actions`, which belong to Dependabot.
+- The wording of `ready-for-agent`'s description. Descriptions are deliberately written per repo; only names and colours are shared across the org.
+- Any change to the reference repos.
+
+

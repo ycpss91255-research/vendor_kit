@@ -1,0 +1,46 @@
+你是 draw.io 產生器 `disc_v1_a.py`、`disc_v1_c.py` 的修改者（Python；a 檔用 tbl／rtitle／emit 等 helper 畫表格與架構圖，c 檔 exec `disc_v1_b.py` 的 helper 段後用 Flow／_Band 畫流程）。附件 H 是 helper 段（不可改）。只改指定頁：a 檔 v1p2、v1p3、v1p3b、v1p3bb、v1p3c、v1p3d、v1p4；c 檔 v1p9、v1p9c、v1p10、v1p11、v1p12、v1p15、v1p15c、v1p16、v1p16i、v1p16c、v1p16cb、v1p16cc、v1p16ccb、v1p16ccc。**a 檔的 v1p0、v1p0c、v1p0b、v1p1、v1p1i、v1p1b、v1p1c、v1p2b、v1p2c 絕對不可改。**
+規則：每格一件事；例子只用 `<repo>`；線上字級 12；顏色只用圖例；頁高 ≤ 2400、頁寬 ≤ 1660；不可交叉／壓框；名詞表每頁 ≤ 8 條且不含第 0 頁的詞；事件名只准 launcher_start／launcher_exit／engine_start／engine_exit。
+要做的：附件 R 的 v2.17（含第 2 條契約④、第 10 條 lint、第 11 條便條規則）；附件 F 的必修＋選修逐條；附件 L 全清。改不了的在該頁右下角加黃底便條「待處理問題」（style 同 `pend`／NOTE），條列「元件 id：一句說明」。
+做法：先 `python3 run_v1_a.py && python3 run_v1_c.py` 確認能跑；改完再跑，並對 `v1_a.drawio`、`v1_c.drawio` 各跑 `check_overflow.py`、`check_overlap.py`、`check_cross_v1b.py`、`check_self_v1b.py`、`check_jog_r7.py`、`check_align_v1b.py`、`check_margin_label.py`（都要「共 0 筆」）與 `extract_pages.py <drawio> <out> && lint_pages.py <out>`（非 termcov warn 要 0）。最後輸出：改了哪些頁與每頁改了什麼、便條清單、檢查結果。
+注意：`disc_v1_b.py` 由別人同時修改，**不要碰**；`disc_v1_c.py` 第 10 行 exec 它的 helper 段，若 b 檔暫時語法壞導致 run_v1_c.py 跑不了，等 60 秒再試（最多 10 次）。不改 `gen_disc.py`、`drawio_common.py`、任何 check_*.py／lint_pages.py／extract_pages.py。附件 F／L／R 中屬別的檔的頁（v1p5*～v1p8*、v1p1b／v1p2b 等）忽略；跨頁 term-diff 兩條以**較長版本為準**、較長版本都在本檔頁（baseline/.gitkeep 的 v1 在 v1p2／v1p2c／v1p16i；6-33 的 v2 在 v1p10）：這些名詞文字**不要改**，b 檔那方會對齊過來（v1p2c 不可改，所以 v1p2／v1p16i 也不能動這條文字）。lint 的 write-fail-edge 條目屬 v1p9c／v1p16cb／v1p16ccc，要補失敗出邊或匯流；end-color-text 屬 v1p16 o3tx；term-count 屬 v1p3。
+
+
+
+==================== 第三輪（最後一輪，時限 9 分鐘；前兩輪同一需求已做大半，本輪只收尾）====================
+**工作方式**：每改一小批就 `python3 run_v1_a.py && python3 run_v1_c.py` 並跑檢查；先做 A、再 B、再 C、最後 D；時間不夠時 D 一定要做（便條比修圖優先，因為沒便條就是漏項）。不要重讀整份 review；本清單就是全部。
+共線偵測工具：`PYTHONPATH=$PWD python3 r15_codex/shared_seg.py v1_c.drawio [pid]`（列兩條 edge 同向重疊 > 8px 的段；v1p2 目錄樹的幹線是刻意共線、不算）。
+
+A. 目前檢查器報錯（必須歸 0）
+1. v1_a v1p4：頁高 2417 > 2400（check_self_v1b）。原因：第二輪把 m_res 模組第一條改成「讀版本鎖定行／算 prune keep」變兩行、模組框長高。改成不換行的短句（例：「讀版本鎖定行、算 keep」）或縮其他間距，讓頁高 ≤ 2400。
+2. v1_c v1p9 qe12z：第二輪改走 x=570 後，壓到 q9「--dry-run？」（check_overlap）、與 qe16a／qe16c／qe16e／qe16g（y=1443～1607 的四條水平線）及 qe17（x=410）交叉共 5 筆（check_cross_v1b）、且與 qe12 在 y=1138 x 240–310 共段。重新走線：從 q9y 出後不得穿過 q11a–q11d 那一欄的水平線；可走泳道左側 x≈60（不是 30）直下到 q11z 高度再右進，標籤放線右側不壓線；或走右側繞過 ls/刪除欄。
+3. lint v1p16c o10re：菱形「resolve 已拿 flock：偵測到既有進度檔？」只有一條出邊 oe25ry（是）；補「否」邊 o10re → o10re3（decision 規則要兩邊都標）。
+
+B. 共線／雙箭頭（review 必修，第二輪未動；改完用 shared_seg.py 驗證該頁該對消失）
+4. v1p9c qe18 ∥ qe18ax 水平 y=355 x 410–580：「逾時」邊改從 q12a 底或右出（不與進線 qe18 共段）。
+5. v1p10 ue11 ∥ ue12 ∥ ue13y 水平 y=1066 x 888–905：u7q 右尖同時是兩進線終點與「是」出線起點；ue11／ue12 改接 u7q 頂點（或左尖），ue13y「是」從底或右另出。ue9「是」標籤（u6→u6g）兩端 16px 壓字：第二輪已把 u6g ax=30，確認標籤不壓菱形尖與藍格。
+6. v1p16i oe13 ∥ oe14 水平 y=979 x 690–1130：「刪進度檔」→「成功後寫 version.local.toml」順序線與「寫」線共段；順序線改從 o8k 底出進 o9 頂（或另一邊）。
+7. v1p16cb oe26e ∥ oe26ex 水平 y=440 x 490–970：「docker run 引擎 apply add」→「拿 flock」與「拿 flock」→「逾時 6-26」共段；逾時邊改從 o10e 底／右出。
+8. v1p16cb oe26pf∥oe27pf、oe27∥oe27ef、oe27c∥oe27cf（x 1290–1310）：第二輪加的三條「失敗」短線與「寫」檔案線從同一右側點出、共 20px；失敗線改從寫入格底部（exitY=1、exitX≈0.85）出再右轉進匯流，或匯流改放寫入格左側／下方，不得與「寫」線共段。
+9. v1p16ccc wf2 ∥ wf3t 水平 y=444 x 490–970：同 7，逾時邊改出口。
+10. v1p16ccc wf5n ∥ wf7 垂直 x=1600 y 783–1013（選修）：兩條「否」共用幹線且距檔案框 10px；分開或便條。
+
+C. 失敗匯流仍是半成品
+11. v1p9c q12_fail_bus：仍無任何進線（只有 qe19fe 出到 q12_fail_end）。q12j／q12c／q12d2／q12k 各拉短線進匯流（v2.16-10）；不能共線、不能交叉。
+12. v1p16ccc w4fail：仍無進線。w4r0／w4r0s／w4r0b（不驗分支）與 w4r／w4r2／w4r3（重裝分支）各拉短線進匯流；同第 8 條，不得與「寫」線共段。
+
+D. 便條「待處理問題」（每頁右下角、黃底、style 同 pend／NOTE；a 檔用 emit＋NOTE 樣式，c 檔用 foot() 的 note 機制或 v("pend", …) 同型；條列「元件 id：一句說明」）——以下若本輪沒修就**必須**列進該頁便條：
+- v1p3c：k1g_e（sync「3」出線貼橢圓底 10px）、c_d3（122px 框折 5 行）。
+- v1p4：（若第 1 條用縮字解決則無）；否則列。
+- v1p9：q7 一格四命令（第二輪已改成「列出四類…」一格，仍是一格四命令 → 列便條或拆四格）。
+- v1p9c：q13x（進度檔恢復補做不了 docker 資源刪除，與「docker 指令由啟動器執行」矛盾）。
+- v1p12：te9a／re4n 出邊無標籤；te5 等單字標籤 20px 縫隙。
+- v1p15：v4x 硬拆詞；v1p15c：ve14g 短箭頭標籤、v11n 便條貼邊。
+- v1p16：oe3tj 標籤壓線、o2s「建執行紀錄」無失敗出口、o1 一格兩事（驗 SHA256SUMS＋解包）。
+- v1p16i：o8j 前缺「偵測既有 .tmp.install → 依清除清單移除半成品」；oe12kf／oe11f 短箭頭標籤。
+- v1p16c：o10s 無失敗出口、oo1b 一格兩事、oe22d 標籤擠。
+- v1p16cc：we2y 是否仍穿 w2b 框（用 check_overlap 以外的方式看 points）、w0l 無失敗出口、we2n 標籤壓線。
+- v1p16ccb：w4e 的 image ID 誰取得（啟動器 inspect → 傳 resolve）。
+- v1p16ccc：wf5n／wf7（若第 10 條未修）。
+便條規則：每頁一張、不壓任何框線（check_overlap／check_self 仍要 0）、頁高不超；沒有待處理項的頁不加。
+
+最後輸出（精簡）：A／B／C 各條「已修／未修＋原因」；D 每頁便條列了哪些 id；七項檢查＋lint 的結果。

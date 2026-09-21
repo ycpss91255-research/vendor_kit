@@ -1,0 +1,11 @@
+backslash	{"v":"a\\\\b"}
+quote	{"v":"a\"b"}
+newline	{"v":"a\nb"}
+tab	{"v":"a\tb"}
+cr	{"v":"a\rb"}
+ctrl1	{"v":"ab"}
+brackets	{"v":"abc"}
+utf8	{"v":"中文é😀"}
+trailnl	{"v":"a"}
+empty	{"v":""}
+endslash	{"v":"a\\\\"}

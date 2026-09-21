@@ -1,0 +1,940 @@
+"""討論圖 v2 新增八頁（v2.6 §17）：v1p9 prune、v1p10 update、v1p11 初始檔五態、v1p12 交易與進度檔、
+v1p13 相容性矩陣、v1p14 結束碼決策表、v1p15 vendor_kit release、v1p16 離線包。
+依據（唯一）：decisions/interface_spec.md v2（§0 共通、§1.2 動詞表、§2 結束碼、§3 協定、§4 schema、§4.8 離線包、§6 訊息、§7.4 驗收、§8 相容性）、
+proposal_v2.md v2.4～v2.9（v2.9 最高優先）、review_v2r7_findings.md 本檔十頁段落（第八輪必修＋選修；備份 .v9）、grilling.md（Q9、Q11、Q15、Q16–Q19、Q23、Q26、Q27、#26、#27）。
+只定義 pages_v1_c = [(pid, name, cells), ...]；不寫檔（run_v1_c.py 負責組 mxfile）。
+版面規則：12pt；每格一件事；橢圓／菱形由 emit() 用 shape_spacing 補 spacing；頁高 ≤ 2400、寬 ≤ 1650（band_w=1590）；
+橙 = 需人處理（1／2／3 且印指令）、紅 = 失敗、綠 = 成功；無待拍板便條（全部已定，用白便條「已定」說明）。
+排版器與 helper 直接沿用 disc_v1_b.py（exec 其 helper 段：Flow／_Band／files()／newpage()／foot()／PEND／O12／SUB／RULE／INV…）。"""
+import math
+exec(open("disc_v1_b.py").read().split("# ================= P5：bootstrap.sh")[0])   # helper（含 gen57 的 v/e/page/顏色）
+# v2.16-3：執行紀錄事件名一律用 spec §4.10 註冊表名（launcher_start／launcher_exit／engine_start／engine_exit）；
+# 不論 disc_v1_b 的 TR() 對照表怎麼寫，本檔輸出前一律把 *_started／*_completed|failed 改回 spec 名（TR 讀全域 _TRC，故只換表）。
+import re as _re2
+_TRC = [(p_, r_) for p_, r_ in _TRC if "launcher_" not in p_.pattern and "engine_" not in p_.pattern]
+_TRC += [(_re2.compile(r"launcher_started"), "launcher_start"), (_re2.compile(r"launcher_completed\|failed"), "launcher_exit"), (_re2.compile(r"launcher_completed"), "launcher_exit"),
+         (_re2.compile(r"engine_started"), "engine_start"), (_re2.compile(r"engine_completed\|failed"), "engine_exit"), (_re2.compile(r"engine_completed"), "engine_exit")]
+
+# ---------- 本檔補充樣式 ----------
+U, L, E, G, P = "下游使用者", "啟動器（主機 sh）", "引擎容器", "GHCR", "專案目錄"   # 泳道名（v2.15-1 名詞換新；不依賴 disc_v1_b 的常數）
+_files_b = _Band.files
+def _files_c(self, cid, col, row, title, items, w, ax="c", cols=1, cw=None):
+    """同 disc_v1_b 的 files()，但內框右緣距容器 20px（check_margin_label；左 8 + 右 20）。"""
+    if cw is None: cw = [(w - 28 - 6 * (cols - 1)) // cols] * cols
+    return _files_b(self, cid, col, row, title, items, w, ax, cols, cw)
+_Band.files = _files_c
+BAND_W = 1590                                                                            # 頁寬 ≤ 1650：20 + 1590 + 40
+STATE = W12 + "fontStyle=1;strokeWidth=2;"                                               # 粗框白格 = 狀態（metadata state 值）
+ENTRY = _12(ELLIPSE("#ffffff")) + "dashed=1;"                                            # 白底虛線橢圓 = 來自其他頁（v2.6-15）
+TCELL0 = "rounded=0;whiteSpace=wrap;html=1;strokeColor=#999999;fontSize=12;align=left;verticalAlign=top;spacingLeft=6;spacingTop=4;strokeWidth=1;"
+def TCELL(fill="#ffffff", bold=False): return TCELL0 + f"fillColor={fill};" + ("fontStyle=1;" if bold else "")
+C_OK, C_ACT, C_FAIL = GREEN, ORANGE, RED                                                 # 表格底色 = 結束碼顏色
+# 圖例（v2.15-1／-2：名詞換新、執行紀錄事件改用圖例約定；不依賴 disc_v1_b 的 LEG1／LEG2 文字）
+LEG1 = [(LEGEND_BOX(NEUTRAL), "淺灰：情境分組（無狀態意義）", 200, 60, 0), (RHOMBUS, "黃：判斷", 140, 64, 0),
+        (ELLIPSE(GREEN), "綠：起點／終點", 150, 44, 8), (ELLIPSE(RED), "紅：失敗（拉不到／寫不進／驗證不過）", 210, 56, 2),
+        (ELLIPSE(ORANGE), "橙：需人處理（1／3 印指令；2 解衝突）", 200, 56, 2),
+        (LEAF(), "白：啟動器做", 100, 40, 10), (FILE, "虛線框：專案裡的檔案", 170, 40, 10)]
+LEG2 = [("entry", ENTRY, "白虛線橢圓：跨頁入口／出口", 250), ("note", NOTE, "便條：補充說明", 120), ("rule", RULE, "橘框：規則（已定）", 150),
+        ("inv", INV, "紅粗框：不變量", 130), ("sub", SUB, "藍：引擎做（容器內）", 170), ("img", IMG, "紫：image（引擎與下游）", 170),
+        ("hdr", HDR, "灰底：泳道／表格表頭", 170), ("v2", v2(W12), "右上綠標 v2：與 v1 不同處", 200),
+        ("state", STATE, "粗框白格：狀態（state 值）", 200),
+        ("c0", TCELL(C_OK), "綠格：結束碼 0", 110),
+        ("cx", TCELL(C_ACT), "橙格：需人處理（1／2／3）", 190),
+        ("c1", TCELL(C_FAIL), "紅格：失敗 1", 110),
+        ("cell", TCELL(), "白格：表格內容", 110)]
+ALL = {"note", "rule", "inv", "sub", "img", "hdr", "v2"}
+ALLC = ALL | {"state", "entry", "c0", "cx", "c1", "cell"}
+CONV1 = "圖例約定①：每個終點橢圓隱含 —— 啟動器結束前已寫 log_prune、launcher_exit（每個結束碼都寫）"
+CONV2 = "圖例約定②：每個「docker run 引擎」格隱含 —— 容器開始寫 engine_start（失敗 → 1 + 6-38、不做任何動作）、結束寫 engine_exit"
+
+def foot(cells, prefix, y, rows, keys, conv=True, white="白：啟動器做"):
+    """圖例兩列 + 兩條執行紀錄約定（流程頁）+ 本頁名詞（兩欄；只列第 0 頁沒有的詞）。white = 白格在本頁的意思（release 頁 = CI job）。"""
+    x = 40
+    for i, (st, t, w, h, dy) in enumerate(LEG1):
+        emit(cells, f"{prefix}_lg{i}", "1", _12(st), white if t.startswith("白：") else t, x, y + dy, w, h); x += w + 20
+    cells.append(v(f"{prefix}_lgt", "1", TEXT(12) + "align=left;", "實線 = 執行順序（指向檔案時 = 寫入／讀取）", x, y, 260, 60))
+    x = 40
+    for k, st, t, w in LEG2:
+        if k in keys: emit(cells, f"{prefix}_lgx_{k}", "1", st, t, x, y + 68, w, 36); x += w + 20
+    yy = y + 112
+    if conv:
+        cells.append(v(f"{prefix}_lgx_conv1", "1", TEXT(12) + "align=left;", CONV1, 40, yy, 1560, 24)); yy += 26
+        cells.append(v(f"{prefix}_lgx_conv2", "1", TEXT(12) + "align=left;", CONV2, 40, yy, 1560, 24)); yy += 26
+    cells += terms2(prefix, 40, yy + 40, rows)
+
+NOTE_C = NOTE + "spacingRight=22;"                                                       # 便條右側留白：文字不貼右框、不進摺角（release 便條溢出修，v2.8-8）
+def pend_c(cells, text, x=1040, w=560):
+    """同 pend()，但便條寬 560、右側 spacing 22（折行寬以 w−32 估、高度多留 12px）。"""
+    h = fit_h(text, w - 16, 40, 12)
+    cells.append(v("pend", "1", NOTE_C, text, x, 12, w, h)); return 12 + h
+
+def newpage_c(title, note, cols, gap=20, headers=True):
+    """同 newpage()，但 band 寬 1590（頁寬 ≤ 1650）、可調列距、可不畫泳道表頭；便條用 pend_c（右側留白）。"""
+    cells = [v("title", "1", TITLE, title, 40, 20, 1000, 34)]
+    ny = pend_c(cells, note)
+    F = Flow(cells, cols, band_w=BAND_W, gap=gap)
+    if headers: F.headers(ny + 8)
+    else: F.y = ny + 8 + 44
+    return cells, F
+
+def table(cells, prefix, x, y, cols, rows, fills=None, hh=30):
+    """簡單表格：cols = [(標題, 寬)]；rows = [[文字…]]；fills = {(r, c): 底色}；第一欄粗體。回傳結束 y。"""
+    cx = x
+    for i, (t, w) in enumerate(cols):
+        cells.append(v(f"{prefix}_h{i}", "1", HDR, t, cx, y, w, hh)); cx += w
+    cy = y + hh
+    for r, row in enumerate(rows):
+        hs = [fit_h(s, w, 30) for s, (_, w) in zip(row, cols)]
+        rh = max(hs); cx = x
+        for c, (s, (_, w)) in enumerate(zip(row, cols)):
+            fill = (fills or {}).get((r, c), "#ffffff")
+            cells.append(v(f"{prefix}_r{r}c{c}", "1", TCELL(fill, bold=(c == 0)), s, cx, cy, w, rh)); cx += w
+        cy += rh
+    return cy
+
+def geo(b):
+    """close() 之前先算出 band 內每格的絕對座標（與 _Band.close() 同一套公式），供自環／自由標籤定位。"""
+    f = b.f; g = f.gap
+    nrows = max(bb["row"] for bb in b.boxes) + 1
+    rh = [max([bb["h"] for bb in b.boxes if bb["row"] == r] or [0]) for r in range(nrows)]
+    y = f.y + 30 + b.pad; top = []
+    for r in range(nrows): top.append(y); y += rh[r] + g
+    A = {}
+    for bb in b.boxes:
+        cx, cw = f.cols[bb["col"]]; ax = bb["ax"]
+        x = cx + (cw - bb["w"]) / 2 if ax == "c" else cx if ax == "l" else cx + cw - bb["w"] if ax == "r" else cx + ax
+        A[bb["id"]] = (x, top[bb["row"]] + (rh[bb["row"]] - bb["h"]) / 2, bb["w"], bb["h"])
+    return A
+
+def selfloop(b, eid, cid, label, lw=150):
+    """自環（v2.7-3；v2.15 codex #26 標籤貼近自環）：從格子右側 0.7 出去、繞到右下、從底邊 0.8 進來；標籤緊貼環的底段右側下方（不壓線、不壓格、不與到終點的直線混淆）。"""
+    x, y, w, h = geo(b)[cid]
+    rx, ly = x + w + 14, y + h + 18
+    b.P(eid, cid, cid, "", (1, 0.7), (0.8, 1), [(rx, y + 0.7 * h), (rx, ly), (x + 0.8 * w, ly)])
+    b.free(f"{eid}_l", TEXT(12) + "align=left;verticalAlign=top;", "↑ " + label, x + 0.8 * w + 12 - b.f.bx, ly + 2 - b.f.y, lw, minh=20)
+
+_close_b = _Band.close
+def _close_apex(self):
+    """D 線的目標是菱形 → 入口固定 (0.5, 0) 頂點（不讓 al 對齊把入口移到斜邊，review r6 qe11／qe20／ue6）：
+    來源不是菱形時把來源出口移到目標中心 x（落在 0.1–0.9 內才移，否則保留折線進頂點）。"""
+    A = geo(self)
+    for i, ed in enumerate(self.edges):
+        if ed[0] != "D": continue
+        _, eid, s, t, label, sx, tx, dy, al = ed
+        tst = next((b["st"] for b in self.boxes if b["id"] == t), "")
+        if not tst.startswith("rhombus") or s not in A or t not in A: continue
+        sx0, _, sw, _ = A[s]; tx0, _, tw, _ = A[t]; tcx = tx0 + tw / 2
+        sst = next((b["st"] for b in self.boxes if b["id"] == s), "")
+        if not sst.startswith("rhombus"):
+            r = (tcx - sx0) / sw
+            if 0.1 <= r <= 0.9: sx = round(r, 3)
+        self.edges[i] = ("D", eid, s, t, label, sx, 0.5, dy, False)
+    return _close_b(self)
+_Band.close = _close_apex
+
+def box(cells, cid, st, text, x, y, w, minh=40):
+    """自由放置一格（頂層）；高度依文字算。回傳結束 y。"""
+    w = fit_w(text, w, st); h = fit_h(text, w, minh, 0, st)
+    emit(cells, cid, "1", st, text, x, y, w, h); return y + h
+
+EXIT4 = ("結束碼 0／1／2／3", "0 成功（含 warn）；1 一般失敗或需人處理（工具層動詞回 1 時 version.toml 不動；自身升級後「請再跑原指令」也是 1）；2 合併衝突（留標記、基準版仍推、解完重跑）或 update --exit-code 有新版；3 介面版／檔案版不合（零寫入；先升級或退回才能繼續；以介面版／檔案版比較，不用版本字串）")
+LOGT_C = ("執行紀錄／log（v2.12）", ".vendor_kit/log/<verb>/<UTC 時間戳>-<id8>.jsonl，一次執行一檔（JSON Lines，不進 git）：啟動器 mkdir log/（含其 .gitignore）→ 建檔寫 launcher_start → 每個引擎容器先 append engine_start、結束寫 engine_exit → 啟動器結束前 log_prune（30 天／50 檔）、launcher_exit；sync 快路徑寫 sync_fast_path；寫不進 → 1 + 6-38；tty 訊息同句進 body；事件表 log-events.txt 在引擎 image，log.sh 內嵌啟動器白名單")
+T_LABEL = ("docker label", "啟動器建的每個 docker 資源都帶 io.github.<org>.vendor_kit=1；容器／network／volume 另加 ….project=<專案根絕對路徑>；下游 image 由 Dockerfile.dist 的 LABEL 帶（check.sh --dist 擋缺 LABEL）；引擎 image 另帶 ….protocol=<floor_P>-<current_P>、….schema=<N>")
+T_RESOLVE = ("resolve／apply（兩段）", "同一動詞分兩段：引擎 resolve 只讀只算，stdout 回 vk-resolve/1 清單（永不 -t）；啟動器先收完整份、驗首尾與筆數才動 docker；apply 拿 flock、重驗指紋後才寫；--dry-run（無短形）= apply 的唯讀預覽")
+T_FP = ("指紋／flock", "指紋 = resolve 讀過的檔（version.toml、local、metadata、要動的專案檔、stamp 第一行、.tmp.* 清單、鎖定 digest、argv）的 sha256；apply 拿鎖後重算，不同 → 1 + 6-12「請重跑」；flock = 專案目錄鎖（60 秒；VENDOR_KIT_NO_LOCK=1 可關），鎖在引擎")
+T_MSG = ("6-N 訊息編號", "interface_spec §6 的逐字訊息清單編號（每句含可直接複製的指令）：6-3 無 registry 憑證、6-4 無 tty、6-12 指紋不同、6-15 update 末行、6-16 非 git repo、6-23 just 太舊、6-26 flock 逾時、6-27 未恢復、6-30 vk-resolve 不合、6-31 pull 逾時、6-32 prune 問句、6-33 未完成交易、6-37 --local 值歧義、6-38 log 寫不進…")
+pages_v1_c = []
+
+# ================= P9：prune（1）resolve → 差集 → 刪 =================
+LST1 = fl("建執行紀錄 log/<verb>/<ts>-<id8>.jsonl")                                                   # 啟動器起點後第一格（v2.16-19 拆兩格）
+LST2 = fl("寫 launcher_start（完整原始 argv）")                                                        # 第二格：失敗 → 紅出口 LSX
+LSX = "1 + 6-38：執行紀錄建不了／寫不進（零寫入）"
+EXIT_C = ENTRY                                                                                        # 跨頁出口也用白虛線橢圓（v2.15-3）
+COLS_PR = [("下游使用者", 40, 200), ("啟動器（主機 sh）", 260, 300), ("引擎容器", 580, 340), ("docker daemon", 940, 300), ("專案目錄", 1260, 330)]
+DK = "docker daemon"
+T_KEEP = ("keep 清單", "vk-resolve 的 keep|<name>|<ref> 記錄：version.toml 引擎 ref、[tools] 每個工具 ref、version.local.toml 覆寫的 vendor_kit <tag>；這些 image 不可刪")
+T_DIFF = ("差集", "候選（依 label 列出的四類資源）扣掉 keep：image 只刪「帶 label 且本專案未引用」者；容器／network／volume 依 label 刪；vendor_kit 不建 network／volume，若意外建立也要能刪（驗收 §7.4-23）")
+T_SHARED = ("共享 daemon", "一台 docker daemon 被多個專案共用：image 上沒有 .project label，其他專案是否引用同一 image 不可知 → 文件明寫、先 --dry-run 看；被刪的 image 下次 sync 會再拉（已釋出 image 永不刪）")
+T_LOGNP = ("log/（不在 prune 範圍）", "log/<verb>/*.jsonl 舊檔（30 天且 ≤ 50 檔；config.toml 可調）由啟動器每次結束時自行清（log_prune），不屬 prune；prune 不碰 log/")
+T_TMP = (".tmp.* 進度檔／.tmp.dist.<id>/", "前者 = 其他可寫動詞留下的進度檔：未恢復（活躍）的 prune 不刪、只列出並印 6-33、不視為未完成交易（v2.7-7）；prune 自己的交易也建 .tmp.prune.<id>.toml（清理前建、清理後刪；v2.9-6）；後者 = 啟動器暫存（展開的 dist、vk-resolve），trap 刪，殘留由 apply prune 清")
+T_DOCKERLS = ("docker ls／rm（主機命令白名單）", "啟動器只用白名單命令：docker {container,image,network,volume} ls --filter label=…、docker rm／image rm／network rm／volume rm；逐類資源一次一個命令；不把 docker socket 掛進引擎（引擎不碰 daemon）")
+T_DRYP = ("--dry-run（prune）", "= apply prune --dry-run：不問、不刪 docker 資源，仍起第二個容器（apply）只列出會清的暫存（零刪除）；無短形")
+T9 = [T_KEEP, T_LABEL, T_DIFF, T_SHARED, T_DRYP, T_TMP, T_MSG, T_DOCKERLS]   # ≤ 8 條；resolve／apply、log/ 第 0 頁已有
+T9B = [T_KEEP, T_DIFF, T_RESOLVE, T_DRYP, T_TMP, T_FP, T_MSG]
+N9 = "已定（v2.4-10、grilling 9、Q24、Q25、interface_spec A1、v2.7-7、v2.14-2、v2.15-2／-6／-8）：prune 第一版做；所有 vendor_kit 建的 docker 資源帶 label；prune 依 label 掃四類資源、刪 version.toml／local 未引用者；docker 指令由啟動器執行（不掛 socket）；image 只刪帶 label 且本專案未引用者（共享 daemon 提醒）；活躍的 .tmp.* 只列出不刪、不視為未完成交易；--dry-run = apply prune --dry-run（不跳過 apply、零刪除）；需問但無 tty 且無 -y → 1 + 6-4；選項只有 -y 與 --dry-run；執行紀錄事件依圖例約定①②。"
+p9, F = newpage_c("流程 v2：prune（1）── resolve keep 清單 → 依 label 列資源 → 差集 → 刪（§1.2、§3.3）", N9, COLS_PR, gap=14)
+b = F.band("bP", "prune [-y] [--dry-run] 第 1 段：執行紀錄 → resolve 算 keep（活躍進度檔只列出）→ resolve 0 且文法合 → 依 label 列四類資源 → 差集 → --dry-run 只列出／問後逐類刪（每個命令記成功／失敗）→ 續「prune（2）」頁", v2=True)
+b.box("q0", U, 0, G12, "just vendor_kit prune（-y／--dry-run）", 200)
+b.box("q0l", L, 0, v2(W12), LST1.replace("<verb>", "prune"), 300)
+b.box("q0x", U, 1, v2(R12), LSX, 200)
+b.box("q0l2", L, 1, v2(W12), LST2, 300)
+b.box("q1", L, 2, W12, "docker run <引擎> resolve prune（永不 -t）", 300)
+b.box("q2", E, 2, SUB, "resolve（不寫任何檔）：讀 version.toml、version.local.toml", 340)
+b.box("q3", E, 3, SUB, "算保留清單 keep：引擎 ref、[tools] 每個工具 ref、本機覆寫的 vendor_kit <tag>", 340)
+b.files("q3f", P, 3, "只讀（不寫）", ["version.toml（引擎 ref、[tools]）", "version.local.toml（vendor_kit = \"<tag>\"）"], 330)
+b.box("q4", E, 4, v2(D12), "有活躍（未恢復）的進度檔 .tmp.<verb>.*？", 340, ax="l")
+b.box("q4y", E, 5, v2(SUB), "是：只列出並印 6-33（prune 例外：不刪、不恢復、不視為未完成交易）", 340)
+b.box("q4f", P, 5, F12, ".vendor_kit/.tmp.<verb>.<id>.toml（活躍交易：保留）", 330)
+b.box("q5", E, 6, SUB, "stdout vk-resolve/1：keep|<name>|<ref>…、fingerprint、apply|yes、end|N", 340)
+b.box("q5x", U, 7, v2(O12), "否 → 1／2／3 原碼傳出：不讀 stdout、不動 docker", 200)
+b.box("q5q", L, 7, v2(D12), "resolve 結束碼 0？", 300)
+b.box("q6x", U, 8, R12, "否 → 1 + 6-30：不動 docker", 200)
+b.box("q6", L, 8, D12, "是：收完整份、驗首尾與筆數：文法合？", 300)
+b.box("q7", L, 9, W12, "是：docker container／image／network／volume ls --filter label=io.github.<org>.vendor_kit=1", 300)
+b.box("q7d", DK, 9, NOTE, "結果：列出帶 label 的四類資源：容器、image、network、volume", 300)
+b.box("q7n", P, 9, NOTE, "所有 vendor_kit 建的資源都帶 label（容器／network／volume 另加 .project=<專案根>）；不建 network／volume，若意外建立也要能刪（驗收 §7.4-23：故意留一個帶 label 的 network／volume，prune 後必須消失）", 330)
+b.box("q8", L, 10, W12, "差集 = 候選 − keep（image：帶 label 且本專案未引用；容器／network／volume：帶 label 者）", 300)
+b.box("q8n", DK, 10, NOTE, "共享 daemon 提醒：image 沒有 .project label，其他專案是否引用同一 image 不可知 → 只刪帶 label 且本專案未引用者；先 --dry-run 看；被刪的 image 下次 sync 會再拉", 300)
+b.box("q9", L, 11, D12, "--dry-run？", 200)
+b.box("q9y", U, 11, W12, "是：只印差集（會刪什麼），不問、不刪 docker 資源", 200)
+b.box("q10tx", U, 12, O12, "否 → 1 + 6-4：需要確認但沒有終端；請加 -y", 200)
+b.box("q10t", L, 12, D12, "否：有 tty 或 -y？", 260)
+b.box("q10n", U, 13, G12, "否 → 0：不刪、印清單", 200)
+b.box("q10", L, 13, D12, "是：問 6-32：要刪除以上資源嗎？（-y 免問）", 300)
+b.box("q11l", L, 14, LBL, "是 ↓ 對四類資源逐類刪：每個命令記成功／失敗，失敗的續刪其餘（結果帶到（2）頁）", 300, 24, ax="l", minh=24)
+b.box("q11a", L, 15, W12, "docker rm <差集內的容器>", 300)
+b.box("q11ad", DK, 15, NOTE, "結果：容器被刪（每個 rm 的成功／失敗記下）", 300)
+b.box("q11b", L, 16, W12, "docker image rm <差集內的 image>", 300)
+b.box("q11bd", DK, 16, NOTE, "結果：image 被刪（keep 內的 image 保留；成功／失敗記下）", 300)
+b.box("q11c", L, 17, W12, "docker network rm <差集內的 network>", 300)
+b.box("q11cd", DK, 17, NOTE, "結果：network 被刪（成功／失敗記下）", 300)
+b.box("q11d", L, 18, W12, "docker volume rm <差集內的 volume>", 300)
+b.box("q11dd", DK, 18, NOTE, "結果：volume 被刪（成功／失敗記下）", 300)
+b.box("q11z", L, 19, EXIT_C, "續「prune（2）」頁：帶「有刪除失敗？」狀態 → docker run 引擎 apply prune [--dry-run]（清暫存、刪進度檔）→ 摘要", 300)
+b.H("qe0", "q0", "q0l"); b.D("qe0l", "q0l", "q0l2"); b.H("qe0x", "q0l2", "q0x"); b.D("qe0l2", "q0l2", "q1", al=True); b.H("qe1", "q1", "q2"); b.D("qe2", "q2", "q3"); b.H("qe3", "q3", "q3f", "讀")
+b.D("qe4", "q3", "q4", al=True); b.D("qe4y", "q4", "q4y", "是", al=True); b.H("qe5", "q4y", "q4f"); b.D("qe6", "q4y", "q5"); b.DL("qe7", "q5", "q5q", "vk-resolve")
+b.H("qe7x", "q5q", "q5x", "否"); b.D("qe7y", "q5q", "q6", "是", al=True)
+b.H("qe6x", "q6", "q6x", "否"); b.D("qe8", "q6", "q7", "是", al=True); b.H("qe9", "q7", "q7d", "ls"); b.D("qe10", "q7", "q8"); b.D("qe11", "q8", "q9", al=True)
+b.H("qe12", "q9", "q9y", "是"); b.D("qe13", "q9", "q10t", "否", al=True); b.H("qe13x", "q10t", "q10tx", "否"); b.D("qe13y", "q10t", "q10", "是", al=True)
+b.H("qe14", "q10", "q10n", "否")
+b.D("qe15", "q10", "q11l", "是", al=True); b.D("qe15a", "q11l", "q11a", al=True)
+b.H("qe16a", "q11a", "q11ad", "rm"); b.D("qe16b", "q11a", "q11b"); b.H("qe16c", "q11b", "q11bd", "rm"); b.D("qe16d", "q11b", "q11c")
+b.H("qe16e", "q11c", "q11cd", "rm"); b.D("qe16f", "q11c", "q11d"); b.H("qe16g", "q11d", "q11dd", "rm"); b.D("qe17", "q11d", "q11z", al=True)
+b.close()
+_A = F.abs
+# q4 否（無活躍進度檔）→ q5：從菱形右側出、沿引擎欄右緣外（x=930）下到 q5 上方縫隙、左到 q5 右側 0.9 再下進頂端（跳過 q4y）
+_sx, _sy, _sw, _sh = _A["q4"]; _tx, _ty, _tw, _th = _A["q5"]; _gy = F.rt["q5"] - F.gap / 2   # 走引擎欄左側（x=570；啟動器欄此段空），不穿 q4y → q4f 線
+p9.append(_edge("qe4n", "q4", "q5", "否", (0, 0.5), (0.1, 0), [(570, _sy + _sh / 2), (570, _gy), (_tx + 0.1 * _tw, _gy)], -0.8, "below"))
+# --dry-run：只印差集後直接續 apply prune --dry-run：走下游使用者欄與啟動器欄之間（x=250），標籤放垂直段左側、落在下游使用者欄空的列（q11b 列）
+_qx, _qy, _qw, _qh = _A["q9y"]; _zx, _zy, _zw, _zh = _A["q11z"]; _gy = F.rt["q11z"] - F.gap / 2
+_pts = [(_qx, _qy + _qh / 2), (30, _qy + _qh / 2), (30, _gy), (_zx + _zw / 2, _gy), (_zx + _zw / 2, _zy)]
+_segs = [abs(b_[0] - a_[0]) + abs(b_[1] - a_[1]) for a_, b_ in zip(_pts, _pts[1:])]; _ly = (F.rt["q11b"] + F.rb["q11b"]) / 2
+_pos = 2 * ((_segs[0] + (_ly - _pts[1][1])) / sum(_segs)) - 1
+p9.append(_edge("qe12z", "q9y", "q11z", "續（2）：apply prune --dry-run（零刪除）", (0, 0.5), (0.5, 0), _pts[1:-1], _pos, True))
+foot(p9, "p9", F.y, T9, {"note", "sub", "img", "hdr", "v2", "entry"})
+pages_v1_c.append(("v1p9", "流程 v2：prune（1）resolve → 差集 → 刪", p9))
+
+# ================= P9c：prune（2）apply 清暫存 → 刪進度檔 → 摘要 =================
+p9c, F = newpage_c("流程 v2：prune（2）── apply prune：清暫存 → 刪進度檔 → 摘要（§1.2、§4.6）", N9, COLS_PR, gap=14)
+b = F.band("bP2", "prune 第 2 段（承「prune（1）」頁）：docker run 引擎 apply prune [--dry-run]（flock → 重驗指紋 → --dry-run 只列出 → 建進度檔 → 清 .tmp.dist.* → 清殘留 .tmp.* → 每次刪除記成功／失敗 → 全部成功才刪進度檔）→ 0／1", v2=True)
+b.box("q12z", L, 0, ENTRY, "來自「prune（1）」頁：四類資源已逐類刪、每個命令的成功／失敗已記下；或 --dry-run 只印了差集", 300)
+b.box("q12", L, 1, W12, "docker run <引擎> apply prune [--dry-run]", 300)
+b.box("q12ax", U, 2, O12, "逾時 → 1 + 6-26：確認無其他 vendor_kit 在跑後重試", 200)
+b.box("q12a", E, 2, SUB, "apply prune：拿 flock 專案目錄（60 秒）", 340)
+b.box("q12bx", U, 3, O12, "不同 → 1 + 6-12：請重跑", 200)
+b.box("q12b", E, 3, SUB, "重驗指紋（與 vk-resolve 的 fingerprint 比）", 340)
+b.box("q12dy", U, 4, G12, "是 → 0：只列出會清的暫存與殘留（零刪除；不建進度檔）", 200)
+b.box("q12d", E, 4, D12, "--dry-run？", 200, ax="l")
+b.box("q12j", E, 5, SUB, "否：建進度檔 .tmp.prune.<id>.toml（第一個寫入前；state=in-progress、done／pending）", 340)
+b.box("q12jf", P, 5, F12, "＋.vendor_kit/.tmp.prune.<id>.toml（prune 自己的進度檔）", 330)
+b.box("q12c", E, 6, SUB, "刪 trap 沒清到的殘留啟動器暫存 .tmp.dist.<id>/", 340)
+b.box("q12cf", P, 6, F12, ".vendor_kit/.tmp.dist.<id>/（刪）", 330)
+b.box("q12c2", E, 7, v2(SUB), "進度檔記結果：每個 .tmp.dist.* 的刪除成功／失敗各記一筆", 340)
+b.box("q12c2f", P, 7, F12, ".vendor_kit/.tmp.prune.<id>.toml（done／failed 加一筆）", 330)
+b.box("q12d2", E, 8, SUB, "刪已完成交易殘留的 .tmp.<verb>.<id>.toml（活躍的不刪，只列出）", 340)
+b.box("q12df", P, 8, F12, ".vendor_kit/.tmp.<verb>.<id>.toml（殘留：刪；活躍：保留）", 330)
+b.box("q12d3", E, 9, v2(SUB), "進度檔記結果：每個殘留 .tmp.<verb>.* 的刪除成功／失敗各記一筆", 340)
+b.box("q12d3f", P, 9, F12, ".vendor_kit/.tmp.prune.<id>.toml（done／failed 加一筆）", 330)
+b.box("q13x", U, 10, v2(R12), "否 → 1：摘要全列、失敗的標出；進度檔留著（下次可寫動詞先恢復：補做失敗的刪除）", 200)
+b.box("q13", E, 10, v2(D12), "全部刪除成功？（含（1）頁四類資源）", 300, ax="l")
+b.box("q12k", E, 11, v2(SUB), "是：刪進度檔 .tmp.prune.<id>.toml（最後一步）= 交易完成", 340)
+b.box("q12kf", P, 11, F12, "－.vendor_kit/.tmp.prune.<id>.toml（刪）", 330)
+b.box("q14", U, 12, G12, "→ 0：印刪了什麼、保留什麼（含原因）", 200)
+b.D("qe17z", "q12z", "q12", al=True)
+b.DL("qe18", "q12", "q12a"); b.H("qe18ax", "q12a", "q12ax", "逾時"); b.D("qe18a", "q12a", "q12b"); b.H("qe18bx", "q12b", "q12bx", "不同")
+b.D("qe18d", "q12b", "q12d", al=True); b.H("qe18dy", "q12d", "q12dy", "是"); b.D("qe18j", "q12d", "q12j", "否", al=True)
+b.H("qe19j", "q12j", "q12jf", "建"); b.D("qe18b", "q12j", "q12c"); b.H("qe19", "q12c", "q12cf", "刪")
+b.D("qe18c2", "q12c", "q12c2"); b.H("qe19c2", "q12c2", "q12c2f", "寫"); b.D("qe18c", "q12c2", "q12d2"); b.H("qe19d", "q12d2", "q12df", "刪")
+b.D("qe18d3", "q12d2", "q12d3"); b.H("qe19d3", "q12d3", "q12d3f", "寫"); b.D("qe18k", "q12d3", "q13", al=True)
+b.H("qe21", "q13", "q13x", "否"); b.D("qe20", "q13", "q12k", "是", al=True); b.H("qe19k", "q12k", "q12kf", "刪"); b.DL("qe22", "q12k", "q14")
+b.close()
+foot(p9c, "p9c", F.y, T9B, {"note", "sub", "hdr", "v2", "entry"})
+pages_v1_c.append(("v1p9c", "流程 v2：prune（2）apply 清暫存", p9c))
+
+# ================= P10：update =================
+COLS_UP = [("下游使用者", 40, 220), ("啟動器（主機 sh）", 280, 280), ("引擎容器", 580, 400), ("registry（GHCR）", 1000, 290), ("專案目錄", 1310, 280)]
+RG = "registry（GHCR）"
+T10 = [
+ ("update", "只查 registry 有沒有新版、不動任何檔（唯讀，不受CI 模式限制）；單段 docker run（不經 docker create/cp）；[<repo>] 省略 = 全部工具 + vendor_kit 自身；--exit-code：有新版回 2（給 CI 用）"),
+ ("查最新", "對 registry 走 Docker Registry 標準協定：需要時以 WWW-Authenticate 換 token → GET /v2/<name>/tags/list（分頁）→ 取 SemVer 最大正式版（排除預發行）；契約標「GHCR 已測試，其他 registry 依標準協定可用但未驗證」；查詢由引擎 resolve 模組在容器內做（藍格；token 以 -e 傳入）"),
+ ("registry 憑證（Q11）", "VENDOR_KIT_REGISTRY_TOKEN（+ _USER）或 VENDOR_KIT_REGISTRY_TOKEN_FILE（啟動器 -v <file>:/run/vk-token:ro 掛入；兩者同設 → 1）；只在 update 單段及 upgrade 的 resolve 以 -e 傳入引擎；不寫 log／檔、不傳給工具、dry-run 不印；不掛 ~/.docker/config.json"),
+ ("查詢失敗分類", "每個目標各自判定：認證（錯 token／無權限）、網路（連不上、逾時）、回應（registry 回錯誤碼）、解析（SemVer／分頁解析失敗）；任一類都記該目標 1 並繼續查下一個目標，最後彙總"),
+ ("6-3", "無法列舉 <repo> 的版本：需要 registry 讀取權限。可設定 VENDOR_KIT_REGISTRY_TOKEN（或 VENDOR_KIT_REGISTRY_TOKEN_FILE），或直接指定版本：just vendor_kit upgrade <repo>@<tag>（拉取使用主機 docker 認證）"),
+ ("多工具彙總（Q27）", "不帶 repo 的動詞做得完的做完（先完整預檢，任一預檢失敗才整體不動），最後回最需要處理的碼：失敗 1 > 衝突 2 > 有新版 2 > 0；update 同時遇 1 與 2 → 1；訊息全列（每個目標一行「現版 → 最新」）；不可同時宣稱「已是最新」；舊薄殼對未知碼原樣傳出、不吞"),
+ ("6-15（末行固定）", "update 最後一行永遠印「套用：just vendor_kit upgrade」，含未完成交易（6-33）那條出口"),
+ ("6-33（未完成交易）", "唯讀動詞（sync／update／help）偵測到 .tmp.<verb>.*.toml 或 metadata [progress] state=in-progress → 只印「偵測到未完成的 <verb>（<id>）。請先重跑：just vendor_kit <verb> <targets>」，不自動恢復、不寫檔；sync／update 結束 1、help 仍 0"),
+]   # ≤ 8 條（6-3／6-15／6-33 各自成條，不再列 6-N 總條）
+N10 = "已定（Q11、Q27、v2.6-5、v2.7-8、v2.8-7、v2.15-16、interface_spec §1.2 update）：無憑證時不支援需認證的版本列舉，該工具直接記失敗 1 + 6-3（不進 SemVer 解析；需人處理 → 橙），其他工具照查再彙總；查詢失敗依認證／網路／回應／解析分類，各記該目標 1 並繼續；_TOKEN 與 _TOKEN_FILE 同設 → 1；token 只在 update 單段及 upgrade 的 resolve 以 -e 傳（TOKEN_FILE 用 -v 掛）；update 唯讀、不受CI 模式限制；有新版只在 --exit-code 時回 2；末行固定印 6-15（含 6-33 出口）。"
+p10, F = newpage_c("流程 v2：update ── 只查版本、不動檔（interface_spec §1.2、§5、6-3／6-15／6-33、Q27）", N10, COLS_UP, gap=16)
+b = F.band("bU", "update [<repo>] [--exit-code]：建執行紀錄 → launcher_start → 憑證互斥檢查 → 單段引擎容器（偵測未完成交易 → 6-33 → 1）查 registry（公開／有 token → 查；無憑證 → 記 6-3；查詢失敗分類 → 記 1）→ 每個目標彙總（Q27）→ 末行 6-15 → 0／1／2", v2=True)
+b.box("u0", U, 0, G12, "just vendor_kit update [<repo>] [--exit-code]", 220)
+b.box("u0l", L, 0, v2(W12), LST1.replace("<verb>", "update"), 280)
+b.box("u0x", U, 1, v2(R12), LSX, 220)
+b.box("u0l2", L, 1, v2(W12), LST2, 280)
+b.box("u1x", U, 2, O12, "是 → 1：只能擇一（改設其中一個）", 220)
+b.box("u1q", L, 2, v2(D12), "_TOKEN 與 _TOKEN_FILE 同時設？", 280)
+b.box("u1", L, 3, W12, "否：組 docker run 引數：-e VENDOR_KIT_REGISTRY_TOKEN／_USER，或 -v <TOKEN_FILE>:/run/vk-token:ro（只在 update 單段及 upgrade 的 resolve 傳）", 280)
+b.box("u1r", L, 4, W12, "docker run <引擎> update（單段、不經 create/cp）", 280)
+b.box("u2", E, 4, SUB, "update（唯讀；不受CI 模式限制）：讀 version.toml 現版", 400)
+b.box("u2f", P, 4, F12, "version.toml（只讀：引擎 ref、[tools]）", 280)
+b.box("u3x", U, 5, O12, "是 → 1 + 6-33：請先重跑原動詞（不恢復、不寫檔；末行仍印 6-15）", 220)
+b.box("u3", E, 5, D12, "有未完成交易（.tmp.<verb>.*.toml／[progress]）？", 400, ax="l")
+b.box("u4l", E, 6, LBL, "否 ↓ 對每個目標（[tools] 每工具 + vendor_kit 自身）逐一查 registry（迴圈）", 400, 24, ax="l", minh=24)
+b.box("u5", E, 7, D12, "registry 不要求認證（公開）？", 300, ax=58)
+b.box("u5g", RG, 7, v2(SUB), "是：GET /v2/<name>/tags/list（分頁）", 130, ax="r")
+b.box("u6", E, 9, D12, "有 VENDOR_KIT_REGISTRY_TOKEN／_TOKEN_FILE？", 340, ax=12)
+b.box("u6g", RG, 9, v2(SUB), "是：WWW-Authenticate 換 token → tags/list", 130, ax="l")
+b.box("u6r", P, 9, RULE, "已定（Q11）：無憑證時不支援需認證的版本列舉；token 只在 update 單段及 upgrade 的 resolve 以 -e 傳，不寫 log、不傳給工具；GHCR 已測試，其他 registry 依標準協定可用但未驗證", 280)
+b.box("u7q", E, 10, v2(D12), "查詢成功？", 200, ax=108)
+b.box("u7c", E, 11, v2(SUB), "否：查詢失敗：分類原因（認證／網路／回應／解析）", 200, ax=60)
+b.box("u8a", E, 11, SUB, "是：取 SemVer 最大正式版（排除預發行）", 150, ax="r")
+b.box("u7f", E, 12, v2(SUB), "該目標記 1（無憑證 → 6-3，不查；否則附分類）→ 繼續下一目標", 220, ax=12)
+b.box("u8b", E, 12, SUB, "與現版比較 → 記「現版 → 最新」", 150, ax="r")
+b.box("u8q", E, 13, D12, "還有下一個目標？", 300, ax=58)
+b.box("u9", E, 14, SUB, "否：彙總（Q27）：全部目標查完；每個目標一行（查到的「現版 → 最新」、失敗的分類與 6-3）；訊息全列", 400)
+b.box("u10", E, 15, SUB, "末行固定印 6-15：「套用：just vendor_kit upgrade」", 400)
+b.box("u11x", U, 16, O12, "是 → 1：查詢失敗（6-3：設 token 或指定 <repo>@<tag>；其他分類印原因；即使另有新版）", 220)
+b.box("u11", E, 16, D12, "任一目標查詢失敗（1）？", 300, ax="l")
+b.box("u12y", U, 17, O12, "是 → 2：有新版（給 CI 用）", 220)
+b.box("u12", E, 17, D12, "有新版且 --exit-code？", 300, ax="l")
+b.box("u13", U, 18, G12, "否 → 0：已列出（有新版也 0）", 220)
+b.H("ue0", "u0", "u0l"); b.D("ue0l", "u0l", "u0l2"); b.H("ue0lx", "u0l2", "u0x"); b.D("ue0l2", "u0l2", "u1q", al=True); b.H("ue0x", "u1q", "u1x", "是"); b.D("ue0q", "u1q", "u1", "否", al=True); b.D("ue0b", "u1", "u1r"); b.H("ue1", "u1r", "u2"); b.H("ue2", "u2", "u2f", "讀"); b.D("ue3", "u2", "u3", al=True)
+b.H("ue4", "u3", "u3x", "是"); b.D("ue5", "u3", "u4l", al=True); b.D("ue6", "u4l", "u5", al=True)
+b.H("ue7", "u5", "u5g", "是"); b.D("ue8", "u5", "u6", "否", al=True); b.H("ue9", "u6", "u6g", "是"); b.D("ue10", "u6", "u7f", "否", sx=0.1, tx=0.1, al=True)
+b.DL("ue11", "u5g", "u7q"); b.DL("ue12", "u6g", "u7q")
+b.D("ue13q", "u7q", "u7c", "否", al=True); b.RD("ue13y", "u7q", "u8a", "是"); b.D("ue13c", "u7c", "u7f", al=True); b.D("ue13f", "u7f", "u8q", al=True)
+b.D("ue13b", "u8a", "u8b"); b.D("ue14", "u8b", "u8q", al=True)
+b.LL("ue14y", "u8q", "u5", "是：下一個目標", busx=562); b.D("ue14n", "u8q", "u9", "否", al=True)   # u6／u7 左緣 x=592：回圈線（x=562）離框 30（r11）
+b.D("ue15", "u9", "u10"); b.D("ue16", "u10", "u11", al=True)
+b.H("ue17", "u11", "u11x", "是"); b.D("ue18", "u11", "u12", "否", al=True); b.H("ue19", "u12", "u12y", "是"); b.DL("ue20", "u12", "u13", "否")
+b.close()
+foot(p10, "p10", F.y, T10, {"note", "rule", "sub", "hdr", "v2"})
+pages_v1_c.append(("v1p10", "流程 v2：update", p10))
+
+# ================= P11：初始檔五態 =================
+COLS_ST = [("deleted", 40, 290), ("managed", 350, 290), ("declined", 660, 290), ("appended", 970, 290), ("unmanaged", 1280, 290)]
+SD, SM, SC, SA, SU = "deleted", "managed", "declined", "appended", "unmanaged"
+T11 = [
+ ("metadata [[file]].state（Q15、16 條）", "baseline/<repo>/.vendor_kit.toml 對每個初始檔一筆：state 單一列舉 managed／appended／declined／unmanaged／deleted；declined_hash（選填）= 最近一次被拒絕的那版新版初始檔 N 的 sha256；lines（只在 appended）= 實際插入的行原文"),
+ ("declined 語意（v2.7-3）", "state=declined 只用於「初始檔要建的新檔被拒、從未建立」；已納管（managed／appended）的檔拒絕本次更新 → state 不變、只記 declined_hash（畫成自環）；add 時 append 檔已存在且拒絕 → unmanaged（本來就有、沒納管）；二進位拒絕同"),
+ ("B／D／N", "B = 基準版（上次合併時的初始檔原版副本，進 git）；D = 現況（專案裡你的那份檔）；N = 新版初始檔 = 啟動器把目標版 image 展開到暫存、掛進引擎的 /dist/<repo>（不是 cache；v2.5 §2）；「D==B」= 你沒改過"),
+ ("upgrade 逐檔判斷（managed）", "D 缺 → deleted；N 缺（新版刪了該檔）→ 不刪專案檔、只 warn；D==N 或 B==N → 不動；D==B → 問「X 換成新版？」；三者皆異 → 問後 git merge-file --diff3（衝突 → 2）；不論結果基準版推到 N（合併後 TOML／just 解析失敗的檔不推）；二進位／symlink 未改 → 問後換、改過保留 + warn；拒絕 → 記 declined_hash、state 維持 managed"),
+ ("declined 再問規則（Q14／Q15）", "新版 N 的 hash ≠ declined_hash → 再問一次「要建 X 嗎」（同意 → 建 → managed；拒絕 → 仍 declined、更新 declined_hash）；相同 → 不問，只印 6-6／6-8；EOF／Ctrl-C 不算拒絕、不記 declined"),
+ ("append 行（Q6／Q12／Q13）", "strategy=append 的檔已存在 → 問「要在 X 加這幾行嗎」；同意 → 插入並記 lines；upgrade 用原文比對（CRLF／LF 等價）找上次插入的行：唯一命中 → 問後替換、零命中 → 不動只印新內容、多處 → 保留並 warn；remove／uninstall 問後只刪原文相同的行"),
+ ("dry-run／check.sh 印什麼", "upgrade --dry-run 與 ci/check.sh ③ 印 6-6「有 N 個範本你拒絕過」、6-7「X 沒納管，與範本差 N 行」、6-8「Y 你拒絕過，vZ 有新版」；不動檔、不紅燈（CI 需改 進 git 的檔才 1）"),
+ ("6-11", "add 遇 copy 檔已存在：「<X> 已存在，未納管；範本在 .vendor_kit/cache/<repo>/files/ 可自行比對」"),
+]
+N11 = "已定（Q14、Q15、v2.6 16 條、v2.7-3、interface_spec §4.3）：metadata 對每個初始檔記單一 state（五值）+ declined_hash + lines；declined 只用於新檔被拒、從未建立；已納管檔拒絕換版／合併時 state 不變只記 declined_hash（自環）；add 時 append 檔已存在且拒絕 → unmanaged；新版 hash 不同才再問；unmanaged／declined 只在 dry-run／check.sh 提醒、不動檔不紅燈；下游使用者刪了已納管檔 → deleted、upgrade 維持刪除。"
+p11, F = newpage_c("狀態機 v2：初始檔五態 ── metadata [[file]].state 與轉移（interface_spec §4.3、Q14／Q15、v2.7-3）", N11, COLS_ST, gap=130, headers=False)
+b = F.band("bS", "初始檔五態：每個初始檔一筆 state；箭頭 = 動詞：條件（自環 = 拒絕但狀態不變，只記 declined_hash）；每格一件事（狀態 → 轉入條件 → upgrade 時 → dry-run／check.sh 印什麼）；remove／uninstall 一律到終點", v2=True)
+b.box("s0", SC, 0, G12, "起點：初始檔宣告於下游 repo 的 dist/init.toml 的 [[file]]（src／dest／strategy）", 280)
+b.box("st_d", SD, 1, STATE, "deleted\n下游使用者刪了已納管檔", 160, 57, ax="l")
+b.box("st_m", SM, 1, STATE, "managed\n已納管（vendor_kit 建的 copy 檔）", 160, 57, ax="l")
+b.box("st_c", SC, 1, STATE, "declined\n新檔被拒、從未建立", 160, 57, ax="l")
+b.box("st_a", SA, 1, STATE, "appended\n已插入行（strategy=append）", 160, 57, ax="l")
+b.box("st_u", SU, 1, STATE, "unmanaged\n本來就有、沒納管", 160, 57, ax="l")
+b.box("in_d", SD, 2, NOTE, "轉入：upgrade 逐檔判斷發現 D 缺（下游使用者刪了已納管檔）→ state=deleted", 190, ax="r")
+b.box("in_m", SM, 2, NOTE, "轉入：add 時 dest 不存在 → 建（copy；strategy=append 的檔不存在也是整檔建）；upgrade 新版新增檔且 dest 不存在、問「要建 X 嗎」同意 → 建；declined 再問後同意 → 建", 190, ax="r")
+b.box("in_c", SC, 2, NOTE, "轉入：upgrade 新版新增檔、問「要建 X 嗎」後明確答否（EOF／Ctrl-C 不算）→ 從未建立、記 declined_hash", 190, ax="r")
+b.box("in_a", SA, 2, NOTE, "轉入：add 時 strategy=append 且檔已存在、問「要在 X 加這幾行嗎」同意 → 插入並記 lines（原本就有的相同行不認領）", 190, ax="r")
+b.box("in_u", SU, 2, NOTE, "轉入：add 時 copy 檔已存在 → 不納管、不覆蓋（-y 也不覆蓋），印 6-11；add 時 append 檔已存在、問後拒絕 → 同樣 unmanaged（只記 declined_hash）；upgrade 新版新增檔但 dest 已存在 → 不納管、印 6-11（不問）", 190, ax="r")
+b.box("up_d", SD, 3, NOTE, "upgrade 時：維持刪除（不重建、不合併）；基準版仍推到 N", 190, ax="r")
+b.box("up_m", SM, 3, NOTE, "upgrade 時（仍 managed）：D==N／B==N 不動；D==B 問後寫 N；皆異問後三方合併（衝突 → 2）；N 缺 → 不刪、只 warn；拒絕 → 只記 declined_hash（自環）；基準版推到 N（合併後解析失敗的檔不推）", 190, ax="r")
+b.box("up_c", SC, 3, NOTE, "upgrade 時：N 的 hash ≠ declined_hash → 再問；相同 → 不問（仍 declined）", 190, ax="r")
+b.box("up_a", SA, 3, NOTE, "upgrade 時（仍 appended）：原文比對找 lines：唯一命中 → 問後替換（拒絕 → 只記 declined_hash，自環）；零命中 → 不動只印新內容；多處 → 保留並 warn", 190, ax="r")
+b.box("up_u", SU, 3, NOTE, "upgrade 時：永遠不動（不合併、不覆蓋）；仍 unmanaged", 190, ax="r")
+b.box("pr_d", SD, 4, NOTE, "dry-run／check.sh 印：維持刪除（不重建）；不紅燈", 190, ax="r")
+b.box("pr_m", SM, 4, NOTE, "dry-run／check.sh 印：會問哪些檔（換新版／三方合併）；有 declined_hash 且新版相同 → 6-6；CI 需改 進 git 的檔 → 1 印清單", 190, ax="r")
+b.box("pr_c", SC, 4, NOTE, "dry-run／check.sh 印：6-6「有 N 個範本你拒絕過」；新版有更新 → 6-8「Y 你拒絕過，vZ 有新版」；不紅燈", 190, ax="r")
+b.box("pr_a", SA, 4, NOTE, "dry-run／check.sh 印：找到 lines → 會問替換；找不到 → 印新內容；多處 → warn", 190, ax="r")
+b.box("pr_u", SU, 4, NOTE, "dry-run／check.sh 印：6-7「X 沒納管，與範本差 N 行」；不紅燈", 190, ax="r")
+for _k, _col in (("d", SD), ("m", SM), ("c", SC), ("a", SA), ("u", SU)):
+    b.box(f"end_{_k}", _col, 5, G12, "終點：remove <repo>／uninstall → 這筆 state 隨 metadata 消失", 160, ax="l")
+b.box("s_endn", SD, 6, NOTE, "終點（任一狀態皆同）：remove <repo>／uninstall → 初始檔保留並印清單（append 行問後只刪原文相同的）；metadata 隨 baseline/<repo>/ 刪除 → 狀態消失；要刪初始檔請自行 git rm", 1530, ax=0)
+b.D("se_c", "s0", "st_c", "upgrade：拒絕建新檔", 0.268, 0.5, al=True)                              # 直線（出口對齊 declined 格中心）：標籤在垂直段旁，不與 se_m 水平段標籤同一基線（Claude r13 se_m）
+b.D("se_m", "s0", "st_m", "add：dest 不存在 → 建；upgrade：同意建新檔", 0.1, 0.5, dy=0)
+b.D("se_a", "s0", "st_a", "add：append 檔已存在、同意插入", 0.65, 0.5, dy=24)
+b.D("se_u", "s0", "st_u", "add：copy 已存在；append 已存在但拒絕；upgrade：新增檔已存在", 0.9, 0.5, dy=-24)
+b.H("se_md", "st_m", "st_d", "upgrade：D 缺")
+b.H("se_cm", "st_c", "st_m", "upgrade：再問→同意建")
+for _k in ("d", "m", "c", "a", "u"):
+    b.D(f"se_end_{_k}", f"st_{_k}", f"end_{_k}")
+selfloop(b, "sl_m", "st_m", "upgrade：拒絕換版／三方合併 → 只記 declined_hash（仍 managed）")
+selfloop(b, "sl_c", "st_c", "upgrade：再問後仍拒絕 → 更新 declined_hash（仍 declined）")
+selfloop(b, "sl_a", "st_a", "upgrade：拒絕替換 lines → 只記 declined_hash（仍 appended）")
+selfloop(b, "sl_u", "st_u", "upgrade：永遠不動（仍 unmanaged）")
+b.close()
+foot(p11, "p11", F.y, T11, {"note", "state", "v2"}, conv=False)
+pages_v1_c.append(("v1p11", "狀態機 v2：初始檔五態", p11))
+
+# ================= P12：交易與進度檔 =================
+COLS_TX = [("下游使用者", 40, 240), ("引擎容器（apply 段）", 300, 480), ("專案目錄", 800, 380), ("規則／說明", 1200, 390)]
+EA, PA, XA = "引擎容器（apply 段）", "專案目錄", "規則／說明"
+T12 = [
+ ("install／升引擎的進度檔", "第一次 install 也建 .tmp.install.<id>.toml（v2.13 P5，無例外）：兼「不留半成品」的清除清單，失敗依它移除已寫的檔（log/ 保留）、成功後刪；修復型同；升引擎建 .tmp.upgrade.<id>.toml（另記舊引擎 ref、目標 ref、計畫 image ID）"),
+ ("恢復（三型）", "可寫動詞開始前偵測到未完成交易 → 先恢復再繼續本次（prune 例外：只列出、不恢復）：一般（add／remove／upgrade <repo>／undev／uninstall／dev）依進度檔 done 略過、pending 補做、consents 不再問；升引擎 = 重跑 upgrade vendor_kit；第一次 install = 依進度檔（清除清單）移除半成品、log/ 保留；失敗 → 1 印 6-27「未恢復：<檔名>」逐檔列出、進度檔留著"),
+ T_FP,
+ ("交易／apply", "一次會寫檔的動詞執行 = 一筆交易：兩段動詞的 apply 拿 flock → 重驗指紋 → dry-run 分支 → 建進度檔（第一個寫入前）→ 逐步寫入 → 最後一步刪進度檔；單段可寫動詞（install／dev／升引擎）無 resolve／apply、無指紋重驗，從「建進度檔」開始；回 3 一律零寫入；工具層回 1 時 version.toml 不動"),
+ ("原子替換／暫存", "每個寫入先寫到暫存（合併也在暫存完成），確認沒問題再逐檔一次換上（rename）；中斷只會留下「已換上」與「未換上」兩種檔，不留半寫的檔"),
+ ("規格硬性順序", "只有兩條：gen/tools.just 最後寫、且與 cache 同一 apply 內原子替換；version.toml（版本鎖定行）最後寫（工具層回 1 時不動）；其餘各動詞自訂"),
+ T_MSG,
+]
+N12 = "已定（v2.5-3、v2.6-9、v2.7-7、v2.13 P5、v2.15-5／-10、interface_spec §0、§4.3、§4.6）：apply 順序 = flock → 重驗指紋 → dry-run 分支 → 建進度檔（第一個寫入前）→ 寫入 → 最後刪進度檔；單段可寫動詞（install／dev／升引擎）不畫成 resolve→apply；中斷 → 1 明列已完成／未完成；下次可寫動詞先恢復（三型）、唯讀動詞只提示 6-33；prune 特例只列出；dev 也建 .tmp.dev.<id>.toml。"
+p12, F = newpage_c("狀態機 v2：交易與進度檔（interface_spec §0、§3.2 apply、§4.3 [progress]、§4.6）", N12, COLS_TX, gap=12)
+b = F.band("bT1", "交易生命週期：兩段動詞的 apply 段（拿鎖 → 重驗指紋 → dry-run 分支）→ 建進度檔 → 逐步寫入（每步 ① 寫暫存 ② 原子替換 ③ 進度檔 done）→ 刪進度檔；單段可寫動詞從「建進度檔」進入；中斷 → 1、進度檔留著", v2=True)
+b.box("t0", U, 0, ENTRY, "來自兩段動詞頁：resolve → 啟動器 docker 之後，apply <verb>", 240)
+b.box("t1", EA, 0, SUB, "拿 flock 專案目錄（60 秒；VENDOR_KIT_NO_LOCK=1 跳過）", 480)
+b.box("t1i", XA, 0, INV, "不變量：回 3 一律零寫入（無任何例外）；工具層回 1 時 version.toml 不動；進度檔在第一個寫入前建、最後一步刪；never fail silently", 390)
+b.box("t1x", PA, 0, v2(O12), "逾時 → 1 + 6-26：確認無其他 vendor_kit 在跑後重試（零寫入）", 300)
+b.box("t2x", U, 1, v2(O12), "指紋不同 → 1 + 6-12：請重跑（零寫入）", 240)
+b.box("t2", EA, 1, SUB, "重驗指紋（與 /dist/vk-resolve 的 fingerprint 比）", 480)
+b.box("t3y", U, 2, G12, "是 → 0：唯讀預覽；不建進度檔（CI 例外見右）", 240)
+b.box("t3", EA, 2, D12, "--dry-run？", 200, ax="l")
+b.box("t3n", XA, 2, RULE, "已定：--dry-run = 唯讀預覽（本機一律 0）；CI 模式且需改進 git 的檔時回 1 印清單（契約⑤ check.sh ③）；不建進度檔、不寫任何檔", 390)
+b.box("t0b", U, 3, ENTRY, "來自 install／dev／升引擎頁（單段可寫動詞）：第一個寫入前", 240)
+b.box("t4", EA, 3, SUB, "否：建進度檔（第一個寫入前）：state=in-progress、verb、id、started、targets、done[]／pending[]、consents", 480)
+b.files("t4f", PA, 3, "進度檔位置（依動詞）", ["add／upgrade <repo>：metadata [progress]", "remove／uninstall／undev／prune／dev：.tmp.<verb>.<id>.toml（dev 另記本機覆寫行、symlink 目標、印記第一行）", "install：.tmp.install.<id>.toml（第一次 = 清除清單）", "升引擎：.tmp.upgrade.<id>.toml（改第一行前建、新引擎刪）"], 380)
+b.box("t4n", XA, 3, RULE, "已定（v2.13 P5、v2.15-5／-10）：單段可寫動詞 install／dev／升引擎沒有 resolve→apply、不重驗指紋，直接從本格開始；第一次 install 的進度檔同時是「不留半成品」的清除清單（log/ 保留）；remove／uninstall 會刪 metadata、undev／prune／dev 沒有工具 metadata → 放 .vendor_kit/.tmp.*（自有 .gitignore 擋）；<id> = 本次 trace_id", 390)
+b.box("t5", EA, 4, SUB, "逐步寫入 ①：寫暫存檔（合併也在暫存完成；詢問取得的同意先記進 consents）", 480)
+b.box("t5af", PA, 4, F12, "暫存檔（目標檔旁；未換上前目標檔不動）", 380)
+b.box("t5n", XA, 4, NOTE, "每一步都是 ①②③ 三個可獨立失敗的動作；規格只硬性要求：gen/tools.just 最後寫、與 cache 同一 apply 內原子替換；version.toml 最後寫；其餘順序各動詞頁自訂", 390)
+b.box("t5b", EA, 5, SUB, "逐步寫入 ②：原子替換（rename 暫存檔 → 目標檔；一檔一次換上）", 480)
+b.box("t5bf", PA, 5, F12, "目標檔（換上；中斷只會留下「已換上」「未換上」兩種）", 380)
+b.box("t5c", EA, 6, SUB, "逐步寫入 ③：更新進度檔 done += 步驟（pending 移出）", 480)
+b.box("t5f", PA, 6, F12, "進度檔 done[]／pending[] 每步更新", 380)
+b.box("t6", EA, 7, D12, "這一步中斷？（寫入失敗／Ctrl-C／斷電）", 340, ax="l")
+b.box("t6q", PA, 7, v2(D12), "是：第一次 install？", 200, ax="l")
+b.box("t6xb", XA, 7, v2(R12), "否 → 1：明列已完成／未完成、進度檔留著（下次可寫動詞先恢復）", 390)
+b.box("t6xa", PA, 8, v2(R12), "是 → 1：依進度檔（清除清單）移除已寫的檔、不留半成品（log/ 保留）", 300)
+b.box("t5q", EA, 8, D12, "否：還有步驟？", 200, ax=10)
+b.box("t7", EA, 9, SUB, "否：最後一步刪進度檔（uninstall：在根 justfile 那行之後才刪）", 300, ax="l")
+b.box("t7f", PA, 9, F12, "進度檔刪除 = 交易完成（.tmp.<verb>.<id>.toml 刪／[progress] 移除）", 380)
+b.box("t8c", U, 10, O12, "是 → 2：有合併衝突（留標記；解完重跑）", 240)
+b.box("t7q", EA, 10, D12, "本次有合併衝突？", 260, ax="l")
+b.box("t8", U, 11, G12, "否 → 0：印摘要", 240)
+b.H("te0", "t0", "t1"); b.H("te1x", "t1", "t1x", "逾時"); b.D("te1", "t1", "t2"); b.H("te2x", "t2", "t2x", "≠"); b.D("te2", "t2", "t3", al=True); b.H("te3", "t3", "t3y", "是")
+b.D("te4", "t3", "t4", "否", al=True); b.H("te0b", "t0b", "t4"); b.H("te5", "t4", "t4f", "建"); b.D("te6", "t4", "t5"); b.H("te7a", "t5", "t5af", "寫")
+b.D("te6b", "t5", "t5b"); b.H("te7b", "t5b", "t5bf", "換"); b.D("te6c", "t5b", "t5c"); b.H("te7", "t5c", "t5f", "寫")
+b.D("te8", "t5c", "t6", al=True); b.H("te9", "t6", "t6q", "是"); b.H("te9b", "t6q", "t6xb", "否"); b.D("te9a", "t6q", "t6xa", al=True); b.D("te8q", "t6", "t5q", "否", al=True); b.LL("te8y", "t5q", "t5", "是：回 ①", busx=290); b.D("te10", "t5q", "t7", "否", al=True)
+b.H("te11", "t7", "t7f", "刪"); b.D("te12", "t7", "t7q", al=True); b.H("te12c", "t7q", "t8c", "是"); b.DL("te13", "t7q", "t8", "否")
+b.close()   # flock 逾時 t1x 放專案目錄欄同列（H 線）、指紋不同 t2x 放下游使用者欄（兩橙終點各一事；codex r13 N2）
+b = F.band("bT2", "中斷後的下一次執行（任何動詞開始前先偵測未完成交易）：可寫動詞先恢復再繼續；唯讀動詞只提示重跑原動詞；prune 特例只列出", v2=True)
+b.box("r0", U, 0, G12, "打任何 vendor_kit 動詞", 240)
+b.box("r1", EA, 0, SUB, "偵測未完成交易：.vendor_kit/.tmp.<verb>.*.toml（含 .tmp.install.*、.tmp.dev.*、.tmp.upgrade.*）或任一 metadata [progress] state=in-progress", 480)
+b.box("r1f", PA, 0, F12, "讀進度檔（verb、id、targets、done／pending、consents）", 380)
+b.box("r2n", U, 1, G12, "否 → 正常執行本次動詞", 240)
+b.box("r2", EA, 1, D12, "有未完成交易？", 220, ax=90)
+b.box("r2px", U, 3, ENTRY, "是 → 續「prune（1）」頁：只列出活躍進度檔、印 6-33（不刪、不恢復）", 240)
+b.box("r2p", EA, 3, D12, "本動詞是 prune？", 220, ax=90)
+b.box("r2pn", XA, 3, RULE, "已定（v2.7-7）：prune 遇活躍進度檔不擋、不恢復、不刪；只列出提示重跑原動詞；差集與 apply prune 照做", 390)
+b.box("r2hy", U, 4, G12, "是（help）→ 0：印 6-33 後照常印說明（不受影響）", 240)
+b.box("r2h", EA, 4, D12, "否：本動詞是 help？", 260, ax=70)
+b.box("r3x", U, 5, O12, "否（sync／update）→ 1 + 6-33：請先重跑原動詞（不恢復、不寫檔）", 240)
+b.box("r3", EA, 5, D12, "否：本動詞可寫？", 220, ax=90)
+b.box("r3n", XA, 5, RULE, "已定（v2.6-9、v2.10-6、v2.15-5）：可寫動詞 = install／add／remove／upgrade（含升引擎）／dev／undev／uninstall → 先恢復再繼續（prune 例外：只列出，見上）；唯讀動詞遇未完成交易只提示重跑原動詞，不自動恢復：sync／update 印 6-33 結束 1；help 印 6-33 仍 0", 390)
+b.box("r4", EA, 6, SUB, "是：恢復（依進度檔類型三型之一，見右）", 480)
+b.box("r4f", PA, 6, F12, "補做 pending 的寫入（暫存 → 原子替換）／清除清單內的半成品", 380)
+b.box("r4n", XA, 6, RULE, "恢復三型：一般可寫動詞 → 依進度檔 done 略過、pending 補做、consents 不再問；升引擎（.tmp.upgrade.*）→ 重跑 upgrade vendor_kit；第一次 install（.tmp.install.*）→ 依清除清單移除半成品、log/ 保留", 390)
+b.box("r5x", U, 7, R12, "否 → 1 + 6-27「未恢復：<檔名>」逐檔列出；進度檔留著", 240)
+b.box("r5", EA, 7, D12, "恢復成功？", 220, ax="l")
+b.box("r6", EA, 8, SUB, "是：刪進度檔 → 繼續本次動詞（resolve 會重算指紋）", 480)
+b.box("r6f", PA, 8, F12, "進度檔刪除", 380)
+b.box("r7", U, 9, G12, "→ 繼續本次動詞", 240)
+b.H("re0", "r0", "r1"); b.H("re1", "r1", "r1f", "讀"); b.D("re2", "r1", "r2", al=True); b.H("re3", "r2", "r2n", "否")
+b.D("re4", "r2", "r2p", "是", al=True); b.H("re4p", "r2p", "r2px", "是"); b.D("re4n", "r2p", "r2h", al=True)
+b.H("re4h", "r2h", "r2hy", "是"); b.D("re4hn", "r2h", "r3", "否", al=True)
+b.H("re5", "r3", "r3x", "否"); b.D("re6", "r3", "r4", "是", al=True); b.H("re7", "r4", "r4f", "寫")
+b.D("re8", "r4", "r5", al=True); b.H("re9", "r5", "r5x", "否"); b.D("re10", "r5", "r6", "是", al=True); b.H("re11", "r6", "r6f", "刪"); b.DL("re12", "r6", "r7")
+b.close()
+foot(p12, "p12", F.y, [T12[3], T12[5], T12[0], T12[4], T12[1], T12[2], T12[6]], {"note", "rule", "inv", "sub", "hdr", "entry", "v2"}, conv=False)   # 順序讓兩欄等高（頁高 ≤ 2400）
+pages_v1_c.append(("v1p12", "狀態機 v2：交易與進度檔", p12))
+
+# ================= P13：相容性矩陣 =================
+T13 = [
+ ("薄殼 P／引擎 [floor_P, current_P]", "薄殼 = 進 git 的 .vendor_kit/ 五檔（entry.just、vendor.just、log.sh、.gitignore、ci/check.sh），首行自描述帶介面版 P；引擎 image 接受 [floor_P, current_P]（LABEL ….protocol=<floor_P>-<current_P>，啟動器不起容器即可判最低介面版）"),
+ ("--protocol P", "薄殼每次呼叫引擎都附的介面版整數（第一版 P=1，全域旗標在子命令之前）；引擎接受 [floor_P, current_P] 並依呼叫方介面版 P 輸出 vk-resolve/P 行別與結束碼語意；太舊 → 一般動詞乾淨回 3 印 6-36，救援路徑永久可用；新增 verb／旗標／記錄種類／欄位／結束碼語意／印記第一行語意 → P+1"),
+ ("一般動詞（非永久）", "add／remove／upgrade <repo>／sync 寫入／undev／uninstall／prune／dev／update：舊薄殼跑新 major 只保證乾淨回 3 + 6-36 提示先 upgrade vendor_kit（零寫入）；同 major 內保留所有已承諾薄殼的一般呼叫"),
+ ("written_by", "寫入引擎版本（string），純資訊欄、不作讀取門檻（無 min_reader）；6-19 訊息印出它供人判斷該用哪個引擎"),
+ ("6-18／6-19／6-36／6-10", "6-18 薄殼／引擎低於最低介面版「請以 bootstrap.sh 重建」；6-19 schema N 高於本引擎支援的 M；6-36 薄殼介面版低於引擎一般動詞需求「請先 upgrade vendor_kit」；6-10 降版目標引擎無法無損讀「請 git revert」；四者皆 3、零寫入"),
+ ("降版", "upgrade vendor_kit@<舊版>：目標引擎（以其 image LABEL 的介面版／檔案版判）能無損讀現有檔才做（做 = 重產薄殼 → 1 + 6-2），否則改檔前拒絕 3 + 6-10；dev vendor_kit -i <舊 image> 允許但禁止重產 進 git 的薄殼"),
+ ("驗收（§7.4 相容性條）", "最低介面版以來每個已釋出 bootstrap.sh(r) + 引擎 image r 建 fixture 驅動候選（線性，非兩兩相乘）；連升 r_i → r_j → C；最低介面版直接跳升；降版；< 最低介面版用唯一 synthetic；舊引擎讀新檔 3 零寫入；已釋出 image／Release 資產／fixture 永不刪"),
+]
+N13 = "已定（Q16、Q19、Q23、v2.4-3／-6／-7、v2.6 16 條、v2.7-4、interface_spec §2、§4 通則、§8）：相容承諾兩層（永久：救援路徑 + 舊資料可讀可遷；非永久：舊薄殼跑新 major 一般動詞回 3）；最低介面版 = 固定 release 常數；新舊以介面版／檔案版比較不用版本字串；回 3 零寫入、無任何例外（救援路徑亦同）；written_by 純資訊欄、無 min_reader；同檔案版未知欄位讀忽略寫保留。"
+p13 = [v("title", "1", TITLE, "相容性矩陣 v2：舊薄殼 × 新引擎、舊引擎 × 新檔 → 0／1／3（interface_spec §2、§8；Q16／Q19／Q23）", 40, 20, 1000, 34)]
+y = pend(p13, N13, style=NOTE) + 16
+p13.append(v("l13a", "1", LBL, "(a) 舊薄殼 P × 新引擎（接受 [floor_P, current_P]）：一般動詞／救援路徑各回什麼", 40, y, 900, 24)); y += 30
+ROWS_A = [
+ ["P < floor_P（太舊）", "3 + 6-18「請以 bootstrap.sh 重建」；零寫入；最低介面版檢查先於任何上網（斷網也回 3）", "3 + 6-18（救援路徑也不接、同樣零寫入；唯一可用 synthetic fixture 驗收）"],
+ ["floor_P ≤ P < 引擎需求（舊薄殼 × 新 major）", "3 + 6-36「薄殼介面版 <P_shell> 低於引擎 <vY> 的一般動詞需求，請先 upgrade vendor_kit」；零寫入", "0／1 正常（永久保證）：install／upgrade vendor_kit 重產薄殼 → 1 + 6-2「請 commit 並再跑原指令」；sync 不符 → 1 + 6-1；help → 0"],
+ ["同 major（P 在引擎支援範圍內）", "0／1／2 正常：引擎以呼叫方 P 輸出 vk-resolve/P 與結束碼語意；不輸出呼叫方不認識的 kind、不要求其未提供的 mount／環境變數", "0／1 正常；upgrade vendor_kit 無新版且薄殼相符 → 0 無變更"],
+ ["P > current_P（新薄殼 × 舊引擎：降版／dev -i 舊 image）", "3：P 不在引擎的 [floor_P, current_P]；零寫入", "降版 upgrade vendor_kit@<舊版>：目標引擎能無損讀現有檔（同介面版／檔案版）→ 重產薄殼 → 1 + 6-2「請 commit 並再跑原指令」（依 upgrade vendor_kit 的 0／1 規則；薄殼已相符才 0）；否則改檔前 3 + 6-10「請 git revert」（零寫入）；dev vendor_kit -i 舊 image 禁止重產 進 git 的薄殼 → 3"],
+]
+FA = {(0, 1): C_ACT, (0, 2): C_ACT, (1, 1): C_ACT, (1, 2): C_OK, (2, 1): C_OK, (2, 2): C_OK, (3, 1): C_ACT, (3, 2): C_ACT}
+y = table(p13, "ta", 40, y, [("薄殼 P 的情況", 330), ("一般動詞（add／remove／upgrade <repo>／sync 寫入／undev／uninstall／prune／dev／update）", 640), ("救援路徑（install／upgrade vendor_kit／sync 不符提示／help；單段）", 590)], ROWS_A, FA) + 24
+p13.append(v("l13b", "1", LBL, "(b) 舊引擎 × 檔案 schema（每檔各自 schema = N；讀取門檻只看 schema）", 40, y, 900, 24)); y += 30
+ROWS_B = [
+ ["同檔案版、有未知欄位", "讀時忽略未知欄位", "寫時保留未知欄位（不能保留 → 拒絕寫）；只拒絕型別錯／重複宣告", "0（型別錯／重複宣告 → 1）"],
+ ["檔案版 < 引擎（舊檔）", "可讀：記憶體轉換（讀任一舊檔案版 → 當前檔案版，不鏈式）", "只在本來要寫該檔的明確動作才寫回當前檔案版；metadata 遷移由 upgrade vendor_kit 做、dry-run 明列；同一專案短暫混合檔案版合法", "0"],
+ ["檔案版 > 引擎支援上限（新檔）", "拒絕讀：3 + 6-19「檔案版 <N> 高於本引擎支援的 <M>；寫入者為 vendor_kit <written_by>」", "任何寫入前退出（零寫入）；dev vendor_kit -i 舊 image 亦同", "3"],
+ ["降版目標引擎（upgrade vendor_kit@<舊版>）", "以目標 image LABEL 的介面版／檔案版判：能無損讀現有檔 → 讀", "無損 → 重產薄殼 → 1 + 6-2（依 upgrade vendor_kit 的 0／1 規則；薄殼已相符才 0）；否則改檔前拒絕 3 + 6-10「請 git revert」", "1（無損 → 重產薄殼）／3（否則）"],
+]
+FB = {(0, 3): C_OK, (1, 3): C_OK, (2, 3): C_ACT, (3, 3): C_ACT}
+y = table(p13, "tb", 40, y, [("檔 vs 引擎", 300), ("讀", 420), ("寫", 560), ("結束碼", 280)], ROWS_B, FB) + 24
+y0 = y
+y1 = box(p13, "k13a", RULE, "最低介面版常數（已定）：第一個正式版 v1.0.0、P=1、schema=1；寫在契約，只能經 ADR + major 提高；引擎 image LABEL ….protocol=<floor_P>-<current_P>、….schema=<N> 讓啟動器不起容器即可判最低介面版；低於最低介面版 → 3 + 6-18 零寫入", 40, y0, 500)
+y2 = box(p13, "k13b", RULE, "--protocol 協商（已定，Q16）：薄殼每次呼叫附 --protocol P（第一版起 P=1；全域旗標在子命令前）；引擎接受 [floor_P, current_P]，以呼叫方 P 輸出 vk-resolve/P 行別與結束碼語意；新增 verb／旗標／記錄種類／欄位／結束碼語意／印記第一行語意 → P+1；引擎宣稱的 P 真不支援 → 3", 560, y0, 520)
+y3 = box(p13, "k13c", RULE, "Q16 兩層承諾（已定）：永久 —— 任何 ≥ 最低介面版的舊薄殼可叫新引擎的救援路徑（單段 docker run，不依賴 resolve/apply 與 gen/）並得正確提示；舊資料永遠可讀可遷。非永久 —— 舊薄殼跑新 major 一般動詞只保證乾淨回 3 + 6-36（零寫入）；同 major 內保留已承諾薄殼的一般呼叫", 1100, y0, 490)
+y = max(y1, y2, y3) + 16
+y1 = box(p13, "k13d", NOTE, "written_by：每個 vendor_kit 寫的 TOML 都有 written_by = \"<vX>\"（寫入引擎版本），純資訊欄、不作讀取門檻（無 min_reader）；6-19 印出它供人判斷該用哪個引擎", 40, y, 500)
+y2 = box(p13, "k13e", NOTE, "新舊怎麼比：一律以介面版／檔案版比較，不用 SemVer 版本字串；網路／認證／不存在 → 1，不得偽裝成 3；既定回 1 的情境（印記不符、薄殼被改 6-28、自身升級完成要重跑 6-2）維持 1，不因訊息含 upgrade 而改 3；回 3 零寫入無任何例外（v2.7-4）", 560, y, 520)
+y3 = box(p13, "k13f", NOTE, "驗收（§7.4-1～8）：最低介面版以來每個已釋出 bootstrap.sh(r) + 引擎 image r 驅動候選 C（線性）；連升 r_i → r_j → C；最低介面版直接跳升；降版同介面版／檔案版成功（重產薄殼 → 1）、跨檔案版 3；< 最低介面版唯一 synthetic；舊引擎讀新檔 3 零寫入；舊 bootstrap.sh 再跑不降版；已釋出 image／資產／fixture 永不刪", 1100, y, 490)
+y = max(y1, y2, y3) + 30
+foot(p13, "p13", y, T13, {"rule", "note", "hdr", "c0", "cx", "cell"}, conv=False)
+pages_v1_c.append(("v1p13", "相容性矩陣 v2", p13))
+
+# ================= P14：結束碼決策表 =================
+T14 = [
+ ("結束碼 0", "成功（含 warn）：add 已接入完成、remove 未接、undev 未啟用、upgrade vendor_kit 無新版且薄殼相符、update 已列出（有新版也 0）、dry-run 本機皆 0 + 提示"),
+ ("結束碼 1", "一般失敗或需人處理／重跑：工具層動詞回 1 時 version.toml 不動；例外：自身升級已改第一行後回 1、upgrade vendor_kit 重產薄殼後回 1（6-2）；圖上：印指令要人動作 = 橙、拉不到／寫入失敗／驗證失敗 = 紅"),
+ ("結束碼 2", "合併衝突（留 <<<<<<< vendor_kit:baseline 標記、印檔名、基準版仍推到新版；解完重跑直到乾淨）；合併結果 TOML／just 解析失敗 → 2 留原檔、dest 入 conflicts、基準版不推；update --exit-code 有新版 → 2"),
+ ("結束碼 3（Q23）", "現有薄殼／檔案／引擎的組合需先升級或退回：(a) P < 最低介面版 6-18 (b) 檔案版高於支援 6-19 (c) 降版無法無損讀 6-10 (d) dev -i 舊引擎要重產薄殼 (e) 舊薄殼跑新 major 一般動詞 6-36；任何動詞（含 help、救援路徑）在 P < 最低介面版都回 3 + 6-18（v2.9-7）；零寫入、無任何例外；以介面版／檔案版比"),
+ ("多工具彙總（Q27）", "不帶 repo 的動詞做得完的做完（先完整預檢，任一預檢失敗才整體不動），最後回最需要處理的碼：失敗 1 > 衝突 2 > 有新版 2 > 0；update 同時遇 1 與 2 → 1；訊息全列（每個目標一行「現版 → 最新」）；不可同時宣稱「已是最新」；舊薄殼對未知碼原樣傳出、不吞"),
+ ("check.sh", ".vendor_kit/ci/check.sh：export CI=1 → ⓪ local 被 track → 1 → ① sync（CI 模式）→ ② verify → ③ upgrade --dry-run → ④ 工具測試 → ⑤ 專案測試；⓪–⑤ 六步、一關過才下一關；整體結束碼 = 第一個失敗步驟的碼（④⑤ 原碼傳出）"),
+ T_MSG,]
+N14 = "已定（Q23、Q27、v2.6-15、v2.7-4／-8、interface_spec §1.2 每動詞結束碼欄、§2 結束碼總表、§7.1）：3 = 介面版／檔案版不合且零寫入（無任何例外；P < 最低介面版時任何動詞含 help 都回 3 + 6-18，v2.9-7）；既定回 1 的情境維持 1；多工具做得完的做完再回最需要處理的碼；CI 動作：0 過、1 修、2 解衝突、3 換版本；顏色：0 綠、需人處理 1／2／3 橙（含 update 無憑證 6-3）、失敗 1 紅。"
+p14 = [v("title", "1", TITLE, "結束碼決策表 v2：動詞 × 情況 → 0／1／2／3（interface_spec §1.2、§2、§7.1；Q23／Q27）", 40, 20, 1000, 34)]
+y = pend(p14, N14, style=NOTE) + 16
+ROWS_E = [
+ ["bootstrap.sh", "install 與每個 -t 的 add 都完成", "非 git repo（6-16）；just < 1.33.0（6-23）；需問但無 tty（6-4）；任一 add 失敗（明列已完成／未完成）", "pull 失敗／逾時（6-24／6-31）；install 失敗（第一次不留半成品，log/ 保留）", "—", "薄殼／引擎 < 最低介面版（6-18）"],
+ ["install", "建立或修復完成；已含 import 行不再加；--no-justfile 只印指示；問後拒絕加行 → 不動、印指示", "非 git（6-16）；巢狀（6-35）；install <repo> 誤用（6-17）；薄殼被改（6-28，列差異不動）；無 tty 需問（6-4）", "寫入失敗（第一次不留半成品）", "—", "P < 最低介面版（6-18）；檔檔案版高於支援（6-19）"],
+ ["uninstall", "完成（初始檔保留印清單；未知或被改的檔保留並回報）；dry-run 本機", "任一工具在本機覆寫中（先 undev）；CI 需改 進 git 的檔；指紋不同（6-12）", "任一工具 remove 失敗 → 中止、列已完成部分", "—", "6-18／6-19"],
+ ["add <repo>[@<tag>]", "接入完成；已接入且完成 → 無變更；dry-run 本機", "@<tag> 與鎖定不同（改用 upgrade）；私有且無憑證又未指定 @<tag>（6-3）；dest 不合法／撞名；<ns> 撞名；CI 需改 tracked；指紋不同（6-12）；未完成交易恢復失敗（6-27）", "pull 失敗／逾時；dist 含 symlink；寫入失敗（version.toml 一律未動）", "—", "6-18／6-19"],
+ ["remove <repo>", "完成（初始檔永不刪、印清單）；未接 → 提示", "本機覆寫中（先 undev）；CI 需改 tracked；指紋不同", "寫入失敗（可恢復狀態）", "—", "6-18／6-19"],
+ ["update [<repo>]", "已列出（有新版也 0；末行 6-15）", "未完成交易（6-33）；任一目標查詢失敗（含無憑證 6-3：設 token 或 upgrade <repo>@<tag>；即使另有新版）", "—", "--exit-code 且有新版", "6-18／6-19"],
+ ["upgrade [<repo>[@<tag>]]", "完成；無新版；(1) 補齊待合併後停（6-14）；dry-run 本機", "無基準版（先 add）；本機覆寫中（先 undev）；CI 需改 tracked（6-5）；指紋不同；自身升級後「請 commit 並再跑原指令」（6-2；已改第一行是明列例外）；6-2b", "pull 失敗；git merge-file I/O 錯誤；寫入失敗（工具層 version.toml 不動）", "合併衝突（留標記、基準版仍推）；合併結果 TOML／just 解析失敗（留原檔、基準版不推）；(0) 仍有衝突標記", "@<舊版> 無法無損讀（6-10）；6-18／6-19"],
+ ["dev <repo>／vendor_kit", "覆寫寫入 version.local.toml", "工具不在 version.toml；缺 <dir>/dist/init.toml；CI 拒絕；-p／-i 互斥用錯", "—", "—", "6-18／6-19；-i 舊引擎介面版／檔案版低於薄殼首行且要重產 進 git 的薄殼 → 拒絕"],
+ ["undev <repo>／vendor_kit", "完成；未啟用 → 提示", "指紋不同", "重新 fetch 失敗（保留可恢復狀態）", "—", "6-18／6-19"],
+ ["sync [<repo>] [--verify]", "快路徑（不起容器）；fetch／verify 完成", "薄殼不符（6-1，不重寫）；未完成接入（6-13）；CI 下基準版落後（6-5）；CI 下任何本機覆寫；未完成交易（6-33）", "pull 失敗／逾時；verify 失敗且重裝失敗", "—", "6-18／6-19"],
+ ["prune", "完成（印刪了什麼、保留什麼；活躍 .tmp.* 只列出）；dry-run 零刪除", "vk-resolve 不合（6-30）；無 tty 需問（6-4）", "任一 docker rm／image rm／network rm／volume rm 失敗（摘要全列）", "—", "6-18／6-19"],
+ ["help／h", "印說明（不觸網、不安裝）", "—", "—", "—", "P < 最低介面版 → 3 + 6-18（零寫入；任何動詞含 help、救援路徑皆同）"],
+ ["ci/check.sh", "⓪～⑤ 全過", "⓪ version.local.toml 被 track；① sync 的 1；② verify 印記不符；③ upgrade --dry-run 需改 進 git 的檔（印清單）", "④⑤ 工具／專案測試原碼傳出", "③ 仍有衝突標記", "① 的 3（P < 最低介面版 6-18／6-19）"],
+]
+FE = {}
+for r in range(len(ROWS_E)):
+    FE[(r, 1)] = C_OK; FE[(r, 2)] = C_ACT; FE[(r, 3)] = C_FAIL; FE[(r, 4)] = C_ACT; FE[(r, 5)] = C_ACT
+for r in range(len(ROWS_E)):
+    for c in range(1, 6):
+        if ROWS_E[r][c] == "—": FE[(r, c)] = "#ffffff"
+y = table(p14, "te", 40, y, [("動詞", 170), ("0 成功（綠）", 250), ("1 需人處理（橙：印指令）", 420), ("1 失敗（紅）", 260), ("2 衝突／有新版（橙）", 240), ("3 版本不合（橙；零寫入）", 210)], ROWS_E, FE) + 24
+y0 = y
+y1 = box(p14, "k14a", RULE, "多工具彙總（已定，Q27）：不帶 repo 的動詞先完整預檢（任一預檢失敗才整體不動）→ 做得完的做完 → 最後回最需要處理的碼：失敗 1 > 衝突 2 > 有新版 2 > 0；update 同時遇 1 與 2 → 1；訊息全列；舊薄殼對未知碼原樣傳出、不吞", 40, y0, 500)
+y2 = box(p14, "k14b", RULE, "結束碼 3 邊界（已定，Q23、v2.7-4）：介面版／檔案版不合，須先升級或退回才能繼續；P < 最低介面版 → 任何動詞（含 help、救援路徑）都回 3 + 6-18；回 3 時零寫入、無任何例外；新舊以介面版／檔案版比較，不用版本字串；最低介面版檢查先於任何上網；網路／認證／不存在 → 1，不得偽裝成 3；既定回 1（印記不符、薄殼被改、自身升級完成要重跑）維持 1", 560, y0, 520)
+y3 = box(p14, "k14c", RULE, "CI 對應動作（已定）：0 → 過（merge）；1 → 修（照訊息裡的指令：本機 upgrade <repo> -y 後 commit 並 push／add／undev／git checkout 還原薄殼／加 -y／設 token）；2 → 解衝突（編輯檔案去掉 <<<<<<< vendor_kit:baseline 標記 → 重跑 upgrade 直到乾淨）；3 → 換版本（upgrade vendor_kit／git revert／bootstrap.sh 重建）", 1100, y0, 490)
+y = max(y1, y2, y3) + 16
+y1 = box(p14, "k14d", NOTE, "圖上顏色對應（v2.6-15、v2.7-8）：0 = 綠橢圓；1 需人處理（印指令：請先 undev／請先 add／請先 git init／請重跑／請 upgrade vendor_kit／請設 token 或指定 @<tag>）= 橙橢圓；2 = 橙；3 = 橙；1 失敗（拉不到、寫入失敗、驗證失敗）= 紅橢圓", 40, y, 500)
+y2 = box(p14, "k14e", NOTE, "check.sh 整體結束碼 = 第一個失敗步驟的碼：⓪ local 被 track → 1；① sync 1／3；② verify 1；③ upgrade --dry-run：需改 tracked → 1、仍有衝突標記 → 2；④⑤ 原碼傳出（1／2／3 語意只對 vendor_kit 自身步驟成立）；⓪–⑤ 六步、一關過才下一關", 560, y, 520)
+y3 = box(p14, "k14f", NOTE, "「—」= 該動詞沒有這個結束碼；表內 6-N = interface_spec §6 逐字訊息編號；dry-run 在本機一律 0（CI 模式且需改 進 git 的檔 → 1）；EOF／Ctrl-C 中止 apply → 1、不套用、不記 declined；sync --verify（F5 已定）= 每檔 sha256 全驗，結束碼同 sync", 1100, y, 490)
+y = max(y1, y2, y3) + 30
+foot(p14, "p14", y, T14, {"rule", "note", "hdr", "c0", "cx", "c1", "cell"}, conv=False)
+pages_v1_c.append(("v1p14", "結束碼決策表 v2", p14))
+
+# ================= P15：vendor_kit release（1）build → 測試 → 驗收 =================
+COLS_RL = [("維護者（VK）", 40, 220), ("GitHub Actions", 280, 560), ("GHCR", 860, 320), ("Release 資產", 1200, 390)]
+MT, GA, GH, RA = "維護者（VK）", "GitHub Actions", "GHCR", "Release 資產"
+T15 = [
+ ("release", "vendor_kit 引擎的一次發行：候選 → 兩平台各自 build → release-test → 綠了才 push-by-digest → 合成 index 打候選 tag → 驗收（完整 §7.4 矩陣，fixture 第一行 = 候選 ref@index digest）→ 兩平台一致 → 產資產 → 正式 GHCR image tag vN + Git tag vN → Release；任一關失敗就不成為正式版；已釋出 image／Release 資產／fixture 永不刪"),
+ ("候選 tag／正式 tag", "候選 image 先以候選 tag（vN-rc.<n> 或 candidate-<sha>）推上 GHCR；index inspect 與資產都對候選 tag 做；全過才 docker buildx imagetools create 打正式 GHCR image tag vN（不重 build、index digest 不變）；Git tag vN 是 repo 上的另一個物件，圖上分開標"),
+ ("多架構 image／index digest（#26）", "兩個 runner（amd64、arm64 原生）各自單平台 build + release-test，綠了才 push-by-digest，由單一 job 以 docker buildx imagetools create 合成 index（不是同一次 buildx --platform 多平台；兩 runner 各自 push 同 tag 會互相覆蓋）；index 的 sha256 = version.toml 鎖定用的 digest"),
+ ("release-test", "amd64 與 arm64 原生 runner（不用 QEMU 當閘門）各跑 env-test + 一條完整主機流程（install → add → upgrade → dev/undev → remove → prune → uninstall）；rootless docker 與 Podman 進矩陣；just 1.33.0 + latest"),
+ ("env-test", "release-test 的第一段：在乾淨 runner 驗主機需求（docker ≥ 19.03、just ≥ 1.33.0、POSIX sh、git）與引擎 image LABEL 齊全；過了才跑完整主機流程"),
+ ("驗收（§7.4）", "完整驗收矩陣 35 條（逐條見契約⑤頁的驗收矩陣）：最低介面版以來每個已釋出 bootstrap.sh(r) + 引擎 image r 建 fixture 驅動候選 C；連升；跳升；降版；離線包；私有 registry；append；空白路徑；worktree；rootless／Podman；prune；多工具；F1；無 tty；Renovate；動詞集合；執行紀錄 fail-closed…；缺任一不得出貨（§8-12）"),
+ ("fixture", "驗收用的乾淨小 git repo：用已釋出的 bootstrap.sh(r) 接入後把第一行改成候選 C 跑完整流程；禁止由候選樹複製、禁 stub 引擎；fixture 永不刪"),
+ ("兩平台一致檢查", "下游 dist：兩平台逐檔位元組一致（路徑、型別、hash、權限、禁 symlink）；引擎 image：兩平台 LABEL（….protocol、….schema）一致；index inspect 斷言含 linux/amd64 與 linux/arm64"),
+ ("bootstrap.sh（release 資產）", "release 附的 POSIX sh 薄層，內嵌所屬引擎的完整 ref（ghcr.io/<org>/vendor_kit:vN@sha256:<index digest>）；檔名固定：releases/download/vN/bootstrap.sh，README 連 releases/latest/download/bootstrap.sh；離線契約入口 = bootstrap.sh --local <tar>"),
+ ("tar／.digest／SHA256SUMS（#27、Q26）", "各平台 docker save 的 tar 旁附同名 .digest 旁檔（一行 sha256:<hex64> = 正式 index digest）；SHA256SUMS 涵蓋 bootstrap.sh、各平台 tar 與 .digest、離線包、lnav format 檔（不含自身）；離線包 vendor_kit-vN-local.tar.gz 含 bootstrap.sh、各平台 tar + .digest，另附 local_bootstrap.sh 便利包裝（非契約，v2.7-1）；Release 另附 lnav format 檔（§4.10）"),
+ ("LABEL", "引擎 image build 時帶 io.github.<org>.vendor_kit=1、….protocol=<floor_P>-<current_P>、….schema=<N>（啟動器不起容器即可判最低介面版）"),
+ ("SemVer", "版本號 major.minor.patch；update 取 tags/list 中 SemVer 最大的正式版（預發行如 -rc 排除）；major = 提高最低介面版或需要下游使用者手動步驟；minor = 新功能（含介面版 +1、新增欄位）；patch = 修正；Renovate preset 建議 major 分開 PR"),
+]
+N15 = "已定（#26 多架構、#27 bootstrap.sh 交付、Q26 .digest、v2.7-1、v2.15-9／-15、interface_spec §4.7 image 命名／label、§7.4 驗收、§8-12；decisions/multiarch 最終建議）：兩架構原生 runner 分建分測、綠了才 push-by-digest 再由單一 job 合成 index 打候選 tag；驗收（完整 §7.4 矩陣）對候選 tag 做（fixture 第一行寫候選 ref@index digest）、在正式 release 之前；全過才打正式 vN（digest 不變）；bootstrap.sh 內嵌完整 ref；各平台 tar + .digest + SHA256SUMS 進 Release；local_bootstrap.sh 只是便利包裝（非契約）；失敗不進正式 tag；已釋出物永不刪。"
+_T15 = {r[0]: r for r in T15}
+T15A = [_T15["release"], _T15["候選 tag／正式 tag"], _T15["多架構 image／index digest（#26）"], _T15["release-test"], _T15["env-test"], _T15["驗收（§7.4）"], _T15["fixture"], _T15["兩平台一致檢查"]]   # ≤ 8
+T15B = [_T15["候選 tag／正式 tag"], _T15["多架構 image／index digest（#26）"], _T15["bootstrap.sh（release 資產）"], _T15["tar／.digest／SHA256SUMS（#27、Q26）"], _T15["LABEL"], _T15["SemVer"]]
+p15, F = newpage_c("流程 v2：vendor_kit release（1）── build → release-test → 候選 tag → 驗收（#26／#27、§7.4）", N15, COLS_RL, gap=28)
+b = F.band("bR", "release vN（1）：兩平台各自 build → release-test 都綠 → push-by-digest → 合成 index 打候選 tag → inspect → 驗收（完整 §7.4 矩陣，對候選 tag）→ 兩平台一致 → 否 → 候選作廢；是 → 續「release（2）」頁", v2=True)
+b.box("v0", MT, 0, G12, "推候選（候選 commit／workflow_dispatch 指定 vN）", 220)
+b.box("v1", GA, 0, W12, "workflow 觸發：amd64 job + arm64 job（原生 runner）", 560)
+b.box("v2", GA, 1, W12, "build（#26）：兩 runner 各自單平台 buildx build（同一份 Dockerfile；LABEL =1／.protocol／.schema）", 560)
+b.box("v3a", GA, 2, W12, "release-test（各平台原生）：env-test", 560)
+b.box("v3n", RA, 2, NOTE, "release-test 環境矩陣：rootless docker、Podman 各跑一次", 390)
+b.box("v3b", GA, 3, W12, "release-test：完整主機流程 install → add → upgrade → dev/undev → remove → prune → uninstall", 560)
+b.box("v3n2", RA, 3, NOTE, "原生 runner 各跑一次；不用 QEMU 當閘門", 390)
+b.box("v3x", MT, 4, R12, "否 → 失敗：候選作廢（不推 image、不發 Release）", 220)
+b.box("v3q", GA, 4, D12, "release-test 兩平台都綠？", 300, ax="l")
+b.box("v3n3", RA, 4, NOTE, "just 版本矩陣：1.33.0 + latest（latest 非 required）", 390)
+b.box("v8a", GA, 5, W12, "是：兩平台各自 push-by-digest（不打 tag）", 560)
+b.box("v8ag", GH, 5, IMG, "ghcr.io/<org>/vendor_kit@sha256:<amd64 digest>、@sha256:<arm64 digest>", 320)
+b.box("v8b", GA, 6, W12, "單一 job：docker buildx imagetools create -t vendor_kit:vN-rc.<n> <兩個 digest> → 合成 index（候選 GHCR image tag）", 560)
+b.box("v8bg", GH, 6, IMG, "ghcr.io/<org>/vendor_kit:vN-rc.<n> @sha256:<index digest>（多架構；候選 tag）", 320)
+b.box("v8c", GA, 7, W12, "docker buildx imagetools inspect <候選 index>", 560)
+b.box("v8cx", MT, 8, R12, "否 → 失敗：候選 tag 留著、不打正式 vN、不發 Release（候選作廢）", 220)
+b.box("v8cq", GA, 8, D12, "index 含 linux/amd64 + linux/arm64？", 300, ax="l")                  # 斷言失敗要有終點（§8-12；r11）
+b.box("v4a", GA, 9, W12, "是：驗收：以已釋出 bootstrap.sh(r) + 引擎 image r 建 fixture（最低介面版以來每一版）", 560)
+b.box("v4g", GH, 9, IMG, "已釋出引擎 image r（最低介面版以來每一版；永不刪）", 320)
+b.box("v4r", RA, 9, F12, "已釋出 bootstrap.sh(r)（Release 資產；永不刪）", 390)
+b.box("v4b", GA, 10, v2(W12), "fixture 的 version.toml 第一行改成候選 C：vendor_kit:vN-rc.<n>@sha256:<index digest>（dev vendor_kit -i 同一機制）", 560)
+b.box("v4c", GA, 11, W12, "執行完整 §7.4 驗收矩陣（35 條，逐條見契約⑤頁的驗收矩陣；缺任一不得出貨）", 560)
+b.box("v4x", MT, 12, R12, "否 → 失敗：候選作廢；印失敗的條號", 220)
+b.box("v4q", GA, 12, D12, "驗收 35 條全過？", 300, ax="l")
+b.box("v6a", GA, 13, W12, "是：兩平台一致檢查：下游 dist 逐檔位元組一致", 560)
+b.box("v6n", RA, 13, NOTE, "已定（decisions/multiarch）：不能靠單一 bake --push 帶測試就宣稱「失敗就不發佈」；分架構各自 build／test，綠了才 push-by-digest，最後由單一 job 合成 index；兩 runner 各自 push 同 tag 會互相覆蓋", 390)
+b.box("v6b", GA, 14, W12, "兩平台一致檢查：引擎 image 兩平台 LABEL（protocol／schema）一致", 560)
+b.box("v7x", MT, 15, R12, "否 → 失敗：不發 Release、不進正式 tag（候選作廢；候選 tag 留著）", 220)
+b.box("v7", GA, 15, D12, "兩平台一致？", 220, ax="l")
+b.box("v7z", GA, 16, ENTRY, "是 → 續「release（2）」頁：bootstrap.sh／tar／.digest／離線包／SHA256SUMS → 正式 tag → Release", 560)
+b.H("ve0", "v0", "v1"); b.D("ve1", "v1", "v2"); b.D("ve2", "v2", "v3a"); b.H("ve2n", "v3a", "v3n"); b.D("ve2b", "v3a", "v3b"); b.H("ve2n2", "v3b", "v3n2"); b.D("ve3", "v3b", "v3q", al=True)
+b.H("ve3x", "v3q", "v3x", "否"); b.D("ve3y", "v3q", "v8a", "是", al=True)
+b.H("ve10g", "v8a", "v8ag", "推"); b.D("ve11", "v8a", "v8b"); b.H("ve11g", "v8b", "v8bg", "建"); b.D("ve11c", "v8b", "v8c")
+b.D("ve11q", "v8c", "v8cq", al=True); b.H("ve11x", "v8cq", "v8cx", "否"); b.D("ve12", "v8cq", "v4a", "是", al=True)
+b.H("ve4", "v4a", "v4g", "拉")
+_A = geo(b); _ax, _ay, _aw, _ah = _A["v4a"]; _rx, _ry, _rw, _rh = _A["v4r"]   # 「取」線改走列上方縫隙（gap=28：線在列頂上 10px、標籤在線上方；r13 ve4r）
+_top = min(_ay, _ry, _A["v4g"][1]) - 10
+b.P("ve4r", "v4a", "v4r", "取", (0.9, 0), (0.5, 0), [(_ax + 0.9 * _aw, _top), (_rx + _rw / 2, _top)], pos=0.55)   # 由 v4a 取 bootstrap.sh(r)，不從 image 指向檔案（r11）
+b.D("ve4b", "v4a", "v4b"); b.D("ve4c", "v4b", "v4c"); b.D("ve4q", "v4c", "v4q", al=True); b.H("ve4x", "v4q", "v4x", "否"); b.D("ve5", "v4q", "v6a", "是", al=True)
+b.H("ve6n", "v6a", "v6n"); b.D("ve6b", "v6a", "v6b"); b.D("ve7", "v6b", "v7", al=True); b.H("ve8", "v7", "v7x", "否")
+b.D("ve9", "v7", "v7z", "是", al=True)
+b.close()
+foot(p15, "p15", F.y, T15A, {"note", "img", "hdr", "v2", "entry"}, conv=False, white="白：CI job 做")   # release 流程不是啟動器／引擎執行：無執行紀錄約定
+pages_v1_c.append(("v1p15", "流程 v2：vendor_kit release（1）build 與驗收", p15))
+
+# ================= P15c：vendor_kit release（2）資產 → 正式 tag → Release =================
+p15c, F = newpage_c("流程 v2：vendor_kit release（2）── 資產 → 正式 tag → Release（#26／#27、Q26）", N15, COLS_RL)
+b = F.band("bR2", "release vN（2）：候選全過才 → 產 bootstrap.sh → tar + .digest → 離線包 → lnav format → SHA256SUMS → 正式 GHCR image tag vN（digest 不變）→ Git tag vN → Release 草稿 → 上傳資產 → release notes → 發布", v2=True)
+b.box("v8e", GA, 0, ENTRY, "來自「release（1）」頁：候選 tag 已推、驗收（對候選 index digest）與兩平台一致全部通過", 560)
+b.box("v9", GA, 1, W12, "產 bootstrap.sh：內嵌完整引擎 ref（vendor_kit:vN@index digest；digest 與候選 tag 相同）；檔名固定", 560)
+b.box("v9r", RA, 1, F12, "bootstrap.sh（releases/download/vN/；latest 連結指向最新）", 390)
+b.box("v10a", GA, 2, W12, "docker save 各平台 image → vendor_kit-vN-amd64.tar、vendor_kit-vN-arm64.tar", 560)
+b.box("v10ar", RA, 2, F12, "vendor_kit-vN-<平台>.tar（各平台一個）", 390)
+b.box("v10b", GA, 3, W12, "寫同名 .digest 旁檔（一行 sha256:<hex64> = index digest）", 560)
+b.box("v10br", RA, 3, F12, "vendor_kit-vN-<平台>.tar.digest", 390)
+b.box("v10c", GA, 4, W12, "組離線包 vendor_kit-vN-local.tar.gz", 560)
+b.files("v10cr", RA, 4, "離線包內容", ["bootstrap.sh（契約入口：bootstrap.sh --local <tar>）", "各平台 tar + .tar.digest", "local_bootstrap.sh：便利包裝（非契約；偵測架構、挑 tar、exec bootstrap.sh --local）"], 390)
+b.box("v10e", GA, 5, v2(W12), "產 lnav format 檔（§4.10：json、timestamp-field、level-field、opid-field=trace_id、body-field、file-pattern .vendor_kit/log/*/*.jsonl）", 560)
+b.box("v10er", RA, 5, v2(F12), "vendor_kit-log.lnav.json（lnav format；timeline 用）", 390)
+b.box("v10d", GA, 6, W12, "寫 SHA256SUMS：涵蓋 bootstrap.sh、各平台 tar 與 .digest、離線包、lnav format 檔（不含自身）", 560)
+b.box("v10dr", RA, 6, F12, "SHA256SUMS", 390)
+b.box("v11g", GA, 7, v2(W12), "打正式 GHCR image tag：docker buildx imagetools create -t vendor_kit:vN <候選 index>（不重 build，index digest 不變）", 560)
+b.box("v11gg", GH, 7, v2(IMG), "ghcr.io/<org>/vendor_kit:vN @sha256:<同一 index digest>（正式 tag；公開）", 320)
+b.box("v11a", GA, 8, W12, "打 Git tag vN（指向候選 commit；與 GHCR image tag 是兩個物件）", 560)
+b.box("v11b", GA, 9, W12, "建立 GitHub Release vN（草稿）", 560)
+b.box("v11c", GA, 10, W12, "上傳資產：bootstrap.sh、tar、.digest、離線包、lnav format 檔、SHA256SUMS", 560)
+b.box("v11d", GA, 11, W12, "寫 release notes：index digest、不用腳本的替代 docker run 指令", 560)
+b.box("v11e", GA, 12, v2(W12), "發布 Release vN（草稿 → 公開）", 560)
+b.box("v11n", RA, 12, NOTE, "已釋出 image／Release 資產／fixture 永不刪；下游 Renovate 會看到新 tag@digest", 390)
+b.box("v12", MT, 13, G12, "0：Release vN 發布", 220)
+b.D("ve12", "v8e", "v9")
+b.H("ve12r", "v9", "v9r", "產"); b.D("ve13", "v9", "v10a"); b.H("ve13r", "v10a", "v10ar", "產")
+b.D("ve13b", "v10a", "v10b"); b.H("ve13br", "v10b", "v10br", "寫"); b.D("ve13c", "v10b", "v10c"); b.H("ve13cr", "v10c", "v10cr", "組")
+b.D("ve13e", "v10c", "v10e"); b.H("ve13er", "v10e", "v10er", "產")
+b.D("ve13d", "v10e", "v10d"); b.H("ve13dr", "v10d", "v10dr", "寫"); b.D("ve14", "v10d", "v11g"); b.H("ve14g", "v11g", "v11gg", "打"); b.D("ve14a", "v11g", "v11a"); b.D("ve15", "v11a", "v11b"); b.D("ve15b", "v11b", "v11c"); b.D("ve15c", "v11c", "v11d"); b.D("ve15d", "v11d", "v11e"); b.H("ve15n", "v11e", "v11n")
+b.DL("ve16", "v11e", "v12")
+b.close()
+foot(p15c, "p15c", F.y, T15B, {"note", "img", "hdr", "v2", "entry"}, conv=False, white="白：CI job 做")
+pages_v1_c.append(("v1p15c", "流程 v2：vendor_kit release（2）推 image 與資產", p15c))
+
+# ================= P16：離線包（1）bootstrap.sh --local =================
+COLS_OF = [("下游使用者（離線機）", 40, 230), ("bootstrap.sh（主機 sh）", 290, 400), ("docker daemon", 710, 240), ("引擎容器", 970, 320), ("專案目錄", 1310, 280)]
+SH = "bootstrap.sh（主機 sh）"; UO = "下游使用者（離線機）"
+COLS_OF2 = [("下游使用者（離線機）", 40, 230), ("啟動器（主機 sh）", 290, 400), ("docker daemon", 710, 240), ("引擎容器", 970, 320), ("專案目錄", 1310, 280)]
+LA = "啟動器（主機 sh）"
+T16 = [
+ ("離線包（#27、Q26）", "Release 資產 vendor_kit-vN-local.tar.gz：bootstrap.sh、各平台 docker save 的引擎 tar + 同名 .digest 旁檔，另附 local_bootstrap.sh 便利包裝；只含引擎、不含任何工具 tar；在有網路的機器下載後帶到離線機；只涵蓋 install／add --local，離線 upgrade 不支援"),
+ ("bootstrap.sh --local（契約入口）", "離線接入的契約入口 = bootstrap.sh --local <引擎 tar>（interface_spec §1.2）：只涉及引擎（docker load → install）；-t <repo> 走 registry、需網路，離線機不帶；前置檢查（git repo、just ≥ 1.33.0）不分值型別一律先做、在建執行紀錄之前；值的判別依序互斥（B1，v3.5）：以 .tar 結尾 → 檔案（必須存在）→ load + 讀 .digest；否則含 / 且存在同名檔 → 1 + 6-37；否則 → image tag（只 inspect image ID；含 / 但無同名檔的完整 ref 也是 tag 形）"),
+ ("add --local 只收 tar（v2.10-3）", "add --local <值> 只接受存在的 .tar 檔（新工具沒有既有 digest 可用；tag 形只對 bootstrap.sh --local 有意義）；不是存在的 .tar → 1 + 6-24 add --local 分句「add --local 只接受存在的 .tar 檔：<v>」；§1.1 選項表的 tag 形只適用 bootstrap.sh"),
+ ("工具 tar（來源，v2.8-5）", "離線接工具要另備工具 tar：由下游 repo 自己提供（docker save 的 <repo>-dist image + 同名 .tar.digest 旁檔，一行 sha256:<hex64> = 該工具的正式 index digest），不在 vendor_kit 離線包內；下游使用者在有網路的機器取得、帶到離線機，逐工具執行 just vendor_kit add <repo> --local <工具 tar>"),
+ ("local_bootstrap.sh（便利包裝，非契約）", "離線包內附的可選腳本：docker version --format '{{.Server.Arch}}' 偵測 daemon 架構 → 挑該平台引擎 tar → exec ./bootstrap.sh --local <tar> \"$@\"；不是契約入口、不另定介面（v2.7-1）"),
+ (".digest 旁檔", "<name>.tar 旁的 <name>.tar.digest：一行 sha256:<hex64> = 該 image 的正式多架構 index digest（同名旁檔須同在，缺 → 1 + 6-24 主機錯誤分類）；--local 用它寫 version.toml 正式 ref@digest（不寫本機 tag），metadata 記 local_image_id"),
+ ("image ID 記錄", "docker load 後的 image 只有 tag、沒有 RepoDigests；docker image inspect --format '{{.Id}}' 取 image ID：引擎的本機覆寫記 version.local.toml vendor_kit_image_id、工具記 metadata local_image_id（image ID ↔ index digest 對照，供離線驗證）"),
+ ("baseline/.gitkeep", "VK 自產的進 git 空檔：git 不追蹤空目錄，所以 baseline/ 靠它進 git；install 建、uninstall 刪、hash 固定為空檔（§4.0；v2.15-14）；工具的 metadata 由 add 才建（baseline/<repo>/.vendor_kit.toml 兼作該工具目錄的佔位）"),
+ ("離線可用（Q26）", "啟動器一律先 docker image inspect：本機有 → 不 pull（不用 --pull never）；斷網 + 本機已有 image → sync／build 必須成功；斷網 + 無 image → docker pull 失敗 → 1 + 6-24／6-31 在 --timeout 內結束、不 hang；離線 upgrade 不支援"),
+ ("sync 快路徑（Q22）／--verify（F5）", "sync（無參數）啟動器只用 grep 比對 gen/.stamp 第一行 == version.toml 引擎 ref、gen/<repo>.stamp 第一行 == 鎖定 digest、每個 cache/<repo>/ 存在（目錄或 symlink）、tools.just 存在、無 .tmp.*、非 CI 模式 → 全相符不起容器 0；有差才起引擎；sync --verify 或 CI 模式或版本變動那次 → 先驗既有 cache（每檔 sha256），不符才重裝一次，再驗仍不符 → 失敗"),
+ T_MSG,
+]
+N16 = "已定（Q26、v2.6-1、v2.7-1／-2、v2.8-4／-5、v2.13 P4、v2.15-2／-14／-17、v2.16-4、interface_spec §1.2、§4.8、§7.4-16／17）：契約入口 = bootstrap.sh --local <引擎 tar>，只涉及引擎（local_bootstrap.sh 非契約）；先驗 git／just 再建執行紀錄；--local 依序判別（.tar 結尾 → 檔案；否則含 / 且有同名檔 → 6-37；否則 tag）；最低介面版檢查在起容器之前（斷網也回 3）；tar 附同名 .digest；install 第一個寫入前建 .tmp.install；version.toml 寫正式 ref@digest；離線 upgrade 不支援。"
+COLS_OF1 = [("下游使用者（離線機）", 40, 230), ("bootstrap.sh（主機 sh）", 290, 400), ("docker daemon", 710, 240), ("bootstrap.sh（tag 形分支）", 970, 320), ("專案目錄", 1310, 280)]   # 本頁無引擎容器：第 4 欄給 tag 形分支（同一個 bootstrap.sh）
+SH2 = "bootstrap.sh（tag 形分支）"
+p16, F = newpage_c("流程 v2：離線包（1）── bootstrap.sh --local → 判別值 → load → image ID → 介面版（#27、Q26）", N16, COLS_OF1, gap=14)
+b = F.band("bO1", "離線接入（1）只涉及引擎：bootstrap.sh --local <引擎 tar> → 前置檢查（git／just）→ 執行紀錄 → 判別值（.tar → 檔案；含 / 且有同名檔 → 6-37；否則 tag）→ load + .digest（tag 形只 inspect）→ image ID → LABEL 最低介面版 → 續（1′）", v2=True)
+b.box("o0", UO, 0, G12, "有網路的機器下載離線包 vendor_kit-vN-local.tar.gz → 帶到離線機", 230)
+b.box("o1", UO, 1, W12, "解開（SHA256SUMS 驗）：bootstrap.sh、各平台引擎 tar + .digest、local_bootstrap.sh；不含工具 tar", 230)
+b.box("o1w", UO, 2, LBL, "【便利包裝，非契約】（可選）sh local_bootstrap.sh [-y] 做三步：", 500, 24, ax="l", minh=24)
+b.box("o1a", UO, 3, W12, "docker version 偵測 daemon 架構（.Server.Arch）", 230)
+b.box("o1b", UO, 4, W12, "挑該平台的引擎 tar（vendor_kit-vN-<arch>.tar）", 230)
+b.box("o1c", UO, 5, W12, "exec ./bootstrap.sh --local <tar> \"$@\"", 230)
+b.box("o2", UO, 6, W12, "sh bootstrap.sh --local <引擎 tar> [-y]（契約入口；-t <repo> 走 registry 需網路，離線機不帶）", 230)
+b.box("o5x", UO, 7, O12, "否 → 1 + 6-16：請先 git init（執行紀錄尚未建）", 230)
+b.box("o5", SH, 7, D12, "在 git repo 內？", 300, ax="l")
+b.box("o6x", UO, 8, O12, "否 → 1 + 6-23：請裝 release 版 just（執行紀錄尚未建）", 230)
+b.box("o6", SH, 8, D12, "just ≥ 1.33.0？", 300, ax="l")
+b.box("o2s", SH, 9, v2(W12), "是：建執行紀錄 log/bootstrap/<ts>-<id8>.jsonl", 400)
+b.box("o2x", UO, 10, v2(R12), LSX, 230)
+b.box("o2s2", SH, 10, v2(W12), LST2, 400)
+b.box("o3", SH, 11, v2(D12), "--local 值以 .tar 結尾？", 300, ax="l")
+b.box("o3n", P, 11, v2(RULE), "已定（B1 依序互斥；v3.5 #164、v2.16-4）：以 .tar 結尾 → 檔案路徑（必須存在）→ docker load；否則含 / 且存在同名檔 → 1 + 6-37；否則 → image tag（不 load、只 inspect，本機無 → 1；含 / 但無同名檔的完整 ref 也是 tag 形）；前置檢查（git／just）不分型別一律先做、在建執行紀錄之前", 280)
+b.box("o3bx", UO, 12, v2(O12), "否 → 1：檔案路徑必須存在（請檢查路徑）", 230)
+b.box("o3b", SH, 12, D12, "是：該路徑的檔案存在？", 300, ax="l")
+b.box("o3c", SH2, 12, v2(D12), "否：值含 / 且存在同名檔？", 300, ax="l")
+b.box("o3cx", P, 12, v2(O12), "是 → 1 + 6-37：--local 的值 <v> 既是存在的檔案也可解讀為 image tag。要指定檔案請用以 .tar 結尾的路徑；要指定 image 請先移走或改名同名檔 <v>。", 280)
+b.box("o4x", UO, 13, R12, "否 → 1 + 6-24（主機錯誤）：同名 .tar.digest 旁檔缺", 230)
+b.box("o4", SH, 13, D12, "是：同名 .tar.digest 存在？", 300, ax="l")
+b.box("o3t", SH2, 13, v2(W12), "否 → tag 形：不 load、不讀 .digest", 300)
+b.box("o6c", SH, 14, W12, "是：docker load < <引擎 tar>", 300, ax="l")
+b.box("o6d", DK, 14, IMG, "本機 image vendor_kit:vN（只有 tag、無 RepoDigests）", 220)
+b.box("o3ti", SH2, 14, v2(D12), "docker image inspect <tag>：本機有此 image？", 300, ax="l")
+b.box("o3tx", P, 14, v2(R12), "否 → 1：本機無此 image（tag 形：先 docker load 或改給 tar）", 280)
+b.box("o7a", SH, 15, W12, "讀 <tar>.digest → 正式 index digest", 300, ax="l")
+b.box("o7b", SH, 16, W12, "docker image inspect --format '{{.Id}}' → image ID（tag 形由此匯入：跳過 load 與 .digest）", 400)
+b.box("o7bd", DK, 16, NOTE, "結果：回 image ID（sha256:<hex64>）", 220)
+b.box("o7cx", UO, 17, v2(O12), "否 → 3 + 6-18：零寫入（斷網也回 3；請以較新的離線包重建）", 230)
+b.box("o7c", SH, 17, v2(D12), "inspect LABEL ….protocol：image 的介面版 ≥ 薄殼最低介面版？（不起容器、不上網）", 400, ax="l")
+b.box("o7z", SH, 18, ENTRY, "是 → 續「離線包（1′）」頁：docker run 本機 image install → version.local.toml", 400)
+b.D("oe0", "o0", "o1"); b.D("oe1", "o1", "o1w", al=True); b.D("oe1a", "o1w", "o1a", al=True); b.D("oe1b", "o1a", "o1b"); b.D("oe1c", "o1b", "o1c"); b.D("oe1w", "o1c", "o2")
+b.H("oe6x", "o5", "o5x", "否"); b.D("oe6b", "o5", "o6", "是", al=True); b.H("oe6bx", "o6", "o6x", "否"); b.D("oe6c", "o6", "o2s", "是", al=True); b.D("oe2s", "o2s", "o2s2"); b.H("oe2x", "o2s2", "o2x"); b.D("oe2l", "o2s2", "o3", al=True)
+b.RD("oe3c", "o3", "o3c", "否"); b.D("oe3b", "o3", "o3b", "是", al=True); b.H("oe3bx", "o3b", "o3bx", "否")
+b.H("oe3cx", "o3c", "o3cx", "是"); b.D("oe3t", "o3c", "o3t", "否", al=True); b.D("oe3ti", "o3t", "o3ti", al=True); b.H("oe3tx", "o3ti", "o3tx", "否")
+b.D("oe4", "o3b", "o4", "是", al=True); b.H("oe5", "o4", "o4x", "否"); b.D("oe7", "o4", "o6c", "是", al=True)
+b.H("oe8", "o6c", "o6d", "載"); b.D("oe9", "o6c", "o7a"); b.D("oe9b", "o7a", "o7b", al=True); b.H("oe9d", "o7b", "o7bd")
+_A = geo(b); _tx, _ty, _tw, _th = _A["o3ti"]; _bx, _by, _bw, _bh = _A["o7b"]; _gy = _by - F.gap / 2   # tag 形匯入：從 o3ti 底端下到 o7b 上方縫隙、左到 o7b 右側 0.9 進頂端（縫隙內無其他格；不穿「載」線）
+b.P("oe3tj", "o3ti", "o7b", "是：tag 形（跳過 load／.digest）", (0.5, 1), (0.9, 0), [(_tx + _tw / 2, _gy), (_bx + 0.9 * _bw, _gy)], pos=-0.7, vert=True)
+b.D("oe9c", "o7b", "o7c", al=True); b.H("oe9cx", "o7c", "o7cx", "否"); b.D("oe10z", "o7c", "o7z", "是", al=True)
+b.close()
+_A = F.abs; _sx, _sy, _sw, _sh = _A["o2"]; _tx, _ty, _tw, _th = _A["o5"]; _gy = F.rt["o5"] - F.gap / 2   # o2 右側出、沿欄間 x=275 下到 o5 上方縫隙、右到 o5 頂點進（不與 o5 → o5x「否」線同段；r13 oe2）
+p16.append(_edge("oe2", "o2", "o5", "", (1, 0.5), (0.5, 0), [(275, _sy + _sh / 2), (275, _gy), (_tx + _tw / 2, _gy)]))
+_T16A = {r[0]: r for r in T16}
+T16A = [_T16A["bootstrap.sh --local（契約入口）"], _T16A["離線包（#27、Q26）"], _T16A[".digest 旁檔"], _T16A["image ID 記錄"], _T16A["local_bootstrap.sh（便利包裝，非契約）"], T_MSG]   # ≤ 8；add --local／工具 tar／斷網 sync 的名詞在「離線包（2）」頁
+foot(p16, "p16", F.y, T16A, {"note", "rule", "img", "hdr", "v2", "entry"})
+pages_v1_c.append(("v1p16", "流程 v2：離線包（1）bootstrap.sh --local", p16))
+
+# ================= P16i：離線包（1′）docker run install =================
+p16i, F = newpage_c("流程 v2：離線包（1′）── docker run 本機 image install → version.local.toml（#27、Q26、§4.8）", N16, COLS_OF, gap=14)
+b = F.band("bO1i", "離線接入（1′）：docker run 本機 image install（不 pull）→ 建進度檔 → 寫入（見 install 頁）→ 任一寫入失敗？是 → 引擎依進度檔清半成品 → 1；否 → 刪進度檔 → 寫 version.local.toml（本機 tag + image ID）→ 續（2）逐工具 add --local", v2=True)
+b.box("o8z", SH, 0, ENTRY, "來自「離線包（1）」頁：tar 已 load 並讀到正式 index digest（或 tag 形已核本機 image）；image ID 已取得、LABEL 介面版已過", 400)
+b.box("o8", SH, 1, W12, "docker run 本機 image install（本機有 → 不 pull）", 400)
+b.box("o8j", E, 1, SUB, "install：建進度檔 .tmp.install.<id>.toml（第一個寫入前；= 不留半成品的清除清單）", 320)
+b.box("o8jf", P, 1, F12, "＋.vendor_kit/.tmp.install.<id>.toml", 280)
+b.box("o8e", E, 2, ENTRY, "續「install（1′）」頁與「install（2）」頁的寫入段（與線上接入相同；version.toml 第一行最後寫）", 320)
+b.files("o8f", P, 2, "install 寫（log/ 由啟動器先建）", ["version.toml 第一行 = 正式 ref@digest（tar 形：.digest 旁檔；tag 形：既有 version.toml 值，第一次接入用 bootstrap.sh 內嵌引擎 ref）", "薄殼五檔、gen/.stamp", "baseline/.gitkeep（VK 自產進 git 空檔）", "config.toml ＋ 基準版副本 ＋ metadata", "justfile 一行、.dockerignore 四行"], 280)
+b.box("o8e2", E, 3, ENTRY, "來自「install（2）」頁：寫入段結束（成功或任一步失敗）", 320)
+b.box("o8x", UO, 4, v2(R12), "是 → 1：引擎依進度檔清半成品、不留半成品（log/ 保留）；引擎異常結束時由 bootstrap.sh 補清", 230)
+b.box("o8q", E, 4, v2(D12), "任一寫入失敗？", 220, ax="l")
+b.box("o8k", E, 5, v2(SUB), "否：刪進度檔 .tmp.install.<id>.toml（最後一步）= install 完成", 320)
+b.box("o8kf", P, 5, F12, "－.vendor_kit/.tmp.install.<id>.toml（刪）", 280)
+b.box("o9", SH, 6, W12, "install 成功後寫 version.local.toml：vendor_kit = \"vendor_kit:vN\" + vendor_kit_image_id", 400)
+b.box("o9f", P, 6, F12, "version.local.toml（不進 git）：本機 tag + image ID", 280)
+b.box("o9z", SH, 7, ENTRY, "續「離線包（2）」頁：另備工具 tar，逐一 add <repo> --local；之後斷網 sync 見「離線包（3）」頁", 400)
+b.D("oe10", "o8z", "o8", al=True)
+b.H("oe11", "o8", "o8j"); b.H("oe11f", "o8j", "o8jf", "建"); b.D("oe11e", "o8j", "o8e", al=True); b.H("oe12", "o8e", "o8f", "寫"); b.D("oe12e", "o8e", "o8e2"); b.D("oe12q", "o8e2", "o8q", al=True)
+b.H("oe13x", "o8q", "o8x", "是"); b.D("oe13n", "o8q", "o8k", "否", al=True); b.H("oe12kf", "o8k", "o8kf", "刪")
+b.DL("oe13", "o8k", "o9"); b.H("oe14", "o9", "o9f", "寫"); b.D("oe15", "o9", "o9z", al=True)
+b.close()
+T16I = [_T16A["離線包（#27、Q26）"], _T16A[".digest 旁檔"], _T16A["image ID 記錄"], _T16A["baseline/.gitkeep"], ("install 進度檔（v2.13 P5）", "第一次 install 也在第一個寫入前建 .tmp.install.<id>.toml：兼「不留半成品」的清除清單，失敗依它移除已寫的檔（log/ 保留）、成功後刪；修復型同"), T_MSG]
+foot(p16i, "p16i", F.y, T16I, {"note", "sub", "hdr", "v2", "entry"})
+pages_v1_c.append(("v1p16i", "流程 v2：離線包（1′）docker run install", p16i))
+
+# ================= P16c：離線包（2）add --local 逐工具 =================
+_T16 = {r[0]: r for r in T16}
+T_CACHE = ("gen/<repo>.stamp／gen/tools.just", "gen/<repo>.stamp = 印記（第一行 index digest，之後每檔 sha256）；gen/tools.just = 每工具一行 mod?（最後寫、與 cache 同一 apply 內原子替換）；都由引擎 apply（fetch 模組）寫")
+T16B = [_T16["add --local 只收 tar（v2.10-3）"], _T16["工具 tar（來源，v2.8-5）"], _T16[".digest 旁檔"], _T16["image ID 記錄"], T_FP, T_CACHE, T_MSG]   # ≤ 8；離線包／resolve 第 0 頁或（1）頁已有
+p16c, F = newpage_c("流程 v2：離線包（2）── 另備工具 tar → add --local 逐工具（Q26、§4.8、§7.4-16）", N16, COLS_OF2, gap=14)
+b = F.band("bO1b", "離線接工具（v2.8-5、v2.10-3）：另備工具 tar → 每工具各跑一次 add <repo> --local <tar>：執行紀錄 → 驗 .tar → load → .digest → image ID → resolve（0 且文法合）→ 續（2′）create／cp → apply", v2=True)
+b.box("oo0", UO, 0, ENTRY, "來自「離線包（1）」頁：install 完成（引擎可離線跑）", 230)
+b.box("oo1", UO, 1, W12, "有網路的機器下載工具 tar + 同名 .tar.digest（下游 repo 提供；不在 vendor_kit 離線包內）", 230)
+b.box("oo1n", P, 1, RULE, "已定（v2.8-5）：離線包只含引擎；離線接工具 = 另備工具 tar（下游 repo 的 docker save + .digest），逐工具 add --local；離線 upgrade 不支援", 280)
+b.box("oo1b", UO, 2, W12, "帶到離線機；之後每個工具各跑一次（一次一個）↓", 230)
+b.box("o10", UO, 3, W12, "just vendor_kit add <repo> --local <工具 tar> [--source <image>] [-y] [--dry-run] [--timeout <秒>]", 230)
+b.box("o10s", LA, 3, v2(W12), LST1.replace("<verb>", "add"), 400)
+b.box("o10sx", UO, 4, v2(R12), LSX, 230)
+b.box("o10s2", LA, 4, v2(W12), LST2, 400)
+b.box("o10qx", UO, 5, R12, "否 → 1 + 6-24 分句：add --local 只接受存在的 .tar 檔：<v>", 230)
+b.box("o10q", LA, 5, D12, "值是存在的 .tar 檔？", 300, ax="l")
+b.box("o10a", LA, 6, W12, "是：docker load < <工具 tar>", 400)
+b.box("o10d", DK, 6, IMG, "本機 image <repo>-dist:<tag>", 240)
+b.box("o10bx", UO, 7, R12, "否 → 1 + 6-24（主機錯誤）：同名 .tar.digest 旁檔缺", 230)
+b.box("o10bq", LA, 7, v2(D12), "同名 .tar.digest 存在？", 300, ax="l")                       # 旁檔缺 → 出口（與離線包(1) o4 一致；r11）
+b.box("o10b", LA, 8, W12, "是：讀 <工具 tar>.digest → 正式 index digest", 400)
+b.box("o10c", LA, 9, W12, "docker image inspect --format '{{.Id}}' → image ID", 400)
+b.box("o10cd", DK, 9, NOTE, "結果：回 image ID（sha256:<hex64>）", 240)
+b.box("o10r", LA, 10, W12, "docker run 引擎 resolve add <repo> --local（帶 index digest + image ID；永不 -t）", 400)
+b.box("o10re", E, 10, SUB, "resolve（不寫）：算 extract 清單與輸入指紋（不查 registry）", 320)
+b.box("o10re2", E, 11, SUB, "stdout vk-resolve/1：extract|<repo>|<本機 ref>、fingerprint、apply|yes、end|N", 320)
+b.box("o10rx", UO, 12, v2(O12), "否 → 1／2／3 原碼傳出：不讀 stdout、不跑 docker／apply", 230)
+b.box("o10rq", LA, 12, v2(D12), "resolve 結束碼 0？", 300, ax="l")
+b.box("o10vx", UO, 13, R12, "不合 → 1 + 6-30：不動 docker", 230)
+b.box("o10v", LA, 13, v2(D12), "是：收完整份、驗首尾／筆數／kind：文法合？", 300, ax="l")
+b.box("o10pz", LA, 14, ENTRY, "是 → 續「離線包（2′）」頁：docker create／cp → apply add", 400)
+b.D("oe20", "oo0", "oo1"); b.D("oe20b", "oo1", "oo1b"); b.D("oe21", "oo1b", "o10"); b.H("oe21s", "o10", "o10s"); b.D("oe21s2", "o10s", "o10s2"); b.H("oe21sx", "o10s2", "o10sx"); b.D("oe21q", "o10s2", "o10q", al=True)
+b.H("oe21x", "o10q", "o10qx", "否")
+b.D("oe22", "o10q", "o10a", "是", al=True); b.H("oe22d", "o10a", "o10d", "載"); b.D("oe23", "o10a", "o10bq", al=True); b.H("oe23x", "o10bq", "o10bx", "否"); b.D("oe23b", "o10bq", "o10b", "是", al=True)
+b.D("oe24", "o10b", "o10c"); b.H("oe24d", "o10c", "o10cd"); b.D("oe25", "o10c", "o10r"); b.H("oe25e", "o10r", "o10re"); b.D("oe25r", "o10re", "o10re2"); b.DL("oe26", "o10re2", "o10rq", "vk-resolve")
+b.H("oe26rx", "o10rq", "o10rx", "否"); b.D("oe26ry", "o10rq", "o10v", "是", al=True)
+b.H("oe26x", "o10v", "o10vx", "否"); b.D("oe26y", "o10v", "o10pz", "是", al=True)
+b.close()
+foot(p16c, "p16c", F.y, T16B, {"note", "rule", "sub", "img", "hdr", "v2", "entry"})
+pages_v1_c.append(("v1p16c", "流程 v2：離線包（2）add --local 逐工具", p16c))
+
+# ================= P16cb：離線包（2′）add --local：create／cp → apply（第十六輪自（2）拆頁）=================
+T16BB = [_T16["image ID 記錄"], T_FP, T_CACHE, T_MSG]
+p16cb, F = newpage_c("流程 v2：離線包（2′）── add --local：docker create／cp → apply add（Q26、§4.8、§7.4-16）", N16, COLS_OF2, gap=14)
+b = F.band("bO1c", "離線接工具（2′）（承「離線包（2）」頁）：docker create／cp 本機 image 的 dist → apply add（flock → 重驗指紋 → --dry-run → [progress] → metadata → 續 add（2）其餘寫入 → version.toml 最後寫）→ 0", v2=True)
+b.box("o10p0", LA, 0, ENTRY, "來自「離線包（2）」頁：resolve 0 且 vk-resolve 文法合（extract 清單、指紋）", 400)
+b.box("o10p", LA, 1, W12, "docker create／cp 取本機 image 的 dist 到暫存 .tmp.dist.<id>/<repo>/（不 pull）", 400)
+b.box("o10p2", LA, 2, W12, "docker run 引擎 apply add [--dry-run]（暫存唯讀掛進 /dist）", 400)
+b.box("o10ex", UO, 3, O12, "逾時 → 1 + 6-26：確認無其他 vendor_kit 在跑後重試", 230)
+b.box("o10e", E, 3, SUB, "apply add：拿 flock 專案目錄（60 秒）", 320)
+b.box("o10ex2", UO, 4, v2(O12), "≠ → 1 + 6-12：指紋不同，請重跑", 230)
+b.box("o10e2", E, 4, SUB, "重驗指紋（與 vk-resolve 的 fingerprint 比）", 320)
+b.box("o10dy", UO, 5, G12, "是 → 0：唯讀預覽會建／會問哪些檔（不建進度檔）", 230)
+b.box("o10dq", E, 5, D12, "--dry-run？", 200, ax="l")
+b.box("o10pg", E, 6, SUB, "否：metadata 建 [progress]（第一個寫入前）", 320)
+b.box("o10pgf", P, 6, F12, "＋baseline/<repo>/.vendor_kit.toml [progress]", 280)
+b.box("o10e3", E, 7, SUB, "寫 metadata：source（正式 ref@digest）+ local_image_id", 320)
+b.box("o10f", P, 7, F12, "metadata：source + local_image_id", 280)
+b.box("o10z", E, 8, ENTRY, "續「add（2）」頁：初始檔、基準版、cache/<repo>/、印記、gen/tools.just（與線上接入相同）", 320)
+b.box("o10z2", E, 9, ENTRY, "來自「add（2）」頁：其餘寫入完成", 320)
+b.box("o10e4", E, 10, SUB, "寫 version.toml [tools] 行：正式 ref@digest（最後寫）→ 刪 [progress]", 320)
+b.box("o10f2", P, 10, F12, "version.toml [tools] 行（正式 ref@digest；與線上接入相同）", 280)
+b.box("o11", UO, 11, G12, "0：該工具接入完成（version.toml 同線上）；下一個工具再跑 add", 230)
+b.D("oe26a", "o10p0", "o10p", al=True)
+b.D("oe26b", "o10p", "o10p2"); b.DL("oe26e", "o10p2", "o10e"); b.H("oe26ex", "o10e", "o10ex", "逾時"); b.D("oe26f", "o10e", "o10e2"); b.H("oe26fx", "o10e2", "o10ex2", "≠"); b.D("oe26q", "o10e2", "o10dq", al=True); b.H("oe26dy", "o10dq", "o10dy", "是")
+b.D("oe26g", "o10dq", "o10pg", "否", al=True); b.H("oe26pf", "o10pg", "o10pgf", "建"); b.D("oe26h", "o10pg", "o10e3"); b.H("oe27", "o10e3", "o10f", "寫"); b.D("oe27z", "o10e3", "o10z"); b.D("oe27z2", "o10z2", "o10e4"); b.H("oe27c", "o10e4", "o10f2", "寫")
+b.DL("oe28", "o10e4", "o11")
+b.close()   # 逾時／≠ 各自 H 線進自己的橙終點（不再共線、不交叉；r13 oe26fx）
+foot(p16cb, "p16cb", F.y, T16BB, {"note", "sub", "hdr", "v2", "entry"})
+pages_v1_c.append(("v1p16cb", "流程 v2：離線包（2′）add --local：create／cp → apply", p16cb))
+
+# ================= P16cc：離線包（3）斷網 sync：快路徑 → inspect → resolve =================
+T16C = [_T16["離線可用（Q26）"], _T16["sync 快路徑（Q22）／--verify（F5）"], _T16["image ID 記錄"], T_MSG]   # ≤ 8
+p16cc, F = newpage_c("流程 v2：離線包（3）── 斷網 sync：快路徑 → inspect（本機覆寫優先）→ docker run resolve（Q26、§3.6）", N16, COLS_OF2, gap=14)
+b = F.band("bO2", "斷網下 sync／build 必成功（Q26）：執行紀錄 → 快路徑全相符 → 0；有差 → 本機覆寫？是 → inspect <tag> 核 image ID → 相符直接用本機 tag；否 → inspect 正式 ref → 本機有就不 pull → docker run resolve sync → 續（3″）", v2=True)
+b.box("w0", UO, 0, G12, "斷網：just <ns> build（自動 _sync）／just vendor_kit sync [--verify]", 230)
+b.box("w0l", LA, 0, v2(W12), LST1.replace("<verb>", "sync"), 400)
+b.box("w0x", UO, 1, v2(R12), LSX, 230)
+b.box("w0l2", LA, 1, v2(W12), LST2, 400)
+b.box("w1", LA, 2, v2(W12), "快路徑：grep 比對 gen/*.stamp 第一行 vs version.toml（引擎 ref、每工具 digest）、每個 cache/<repo>/ 存在、tools.just 存在、無 .tmp.*", 400)
+b.box("w5a", UO, 3, G12, "是 → 0：不起容器（sync_fast_path；驗收 §7.4-17）", 230)
+b.box("w1q", LA, 3, v2(D12), "全相符、未指定 --verify、且非 CI 模式？", 300, ax="l")
+b.box("w2q", LA, 4, v2(D12), "否：version.local.toml 有引擎的本機覆寫？", 300, ax="l")
+b.box("w2r", P, 4, v2(RULE), "已定（v2.6-1、19條-11、v2.15、v2.16-14）：不用 --pull never（docker 19.03 無此旗標）；先 inspect：有本機覆寫 → inspect <tag> 並核 image ID，相符就直接用本機 tag docker run（不再 inspect 正式 ref、不 pull）；否則 inspect version.toml 的正式 ref@digest；本機有就直接 docker run；離線 upgrade 不支援（只涵蓋 install／add --local）", 280)
+b.box("w2a", LA, 5, D12, "是：docker image inspect <tag>：.Id == vendor_kit_image_id？", 300, ax="l")
+b.box("w2ax", DK, 5, v2(O12), "≠ → 1：本機 image 已被重 build（請 undev vendor_kit 或重新 dev -i）", 240)
+b.box("w2b", LA, 6, W12, "否：docker image inspect <version.toml 的正式 ref@digest>", 260, ax="l")
+b.box("w3", LA, 7, D12, "本機有該 image？", 220, ax="l")
+b.box("w3p", LA, 8, W12, "無：docker pull <ref>（--timeout 內）", 260, ax="l")
+b.box("w3x", UO, 9, R12, "否 → 1 + 6-24／6-31：斷網拉不到／逾時（--timeout 內結束、不 hang）", 230)
+b.box("w3pq", LA, 9, D12, "pull 成功？", 220, ax="l")
+b.box("w4", LA, 10, W12, "docker run（不 pull；本機覆寫相符 → 用本機 tag）resolve sync（永不 -t）", 400)
+b.box("w3d", DK, 10, IMG, "本機已有的 image（docker load 過／pull 到的）", 240)
+b.box("w4zz", LA, 11, ENTRY, "續「離線包（3″）」頁：resolve sync 驗 image ID → 三叉 → apply|no？", 400)
+b.H("we0", "w0", "w0l"); b.D("we0l", "w0l", "w0l2"); b.H("we0x", "w0l2", "w0x"); b.D("we0l2", "w0l2", "w1", al=True); b.D("we1", "w1", "w1q", al=True); b.H("we1y", "w1q", "w5a", "是"); b.D("we2", "w1q", "w2q", "否", al=True)
+b.D("we2a", "w2q", "w2a", "是", al=True); b.H("we2ax", "w2a", "w2ax", "≠"); b.H("we4", "w4", "w3d", "用")
+b.D("we3", "w2b", "w3", al=True); b.D("we3p", "w3", "w3p", "無", al=True); b.D("we3pq", "w3p", "w3pq", al=True); b.H("we3x", "w3pq", "w3x", "否"); b.D("we3py", "w3pq", "w4", "是", al=True)
+b.D("we6", "w4", "w4zz", al=True)
+b.close()
+_A = F.abs
+# w2q 否（無本機覆寫）→ w2b（跳過 w2a 列）：從菱形左側出、沿下游使用者欄與啟動器欄之間（x=280）下到 w2b 上方縫隙、右到 w2b 頂端中心（w2a 的 ≠ 出口在右側 DK 欄，不交叉）
+_sx, _sy, _sw, _sh = _A["w2q"]; _tx, _ty, _tw, _th = _A["w2b"]; _gy = F.rt["w2b"] - F.gap / 2
+p16cc.append(_edge("we2n", "w2q", "w2b", "否", (0, 0.5), (0.5, 0), [(280, _sy + _sh / 2), (280, _gy), (_tx + 0.5 * _tw, _gy)], -0.8, "below"))
+# w2a 相符 → w4：直接用本機 tag，不再 inspect 正式 ref、不 pull（codex r13 N6／R57）：從菱形底邊右側（x=560）直下進 w4 頂端（w2b／w3／w3p／w3pq 都 ≤ 550 寬）
+_sx, _sy, _sw, _sh = _A["w2a"]; _tx, _ty, _tw, _th = _A["w4"]; _ly = (F.rt["w3p"] + F.rb["w3p"]) / 2
+_pos = 2 * ((_ly - (_sy + _sh)) / (_ty - (_sy + _sh))) - 1
+p16cc.append(_edge("we2y", "w2a", "w4", "相符：用本機 tag（不 pull）", (0.9, 1), (round((560 - _tx) / _tw, 3), 0), [], _pos, True))
+# w3 有 → w4：從菱形右側出、到 x=580 直下進 w4 頂端（跳過 pull 兩列；與 we2y 平行 20px）
+_sx, _sy, _sw, _sh = _A["w3"]
+p16cc.append(_edge("we5", "w3", "w4", "有", (1, 0.5), (round((580 - _tx) / _tw, 3), 0), [(580, _sy + _sh / 2)], -0.6, "below"))
+foot(p16cc, "p16cc", F.y, T16C, {"note", "rule", "sub", "img", "hdr", "v2", "entry"})
+pages_v1_c.append(("v1p16cc", "流程 v2：離線包（3）斷網 sync", p16cc))
+
+# ================= P16ccb：離線包（3″）resolve sync 驗證 → apply|no（第十六輪自（3）拆頁）=================
+T16CB = [_T16["image ID 記錄"], _T16["sync 快路徑（Q22）／--verify（F5）"], T_MSG]
+p16ccb, F = newpage_c("流程 v2：離線包（3″）── resolve sync：驗 image ID → 三叉 → 6-33／6-13 → apply|no？（Q26、§3.6）", N16, COLS_OF2, gap=14)
+b = F.band("bO2b", "斷網 sync（3″）（承「離線包（3）」頁）：resolve sync 驗 image ID == metadata local_image_id → 算 extract 清單與指紋 → resolve 0 且文法合 → 未完成交易 6-33 ／ 無完成標記 6-13 → apply|no → 0；否則續（3′）apply sync", v2=True)
+b.box("w4z0", LA, 0, ENTRY, "來自「離線包（3）」頁：docker run（不 pull）resolve sync 已起（本機 tag 或正式 ref）", 400)
+b.box("w4ex", UO, 1, R12, "≠ → 1：image ID ≠ metadata local_image_id（離線對照 index digest）", 230)
+b.box("w4e", E, 1, v2(D12), "resolve sync：image ID == metadata local_image_id？", 300, ax="l")
+b.box("w4e2", E, 2, v2(SUB), "是：算 extract 清單與指紋", 320)
+b.box("w4rx", UO, 3, v2(O12), "否 → 1／2／3 原碼傳出：不讀 stdout、不跑 docker／apply", 230)
+b.box("w4rq", LA, 3, v2(D12), "resolve 結束碼 0？", 300, ax="l")
+b.box("w4vx", UO, 4, v2(R12), "不合 → 1 + 6-30：不動 docker", 230)
+b.box("w4v", LA, 4, v2(D12), "是：收完整份、驗首尾／筆數／kind：文法合？", 300, ax="l")
+b.box("w4tx", UO, 5, v2(O12), "是 → 1 + 6-33：請先重跑原動詞", 230)
+b.box("w4t", E, 5, v2(D12), "是：有未完成交易（.tmp.<verb>.*／[progress]）？", 300, ax="l")
+b.box("w4mx", UO, 6, v2(O12), "否（無完成標記）→ 1 + 6-13：請先 add 完成接入", 230)
+b.box("w4m", E, 6, v2(D12), "否：metadata 有完成標記？", 300, ax="l")
+b.box("w4qy", UO, 7, G12, "是 → 0：apply|no，不起第二個容器", 230)
+b.box("w4q", E, 7, v2(D12), "是：算出 apply|no？（印記／cache／tools.just 全相符、非 --verify／CI 模式）", 320, ax="l")
+b.box("w4z", E, 8, ENTRY, "否 → 續「離線包（3′）」頁：docker create／cp → apply sync（flock → 指紋 → 先驗既有 cache，不符才重裝一次）", 320)
+b.H("we6", "w4z0", "w4e"); b.H("we6x", "w4e", "w4ex", "≠"); b.D("we6e", "w4e", "w4e2", "是", al=True); b.DL("we6r", "w4e2", "w4rq", "vk-resolve")
+b.H("we6rx", "w4rq", "w4rx", "否"); b.D("we6rv", "w4rq", "w4v", "是", al=True); b.H("we6vx", "w4v", "w4vx", "否"); b.DL("we6t", "w4v", "w4t", "是")
+b.H("we6tx", "w4t", "w4tx", "是"); b.D("we6m", "w4t", "w4m", "否", al=True); b.H("we6mx", "w4m", "w4mx", "否"); b.D("we6q", "w4m", "w4q", "是", al=True)
+b.H("we6y", "w4q", "w4qy", "是"); b.D("we6n", "w4q", "w4z", "否", al=True)
+b.close()
+foot(p16ccb, "p16ccb", F.y, T16CB, {"note", "sub", "hdr", "v2", "entry"})
+pages_v1_c.append(("v1p16ccb", "流程 v2：離線包（3″）resolve sync 驗證", p16ccb))
+
+# ================= P16ccc：離線包（3′）apply sync：先驗後重裝一次 =================
+T16D = [_T16["離線可用（Q26）"], _T16["sync 快路徑（Q22）／--verify（F5）"], _T16["image ID 記錄"], T_FP, T_CACHE, T_MSG]
+p16ccc, F = newpage_c("流程 v2：離線包（3′）── apply sync：先驗既有 cache、不符才重裝一次（Q26、§3.6）", N16, COLS_OF2, gap=14)
+b = F.band("bO3", "斷網 sync（3′）：create／cp 本機 image 的 /dist → apply sync：flock → 重驗指紋 → 先驗既有 cache（--verify／CI／版本變動那次）→ 相符：tools.just 缺才重生；不符 → 重裝一次 → 再驗 → 仍不符 → 失敗；相符 → 最後原子重生 tools.just → 0", v2=True)
+b.box("w4x0", LA, 0, ENTRY, "來自「離線包（3）」頁：resolve sync 算出 apply|yes（extract 清單 + 指紋）", 400)
+b.box("w4x1", LA, 1, v2(W12), "docker create／cp 取本機 image 的 /dist 到暫存 .tmp.dist.<id>/<repo>/（不 pull）", 400)
+b.box("w4p", LA, 2, v2(W12), "docker run（不 pull）apply sync（暫存唯讀掛進 /dist）", 400)
+b.box("w4lx", UO, 3, v2(O12), "逾時 → 1 + 6-26：確認無其他 vendor_kit 在跑後重試", 230)
+b.box("w4l", E, 3, v2(SUB), "apply sync：拿 flock 專案目錄（60 秒）", 320)
+b.box("w4lx2", UO, 4, v2(O12), "≠ → 1 + 6-12：指紋不同，請重跑", 230)
+b.box("w4l2", E, 4, v2(SUB), "重驗指紋（與 vk-resolve 的 fingerprint 比）", 320)
+b.box("w4vq", E, 5, v2(D12), "要先驗既有 cache？（--verify／CI 模式／版本變動那次）", 320, ax="l")
+b.box("w4v", E, 6, v2(SUB), "是：逐檔 sha256 驗既有 cache/<repo>/（對印記 gen/<repo>.stamp 每檔行）", 320)
+b.box("w4v1q", E, 7, v2(D12), "全相符？", 200, ax="l")
+b.box("w4tq", E, 8, v2(D12), "是：gen/tools.just 存在？", 240, ax="l")
+b.box("w5", UO, 8, G12, "是 → 0：既有 cache 相符、不重裝（驗收 §7.4-17）", 230)
+b.box("w4tr", E, 9, SUB, "否：重生 gen/tools.just（原子替換；cache 不動）", 320)
+b.box("w4trf", P, 9, F12, "gen/tools.just（只寫不進 git 的）", 280)
+b.box("w5t", UO, 9, G12, "→ 0：cache 相符、已補 tools.just", 230)
+b.box("w4r", E, 10, SUB, "否：重裝一次：從 /dist 重寫 cache/<repo>/（暫存 → 整批替換；warn）", 320)
+b.box("w4rf", P, 10, F12, "cache/<repo>/（只寫不進 git 的）", 280)
+b.box("w4r2", E, 11, v2(SUB), "寫印記 gen/<repo>.stamp（index digest + 每檔 sha256）", 320)
+b.box("w4r2f", P, 11, F12, "gen/<repo>.stamp", 280)
+b.box("w4v2", E, 12, v2(SUB), "重裝後再驗一次（逐檔 sha256）", 320)
+b.box("w4v2x", UO, 13, R12, "否 → 1：驗證失敗（不無限重裝）", 230)
+b.box("w4v2q", E, 13, v2(D12), "全相符？", 200, ax="l")
+b.box("w4r3", E, 14, v2(SUB), "是：最後原子重生 gen/tools.just（與 cache 同一 apply 內）", 320)
+b.box("w4r3f", P, 14, F12, "gen/tools.just（最後寫）", 280)
+b.box("w5b", UO, 15, G12, "→ 0：重裝後相符（已 warn）", 230)
+b.box("w4r0", E, 16, SUB, "否（不驗）：從 /dist 寫 cache/<repo>/、印記（取件；暫存 → 整批替換）", 320)
+b.box("w4f", P, 16, F12, "cache/<repo>/、gen/<repo>.stamp（只寫不進 git 的）", 280)
+b.box("w4r0b", E, 17, v2(SUB), "最後原子重生 gen/tools.just（與 cache 同一 apply 內）", 320)
+b.box("w4f2", P, 17, F12, "gen/tools.just（最後寫）", 280)
+b.box("w5c", UO, 17, G12, "→ 0：成功、不起 pull（驗收 §7.4-17）", 230)
+b.D("wf0", "w4x0", "w4x1", al=True); b.D("wf1", "w4x1", "w4p"); b.DL("wf2", "w4p", "w4l"); b.H("wf3t", "w4l", "w4lx", "逾時"); b.D("wf3", "w4l", "w4l2"); b.H("wf3x", "w4l2", "w4lx2", "≠"); b.D("wf4", "w4l2", "w4vq", al=True)
+b.D("wf5", "w4vq", "w4v", "是", al=True); b.D("wf6", "w4v", "w4v1q", al=True); b.D("wf6y", "w4v1q", "w4tq", "是", al=True); b.H("wf6t", "w4tq", "w5", "是"); b.D("wf6tn", "w4tq", "w4tr", "否", al=True); b.H("wf6tf", "w4tr", "w4trf", "寫"); b.H("wf6tz", "w4tr", "w5t")
+b.D("wf8", "w4r", "w4r2"); b.H("wf8f", "w4r", "w4rf", "寫"); b.H("wf8f2", "w4r2", "w4r2f", "寫"); b.D("wf8b", "w4r2", "w4v2"); b.D("wf9", "w4v2", "w4v2q", al=True); b.H("wf9x", "w4v2q", "w4v2x", "否"); b.D("wf9y", "w4v2q", "w4r3", "是", al=True); b.H("wf9f", "w4r3", "w4r3f", "寫"); b.DL("wf9z", "w4r3", "w5b")
+b.H("wf10", "w4r0", "w4f", "寫"); b.D("wf10b", "w4r0", "w4r0b"); b.H("wf10f", "w4r0b", "w4f2", "寫"); b.H("wf11", "w4r0b", "w5c")
+b.close()
+_A = F.abs
+# w4vq 否（不驗）→ w4r0：從菱形右側出、沿引擎欄與專案目錄欄之間（x=1300）下到 w4r0 上方縫隙、左到 w4r0 右側 0.9 再下進頂端（中間無 E→P 線）
+_sx, _sy, _sw, _sh = _A["w4vq"]; _tx, _ty, _tw, _th = _A["w4r0"]; _gy = F.rt["w4r0"] - F.gap / 2
+p16ccc.append(_edge("wf5n", "w4vq", "w4r0", "否", (1, 0.5), (0.9, 0), [(1600, _sy + _sh / 2), (1600, _gy), (_tx + 0.9 * _tw, _gy)], -0.8, "below"))   # 走專案目錄欄右側外（x=1600），不穿引擎 → 專案目錄的「寫」線
+# w4v1q 否（不符）→ w4r：跳過 tools.just 兩列：從菱形右側出、沿 x=1290 下到 w4r 上方縫隙、左到 w4r 右側 0.8 再下進頂端
+_sx, _sy, _sw, _sh = _A["w4v1q"]; _tx, _ty, _tw, _th = _A["w4r"]; _gy = F.rt["w4r"] - F.gap / 2
+p16ccc.append(_edge("wf7", "w4v1q", "w4r", "否", (1, 0.5), (0.8, 0), [(1600, _sy + _sh / 2), (1600, _gy), (_tx + 0.8 * _tw, _gy)], -0.8, "below"))
+foot(p16ccc, "p16ccc", F.y, T16D, {"note", "sub", "hdr", "v2", "entry"})
+pages_v1_c.append(("v1p16ccc", "流程 v2：離線包（3′）apply sync 先驗後重裝", p16ccc))

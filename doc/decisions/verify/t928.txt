@@ -1,0 +1,247 @@
+fix(init): _create_new_repo is unreachable via bootstrap, so a new repo gets no CI, changelog or smoke scaffold
+## The propagation mechanism exists and is unreachable
+
+`init.sh` has `_create_new_repo` (line 332). It is what installs the things a
+new repo needs and cannot get anywhere else:
+
+- `.github/workflows/main.yaml` -- the build + release CI, wired to base's
+  reusable `build-worker.yaml` / `release-worker.yaml` at the pinned tag
+- `doc/changelog/CHANGELOG.md`
+- `test/bats/smoke/{shared,devel-test,runtime-test}/` scaffolding
+
+The entry condition (line 872) is:
+
+```bash
+if [[ -f Dockerfile ]]; then
+  _init_existing_repo
+else
+  _create_new_repo "${template_version:-main}"
+  _create_symlinks
+fi
+```
+
+**The template ships a `Dockerfile`.** So when `bootstrap.sh` runs `init.sh` on a
+freshly created repo, `Dockerfile` already exists, init takes the *existing-repo*
+branch, and `_create_new_repo` never executes.
+
+## Measured
+
+Created a repo through the sanctioned path -- template clone shaped as
+`gh repo create --template` produces, then `./bootstrap.sh` against base `main`.
+Bootstrap itself succeeds (`exit=0`, `just --list` OK, zero dangling symlinks).
+What the repo contains:
+
+```
+.github/workflows/base-version-monitor.yaml    HAS
+.github/workflows/main.yaml                    MISSING
+doc/changelog/CHANGELOG.md                     MISSING
+test/bats/smoke/                               MISSING
+```
+
+`.github/` holds exactly one file. **A repo created today has no build CI and no
+release workflow at all.**
+
+Existing downstream repos have `main.yaml` because they were created under an
+earlier flow, not because the current one produces it. That is why this has been
+invisible: nothing that exists today was made by the path that is broken.
+
+## Why this is the answer to a wider question
+
+The question this came from was "do we have a mechanism to propagate our
+conventions to NEW downstream repos". The answer is that the mechanism is
+`_create_new_repo`, and it is dead code on the sanctioned path.
+
+That matters beyond CI. Any convention we decide to ship to new repos -- the
+changelog layout and category set (#926), a `just test` surface, a lint roster --
+would naturally be installed there, and would be equally unreachable. Fixing the
+convention without fixing this delivers nothing.
+
+## What to decide
+
+**Why is `-f Dockerfile` the discriminator at all?** It is a proxy for "has this
+repo been set up before", and it was a valid proxy when a new repo arrived
+without one. The template now ships one, so the proxy is inverted. Candidates:
+
+- Detect on something that genuinely distinguishes the two, e.g. the absence of
+  `.base/` subtree history, or an explicit `init.sh --new` that `bootstrap.sh`
+  passes.
+- Make the branches converge: have both paths install everything that is
+  missing, so "new" and "existing" differ only in what is already present. This
+  is the more robust shape -- it also self-heals the repos that missed
+  `main.yaml`, and it removes the class rather than moving it.
+
+State the choice. The second option has a consequence worth naming: it would
+start writing `main.yaml` into existing repos on their next resync, which is a
+behaviour change for 16 repos and needs to be deliberate.
+
+**Does an existing repo missing `main.yaml` get it back?** Whatever is chosen,
+say what happens to a repo already in that state.
+
+## Relation to #925
+
+#925 reports that a repo's `main.yaml` asks for a `runtime-test` stage the
+shipped Dockerfile does not define, so its CI is red from birth. Both are true
+and they compose badly: repos created before this regression get a red CI, repos
+created after get no CI. Fix them together or the acceptance test for one
+contradicts the other.
+
+## Acceptance criteria
+
+- [ ] A repo created via `/new-repo` has `main.yaml`, a CHANGELOG and the smoke
+      scaffold, with no hand-editing.
+- [ ] Its first push runs CI, and that CI is green (with #925).
+- [ ] A test covers the sanctioned creation path end to end and asserts the
+      repo's *contents*, not just that bootstrap exited 0. The existing
+      bootstrap specs pass today against a repo with no CI.
+- [ ] A decision is recorded for repos already missing `main.yaml`.
+
+## Note on how this was missed
+
+`template`'s own `test/integration/bootstrap_spec.bats` asserts bootstrap
+succeeds, the subtree lands, symlinks resolve and `just --list` works. None of
+that touches what `init.sh` did or did not install. The assertion that would have
+caught it is "the resulting repo has the files a repo needs", which is the same
+gap #914 / #915 / #925 each turned out to have in a different place.
+
+The template-side half is filed as ycpss91255-docker/template#13, and it is the
+better place for the immediate fix.
+
+`bootstrap.sh`'s "remove template-specific files" list
+(`README.md` / `doc/` / `.github/` / `test/`) is simply **missing `Dockerfile`**.
+The template's copy is redundant -- `init.sh:339` installs one from the target
+base tag via `cp "${TEMPLATE_DIR}/dist/dockerfile/Dockerfile" Dockerfile` -- and
+the template's is a stale v0.41.0-era snapshot, which is separately why it lacks
+the `runtime` / `runtime-test` stages (#925).
+
+So removing it costs nothing, works against every base tag with no coordination,
+and makes `-f Dockerfile` a correct discriminator again on the bootstrap path.
+
+An explicit `init.sh --new` flag was considered and rejected there:
+`bootstrap.sh` can target an arbitrary base tag, and an older `init.sh` would
+treat `--new` as a positional argument via its arg-loop catch-all.
+
+**What stays open here**, and is not covered by template#13:
+
+- Whether `-f Dockerfile` should remain the discriminator at all, or whether the
+  two branches should converge so "new" and "existing" differ only in what is
+  already present. The convergence option self-heals the repos that missed
+  `main.yaml`, but it would start writing `main.yaml` into 16 existing repos on
+  their next resync -- a behaviour change that needs to be deliberate.
+- What happens to a repo already in the no-`main.yaml` state.
+- The wider point this came from: any convention we decide to ship to new repos
+  (the changelog layout of #926, a `just test` surface, a lint roster) would be
+  installed by `_create_new_repo` and would have been equally unreachable.
+  Fixing the delivery path is what gives those a carrier.
+
+Scope settled 2026-08-26, and it is smaller than the issue assumed.
+
+## The self-heal half has no subject
+
+The issue asks what happens to repos already created through the broken flow --
+the ones with no `main.yaml`. Measured across every `.base` consumer:
+
+```
+REPO                     .base      main.yaml
+ai_agent                 v0.41.0    present
+claude_code              v0.41.0    present
+codex_cli                v0.41.0    present
+gemini_cli               v0.41.0    present
+isaac                    v0.41.0    present
+jetson_sdk_manager       v0.39.0    present
+omniverse_web_viewer     v0.41.0    present
+realsense_ros1           v0.41.0    present
+realsense_ros2           v0.41.0    present
+ros1_bridge              v0.41.0    present
+ros2_distro              v0.41.0    present
+ros_distro               v0.41.0    present
+sick_humble              v0.41.0    present
+sick_noetic              v0.41.0    present
+template                 v0.41.0    present
+urg_node_humble          v0.41.0    present
+urg_node_noetic          v0.41.0    present
+```
+
+**17 of 17 have it. Nothing needs healing.**
+
+The reason is simple: the defect appeared when the template began shipping a
+`Dockerfile`, and **no new repo has been created since**. All seventeen predate
+it and were created while the flow still worked.
+
+So the convergence option -- and its consequence of writing `main.yaml` into
+existing repos on their next resync -- is solving a problem that does not exist.
+Dropped.
+
+## What remains
+
+New-repo creation is fixed by ycpss91255-docker/template#13 (add `Dockerfile` to
+`bootstrap.sh`'s removal list). That PR is in flight.
+
+The only thing left here is the **discriminator's fragility**, and it deserves a
+guard rather than a redesign.
+
+`if [[ -f Dockerfile ]]` is a proxy for "has this repo been set up before". It
+was a correct proxy: a new repo genuinely arrived without one, and
+`_create_new_repo` creates it. It **inverted** the day the template started
+shipping a Dockerfile, and nothing noticed for months.
+
+The same inversion can recur -- any future file that `_create_new_repo` produces
+and the template also ships would do it again.
+
+**So: a spec pinning the assumption.** No file the template ships may be a signal
+`init.sh` uses to decide new-vs-existing. Adding such a file to the template then
+fails a test instead of silently disabling repo scaffolding.
+
+No change to the branch logic, no convergence, nothing written into the 17 repos.
+
+## Acceptance criteria
+
+- [ ] A spec asserts that no file shipped by the template is used by `init.sh` as
+      its new-vs-existing discriminator.
+- [ ] Adding such a file to the template fails that spec, naming the file and the
+      discriminator it collides with.
+- [ ] The branch logic itself is unchanged.
+- [ ] No `main.yaml` is written into any existing repo.
+
+## Related
+
+- ycpss91255-docker/template#13 -- the new-repo fix, in flight.
+- The same audit found two other template-shipped files worth their own issues:
+  `config/docker/setup.conf` (survives into every new repo as a dead legacy file
+  alongside the live root `.setup.conf`, so a new repo hits upgrade.sh's
+  "found BOTH" warning on its first upgrade) and `script/hooks/*` (the template's
+  copies win permanently, so base's stub updates can never reach a new repo --
+  latent, harmless only because the bytes currently match).
+
+## Where the remaining criteria went
+
+The PR on `fix/928-batch` does not deliver acceptance criteria 1 and 2 (the
+spec pinning the discriminator). They now live in
+ycpss91255-docker/template#18, and this issue stays open until that lands.
+
+**Why they moved.** The property is "no file the template ships is a file
+`init.sh` uses as its new-vs-existing discriminator". Checking it needs both
+halves on disk at once: the template's shipped set (minus what `bootstrap.sh`
+removes) and the discriminator read out of the vendored `init.sh`. base's
+self-test runs sealed on base's own checkout and has no template tree, so the
+real-tree arm here could only ever skip -- a guard that skips is not a guard.
+The template repo is the one place both halves are present.
+
+**The premise was re-checked, not assumed.** `bootstrap.sh`'s removal list now
+contains `Dockerfile` (lines 308-314) and deletes it in Step 1/5, before Step
+4/5 runs `init.sh`, so `_create_new_repo` is reachable again on the sanctioned
+path. That is today's collision closed; template#18 is what stops the next
+one.
+
+Criteria 3 and 4 are unaffected: the branch logic is untouched and nothing is
+written into any existing repo.
+
+## What the PR does deliver
+
+Work carried under `refs #928` that is not part of this issue's acceptance
+criteria, and does not close it: the smoke-spec COPY migration in
+`dist/script/docker/lib/dockerfile_migrate.sh` now heals the hand-listed
+spelling as well as the wholesale one, reads whole COPY statements rather than
+single lines, and declines out loud instead of half-rewriting. Six of the
+org's 24 consumer repos hand-list those specs (`ai_agent`, `claude_code`,
+`codex_cli`, `gemini_cli`, `ros1_bridge`, `urg_node_humble`).
+

@@ -1,0 +1,38 @@
+refactor(justfile): docker as a namespace, no top-level special case; build --stage (ADR-00000011)
+## Parent
+
+#625 (epic) — implements ADR-00000011.
+
+## What to build
+
+Make docker a **namespace** with no top-level special case (ADR-00000011
+§1).
+
+- Consumer entry: `import 'script/docker/justfile.docker'` ->
+  `mod? docker`. `just build` -> `just docker build` (and run/exec/stop/
+  prune/setup/setup-tui likewise).
+- `justfile.docker` adapts for module use (drop the import-collision
+  `default` workaround; recipes still call the wrappers).
+- `build` drops the magic `test` argument; a specific stage is selected
+  with `--stage <name>` (ADR-00000011 §3). base builds its CI image as
+  `just docker build --stage test-tools`; the test runner (REV: ci->test)
+  invokes that internally rather than `build` growing a `test` arg.
+- base gains a docker namespace too (no special case): `just docker
+  build --stage test-tools` etc.
+- Update README examples / help text that show `just build`.
+
+## Acceptance criteria
+
+- [ ] `just docker build|run|exec|stop|prune|setup|setup-tui` all work;
+      bare top-level `just build` no longer exists.
+- [ ] `just docker build --stage test-tools` builds the base CI image.
+- [ ] `build` no longer accepts a bare `test` positional.
+- [ ] No remaining top-level docker recipe references in docs.
+- [ ] base self-test gate green.
+
+## Blocked by
+
+None — can start immediately.
+
+Done in #663 (merged). Closing -- the PR body is the decision record.
+

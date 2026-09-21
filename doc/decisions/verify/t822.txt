@@ -1,0 +1,47 @@
+Provide a downstream base-release notification/tracking mechanism
+## Problem
+
+Downstream container repos (agent/app/env, e.g. realsense_ros1/ros2, ros1_bridge, ...) consume base two ways that are invisible to Dependabot's docker ecosystem:
+
+1. **Reusable-workflow pins** in `main.yaml`: `uses: ycpss91255-docker/base/.github/workflows/build-worker.yaml@vX.Y.Z` + `test_tools_version: vX.Y.Z`.
+2. **The `.base/` git subtree** (scripts/config), version-tracked in `.base/.version`.
+
+When base cuts a new release, **nothing tells the downstreams**. Today it's kept in sync only by a human remembering to run `./template/upgrade.sh vX.Y.Z`. There's no dependabot and no notification, so downstreams silently drift behind base.
+
+## Requested mechanism
+
+A base-owned way for downstreams to learn about (and ideally act on) a new base release. Full proposal:
+
+### Option A (recommended) — base notifies downstreams on release
+Add a base release workflow (on `release: published` or tag push) that, for each registered downstream repo, opens a tracking issue "base `vX.Y.Z` released — run `./template/upgrade.sh vX.Y.Z`":
+- Maintain a `downstreams.txt` (or a repo topic query) listing the org's downstream repos.
+- Use a PAT / GitHub App token with `issues:write` on those repos (GITHUB_TOKEN can't cross-repo).
+- Optionally `repository_dispatch` instead of an issue, so downstreams can run their own upgrade automation.
+
+### Option B — document + recommend the dependabot config for downstreams
+Ship a canonical `.github/dependabot.yml` snippet (github-actions ecosystem) in the base README/`init.sh` so `new-repo`/`upgrade.sh` scaffolds it. Caveat: dependabot bumps only the `@tag` in `main.yaml`, **not** the `.base/` subtree — so it's a notification, not a full upgrade (still needs `upgrade.sh`).
+
+### Suggested: A + B
+- B gives an immediate PR signal on the workflow `@tag`.
+- A gives a proper "run upgrade.sh" tracking issue that also covers the subtree.
+
+## Context
+Filed from downstream realsense_ros1/ros2 (both currently pinned + subtree at base `v0.41.0`, which is the latest — no drift right now). Per the org's workflow policy this is an issue-with-full-solution for base to implement; no cross-repo PR opened.
+Superseded by #927.
+
+This issue asked for a downstream base-release notification/tracking mechanism.
+The mechanism that shipped for it -- the per-repo weekly
+`base-version-monitor.yaml` -- has a fatal property measured today: it is
+installed by `init.sh`, `init.sh` runs during an upgrade, and the upgrade was
+broken, so **it reached zero of seventeen repos**. A notifier that can only
+arrive at repos which have already upgraded cannot tell a repo it needs to
+upgrade.
+
+#927 replaces pull-notification with push-fanout, settled 2026-08-26: a base
+release opens an upgrade PR on every repo carrying `.base/`, scope discovered by
+scanning rather than declared in a list, opt-out by explicit blacklist, and
+never auto-merged -- the receiving repo decides.
+
+The weekly bot is removed as part of that.
+
+Closing here so the work has one home; the decision record is the #927 comment.

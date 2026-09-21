@@ -1,0 +1,126 @@
+fix(conf): the config writers still emit INI into setup.toml (refs #1127)
+Part of #1127 (TOML config format unification epic). Surfaced by #1162.
+
+## Background
+
+#1162 fixed two defects that had been covering for each other:
+`dockerfile/toml_bridge.py`'s `--merge` mode exited 1 unconditionally
+after a botched merge, and `_conf_load_layers` in
+`dist/script/docker/lib/conf.sh` returned 0 without ever checking the
+bridge's exit status. Together they turned a total config-load failure
+into "empty config handle, every value falls back to its default" --
+silently.
+
+That silence hid two things. This issue is the second, and it is the
+largest single component of the remaining failures on
+`feat/toml-config-unification`.
+
+## The problem
+
+Both config writers in `dist/script/docker/lib/conf.sh` still emit INI.
+
+`_write_setup_conf` (lines 584-755):
+
+- `dist/script/docker/lib/conf.sh:646`
+- `dist/script/docker/lib/conf.sh:671`
+- `dist/script/docker/lib/conf.sh:686`
+- `dist/script/docker/lib/conf.sh:741`
+
+  each `printf '%s = %s\n' ...` -- unquoted value.
+
+- `dist/script/docker/lib/conf.sh:734` --
+  `printf '\n[%s]\n' "${__ns}"`, a bare section header.
+
+`_upsert_conf_value` (lines 767-872):
+
+- `dist/script/docker/lib/conf.sh:805`
+- `dist/script/docker/lib/conf.sh:845`
+- `dist/script/docker/lib/conf.sh:855`
+
+  each `printf '%s = %s\n' ...` -- unquoted value.
+
+- `dist/script/docker/lib/conf.sh:861` --
+  `printf '\n[%s]\n%s = %s\n' ...`, a bare section header plus an
+  unquoted value.
+
+Consequence: every `setup.sh set`, `setup.sh add`, `setup.sh remove`,
+TUI Save, and the `mount_1` bootstrap write in `setup_detect.sh`
+appends syntactically invalid TOML into a `.toml` file, which the next
+bridge parse then rejects.
+
+One observed failure has `setup.sh` printing
+
+```
+[setup] set [network] mode = bridge
+```
+
+and the bridge then refusing, at line 3, the file `setup.sh` had just
+written.
+
+## Call sites
+
+| call site | entry point |
+|---|---|
+| `dist/script/docker/lib/setup_cmd.sh:297` | `_setup_set` -- `setup.sh set` |
+| `dist/script/docker/lib/setup_cmd.sh:719` | `_setup_add` -- `setup.sh add` |
+| `dist/script/docker/lib/setup_cmd.sh:890` | `_setup_remove` -- `setup.sh remove` |
+| `dist/script/docker/lib/setup_detect.sh:382`, `:419` | WS_PATH reconciliation rewriting `[volumes] mount_1` |
+| `dist/script/docker/wrapper/setup_tui.sh:2733` | TUI Save |
+
+Four of the five are outside the TUI.
+
+## This is not a known-accepted state
+
+ADR-00000037, line 232 of
+`doc/adr/00000037-toml-config-format-unification.md`:
+
+> `setup_tui.sh` (2975 lines + 691-line backend) is frozen until the
+> TOML migration completes.
+
+The freeze names `setup_tui.sh` and nothing else. The CLI writers are
+not covered by it, so this is a gap in the freeze's scope rather than
+an accepted state.
+
+Worth recording separately: #1129 (D3, closed) listed
+"`_write_setup_conf()` / `_upsert_conf_value()` INI writer" in its
+scope and then excused it in a parenthesis -- "(TUI use only --
+frozen per ADR-37)". That premise is wrong. The CLI `set` / `add` /
+`remove` paths and the WS_PATH writeback all go through the same two
+writers. D3 was closed on a false premise about who calls them.
+
+## Proposed fix
+
+Make the writers emit valid TOML: quote string values (leave booleans
+and integers bare), emit section headers in TOML table form, and route
+numbered keys (`mount_N`, `arg_N`, `port_N`, `rule_N`, `device_N`,
+`env_N`, `cap_add_N`, `security_opt_N`, `context_N`, `tmpfs_N`) into
+`[[array of tables]]` per the conversion table in #1132.
+
+One design constraint to settle in the PR: `_upsert_conf_value` is
+currently a line-by-line text rewrite that preserves comments and
+layout. A TOML-aware writer either keeps that property or gives it up
+explicitly -- say which, and why, in the PR body.
+
+## Acceptance criteria
+
+- [ ] Files written by `setup.sh set` / `add` / `remove` parse through
+      the bridge
+- [ ] The file written by the `setup_detect.sh` `mount_1` bootstrap
+      parses through the bridge
+- [ ] A test feeds writer output straight into the bridge (round-trip)
+      rather than grepping for a substring
+- [ ] Numbered-key writes land as `[[array of tables]]`, matching #1132
+- [ ] The comment/layout-preservation property of `_upsert_conf_value`
+      is either preserved or explicitly given up with the reason
+      recorded
+
+## Cross-references
+
+- Upstream fix that made this visible: #1162
+- Epic: #1127 (D-series)
+- Closed on the false "TUI use only" premise: #1129
+- Sibling filed in the same round: test fixtures named `.toml` that
+  contain INI
+
+Sibling referenced above as "filed in the same round" is #1164 (test fixtures named `setup.toml` that contain INI).
+

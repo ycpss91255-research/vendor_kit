@@ -1,0 +1,15 @@
+# just 1.53.0 本機實測（2026-09-18）
+- justfile + .justfile 同目錄 → error: multiple candidate justfiles found（不挑，直接錯）
+- Justfile + justfile 同目錄（case-sensitive fs）→ 同上錯誤；單獨 Justfile / JUSTFILE 可用（大小寫不敏感）
+- 子目錄無檔往上找到父目錄 justfile，recipe cwd = 父目錄；--ceiling / JUST_CEILING 可設上限
+- --justfile / JUST_JUSTFILE 直接指定；另有 --justfile-name / JUST_JUSTFILE_NAME 可改搜尋檔名（agy 未提）
+- import 路徑相對於「含 import 的那個檔」的目錄（巢狀 import 亦然）；~/ 展開；import? 缺檔靜默；import 缺檔 → could not find source file for import
+- 根 justfile 為 symlink 時，import/mod 路徑相對於 symlink 所在目錄（repo root），非真實檔位置；justfile_directory() 亦回 repo root；symlink 目標消失 → failed to read justfile
+- 重複 recipe 根 vs import 預設報錯；set allow-duplicate-recipes 後根（shallower）勝，與宣告順序無關
+- --list：import 進來的 recipe 與根 recipe 混列，[group] 者列在群組標題下；--summary 一律扁平；mod 顯示為 `name ...`，`just --list name` 或 `--list-submodules` 展開；`just name --list` 不行
+- mod? 缺檔：--list 不顯示該模組、不報錯；`just tool::x` → optional module `tool` is absent；mod 缺檔 → could not find source file for module
+- mod 無路徑：找 name.just / name/mod.just / name/justfile / name/.justfile；同時存在多個 → found multiple source files 錯誤
+- mod 深路徑 `.vendor_kit/cache/base/dist/script/mod.just` 正常；路徑經 symlink 目錄亦可，recipe cwd = 真實模組目錄
+- set fallback：子目錄 justfile 找不到 recipe 往父目錄找（實測 OK）
+- set positional-arguments：$1 保留含空白的參數（實測 n=2 "a b"）
+- 官方手冊 URL 形式為 just.systems/man/en/<slug>.html（imports.html、modules.html、fallback-to-parent-justfiles.html、groups.html、positional-arguments.html、quick-start.html、listing-available-recipes.html）；chapter_NN.html 全部 404

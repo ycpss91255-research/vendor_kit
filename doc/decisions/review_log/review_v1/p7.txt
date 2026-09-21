@@ -1,0 +1,104 @@
+V id=0 parent=None src= tgt= fs=- geo= pts=[] fill=- dash=False | 
+V id=1 parent=0 src= tgt= fs=- geo= pts=[] fill=- dash=False | 
+V id=title parent=1 src= tgt= fs=18 geo=x="40" y="20" width="1200" height="30" as="geometry"/ pts=[] fill=- dash=False | 資料夾架構：三種 repo 裡各有什麼、每個資料夾放什麼類型的東西
+V id=r_vk parent=1 src= tgt= fs=18 geo=x="40" y="70" width="1000" height="750" as="geometry"/ pts=[] fill=#f8cecc dash=False | vendor_kit repo（我們開發的）
+V id=vk_n0 parent=r_vk src= tgt= fs=12 geo=x="20" y="50" width="400" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | vendor_kit/
+V id=vk_d0 parent=r_vk src= tgt= fs=12 geo=x="430" y="50" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 我們要開發的安裝工具的 repo；只有 src/ 會進最終出貨的 image，其餘都是開發用
+V id=vk_n1 parent=r_vk src= tgt= fs=12 geo=x="46" y="84" width="374" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | src/vendor_kit/
+V id=vk_d1 parent=r_vk src= tgt= fs=12 geo=x="430" y="84" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 產品程式碼：7 個 Python 模組（= 第 1 頁的 7 個模組，一個模組一個檔）＋ 進入點
+V id=vk_n2 parent=r_vk src= tgt= fs=12 geo=x="72" y="118" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | __main__.py
+V id=vk_d2 parent=r_vk src= tgt= fs=12 geo=x="430" y="118" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 進入點：容器啟動時跑 python3 -m vendor_kit → 交給 cli
+V id=vk_n3 parent=r_vk src= tgt= fs=12 geo=x="72" y="152" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | cli.py
+V id=vk_d3 parent=r_vk src= tgt= fs=12 geo=x="430" y="152" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 命令介面：讀參數、分派 install / init / verify / diff
+V id=vk_n4 parent=r_vk src= tgt= fs=12 geo=x="72" y="186" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | dist_reader.py
+V id=vk_d4 parent=r_vk src= tgt= fs=12 geo=x="430" y="186" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 出貨內容讀取：讀 image 內的 /dist 與 init.toml
+V id=vk_n5 parent=r_vk src= tgt= fs=12 geo=x="72" y="220" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | repo_fs.py
+V id=vk_d5 parent=r_vk src= tgt= fs=12 geo=x="430" y="220" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 專案檔案存取：唯一能寫專案目錄的模組；整批替換（原子替換）在這
+V id=vk_n6 parent=r_vk src= tgt= fs=12 geo=x="72" y="254" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | template.py  stamp.py  diff.py  report.py
+V id=vk_d6 parent=r_vk src= tgt= fs=12 geo=x="430" y="254" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 純函式（只算結果、不碰檔案）：模板、印記（指紋）、差異比對、回報
+V id=vk_n7 parent=r_vk src= tgt= fs=12 geo=x="46" y="288" width="374" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | test/
+V id=vk_d7 parent=r_vk src= tgt= fs=12 geo=x="430" y="288" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 所有測試與檢查（只進測試用的 stage，不進出貨 image）；先分測試工具、再分層級
+V id=vk_n8 parent=r_vk src= tgt= fs=12 geo=x="72" y="322" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | env/check.sh
+V id=vk_d8 parent=r_vk src= tgt= fs=12 geo=x="430" y="322" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 環境檢查（smoke）：shell 腳本，確認 image 內 Python、tomllib、進入點都能跑
+V id=vk_n9 parent=r_vk src= tgt= fs=12 geo=x="72" y="356" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | lint/ruff/  lint/import-linter/
+V id=vk_d9 parent=r_vk src= tgt= fs=12 geo=x="430" y="356" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 檢查工具的設定檔：Python 寫法規則、模組分層契約
+V id=vk_n10 parent=r_vk src= tgt= fs=12 geo=x="72" y="390" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | lint/mirror_check.py  blackbox_check.py
+V id=vk_d10 parent=r_vk src= tgt= fs=12 geo=x="430" y="390" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 自寫的檢查腳本：鏡射（每模組必有測試）、黑箱（system/acceptance 測試不准引用 vendor_kit 程式）
+V id=vk_n11 parent=r_vk src= tgt= fs=12 geo=x="72" y="424" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/unit/
+V id=vk_d11 parent=r_vk src= tgt= fs=12 geo=x="430" y="424" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 單元測試：test_<模組>.py ×7 + conftest.py（禁碰檔案、網路）
+V id=vk_n12 parent=r_vk src= tgt= fs=12 geo=x="72" y="458" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/integration/
+V id=vk_d12 parent=r_vk src= tgt= fs=12 geo=x="430" y="458" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 子命令測試：test_<子命令>.py ×4 + 時間預算 + conftest.py（禁 Docker）
+V id=vk_n13 parent=r_vk src= tgt= fs=12 geo=x="72" y="492" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/system/
+V id=vk_d13 parent=r_vk src= tgt= fs=12 geo=x="430" y="492" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 整個 image 測試：docker run 每個子命令（CI 主機跑）
+V id=vk_n14 parent=r_vk src= tgt= fs=12 geo=x="72" y="526" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/acceptance/
+V id=vk_d14 parent=r_vk src= tgt= fs=12 geo=x="430" y="526" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 驗收測試：在假專案裡真的打 just（CI 主機跑）
+V id=vk_n15 parent=r_vk src= tgt= fs=12 geo=x="72" y="560" width="348" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | fixtures/
+V id=vk_d15 parent=r_vk src= tgt= fs=12 geo=x="430" y="560" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 測試用假資料：假 dist/、init.toml、VERSION、假專案（project/）、假工具 image 食譜（tool_image/）
+V id=vk_n16 parent=r_vk src= tgt= fs=12 geo=x="46" y="594" width="374" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | doc/adr/
+V id=vk_d16 parent=r_vk src= tgt= fs=12 geo=x="430" y="594" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 設計決策紀錄：一個決策一個 Markdown 檔（例：測試分層與閘門）
+V id=vk_n17 parent=r_vk src= tgt= fs=12 geo=x="46" y="628" width="374" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | Dockerfile
+V id=vk_d17 parent=r_vk src= tgt= fs=12 geo=x="430" y="628" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 打包食譜：runtime → env-test → test-base → 各測試 stage；runtime → release（第 8 頁）
+V id=vk_n18 parent=r_vk src= tgt= fs=12 geo=x="46" y="662" width="374" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | docker-bake.hcl
+V id=vk_d18 parent=r_vk src= tgt= fs=12 geo=x="430" y="662" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 一次跑多個 stage 的清單：group validate（測試）、group release（出貨）
+V id=vk_n19 parent=r_vk src= tgt= fs=12 geo=x="46" y="696" width="374" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | .github/workflows/ci.yaml
+V id=vk_d19 parent=r_vk src= tgt= fs=12 geo=x="430" y="696" width="560" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | CI：推送就跑 bake validate → system/acceptance → bake release
+V id=r_tool parent=1 src= tgt= fs=18 geo=x="1080" y="70" width="760" height="274" as="geometry"/ pts=[] fill=#d5e8d4 dash=False | 工具 repo（每個工具一個）
+V id=tl_n0 parent=r_tool src= tgt= fs=12 geo=x="20" y="50" width="300" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | <name>/
+V id=tl_d0 parent=r_tool src= tgt= fs=12 geo=x="330" y="50" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 任何要透過 vendor_kit 出貨的工具的原始碼 repo
+V id=tl_n1 parent=r_tool src= tgt= fs=12 geo=x="46" y="84" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | dist/
+V id=tl_d1 parent=r_tool src= tgt= fs=12 geo=x="330" y="84" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 要出貨的全部：腳本（script/…）、Dockerfile 範本、模板、hooks 空殼；整包寫進專案的 .<name>/
+V id=tl_n2 parent=r_tool src= tgt= fs=12 geo=x="46" y="118" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | init.toml
+V id=tl_d2 parent=r_tool src= tgt= fs=12 geo=x="330" y="118" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 清單：dist/ 裡哪些檔在 init 時要再複製到專案哪裡（TOML）
+V id=tl_n3 parent=r_tool src= tgt= fs=12 geo=x="46" y="152" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | Dockerfile.dist
+V id=tl_d3 parent=r_tool src= tgt= fs=12 geo=x="330" y="152" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 出貨食譜：FROM vendor_kit，疊上 dist/ 與 init.toml → <name>-dist image
+V id=tl_n4 parent=r_tool src= tgt= fs=12 geo=x="46" y="186" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | .github/workflows/
+V id=tl_d4 parent=r_tool src= tgt= fs=12 geo=x="330" y="186" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | CI：打 tag 時建置 <name>-dist image 並上傳 GHCR
+V id=tl_n5 parent=r_tool src= tgt= fs=12 geo=x="46" y="220" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | doc/  test/  …
+V id=tl_d5 parent=r_tool src= tgt= fs=12 geo=x="330" y="220" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 工具自己的文件、測試等；不在 dist/ 裡，不會出貨
+V id=r_proj parent=1 src= tgt= fs=18 geo=x="1080" y="374" width="760" height="308" as="geometry"/ pts=[] fill=#d5e8d4 dash=False | 專案 repo（使用工具的）
+V id=pj_n0 parent=r_proj src= tgt= fs=12 geo=x="20" y="50" width="300" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | <專案>/
+V id=pj_d0 parent=r_proj src= tgt= fs=12 geo=x="330" y="50" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 使用工具的專案；使用者天天工作的地方
+V id=pj_n1 parent=r_proj src= tgt= fs=12 geo=x="46" y="84" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | .version
+V id=pj_d1 parent=r_proj src= tgt= fs=12 geo=x="330" y="84" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 進 git｜工具版本清單：一行一個工具 <name> = "image"
+V id=pj_n2 parent=r_proj src= tgt= fs=12 geo=x="46" y="118" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | justfile
+V id=pj_d2 parent=r_proj src= tgt= fs=12 geo=x="330" y="118" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 進 git｜啟動器：使用者打 just 時執行的指令清單（第 9 頁）
+V id=pj_n3 parent=r_proj src= tgt= fs=12 geo=x="46" y="152" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=True | Dockerfile  setup.toml  …
+V id=pj_d3 parent=r_proj src= tgt= fs=12 geo=x="330" y="152" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 進 git｜使用者檔案：init 從模板建立，之後歸使用者維護
+V id=pj_n4 parent=r_proj src= tgt= fs=12 geo=x="46" y="186" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | script/hooks/
+V id=pj_d4 parent=r_proj src= tgt= fs=12 geo=x="330" y="186" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 進 git｜使用者的掛勾腳本：每個工具指令前後自動執行（init 建立的空殼）
+V id=pj_n5 parent=r_proj src= tgt= fs=12 geo=x="46" y="220" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | .<name>/
+V id=pj_d5 parent=r_proj src= tgt= fs=12 geo=x="330" y="220" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 不進 git｜工具的 dist/ 整包 + .stamp 印記；每次升級整批換新，不可手改
+V id=pj_n6 parent=r_proj src= tgt= fs=12 geo=x="46" y="254" width="274" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | .<name2>/
+V id=pj_d6 parent=r_proj src= tgt= fs=12 geo=x="330" y="254" width="420" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 不進 git｜另一個工具的，同上
+V id=p10_lg0 parent=1 src= tgt= fs=14 geo=x="40" y="860" width="200" height="60" as="geometry"/ pts=[] fill=#f8cecc dash=False | 紅：我們要開發的模組
+V id=p10_lg1 parent=1 src= tgt= fs=14 geo=x="260" y="860" width="200" height="60" as="geometry"/ pts=[] fill=#d5e8d4 dash=False | 綠：使用框架的 repo
+V id=p10_lg2 parent=1 src= tgt= fs=14 geo=x="480" y="870" width="120" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | 實線框：資料夾
+V id=p10_lg3 parent=1 src= tgt= fs=14 geo=x="620" y="870" width="120" height="40" as="geometry"/ pts=[] fill=#ffffff dash=True | 虛線框：檔案
+V id=p10_lgt parent=1 src= tgt= fs=12 geo=x="760" y="860" width="300" height="60" as="geometry"/ pts=[] fill=none dash=False | 右欄 = 用途／放什麼類型的東西
+V id=p10_th parent=1 src= tgt= fs=13 geo=x="40" y="946" width="200" height="20" as="geometry"/ pts=[] fill=none dash=False | 本頁名詞
+V id=p10_tk0 parent=1 src= tgt= fs=12 geo=x="40" y="970" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | repo
+V id=p10_tv0 parent=1 src= tgt= fs=12 geo=x="210" y="970" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 一個 git 管理的專案資料夾；這頁的三種：我們開發的、工具的、使用工具的專案
+V id=p10_tk1 parent=1 src= tgt= fs=12 geo=x="40" y="1000" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 進 git／不進 git
+V id=p10_tv1 parent=1 src= tgt= fs=12 geo=x="210" y="1000" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 進 git = 這個檔會被版本管理、跟著 repo 走；不進 git = 只在本機產生，隨時可刪掉重裝
+V id=p10_tk2 parent=1 src= tgt= fs=12 geo=x="40" y="1030" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | image
+V id=p10_tv2 parent=1 src= tgt= fs=12 geo=x="210" y="1030" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 打包好可執行的檔案包；vendor_kit repo 只有 src/ 會進最終出貨的 image，測試只進測試用的 stage
+V id=p10_tk3 parent=1 src= tgt= fs=12 geo=x="40" y="1060" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | tag / GHCR
+V id=p10_tv3 parent=1 src= tgt= fs=12 geo=x="210" y="1060" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | tag = 給 repo 打的版本記號（v1.2.0），CI 看到就出貨／GHCR = GitHub 的 image 倉庫
+V id=p10_tk4 parent=1 src= tgt= fs=12 geo=x="40" y="1090" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | hooks
+V id=p10_tv4 parent=1 src= tgt= fs=12 geo=x="210" y="1090" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 掛勾腳本：每個工具指令前（pre）後（post）自動執行的使用者腳本，init 建立空殼
+V id=p10_tk5 parent=1 src= tgt= fs=12 geo=x="40" y="1120" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 原子替換 / 純函式 / 引用
+V id=p10_tv5 parent=1 src= tgt= fs=12 geo=x="210" y="1120" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 整批一次換掉，不會出現半新半舊／只算結果、不碰檔案與網路的程式／一個程式 import（引用）另一個程式
+V id=p10_tk6 parent=1 src= tgt= fs=12 geo=x="40" y="1150" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 測試層級名稱
+V id=p10_tv6 parent=1 src= tgt= fs=12 geo=x="210" y="1150" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | smoke = 環境能跑；lint = 不執行的檢查；unit = 單一模組；integration = 一個子命令走到底；system = 整個 image；acceptance = 真的打 just（第 8 頁）
+V id=p10_tk7 parent=1 src= tgt= fs=12 geo=x="40" y="1180" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | conftest.py / fixtures
+V id=p10_tv7 parent=1 src= tgt= fs=12 geo=x="210" y="1180" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest 每個目錄的共用設定（這裡用來強制限制）／測試用的假資料
+V id=p10_tk8 parent=1 src= tgt= fs=12 geo=x="40" y="1210" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | ADR
+V id=p10_tv8 parent=1 src= tgt= fs=12 geo=x="210" y="1210" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 設計決策紀錄（Architecture Decision Record）：為什麼這樣決定，一個檔一個決策
+V id=p10_tk9 parent=1 src= tgt= fs=12 geo=x="40" y="1240" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | Dockerfile / stage / bake
+V id=p10_tv9 parent=1 src= tgt= fs=12 geo=x="210" y="1240" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 打包 image 的食譜／食譜裡的一個階段／一次建多個階段的清單工具
+V id=p10_tk10 parent=1 src= tgt= fs=12 geo=x="40" y="1270" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | CI
+V id=p10_tv10 parent=1 src= tgt= fs=12 geo=x="210" y="1270" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | GitHub 上的自動化流程：推送或打 tag 時自動跑測試、建置、上傳
+V id=p10_tk11 parent=1 src= tgt= fs=12 geo=x="40" y="1300" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | dist/ / init.toml / .stamp
+V id=p10_tv11 parent=1 src= tgt= fs=12 geo=x="210" y="1300" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 工具要出貨的檔案／init 要複製哪些初始檔的清單／印記檔（裝了哪個 image + 每檔指紋）
+V id=p10_tk12 parent=1 src= tgt= fs=12 geo=x="40" y="1330" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | <name> / just
+V id=p10_tv12 parent=1 src= tgt= fs=12 geo=x="210" y="1330" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 工具名（= .version 的 key，安裝目錄 .<name>/）／主機上的指令跑器

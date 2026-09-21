@@ -1,0 +1,157 @@
+refactor(doc): remove the derived test figures and report from the run instead (implements ADR-00000028)
+## Context
+
+ADR-00000028 (merged as PR #977) decided that documentation is derived from the
+code, not duplicated beside it, and that test statistics live only in the
+release. It is a record: it changed no mechanism. This issue is the mechanism.
+
+## The measured cost this removes
+
+All figures measured 2026-09-02, each reproducible by the command named.
+
+| what | measure | command |
+|---|---|---|
+| grand-total lines every branch edits | 5 (`TEST.md:3,7,23,29`, `unit.md:3`) | `grep -n '3239\|3090' doc/test/*.md` |
+| merges of `origin/main` into a branch since 2026-08-25 that conflicted | **61 of 65** | `git merge-tree --write-tree --name-only` replay |
+| of those, conflicted in `doc/test/` | **61** (50 there and nowhere else) | same |
+| commits touching nothing outside `doc/test/` in that window | 35 (23 with the identical resync subject) | `git log --format=%s --name-only` |
+| table lines in `unit.md` | 1,981 (1,658 per-test rows) | `grep -c '^|' doc/test/unit.md` |
+| per-test rows whose Description is the placeholder `-` | **761 of 1,658 (46%)** | `grep -c '\| - \|$' doc/test/unit.md` |
+| rows against unit `@test`s | 1,658 vs 3,090 (**54% covered**) | `grep -c '^@test' test/bats/unit/*.bats` |
+
+## Work
+
+**1. Remove the derived figures from `doc/test/`.**
+- The five grand-total lines.
+- The 1,658 per-test rows and the table scaffolding around them (1,981 lines in
+  `unit.md`).
+- The per-spec count in each `### <path> (N)` heading. It is the same class of
+  figure; keeping it reintroduces the sync step this removes.
+
+What stays is the authored prose -- one section per spec file saying what it
+covers and why -- with no number in it. ADR-00000028's Consequences: "the prose
+becomes load-bearing".
+
+**2. Remove the machinery that kept the figures true.**
+- `script/test/check_test_md_drift.sh`
+- the count half of `script/test/sync-doc-counts.sh`
+- the `doc-counts` CI job, and the `just test sync-docs` step branches run today
+
+**3. Amend PRD invariant 2.** Its guard list names the doc-count drift gate.
+That one entry drops. The invariant itself is untouched.
+
+**4. Emit the report from the run instead.**
+- Each test job emits JUnit XML: `bats --report-formatter junit -o <dir>`. bats
+  supports this natively and `script/test/drivers/bats.sh` already runs it to
+  collect per-spec timings.
+- Each job uploads its XML as an artifact.
+- The `release` job collects every artifact, merges them, renders a per-suite
+  summary into the Release body, and attaches the merged XML as an asset.
+
+A tag push already runs the full suite: `classify` returns `code_changed=true`
+and `system_relevant=true` unconditionally for any non-`pull_request` event, and
+the `release` job needs `shellcheck`, `doc-counts`, `lint-static`, `hadolint`,
+`bats-fragile`, `bats-integration`, `coverage`, `acceptance`, `system` and
+`worker-selftest`. Note there is no job named `unit` or `integration` -- unit
+specs run inside the sharded `coverage` matrix and in `bats-fragile`. The
+collection must key on what exists, not on those names.
+
+**5. Amend the `README.md` sentence PR #943 wrote**, which says a base release
+carries GitHub's source archives "and no other asset". A JUnit report is
+evidence of the run and exists nowhere else, so attaching it duplicates nothing
+-- but the two records must reconcile rather than contradict.
+
+## What this does NOT change
+
+`doc/badge/coverage.svg` stays. ADR-00000028 section 3: a derived figure may be
+committed when it names what it measured. The badge renders
+`coverage v0.42.0: not measured` and `coverage_badge_spec` asserts that label
+matches `.version`, so it makes no claim about the moving tree and has no merge
+surface -- one commit per release writes it and nothing else does.
+
+## Blocked on / conflicts with
+
+**PR #976 (#922) makes the Description column REQUIRED via a lint.** That is the
+opposite direction: it forces a hand-written description onto every row of a
+table this issue deletes. The two cannot both land. #922 is answered by removal
+-- 46% placeholders become zero rows -- so #976 should be closed rather than
+merged, but that is a call for the repo owner and not assumed here.
+
+**docker_harness#287** asks for the mechanical `doc/test/` merge conflict to be
+auto-resolved. It exists only because of the five grand-total lines. When this
+lands it can be closed as no-longer-reachable rather than implemented.
+
+## Acceptance
+
+- No tracked file under `doc/test/` contains a test count.
+- A branch that adds a test touches no file under `doc/test/`.
+- Replaying the merge of `origin/main` into any open branch produces no conflict
+  in `doc/test/`.
+- A release carries a per-suite summary in its body and a merged JUnit XML
+  asset, both produced by the run rather than by a scan of the source.
+
+Refs #922, ADR-00000028, docker_harness#287.
+
+## Scope change: #999 settled two of the three items, in opposite directions
+
+#999 (PR #1017) landed the mechanism this issue was filed to build, and
+ADR-00000028 was **amended in place** while it did. That amendment reverses
+part of what this issue asks for and leaves the rest standing, so the
+remaining work is smaller and sharper than the body describes.
+
+### 1. The five grand-total lines -- STILL TO DO
+
+`doc/test/TEST.md:3` today:
+
+```
+Template self-tests: **3881 tests** total (3724 unit + 157 integration).
+```
+
+Unchanged in substance, only in value. ADR-00000028's amendment says these
+still go, and gives the reason unchanged: a figure about a moving tree with no
+referent, which every branch edits and which caused **61 conflicts in 65
+merges**. Nothing in #999 touched them.
+
+This is the whole of what is left.
+
+### 2. The 1,658 per-test rows -- SUPERSEDED, and the reasoning reversed
+
+This issue asks to delete them. **ADR-00000028's amendment says keep them**,
+and states why the original reasoning did not hold:
+
+The Alternatives entry declined relocation on the ground that the table adds
+nothing over the test names it copies, evidenced by the 46% placeholder rate
+and the near-synonyms among the rest. That evidence measured the wrong thing.
+**Both symptoms were caused by where the description lived** -- a row in a
+4,000-line document, reachable only after running a generator, which a rename
+silently emptied. Deleting was cheaper than relocating only while relocating
+meant relocating by hand.
+
+Since #999 the rows are rendered from `# why:` blocks above each `@test` on
+every run, so they cost nobody a sync step and the reason to delete them is
+gone. Deleting them now would delete 1,334 authored descriptions.
+
+### 3. The per-spec count in each `### <path> (N)` heading -- SUPERSEDED
+
+Same argument as item 2, and this issue's own framing predicted it ("it is the
+same class of figure"). It is -- and that class is now generated rather than
+maintained, so keeping it reintroduces no sync step.
+
+## What the measurements look like now
+
+| this issue measured (2026-09-02) | today |
+|---|---|
+| 46% of per-test rows carry the placeholder `-` | 1,334 described of 3,950; the rest counted against a ceiling that only goes down |
+| rows cover 54% of unit `@test`s | every `@test` in both spec trees has a row, generated |
+| 61 of 65 merges conflicted, 61 in `doc/test/` | still true, and item 1 is what is left of the cause |
+
+The conflict figure is the one that has not moved, which is why item 1 is
+worth doing on its own rather than closing this as superseded.
+
+## Restated scope
+
+Remove the five grand-total lines from `doc/test/TEST.md` and
+`doc/test/unit.md`, and report the figure from the run instead, per
+ADR-00000028 sec. 3. Do not touch the per-test table or the per-spec heading
+counts -- both are generated now, and the record was amended to say so.
+

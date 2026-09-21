@@ -1,0 +1,114 @@
+fix(init): the generated monitor workflow freezes a base-internal path in every consumer repo
+## The defect
+
+`_sync_base_monitor_workflow` returns immediately when the file already exists
+(`init.sh:1573-1574`, `[[ -e "${_wf}" ]] && return 0`), and its heredoc bakes
+
+```
+run: ./${TEMPLATE_REL}/dist/script/base/check-base-version.sh run
+```
+
+into the consumer's `.github/workflows/` (`init.sh:1606`).
+
+Never-overwrite is deliberate and is pinned by tests. The consequence is that
+base writes a file into a consumer's repo and then promises never to touch it
+again -- so `dist/script/base/check-base-version.sh`, a base-internal path,
+becomes **indefinitely frozen** for every repo that has ever been bootstrapped.
+ADR-00000006's protocol-stable list does not contain it.
+
+## Evidence
+
+- `init.sh:1573-1574` (early return), `:1606` (the baked `run:`), `:1601`
+  (`actions/checkout@v7`).
+- Both guards are string greps against the file `init.sh` has just written:
+  `test/bats/unit/init_spec.bats:591-596` and
+  `test/bats/integration/init_new_repo_spec.bats:174`. Nothing asks whether the
+  path resolves.
+- Never-overwrite is pinned: `init_spec.bats:598-605` ("never clobbers a
+  user-tuned file") and `:934-947`.
+- The repo already records this write-once property elsewhere, but only for the
+  `uses:` ref: `script/test/drivers/generated_workflow_actions.sh:26-28` --
+  "`init.sh` skips when the file exists, so the subtree upgrade that refreshes
+  everything else never refreshes it".
+- Lockstep rename experiment, run in a temporary worktree: renaming
+  `check-base-version.sh` and updating every reference inside base leaves
+  `init_spec.bats` entirely green (including the "runs the subtree-shipped
+  checker via prefix" arm), while a fake consumer whose `.base` points at the
+  renamed tree runs the existing workflow command and gets
+  `No such file or directory`, exit 127.
+- A consumer is already carrying the frozen path:
+  `ycpss91255-docker/isaac`, `.github/workflows/base-version-monitor.yaml:29`.
+- Separate one-line defect in the same file: the issue `check-base-version.sh:160`
+  opens tells the reader to run `just upgrade <version>`, which is not a recipe.
+  Verified: that invocation returns
+  `error: justfile does not contain recipe 'upgrade'`. The correct form is
+  `just base upgrade`. `README.md:557` and `:564` carry the same stale string.
+
+## Why it matters
+
+This is a sharper form of #1077, not a duplicate of it. `init.sh` and
+`upgrade.sh` have forwarders because shipped callers name them -- and the set of
+releases that name them is finite, so the window closes. Here the caller is a
+file base wrote into a consumer repo and then promised not to touch, so **the
+window never closes**. The failure surfaces in the repo of someone who by
+definition is not watching base releases, as a weekly scheduled workflow going
+red. One repo today, growing with every bootstrap.
+
+A reviewer corrected the finder's "unfixable forever": never-overwrite is a code
+choice, not a physical property, and a variant that refreshes only copies still
+byte-identical to base's output would close the window and keep the existing
+spec. That is a third option the finder did not list.
+
+Also corrected: the self-sealing argument ("monitor breaks -> the repo never
+learns about a release -> migrations never run") does not hold, because
+ADR-00000027's X/Y fanout is push-based.
+
+## The fix
+
+Two parts.
+
+**1. One line, immediate consumer impact.** Change `check-base-version.sh:160` to
+`just base upgrade`, and fix the same stale string at `README.md:557` and `:564`.
+
+**2. Stop baking a base-internal path into the generated workflow.** The variant
+this repo is most likely to accept: point the generated `run:` at
+`./.base/dist/script/base/upgrade.sh --check` -- `justfile.base:58-61` is already
+the "is there a new release" entry point. That collapses the frozen name onto a
+path that already has forwarder discipline and is already covered by #1077's
+"two hops in a row" guard, and it adds no new root file.
+
+The alternative is to add `dist/script/base/check-base-version.sh` to
+ADR-00000006's protocol-stable list and record that its window is **unbounded**.
+Pick one and record the choice, because ADR-00000006 currently has no vocabulary
+for a caller with no supported-release window.
+
+**Do not** adopt "enumerate the paths `init.sh` generates and then stops
+updating". `_init_conditional_paths()` (`init.sh:815-833`) is already that list
+and `init_installed_paths_spec.bats` already diffs it both ways.
+
+**ADR tension to note when landing:** the finder's original suggestion (repoint
+at a repo-root forwarder) conflicts with ADR-00000011 section 8 and with
+ADR-00000006's #1077 amendment -- root files were deliberately removed and only
+two were restored under pressure.
+
+## How to verify
+
+Rename `dist/script/base/check-base-version.sh` (or whatever path the generated
+workflow ends up naming), update every reference inside base, then run the
+generated workflow's command against a consumer fixture whose `.base` points at
+the renamed tree. Today that is exit 127 with every spec green. After the fix the
+guard must go red instead.
+
+For the one-line half: assert the issue body emitted by `check-base-version.sh`
+names a recipe that `just --list` actually contains.
+
+refs #927
+
+## Dependency, not visible in the four `ready-for-agent` sections
+
+Part 2 of this issue rewrites `_sync_base_monitor_workflow` (`init.sh:1573-1606`) -- the generated `run:` line and, by implication, the never-overwrite early return. #1078 (open) is about the same function: it asks for a louder announcement when that file is created, a `setup.conf` key letting a consumer decline it, and a CHANGELOG entry for the side effect. Both change the write path and its guards in `init_spec.bats` / `init_new_repo_spec.bats`.
+
+Recording it here because the label's required sections cannot express cross-issue ordering, so the collision is invisible to whoever picks either one up from a queue.
+
+First-mover-wins: the second one to start will hit a conflict in the same heredoc and the same specs. Read #1078 before starting.
+

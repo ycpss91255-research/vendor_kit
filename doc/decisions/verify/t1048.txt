@@ -1,0 +1,177 @@
+test(upgrade): the release that bricked every consumer was green because the upgrade fixture is copied from the candidate tree
+## v0.42.0 bricked every released consumer and 36 of 36 CI jobs were green
+
+The shallow answer is that `prev_release_upgrade_spec.bats` did not exist yet
+-- true, and it landed 3h07m AFTER the tag, in the PR that fixed the bug
+(3a36f8b4 vs db16b472). That answer does not prevent the next one.
+
+The real answer: **an end-to-end upgrade test DID exist, DID run on the tag,
+and was structurally incapable of failing for this reason.**
+
+`git show v0.42.0:test/bats/integration/upgrade_spec.bats` builds a fake
+template remote with two tags and calls the older one "the previous release".
+Every byte of that older side is copied from the CANDIDATE tree:
+
+```
+line 51:  cp "${UPGRADE}" "${TMPL_WORK}/dist/script/base/upgrade.sh"   # ${UPGRADE}=/source/dist/...
+line 55:  cp /source/dist/script/base/upstream.sh ...
+line 60:  cp /source/dist/script/docker/lib/* ...
+line 49:  printf '#!/usr/bin/env bash\nexit 0\n' > "${TMPL_WORK}/dist/script/base/init.sh"
+```
+
+The "old release" is the NEW driver, and the `init.sh` it calls is an `exit 0`
+stub **written at the new path**. And the PR that moved `init.sh` moved the
+fixture with it, in the same commit:
+
+```
+$ git log -S'dist/script/base/init.sh' -- test/bats/integration/upgrade_spec.bats
+f3ffd106
+ded9f90d
+```
+
+So the test asserted the new layout against itself. Seventeen `@test`s driving
+upgrade end to end, and not one of them could notice that the path a released
+consumer invokes had stopped existing.
+
+**The class:** every test in this suite runs against ONE tree, and the single
+fixture that pretended otherwise was regenerated from the candidate. A file
+move is invisible to a self-consistency test by construction. The information
+that decides it lives in the relationship between a RELEASED tag and the
+candidate tree, and nothing looked there.
+
+## There is no release-time gate at all, and that was the opposite of the guess
+
+The tag run is not a thinner set. It is the PR gate PLUS the publish job:
+
+```
+v0.42.0 tag  run 32804287445  36 jobs, all success
+release PR   run 32803861777  32 jobs, all success (release: skipped)
+```
+
+The four extra are the reusable worker-selftest children expanding. `classify`
+emits `code_changed=true` unconditionally for a non-`pull_request` event, so
+every conditional job runs on a tag.
+
+Of those 36, exactly one could in principle have seen a cross-version break --
+`bats-integration`, because `upgrade_spec.bats` lives there -- and it was blind
+as above. `release` does archive assembly and performs no cross-version check.
+
+**Consequence: "the next rc is safe" can currently only mean "the PR gate is
+green", which is precisely the guarantee that failed.** Any release-time check
+has no existing home; and since the tag run equals the PR gate, it may as well
+run on every PR.
+
+## What to build, and why this shape
+
+**A released-invoked-path lint, in the existing `lint-static` matrix.**
+Extract, from every released tag's own `upgrade.sh` / `init.sh`, the set of
+paths it reaches for in the NEW tree after the pull, and fail when the
+candidate does not provide one.
+
+The reason it is a lint over **every released tag** rather than a better
+integration test over a window:
+
+- **The obligation is permanent.** A compatibility forwarder must live forever.
+  A sliding window of 2 is not merely too small, it is the wrong SHAPE for a
+  permanent obligation. Measured, not hypothetical: `jetson_sdk_manager` is on
+  v0.39.0, outside any window of 2, and will be forever.
+- **It fails in the PR that authors the deletion**, naming the released tags
+  that still need the path -- not at a consumer's terminal after the pull has
+  already committed.
+- No docker, seconds, and it joins a job class that already runs on both the
+  PR and the tag.
+
+### What it cannot see, stated now rather than discovered later
+
+- A path assembled from a variable whose value is not literal. Every fatal one
+  today is literal after `${TEMPLATE_REL}` / `${SUBTREE_ROOT}` expansion, but
+  that is a property of today's drivers, not a guarantee.
+- A shape the extractor does not model. **This is not hypothetical:** the
+  investigation's own first extractor missed v0.40.0's `_markers` array and
+  would have passed v0.43.0-rc1 as clean while three released drivers refuse
+  it. Cover `exec`, `source`, array literals and `-f` tests, and still call it
+  a heuristic.
+- Anything behavioural. A file that EXISTS but behaves differently is
+  invisible: `apply_migrations` renamed, `init.sh` gaining a required argument
+  or exiting non-zero. A mutation run during this investigation died at
+  runtime inside `init.sh`, not at the driver's source line.
+
+The integration arm is still wanted for the behavioural half -- see #1041,
+which is now more serious than it was filed as.
+
+Refs #1041, refs #1036, refs #915, refs #919 (the forwarder), refs #579.
+
+## Decision: the parse-the-released-driver lint is DROPPED. Here is what replaces it.
+
+The issue above recommends extracting the invoked-path set from every released
+`upgrade.sh` and failing when the candidate tree does not provide one. That
+recommendation is withdrawn, on two principles that it violates:
+
+1. **It requires human maintenance.** "Extract the paths" means a set of
+   syntax rules someone owns. Cover `exec`, `source`, array literals and `-f`
+   tests today; someone writes a `tee` tomorrow and the rules are behind.
+2. **It fails silently when it is behind.** A shape the extractor does not
+   model produces `clean`, not a complaint. This is not hypothetical — the
+   investigation's own first extractor missed v0.40.0's `_markers` array and
+   passed v0.43.0-rc1 as clean while three released drivers refused it.
+
+A guard that needs maintaining and prints `clean` when it is out of date is
+worse than no guard, because it manufactures confidence.
+
+The error in the original recommendation was the SUBJECT, not the technique:
+it proposed statically parsing **somebody else's already-released code**. That
+is what needs maintenance. Statically testing **our own tree** does not.
+
+## What is being built instead: two halves, each with a different subject
+
+### Static (unit level, contributes to coverage, runs on every PR)
+
+Asserts that the compatibility surface **this tree promises** is still here:
+the root `init.sh` forwarder exists and `exec`s the right sibling path; the
+marker list Step 2's integrity check reads is complete. It reads its own
+files. There is no foreign syntax to model and nothing to keep up to date.
+
+This half is also what makes the work count: an integration test that drives a
+released driver in a subprocess contributes nothing to kcov, and the repo's
+test taxonomy (ADR-00000018) wants the static/unit layer populated rather than
+everything piling into integration. Refs #1043.
+
+### Integration (real released drivers, no parsing at all)
+
+#1041's window changes from "the most recent 2 releases" to **"every release
+from the support floor onward"**, driving the REAL released `upgrade.sh`.
+
+Running is not a heuristic: it works or it does not. Nothing to model, nothing
+to maintain, and `prepare-prev-release.sh` already `_die`s on a tag it cannot
+resolve rather than skipping — the not-silent shape this needs.
+
+This half catches what the static half structurally cannot: a file that EXISTS
+but behaves differently.
+
+## The support floor makes this affordable, and it is v0.43.0
+
+Decided separately: **v0.43.0 is the first supported version**, and the same
+number is both the promise and the capability claim. Nothing before it is owed
+upgradability.
+
+So the integration set is "every release since v0.43.0":
+
+| releasing | drivers to run |
+|---|---|
+| v0.44.0 | 1 |
+| v0.45.0 | 2 |
+| v0.50.0 | 7 |
+
+Bounded, derived from tags, zero maintenance. And it is not `window=N` with a
+bigger N — the set is *floor-onward*, which is the shape a permanent
+compatibility obligation actually has.
+
+**Consequence, stated rather than discovered:** the set is EMPTY until v0.44.0,
+so this mechanism does not protect the v0.43.0 release itself. That release is
+covered by evidence instead of by mechanism — v0.41.0's and v0.42.0's real
+released drivers were run against the rc1 tree and gave `ok/ok/ok`. Running the
+rc against the versions the org is actually on becomes a step in the release
+procedure.
+
+Refs #1041, refs #1043, refs #1049.
+

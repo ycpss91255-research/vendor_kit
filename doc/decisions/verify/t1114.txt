@@ -1,0 +1,90 @@
+fix(ci): each of the twelve coverage shards looks the weights cache up separately, so the partition may not be one
+## The defect
+
+`self-test.yaml:876-889` restores `test/bats/.shard-weights` with
+`key: shard-weights-${{ github.run_id }}` plus `restore-keys: shard-weights-`.
+The only writer is the coverage-gate step (`:983-992`), using the same run-id key,
+only on a push to main, and only **after** coverage has run.
+
+So the exact key can never hit while this run's shards are executing. All 12
+shards fall through to the **prefix** lookup, and each issues its own lookup when
+its own job starts.
+
+`script/test/drivers/bats.sh:303-360` recomputes the **entire** greedy-LPT
+partition from `_spec_weight` on every invocation and prints only the slice it
+was asked for. The union of those twelve slices is a partition **only if all
+twelve read an identical blob**.
+
+## Evidence
+
+- `self-test.yaml:876-889` (restore), `:983-992` (the sole write). `.gitignore:33`
+  keeps the file out of the tree, so the cache blob is the only input.
+- `bats.sh:303-360` (full recompute per call), `:217-236` (`_spec_weight`, which
+  falls back to counting `@test` when the file is unreadable).
+- Reproduced for real against the real repo and the real functions: shards 1-6
+  with no weights file (falling back to `@test` counts) and shards 7-12 with a
+  synthetic seconds file, over a population of 176 files, produce a union of 127
+  distinct specs -- **49 specs in zero shards** and 49 run twice. Every slice was
+  non-empty, so `_die ci_empty_shard` (`bats.sh:355`) never fires.
+- No detector: `coverage_gate.sh:213-236`'s `_merge_timings` documents "a spec
+  runs in exactly one shard ... MAX is defensive de-duplication", and a spec that
+  ran nowhere has no entry at all. `_measured_coverage_scope` and
+  `_coverage_spec_inventory` (`test.sh:1174`, `:1207`) are precisely a
+  union-versus-inventory comparison, but their only consumer is the release badge
+  (`test.sh:1281`) -- no CI job calls them.
+- Test blind spot: `ci_spec.bats:1117-1137` does assert exhaustive and disjoint,
+  but its four slices are evaluated in **one bash process** against **one weight
+  source**, so cross-process divergence is structurally invisible to it.
+
+## What is true today, and must not be overstated
+
+It has never actually happened. `self-test.yaml:981` already echoes
+`merged $(grep -c . test/bats/.shard-weights) spec timings`, which is the union
+size across all shard manifests. Comparing the last 10 main-push runs against the
+inventory at each run's headSha: 171/171, 171/171, 171/171, 171/171, 171/171,
+170/170, 170/170, 168/168, 168/168, 168/168, 168/168 -- exhaustive every time.
+
+Scope is also narrower than the raw number suggests: integration specs are run in
+full by `bats-integration`, and the 14 kcov-fragile unit specs by `bats-fragile`,
+so the population that could genuinely run nowhere is roughly 141 non-fragile unit
+specs. A main push re-partitions with consistent weights, so a spec that slipped
+past a PR gate goes red on the merge commit -- the escape is a PR gate that lies
+once, not a durable hole.
+
+The most likely trigger is not the finder's race but **"Re-run failed jobs" after
+any main merge**: the weights entry changes on every main push, so a re-run shard
+partitions differently from the shards that already passed, and the spec that made
+it red can land in a slice nobody re-ran. Red becomes green with that spec never
+executed.
+
+## Why it matters
+
+`self-test.yaml:793` calls the coverage matrix the **PRIMARY** unit gate. A spec
+that ran in no shard cannot turn it red, and because the threshold is a ratio,
+dropping a well-covered spec can make the reported ratio go **up**.
+
+ADR-00000008 justifies the merge with "each slice runs exactly once, guaranteed by
+an exhaustive and disjoint partition" (ADR:78), and the #733 amendment priced
+cache poisoning but never priced blob consistency across shards.
+
+## The fix
+
+**Cheap half -- the detector already has its data.** coverage-gate already
+downloads every shard's `coverage/timings.tsv` (`self-test.yaml:975-981`) and
+echoes the union size. Replace that echo with a comparison against
+`_coverage_spec_inventory`: refuse, and list the absent specs, when they differ.
+No artifact or job-output plumbing is needed.
+
+**Structural half -- make the partition input single-sourced.** Have
+`compute-shards` restore once and hand the blob to every shard as an artifact or
+job output, turning twelve lookups into one.
+
+## How to verify
+
+Reproduce the audit's measurement: run the partition twice against two different
+weight sources and require the union to be flagged. Concretely, seed half the
+shards with a weights file and half without, and require the new coverage-gate
+check to refuse with the absent specs named. Today that configuration produces 49
+missing specs and a green gate.
+
+

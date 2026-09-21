@@ -1,0 +1,8 @@
+docs: add v0.4.1 and v0.4.2 to CHANGELOG
+Add missing changelog entries for v0.4.1 (smoke rename, README fix) and v0.4.2 (run.sh container name, remove migrate.sh, remove i18n).
+
+Generated with Claude Code
+## [Codecov](https://app.codecov.io/gh/ycpss91255-docker/template/pull/29?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=ycpss91255-docker) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

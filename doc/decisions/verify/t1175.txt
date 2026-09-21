@@ -1,0 +1,275 @@
+fix(ci): the toml-bridge smoke test feeds its probes to the entrypoint, so three of four cannot fail
+## Context
+
+`.github/workflows/release-toml-bridge.yaml` ends with a **Smoke test
+pushed image** step (`release-toml-bridge.yaml:210-237`) whose stated job
+is, in its own comment at `:212-215`:
+
+> Pull the just-pushed image and verify the three things downstream
+> consumers rely on: Python runs, tomllib is importable (stdlib 3.11+),
+> and the toml-bridge entrypoint parses a TOML document to JSON.
+
+Three of the four probes in that step verify nothing. They exercise the
+bridge's TOML parser with arguments it discards, and report its exit
+status as though it were the probe's. The image is fine; the test is not.
+
+## Problem
+
+`dockerfile/Dockerfile.toml-bridge:31` makes the parser the entrypoint:
+
+```
+ENTRYPOINT ["python3", "/usr/local/bin/toml-bridge"]
+```
+
+so `docker run IMAGE python3 --version` does not run `python3 --version`.
+It runs
+
+```
+python3 /usr/local/bin/toml-bridge python3 --version
+```
+
+and `dockerfile/toml_bridge.py:86-99` swallows the rest:
+
+```python
+def main():
+    argv = [a for a in sys.argv[1:] if not a.startswith("-")]
+    kv_mode = "--kv" in sys.argv
+    merge_mode = "--merge" in sys.argv
+
+    if merge_mode:
+        data = _merge_layers(argv)
+    else:
+        raw = sys.stdin.buffer.read()
+```
+
+`--version`, `-c` and the `-c` payload are neither `--kv` nor `--merge`,
+so control falls to the stdin arm. `docker run` without `-i` binds stdin
+to `/dev/null`, `tomllib.loads("")` is a valid empty document, and
+`json.dump({}, ...)` at `:104` prints `{}` and exits 0.
+
+Affected lines, exactly:
+
+- **`release-toml-bridge.yaml:222`** —
+  `py_ver="$(docker run --rm "${image}" python3 --version)"`. `py_ver`
+  holds the literal string `{}`, not a version. Two defects in one line:
+  the value is wrong, *and* nothing compares it to anything. `:223` only
+  echoes it. The comment above it at `:221` states the requirement
+  ("3.11+ is required for stdlib tomllib") that the code never enforces.
+- **`release-toml-bridge.yaml:226`** —
+  `docker run --rm "${image}" python3 -c "import tomllib; print('tomllib OK')"`.
+  `tomllib` is never imported by this command; `tomllib OK` is never
+  printed, and nothing looks for it. The step's own comment calls this
+  line "the acceptance criterion".
+- **`release-toml-bridge.yaml:229`** — same shape for `import tomli`.
+  The vendored fallback installed at `Dockerfile.toml-bridge:26` is
+  never touched.
+
+The fourth probe, `release-toml-bridge.yaml:232-236`, is **correct** and
+should be kept: it passes `-i`, passes no arguments, and compares the
+output. It is the only line in the step that can fail.
+
+Note what the three broken probes *do* prove, incidentally: the bridge
+imported *one* of `tomllib`/`tomli` at `toml_bridge.py:11-14`. Not which
+one, not the Python version, and not that both are present.
+
+## Reproduction
+
+Built from `main` at `ec1651d5`, on the same Dockerfile the workflow
+builds, then each probe run verbatim:
+
+```
+$ docker build -t toml-bridge:issue-repro -f dockerfile/Dockerfile.toml-bridge .
+
+$ py_ver="$(docker run --rm toml-bridge:issue-repro python3 --version)"; echo "$? [$py_ver]"
+0 [{}]
+
+$ docker run --rm toml-bridge:issue-repro python3 -c "import tomllib; print('tomllib OK')"; echo "exit=$?"
+{}exit=0
+
+$ docker run --rm toml-bridge:issue-repro python3 -c "import tomli; print('tomli OK')"; echo "exit=$?"
+{}exit=0
+
+$ printf '[gui]\nmode = "wayland"\n' | docker run --rm -i toml-bridge:issue-repro; echo " exit=$?"
+{"gui": {"mode": "wayland"}} exit=0
+```
+
+The same image, asked the questions the step meant to ask:
+
+```
+$ docker run --rm --entrypoint python3 toml-bridge:issue-repro --version
+Python 3.13.13
+$ docker run --rm --entrypoint python3 toml-bridge:issue-repro -c "import tomllib; print('tomllib OK')"
+tomllib OK
+```
+
+### Negative controls
+
+Two deliberately broken images, each violating one of the step's stated
+acceptance criteria, **pass the entire step unchanged** — all four
+probes, exit 0:
+
+| Variant | Truth (`--entrypoint python3`) | probes 1-4 |
+|---|---|---|
+| `Dockerfile.toml-bridge` minus the `pip install tomli` at `:26` | `Python 3.13.13`, `import tomli` -> `ModuleNotFoundError` | all pass |
+| `python:3.10-alpine` base (below the 3.11 floor `:221` names) | `Python 3.10.21`, `import tomllib` -> `ModuleNotFoundError` | all pass |
+
+The 3.10 variant passes the end-to-end probe too, because
+`toml_bridge.py:11-14` falls back to `tomli`. So even the one working
+probe does not cover the version floor — that needs its own assertion.
+
+## Why the existing shape let it through
+
+The step was modelled on `release-test-tools.yaml:379-460`, which is
+full of lines like
+
+```
+actual_sc="$(docker run --rm "${image}" shellcheck --version)"
+docker run --rm "${image}" parallel --version
+```
+
+Those are correct, because `dockerfile/Dockerfile.test-tools` declares
+**no `ENTRYPOINT`** (zero occurrences in the file) — the argument vector
+*is* the command. Copying the idiom into a workflow whose image *does*
+set an entrypoint silently inverts its meaning: the arguments stop being
+a command and become input to a program that ignores input it does not
+recognise.
+
+Two properties turned that into a test that cannot fail rather than a
+test that errors:
+
+1. **The bridge is permissive by design.** Unknown arguments are
+   dropped at `toml_bridge.py:87` rather than rejected, and an empty
+   document is legal TOML. A parser that exited non-zero on unrecognised
+   argv would have made this a red build on the first run.
+2. **Three of the four probes assert on exit status only.** The one
+   probe that compares *output* (`:232-236`) is the one that works. A
+   probe with no output assertion degrades, undetectably, into "did some
+   process exit 0" — and here the process always does.
+
+Neither `actionlint` nor `shellcheck` can see this: the YAML and the
+shell are both valid, and the defect is in what the container does with
+the argv.
+
+## Proposal
+
+A corrected version of this exact step already exists as prior art in
+the extracted repo — [`ycpss91255-docker/toml-bridge`,
+`.github/workflows/release-toml-bridge.yaml:210-260`](https://github.com/ycpss91255-docker/toml-bridge/blob/51db8957a384945764a65121a3262f50062fe7a9/.github/workflows/release-toml-bridge.yaml#L210-L260)
+(the file is otherwise a near-copy of this one, so the diff is readable
+against it). Rather than re-deriving the patch, port it:
+
+1. **`--entrypoint python3` on every probe that wants a plain
+   interpreter** (`:228`, `:239`, `:243` there), which also lets the
+   `--version` argument stay where it belongs:
+
+   ```
+   py_ver="$(docker run --rm --entrypoint python3 "${image}" --version)"
+   docker run --rm --entrypoint python3 "${image}" -c "import tomllib; print('tomllib OK')"
+   docker run --rm --entrypoint python3 "${image}" -c "import tomli; print('tomli OK')"
+   ```
+
+2. **Compare the reported version against the floor the code needs.**
+   `toml_bridge.py:11-14` wants stdlib `tomllib`, i.e. 3.11+. The prior
+   art gates it:
+
+   ```
+   case "${py_ver}" in
+     'Python 3.1'[1-9]*|'Python 3.'[2-9][0-9]*|'Python '[4-9]*) ;;
+     *)
+       echo "::error::${image} reports '${py_ver}'; stdlib tomllib needs Python 3.11+" >&2
+       exit 1
+       ;;
+   esac
+   ```
+
+   That gate is the negative control this step is missing. Checked
+   against the strings this repo can actually produce: it accepts
+   `Python 3.13.13` and `Python 3.11.0`, and rejects both
+   `Python 3.10.21` (the 3.10 variant above) and `{}` (today's captured
+   value) — so it fails on the two images that pass today.
+
+3. **Keep the working end-to-end probe**, and note the prior art adds a
+   second one for the `--kv` arm (`:254-259` there), which is the arm
+   `dist/` consumers tokenise with `read -r` and which nothing in this
+   step covers today.
+
+4. Update the step comment at `:212-215` to say four checks, and record
+   *why* `--entrypoint` is mandatory here — the prior art's comment at
+   `:217-221` is the note that stops this regressing.
+
+## Acceptance criteria
+
+- [ ] Every probe in the smoke step that wants an interpreter passes
+      `--entrypoint python3`; the entrypoint probes keep running the
+      entrypoint.
+- [ ] The captured Python version is compared against 3.11+, and the
+      step fails when it is not.
+- [ ] An image built without the `tomli` install at
+      `Dockerfile.toml-bridge:26` **fails** the step.
+- [ ] An image built on a `python:3.10-*` base **fails** the step.
+- [ ] The unmodified image still passes.
+
+---
+
+Found while extracting the containerised bridge into
+[`ycpss91255-docker/toml-bridge`](https://github.com/ycpss91255-docker/toml-bridge):
+porting this workflow to the new repo meant reading the smoke step
+closely enough to notice the entrypoint, and the corrected step landed
+there first. Filing it here so `base`'s copy does not keep publishing on
+a green light it did not earn.
+
+## Heads-up: the file this issue fixes is being deleted right now
+
+This issue's whole subject is the **Smoke test pushed image** step inside
+`.github/workflows/release-toml-bridge.yaml`. #1180 **Phase A** deletes
+that entire workflow.
+
+That work is in flight, not hypothetical: branch
+`chore/retire-toml-bridge-publisher`, two commits on top of `main@ec1651d5` --
+`8c8d4282` (red: assert this repo publishes only the GHCR packages it owns)
+and `742a2c85` (green: delete the workflow). The file is present on
+`origin/main` and already absent on that branch; a PR is being opened.
+
+So an agent that picks this up would be fixing probes in a file that is
+about to stop existing.
+
+### Why the deletion is time-sensitive
+
+`ycpss91255-docker/toml-bridge` now owns the package and has published
+`v0.1.0`. This repo's workflow still triggers on an unfiltered
+`tags: ['v*']` (`:36-37`) and, for a non-prerelease tag, takes the
+`else tags="${tags},${IMAGE}:latest"` branch (`:178`) -- so the next final
+tag cut here would move `:latest` off the image `toml-bridge` shipped.
+That is what makes Phase A urgent rather than merely tidy.
+
+### What that means for this issue
+
+- If Phase A lands, this issue closes as **resolved by removal**, not as
+  fixed. The defective probes go with the file.
+- If the workflow survives for some reason, this issue stands exactly as
+  written.
+
+**Recommendation** (not a decision): do not start this issue until #1180
+Phase A resolves. The `ready-for-agent` label is misleading in the
+meantime; a maintainer may want to remove or park it. I have not changed
+any labels.
+
+### The finding itself already has a durable home
+
+Checked rather than assumed: `ycpss91255-docker/toml-bridge` carries the
+**corrected** step, not a copy of the broken one --
+`.github/workflows/release-toml-bridge.yaml:210-260` there has
+`--entrypoint python3` on all three interpreter probes, the `Python 3.11+`
+`case` gate, the `--kv` end-to-end probe, and a comment at `:217-221`
+recording *why* the override is mandatory. That is the same prior art this
+issue's Proposal section names.
+
+So the test-design lesson -- probes fed to an image's `ENTRYPOINT` that
+assert only on exit status cannot fail -- survives the deletion of base's
+copy. Worth noting for anyone extending it: on `main` today,
+`dockerfile/Dockerfile.toml-bridge:31` is the only Dockerfile in this repo
+that sets an `ENTRYPOINT`, which is why `release-test-tools.yaml`'s
+similarly-shaped probes are correct.
+
+Refs #1180, #1176.
+

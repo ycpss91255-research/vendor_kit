@@ -1,0 +1,98 @@
+V id=0 parent=None src= tgt= fs=- geo= pts=[] fill=- dash=False | 
+V id=1 parent=0 src= tgt= fs=- geo= pts=[] fill=- dash=False | 
+V id=title parent=1 src= tgt= fs=18 geo=x="40" y="20" width="1300" height="30" as="geometry"/ pts=[] fill=- dash=False | 使用者介面：just 指令表（使用者只會碰這些；每個指令前都先自動檢查／安裝）
+V id=gA parent=1 src= tgt= fs=18 geo=x="40" y="70" width="1260" height="320" as="geometry"/ pts=[] fill=#f8cecc dash=False | vendor_kit 提供的指令（每個用這套框架的專案都一樣）
+V id=ta_h0 parent=gA src= tgt= fs=12 geo=x="20" y="50" width="130" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 指令
+V id=ta_h1 parent=gA src= tgt= fs=12 geo=x="150" y="50" width="200" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 什麼時候打
+V id=ta_h2 parent=gA src= tgt= fs=12 geo=x="350" y="50" width="330" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 做什麼
+V id=ta_h3 parent=gA src= tgt= fs=12 geo=x="680" y="50" width="300" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 背後跑什麼
+V id=ta_h4 parent=gA src= tgt= fs=12 geo=x="980" y="50" width="260" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 動到專案裡的什麼
+V id=ta_r0c0 parent=gA src= tgt= fs=12 geo=x="20" y="80" width="130" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | just init
+V id=ta_r0c1 parent=gA src= tgt= fs=12 geo=x="150" y="80" width="200" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 第一次把工具接進專案
+V id=ta_r0c2 parent=gA src= tgt= fs=12 geo=x="350" y="80" width="330" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 安裝 .<name>/，再照 init.toml 建立初始檔（Dockerfile、設定檔、hooks…）；已存在的不動
+V id=ta_r0c3 parent=gA src= tgt= fs=12 geo=x="680" y="80" width="300" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | vendor_kit 容器：install → init
+V id=ta_r0c4 parent=gA src= tgt= fs=12 geo=x="980" y="80" width="260" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | .<name>/（新建）、初始檔（新建）
+V id=ta_r1c0 parent=gA src= tgt= fs=12 geo=x="20" y="128" width="130" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | just diff
+V id=ta_r1c1 parent=gA src= tgt= fs=12 geo=x="150" y="128" width="200" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 升級之後
+V id=ta_r1c2 parent=gA src= tgt= fs=12 geo=x="350" y="128" width="330" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 顯示新版模板 vs 你的初始檔差在哪；不改任何檔
+V id=ta_r1c3 parent=gA src= tgt= fs=12 geo=x="680" y="128" width="300" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | vendor_kit 容器：diff
+V id=ta_r1c4 parent=gA src= tgt= fs=12 geo=x="980" y="128" width="260" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 不動（只印到畫面）
+V id=ta_r2c0 parent=gA src= tgt= fs=12 geo=x="20" y="176" width="130" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | just upgrade
+V id=ta_r2c1 parent=gA src= tgt= fs=12 geo=x="150" y="176" width="200" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 沒有 Renovate 機器人時，想手動升級
+V id=ta_r2c2 parent=gA src= tgt= fs=12 geo=x="350" y="176" width="330" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 把 .version 改成最新版 → 重新安裝 → 顯示差異（細節待議）
+V id=ta_r2c3 parent=gA src= tgt= fs=12 geo=x="680" y="176" width="300" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 查 GHCR → 改 .version → install → diff
+V id=ta_r2c4 parent=gA src= tgt= fs=12 geo=x="980" y="176" width="260" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | .version、.<name>/
+V id=ta_r3c0 parent=gA src= tgt= fs=12 geo=x="20" y="224" width="130" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | （自動）
+V id=ta_r3c1 parent=gA src= tgt= fs=12 geo=x="150" y="224" width="200" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 每個 just 指令執行前
+V id=ta_r3c2 parent=gA src= tgt= fs=12 geo=x="350" y="224" width="330" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 第 3 頁的檢查：.<name>/.stamp 第一行 ≠ .version → install；相同 → verify；verify 失敗就中止
+V id=ta_r3c3 parent=gA src= tgt= fs=12 geo=x="680" y="224" width="300" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | vendor_kit 容器：install 或 verify
+V id=ta_r3c4 parent=gA src= tgt= fs=12 geo=x="980" y="224" width="260" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | .<name>/（可能重裝）
+V id=gA_n parent=gA src= tgt= fs=11 geo=x="20" y="278" width="1220" height="20" as="geometry"/ pts=[] fill=none dash=False | verify 不開放給使用者單獨打：它是每個指令前的守門，不是一個要記的指令。
+V id=gB parent=1 src= tgt= fs=18 geo=x="40" y="420" width="1260" height="360" as="geometry"/ pts=[] fill=#d5e8d4 dash=False | 工具 <name> 提供的指令（由工具的 dist/ 決定，每個工具可以不同；下面以「容器工作流」工具為例）
+V id=tb_h0 parent=gB src= tgt= fs=12 geo=x="20" y="50" width="130" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 指令
+V id=tb_h1 parent=gB src= tgt= fs=12 geo=x="150" y="50" width="200" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 什麼時候打
+V id=tb_h2 parent=gB src= tgt= fs=12 geo=x="350" y="50" width="330" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 做什麼
+V id=tb_h3 parent=gB src= tgt= fs=12 geo=x="680" y="50" width="300" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 背後跑什麼
+V id=tb_h4 parent=gB src= tgt= fs=12 geo=x="980" y="50" width="260" height="30" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 動到專案裡的什麼
+V id=tb_r0c0 parent=gB src= tgt= fs=12 geo=x="20" y="80" width="130" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | just build
+V id=tb_r0c1 parent=gB src= tgt= fs=12 geo=x="150" y="80" width="200" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 第一次、或改了 Dockerfile 之後
+V id=tb_r0c2 parent=gB src= tgt= fs=12 geo=x="350" y="80" width="330" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 建置專案自己的 image
+V id=tb_r0c3 parent=gB src= tgt= fs=12 geo=x="680" y="80" width="300" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | .<name>/ 的 build 腳本 → docker compose build
+V id=tb_r0c4 parent=gB src= tgt= fs=12 geo=x="980" y="80" width="260" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 本機 image（不在 repo 裡）
+V id=tb_r1c0 parent=gB src= tgt= fs=12 geo=x="20" y="128" width="130" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | just run
+V id=tb_r1c1 parent=gB src= tgt= fs=12 geo=x="150" y="128" width="200" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 要開始工作時
+V id=tb_r1c2 parent=gB src= tgt= fs=12 geo=x="350" y="128" width="330" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 啟動專案容器（在背景常駐）
+V id=tb_r1c3 parent=gB src= tgt= fs=12 geo=x="680" y="128" width="300" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | .<name>/ 的 run 腳本 → docker compose up
+V id=tb_r1c4 parent=gB src= tgt= fs=12 geo=x="980" y="128" width="260" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 容器（不在 repo 裡）
+V id=tb_r2c0 parent=gB src= tgt= fs=12 geo=x="20" y="176" width="130" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | just exec
+V id=tb_r2c1 parent=gB src= tgt= fs=12 geo=x="150" y="176" width="200" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 容器跑著的時候
+V id=tb_r2c2 parent=gB src= tgt= fs=12 geo=x="350" y="176" width="330" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 進到容器裡下指令
+V id=tb_r2c3 parent=gB src= tgt= fs=12 geo=x="680" y="176" width="300" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | .<name>/ 的 exec 腳本 → docker compose exec
+V id=tb_r2c4 parent=gB src= tgt= fs=12 geo=x="980" y="176" width="260" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 無
+V id=tb_r3c0 parent=gB src= tgt= fs=12 geo=x="20" y="224" width="130" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | just stop
+V id=tb_r3c1 parent=gB src= tgt= fs=12 geo=x="150" y="224" width="200" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 收工
+V id=tb_r3c2 parent=gB src= tgt= fs=12 geo=x="350" y="224" width="330" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 停掉並移除容器
+V id=tb_r3c3 parent=gB src= tgt= fs=12 geo=x="680" y="224" width="300" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | .<name>/ 的 stop 腳本 → docker compose down
+V id=tb_r3c4 parent=gB src= tgt= fs=12 geo=x="980" y="224" width="260" height="48" as="geometry"/ pts=[] fill=#ffffff dash=False | 容器（移除）
+V id=gB_n parent=gB src= tgt= fs=12 geo=x="20" y="282" width="1220" height="66" as="geometry"/ pts=[] fill=#ffffff dash=False | 為什麼是這四個：它們是「一個容器的一生」— 做出來（build）→ 開起來（run）→ 進去用（exec）→ 關掉（stop），一個階段一個指令。 這四個是工具定義的，vendor_kit 只負責把工具裝好；換一個工具，這一區的指令就換一套。 每個工具指令前後都可以掛你自己的腳本：script/hooks/pre/<指令>.sh、post/<指令>.sh（init 建立的空殼）。
+V id=gC parent=1 src= tgt= fs=18 geo=x="40" y="810" width="1260" height="205" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 任何一個 just 指令的完整路徑
+V id=c0 parent=gC src= tgt= fs=14 geo=x="20" y="95" width="160" height="50" as="geometry"/ pts=[] fill=#d5e8d4 dash=False | 使用者打 just X
+V id=c1 parent=gC src= tgt= fs=14 geo=x="220" y="95" width="180" height="50" as="geometry"/ pts=[] fill=#ffffff dash=False | 自動檢查／安裝 （第 3 頁「日常」）
+V id=c2 parent=gC src= tgt= fs=14 geo=x="440" y="80" width="160" height="80" as="geometry"/ pts=[] fill=#FFF4C3 dash=False | X 是誰的？
+V id=c3 parent=gC src= tgt= fs=14 geo=x="660" y="55" width="260" height="50" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | 起 vendor_kit 容器跑子命令 （init / diff；upgrade = 改 .version 再 install + diff）
+V id=c4 parent=gC src= tgt= fs=14 geo=x="660" y="135" width="260" height="50" as="geometry"/ pts=[] fill=#ffffff dash=False | 執行 .<name>/ 裡的腳本 （build / run / exec / stop…）
+V id=c5 parent=gC src= tgt= fs=14 geo=x="980" y="70" width="160" height="100" as="geometry"/ pts=[] fill=#d5e8d4 dash=False | 畫面顯示結果
+E id=ce0 parent=1 src=c0 tgt=c1 fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | 
+E id=ce1 parent=1 src=c1 tgt=c2 fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | 通過
+E id=ce2 parent=1 src=c2 tgt=c3 fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | vendor_kit 的
+E id=ce3 parent=1 src=c2 tgt=c4 fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | 工具的
+E id=ce4 parent=1 src=c3 tgt=c5 fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | 
+E id=ce5 parent=1 src=c4 tgt=c5 fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | 
+V id=p9_lg0 parent=1 src= tgt= fs=14 geo=x="40" y="1040" width="200" height="60" as="geometry"/ pts=[] fill=#f8cecc dash=False | 紅：我們要開發的模組
+V id=p9_lg1 parent=1 src= tgt= fs=14 geo=x="260" y="1040" width="200" height="60" as="geometry"/ pts=[] fill=#d5e8d4 dash=False | 綠：使用框架的 repo
+V id=p9_lg2 parent=1 src= tgt= fs=14 geo=x="480" y="1040" width="200" height="60" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 淺灰：分組（無狀態意義）
+V id=p9_lg3 parent=1 src= tgt= fs=14 geo=x="700" y="1050" width="120" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | 白：最小單元
+V id=p9_lg4 parent=1 src= tgt= fs=14 geo=x="840" y="1050" width="180" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | 紫：image / container
+V id=p9_lg5 parent=1 src= tgt= fs=14 geo=x="1040" y="1050" width="160" height="40" as="geometry"/ pts=[] fill=#d5e8d4 dash=False | 綠橢圓：起點／終點
+V id=p9_lg6 parent=1 src= tgt= fs=14 geo=x="1220" y="1040" width="110" height="60" as="geometry"/ pts=[] fill=#FFF4C3 dash=False | 黃：判斷
+V id=p9_lg7 parent=1 src= tgt= fs=12 geo=x="1350" y="1050" width="130" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | 便條：補充說明
+V id=p9_lgt parent=1 src= tgt= fs=12 geo=x="1500" y="1040" width="300" height="60" as="geometry"/ pts=[] fill=none dash=False | 表格：一列一個指令 流程：實線 = 執行順序
+V id=p9_th parent=1 src= tgt= fs=13 geo=x="40" y="1126" width="200" height="20" as="geometry"/ pts=[] fill=none dash=False | 本頁名詞
+V id=p9_tk0 parent=1 src= tgt= fs=12 geo=x="40" y="1150" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | just / justfile
+V id=p9_tv0 parent=1 src= tgt= fs=12 geo=x="210" y="1150" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | just = 主機上的指令跑器；justfile = 專案裡給它讀的指令清單（啟動器）。使用者只需要記這一頁的指令
+V id=p9_tk1 parent=1 src= tgt= fs=12 geo=x="40" y="1180" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | <name>
+V id=p9_tv1 parent=1 src= tgt= fs=12 geo=x="210" y="1180" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 工具名（= .version 裡的 key）；工具裝在 .<name>/
+V id=p9_tk2 parent=1 src= tgt= fs=12 geo=x="40" y="1210" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | init.toml / 初始檔
+V id=p9_tv2 parent=1 src= tgt= fs=12 geo=x="210" y="1210" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 工具給的清單：第一次要複製到專案的檔案（Dockerfile、設定檔、hooks…）；建立後歸使用者，升級不會動
+V id=p9_tk3 parent=1 src= tgt= fs=12 geo=x="40" y="1240" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 印記 / .version
+V id=p9_tv3 parent=1 src= tgt= fs=12 geo=x="210" y="1240" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | .<name>/.stamp：記錄裝了哪個 image + 每檔指紋／專案記工具版本的檔；兩者不同就重裝
+V id=p9_tk4 parent=1 src= tgt= fs=12 geo=x="40" y="1270" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | Renovate / GHCR
+V id=p9_tv4 parent=1 src= tgt= fs=12 geo=x="210" y="1270" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | GitHub 上的機器人：有新版就自動開 PR 改 .version／GitHub 的 image 倉庫
+V id=p9_tk5 parent=1 src= tgt= fs=12 geo=x="40" y="1300" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | docker compose
+V id=p9_tv5 parent=1 src= tgt= fs=12 geo=x="210" y="1300" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | Docker 內建的多容器管理指令：build 建置、up 啟動、exec 進入、down 停止
+V id=p9_tk6 parent=1 src= tgt= fs=12 geo=x="40" y="1330" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | image / 容器 / Dockerfile
+V id=p9_tv6 parent=1 src= tgt= fs=12 geo=x="210" y="1330" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | image = 打包好的環境（做一次）；容器 = image 開起來的實例（可開可關）；Dockerfile = 怎麼做 image 的食譜。build 做 image，run 開容器
+V id=p9_tk7 parent=1 src= tgt= fs=12 geo=x="40" y="1360" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | hooks
+V id=p9_tv7 parent=1 src= tgt= fs=12 geo=x="210" y="1360" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 掛勾腳本：每個工具指令前（pre）後（post）自動執行的你的腳本，預設是空殼
+V id=p9_tk8 parent=1 src= tgt= fs=12 geo=x="40" y="1390" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 容器工作流
+V id=p9_tv8 parent=1 src= tgt= fs=12 geo=x="210" y="1390" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 用容器當開發環境的工作方式：建置 image → 啟動容器 → 進去工作 → 停掉；本頁 B 區的四個指令就是它

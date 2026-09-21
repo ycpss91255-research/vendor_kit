@@ -1,0 +1,181 @@
+feat(test): no just entry for running a single spec, so the TDD inner loop reaches past just
+Two small, independent tooling papercuts found while working on #1166.
+Neither is related to that issue's subject; both are recorded here so they
+are not lost. They can be fixed in either order, or by two people.
+
+---
+
+## (a) `enforce_local_full_ci_before_pr.sh` gates the wrong repository
+
+**Ownership note first:** the hook is tracked in
+`ycpss91255-docker/docker_harness` at
+`.claude/hooks/enforce_local_full_ci_before_pr.sh`, not in this repo. It
+is filed here because it was found here and it gates PRs to this repo; the
+fix belongs in `docker_harness` and the issue may want transferring.
+
+### Problem
+
+The hook resolves the repository from the tool call's `cwd`, which is the
+parent `docker` checkout rather than the git worktree the work is
+happening in.
+
+`enforce_local_full_ci_before_pr.sh:62`:
+
+```
+cwd="$(printf '%s' "${input}" | jq -r '.cwd // empty' 2>/dev/null)"
+```
+
+then `:69-72`:
+
+```
+[[ -z "${cwd}" ]] && cwd="${PWD}"
+root="$(git -C "${cwd}" rev-parse --show-toplevel 2>/dev/null)" || return 0
+head="$(git -C "${root}" rev-parse HEAD 2>/dev/null)" || return 0
+```
+
+`root` decides both halves of the check: the HEAD that must be attested,
+and where the marker is looked for (`:31` `MARKER_SUBDIR=".claude/state/local-ci-pass"`,
+`:89` `local marker_dir="${root}/${MARKER_SUBDIR}"`).
+
+Work in this project is done in git worktrees under
+`<workspace>/worktree/<repo>-<N>/`, and shell calls do not `cd` into them
+-- the project convention is `git -C` / relative paths, so the session cwd
+stays the parent `docker` checkout. The hook therefore takes the parent
+repo's toplevel, checks the parent repo's HEAD, and looks for the marker
+under the parent repo. No marker written inside the worktree can ever
+satisfy it, and the HEAD it demands attestation for is a commit the author
+is not changing.
+
+### Observed
+
+Working in `/home/yunchien/workspace/docker/worktree/base-tt-hash`:
+`.claude/scripts/ci-and-stamp.sh` had been run green IN the worktree, and
+the hook still denied, gating on the parent's HEAD. The deny message
+(`:113`) prints a `LOCAL_CI_ACK=<sha>` override, which is what unblocked
+it.
+
+So the escape hatch works. What does not work is the gate: it is checking
+a repository the author is not touching, and its verdict carries no
+information about the change being submitted. Given how much of this
+project's work happens in worktrees, that is close to useless in the
+normal case -- and worse than useless in one direction, because a green
+parent HEAD would let the PR through on evidence about the wrong tree.
+
+### Fix shape
+
+Derive the repository from the branch the PR is being opened FOR, not from
+the session's cwd. Candidates worth weighing: the `-C <path>` / `--repo`
+argument already present in the `gh` command line; the worktree the marker
+was stamped in; refusing to answer (fail safe, as `:24` already does for a
+non-git cwd) when the cwd's repo is demonstrably not the one being pushed.
+Whichever is chosen, a hook that silently answers about a different
+repository than the one in the command is the defect to close.
+
+---
+
+## (b) `just test bats-path <spec>` has no recipe
+
+Running a single spec file is the inner loop of any TDD cycle, and today
+it requires reaching past `just` to
+`./script/test/test.sh --bats-path <spec>` -- which is exactly what the
+`just test` recipes call internally.
+
+`script/test/test.sh:867-876` documents both flags:
+
+```
+--bats-path PATH        Run a single spec FILE or DIRECTORY (repo-root-
+                        relative, e.g. test/bats/unit/ci_spec.bats) via the ci
+                        container. Skips ShellCheck + kcov for a fast TDD
+                        inner loop. ...
+--filter REGEX          Pass a bats -f name filter (within-file single-test
+                        selection); usable with or without --bats-path.
+```
+
+and parses `--bats-path` at `test.sh:2456`. No justfile in the tree
+defines a `bats-path` recipe (`grep -rn bats-path --include='justfile*'`
+returns nothing at all).
+
+This is the "just is the only control surface" rule not being met: a
+routine operation with no `just` entry, so every red-green iteration
+either reaches past the control surface or pays for a wider run.
+
+### Where it belongs
+
+`script/test/justfile.test`, the `test` namespace -- base's own dev/CI
+entry (ADR-00000010 / ADR-00000011). `dist/script/docker/justfile.docker`
+is the shipped container-ops namespace (`build` / `run` / `start` /
+`exec` / `stop` / `prune` / `setup` / `setup-tui`) and has no test
+recipes; this is not one of its verbs.
+
+The exact sibling is already there. `justfile.test:220-221`:
+
+```
+coverage-path spec *args:
+    ./script/test/test.sh --coverage-path '{{spec}}' {{args}}
+```
+
+`bats-path` is its kcov-free twin -- the two flags are documented as a
+pair, and `test.sh:2655-2657` refuses to combine them. So:
+
+```
+bats-path spec *args:
+    ./script/test/test.sh --bats-path '{{spec}}' {{args}}
+```
+
+with `spec` REQUIRED for the same reason `coverage-path`'s is
+(`justfile.test:214-216`): a bare invocation must name the missing spec
+rather than silently run the whole suite. Extra args pass through, so
+`just test bats-path test/bats/unit/ci_spec.bats --filter 'shard'` works,
+matching the examples at `test.sh:996-998`.
+
+### Acceptance criteria
+
+- [ ] `just test bats-path test/bats/unit/<spec>.bats` runs that spec and
+      nothing else.
+- [ ] `just test bats-path <spec> --filter <regex>` forwards the filter.
+- [ ] A bare `just test bats-path` fails naming the missing argument
+      rather than running the suite.
+- [ ] The recipe carries a `lifecycle:` comment like every sibling in the
+      file, and a unit spec asserts it exists (the file already has
+      recipe-level specs in `test/bats/unit/justfile_spec.bats`).
+- [ ] `doc/test/*.md` regenerated where the new spec adds a count.
+
+## Scope change: part (a) moved out, this issue is now part (b) only
+
+Part (a) -- `enforce_local_full_ci_before_pr.sh` resolving the repository
+from the tool call's `cwd`, and therefore gating the wrong repository when
+the work is in a git worktree -- has been moved to
+`ycpss91255-docker/docker_harness#310`, where the hook actually lives.
+
+The body's own ownership note was right, and it checks out:
+
+```
+$ git -C <workspace>/docker remote -v
+origin  https://github.com/ycpss91255-docker/docker_harness.git (fetch)
+$ git -C <workspace>/docker ls-files --error-unmatch \
+    .claude/hooks/enforce_local_full_ci_before_pr.sh
+.claude/hooks/enforce_local_full_ci_before_pr.sh
+$ git -C <workspace>/docker/worktree/base-tt-hash ls-files --error-unmatch \
+    .claude/hooks/enforce_local_full_ci_before_pr.sh
+error: pathspec ... did not match any file(s) known to git
+```
+
+The hook is not this repo's code and nothing in this repo can fix it.
+
+One correction to what the note anticipated: no transfer or new issue was
+needed. docker_harness#310, opened 2026-09-05 with the title "fix(hooks):
+the pre-PR CI gate resolves the repo from the session cwd, so a PR for one
+repo is gated on another's HEAD", is the same defect and predates this
+issue by three days -- part (a) here was an accidental re-filing of it,
+against the wrong repository. Its body had lost the primary description and
+carried only a secondary observation, so the full write-up from part (a)
+above -- the source citation, the `base-tt-hash` symptom, the
+worktree-is-the-normal-case consequence, and the fix shape -- has been
+posted there as a comment rather than duplicated into a fourth issue.
+
+Per this project's convention the body above is left as filed; this comment
+is the record. The title has been changed to name only the remaining part.
+
+**This issue now covers only part (b): a `bats-path` recipe in
+`script/test/justfile.test`.** Its acceptance criteria stand unchanged.
+

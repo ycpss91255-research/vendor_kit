@@ -1,0 +1,66 @@
+fix(ci): an RC tag moves test-tools:latest, and the unrecognised-input branch picks it too
+## An RC tag moves `test-tools:latest`
+
+`.github/workflows/release-test-tools.yaml:198-201`. The trigger is
+`tags: 'v*'`, and the tag arm writes:
+
+```
+tags="${IMAGE}:${ver},${IMAGE}:latest"
+```
+
+`v0.42.0-rc4` matches `v*`. **This already happened on rc1 through rc4** --
+four successful runs on those refs, each moving `:latest`.
+
+`publish-worker.yaml:127-130` defaults `test_tools_version` to `"latest"`, so
+every downstream repo that does not pin builds its lint stage from an **RC
+image for the whole RC window**.
+
+The repo knows the distinction one file over: `release-worker.yaml:90` uses
+`contains(github.ref_name, '-')` to tell a prerelease from a release.
+
+## The unrecognised-input branch picks the most-consumed tag
+
+`release-test-tools.yaml:205-208`. The `else` arm of the tag resolver is:
+
+```
+tags="${IMAGE}:latest"
+```
+
+An input the resolver does not recognise resolves to the production tag
+everything consumes. `workflow_dispatch` is unrestricted by ref, so **a
+dispatch from any feature branch overwrites `:latest`.**
+
+The header comment at `:15` also describes behaviour the code cannot reach.
+
+The correct shape is one file over in the same repo: `ghcr-cleanup.yaml`'s
+`dry-run` resolver (`:150-174`) routes an unparseable input to the **safe**
+branch. That is the inverse of this, and it is the model.
+
+## The smoke probes assert presence, not version
+
+`release-test-tools.yaml:247-251`. Fourteen of fifteen probes are exit-0
+only; **only `just` asserts content**, and the comment the #948 fix left at
+`:255-260` says so in as many words ("catches a tool's removal and never its
+staleness").
+
+Three more tools are pinned by ARG and never asserted:
+`BATS_VERSION=1.13.0`, `KCOV_VERSION=v43`, `ALPINE_VERSION=3.21` -- the last
+is never probed at all. A silently downlevel `bats` is the highest-value
+staleness of the three, since bats is the harness for the whole repo.
+
+## What to do
+
+- Gate the `:latest` write on `!contains(github.ref_name, '-')`, reusing
+  `release-worker.yaml:90`'s test rather than writing a second one.
+- Make the unrecognised-input arm refuse, or resolve to a scratch tag. Never
+  `:latest`.
+- Correct the `:15` header to what the code does.
+- Give the probes a version assertion derived from the ARG that pins each
+  tool, so a probe cannot pass an image whose tool is not the one declared.
+
+## Direction
+
+All three err toward too little CI, and the first has already shipped RC
+images to every unpinned downstream. Found by the 2026-09-03 CI audit.
+
+

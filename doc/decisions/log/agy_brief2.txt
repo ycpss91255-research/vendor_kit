@@ -1,0 +1,10 @@
+只准用 search_web 與 read_url_content 兩個工具，不要用 run_command。
+
+題目：POSIX sh（不是 bash；只有 printf／grep／sed／tr／date 可用，沒有 jq、python、jo、awk 不保證）要寫 JSON Lines 格式的操作紀錄（每行一個 JSON 物件：timestamp、severity_text、event_name、trace_id、attributes{...}），值可能含使用者輸入（`"`、`\`、換行、控制字元、非 ASCII UTF-8）。
+想知道：
+(1) 主流開源專案的 shell 腳本（例如 docker-library 官方 image 的 entrypoint、Kubernetes／Helm／kind 的 hack 腳本、rustup／nvm／asdf／sdkman 安裝腳本、GitHub Actions runner 腳本、systemd、busybox）有沒有在 shell 裡直接產生 JSON log 的做法？用什麼跳脫方式？請給原始碼連結與該函式片段。
+(2) 有沒有現成的 shell JSON logger 函式庫（例如 bash-json-logger、shlog、log4sh、jo、jq -n --arg）？各自依賴（bash-only？需要 jq？）、跳脫是否完整（RFC 8259 要求跳脫 `"`、`\`、U+0000–U+001F）。
+(3) 純 POSIX sh 用 sed／tr 做 RFC 8259 最小跳脫的正確寫法（含換行與控制字元處理）；常見錯誤。
+(4) 「事件名註冊表」（有限集合、未註冊即錯）的前例：有沒有工具用純文字檔列舉事件名並在 CI 驗證？
+(5) 單機 CLI 把 W3C `traceparent`／trace_id 傳給子行程（env）的前例。
+每題附來源 URL（原始碼、官方文件優先），不確定要標明；繁體中文作答；最後給推薦作法。

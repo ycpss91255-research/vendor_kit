@@ -1,0 +1,123 @@
+V id=0 parent=None src= tgt= fs=- geo= pts=[] fill=- dash=False | 
+V id=1 parent=0 src= tgt= fs=- geo= pts=[] fill=- dash=False | 
+V id=title parent=1 src= tgt= fs=18 geo=x="40" y="20" width="1300" height="30" as="geometry"/ pts=[] fill=- dash=False | 測試分層與強制閘門：test/ 的每一層 → Dockerfile stage → 由什麼強制（環境檢查先於一切）
+V id=repo parent=1 src= tgt= fs=18 geo=x="40" y="70" width="420" height="1130" as="geometry"/ pts=[] fill=#f8cecc dash=False | vendor_kit repo（測試相關）
+V id=d_note parent=repo src= tgt= fs=11 geo=x="20" y="1090" width="380" height="18" as="geometry"/ pts=[] fill=none dash=False | 完整資料夾架構見第 7 頁
+V id=d_src parent=repo src= tgt= fs=16 geo=x="20" y="50" width="380" height="140" as="geometry"/ pts=[] fill=#f8cecc dash=False | src/vendor_kit/（第 1 頁的 7 個模組）
+V id=m_cli parent=d_src src= tgt= fs=11 geo=x="12" y="45" width="86" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | cli.py 命令介面
+V id=m_dist_reader parent=d_src src= tgt= fs=11 geo=x="104" y="45" width="86" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | dist_reader.py 出貨內容讀取
+V id=m_repo_fs parent=d_src src= tgt= fs=11 geo=x="196" y="45" width="86" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | repo_fs.py 專案檔案存取
+V id=m_template parent=d_src src= tgt= fs=11 geo=x="288" y="45" width="86" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | template.py 模板
+V id=m_stamp parent=d_src src= tgt= fs=11 geo=x="12" y="91" width="86" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | stamp.py 印記
+V id=m_diff parent=d_src src= tgt= fs=11 geo=x="104" y="91" width="86" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | diff.py 差異比對
+V id=m_report parent=d_src src= tgt= fs=11 geo=x="196" y="91" width="86" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | report.py 回報
+V id=d_test parent=repo src= tgt= fs=18 geo=x="20" y="200" width="380" height="703" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | test/（先分測試工具、再分層級）
+V id=t_env parent=d_test src= tgt= fs=12 geo=x="12" y="45" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | env/check.sh 環境檢查：Python、tomllib、進入點、toml-bridge 都能跑
+V id=t_fix parent=d_test src= tgt= fs=14 geo=x="12" y="110" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | fixtures/ 假的 dist/、init.toml、VERSION、假專案
+V id=t_lint parent=d_test src= tgt= fs=12 geo=x="12" y="207" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | lint/{ruff, import-linter}/ + mirror_check.py + blackbox_check.py 寫法檢查、import 分層契約、鏡射檢查、黑箱檢查
+V id=t_unit parent=d_test src= tgt= fs=14 geo=x="12" y="262" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/unit/ test_<模組>.py ×7（一個模組一個檔）
+V id=t_inst parent=d_test src= tgt= fs=14 geo=x="12" y="317" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/integration/test_install.py
+V id=t_init parent=d_test src= tgt= fs=14 geo=x="12" y="372" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/integration/test_init.py
+V id=t_ver parent=d_test src= tgt= fs=14 geo=x="12" y="427" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/integration/test_verify.py ＋ test_perf_verify.py（時間預算）
+V id=t_diff parent=d_test src= tgt= fs=14 geo=x="12" y="482" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/integration/test_diff.py
+V id=t_sys parent=d_test src= tgt= fs=14 geo=x="12" y="537" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/system/ 整個 image：docker run 每個子命令
+V id=t_acc parent=d_test src= tgt= fs=14 geo=x="12" y="592" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/acceptance/ 第 3 頁三條泳道：在假專案裡真的打 just
+V id=t_conf parent=d_test src= tgt= fs=14 geo=x="12" y="647" width="356" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest/<層級>/conftest.py 每層的限制寫在這（見右欄）
+V id=d_df parent=repo src= tgt= fs=14 geo=x="20" y="920" width="180" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | Dockerfile（中欄的 stage）
+V id=d_bake parent=repo src= tgt= fs=14 geo=x="220" y="920" width="180" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | docker-bake.hcl（group）
+V id=d_adr parent=repo src= tgt= fs=14 geo=x="20" y="980" width="380" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | doc/adr/ 測試分層與閘門（本頁的決策）
+V id=d_ci parent=repo src= tgt= fs=14 geo=x="20" y="1036" width="380" height="44" as="geometry"/ pts=[] fill=#ffffff dash=False | .github/workflows/ bake validate → system/acceptance → bake release
+V id=stages parent=1 src= tgt= fs=18 geo=x="520" y="70" width="500" height="1130" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | Dockerfile stage（BuildKit）
+V id=s_rt parent=stages src= tgt= fs=14 geo=x="40" y="50" width="230" height="50" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | runtime FROM toml-bridge + src/
+V id=s_env parent=stages src= tgt= fs=14 geo=x="40" y="247" width="230" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | env-test（環境檢查，smoke）
+V id=s_tb parent=stages src= tgt= fs=12 geo=x="40" y="312" width="230" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | test-base = env-test + pytest + fixtures
+V id=s_grp parent=stages src= tgt= fs=14 geo=x="20" y="372" width="440" height="364" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 六個測試 stage（都 FROM test-base）
+V id=s_lint parent=s_grp src= tgt= fs=14 geo=x="20" y="37" width="230" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | lint
+V id=s_unit parent=s_grp src= tgt= fs=14 geo=x="20" y="92" width="230" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | unit-test
+V id=s_inst parent=s_grp src= tgt= fs=14 geo=x="20" y="147" width="230" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | install-test
+V id=s_init parent=s_grp src= tgt= fs=14 geo=x="20" y="202" width="230" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | init-test
+V id=s_ver parent=s_grp src= tgt= fs=14 geo=x="20" y="257" width="230" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | verify-test
+V id=s_diff parent=s_grp src= tgt= fs=14 geo=x="20" y="312" width="230" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | diff-test
+V id=s_rel parent=stages src= tgt= fs=14 geo=x="40" y="760" width="230" height="50" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | release = runtime（最終產物）
+V id=s_rtest parent=stages src= tgt= fs=14 geo=x="40" y="850" width="230" height="60" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | release-test FROM release；真的 install + verify 一次
+V id=s_host parent=stages src= tgt= fs=11 geo=x="20" y="925" width="440" height="40" as="geometry"/ pts=[] fill=none dash=False | system / acceptance 不在 Dockerfile 裡： 它們要 docker run，所以在 CI 主機上跑
+V id=s_bake parent=stages src= tgt= fs=11 geo=x="20" y="965" width="440" height="40" as="geometry"/ pts=[] fill=none dash=False | docker-bake.hcl：group validate = [env-test, lint, unit-test, install-test, init-test, verify-test, diff-test]；group release = [release, release-test]
+E id=s1 parent=1 src=s_rt tgt=s_env fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | FROM
+E id=s1b parent=1 src=s_env tgt=s_tb fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | FROM（環境不對 → 到此為止）
+E id=s2 parent=1 src=s_tb tgt=s_grp fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | FROM
+E id=s8 parent=stages src=s_rt tgt=s_rel fs=12 geo=x="0.785" relative="1" as="geometry" pts=['x="475" y="75"/', 'x="475" y="785"/'] fill=- dash=False | FROM
+（不經任何 test stage）
+E id=s9 parent=1 src=s_rel tgt=s_rtest fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | FROM
+E id=c_s_env parent=1 src=t_env tgt=s_env fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | COPY
+E id=c_s_tb parent=1 src=t_fix tgt=s_tb fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | COPY
+E id=c_s_lint parent=1 src=t_lint tgt=s_lint fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | COPY
+E id=c_s_unit parent=1 src=t_unit tgt=s_unit fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | COPY
+E id=c_s_inst parent=1 src=t_inst tgt=s_inst fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | COPY
+E id=c_s_init parent=1 src=t_init tgt=s_init fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | COPY
+E id=c_s_ver parent=1 src=t_ver tgt=s_ver fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | COPY
+E id=c_s_diff parent=1 src=t_diff tgt=s_diff fs=12 geo=relative="1" as="geometry" pts=[] fill=- dash=False | COPY
+V id=gates parent=1 src= tgt= fs=18 geo=x="1080" y="70" width="460" height="1130" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 強制閘門（不靠提醒；違反就 CI 紅，依層分組）
+V id=ge parent=gates src= tgt= fs=14 geo=x="20" y="50" width="420" height="104" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | smoke = 先確認環境能跑，再談測試（env-test stage）
+V id=g0 parent=ge src= tgt= fs=12 geo=x="10" y="40" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | 環境檢查先於一切 test-base FROM env-test：Python、tomllib、進入點、toml-bridge 任一不對，六個測試 stage 都不會跑
+V id=gl parent=gates src= tgt= fs=14 geo=x="20" y="164" width="420" height="232" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | lint 層 = 不執行程式的檢查（lint stage）
+V id=g_ruff parent=gl src= tgt= fs=12 geo=x="10" y="40" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | ruff 程式碼寫法檢查
+V id=g2 parent=gl src= tgt= fs=12 geo=x="10" y="104" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | import-linter 分層契約 只能由上層 import 下層（命令介面 → 讀取／存取 → 純函式）；只有 repo_fs、dist_reader 能碰檔案
+V id=g3 parent=gl src= tgt= fs=12 geo=x="10" y="168" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | 鏡射檢查 每個 src 模組必有 test_<模組>.py，缺一個就失敗
+V id=gu parent=gates src= tgt= fs=14 geo=x="20" y="406" width="420" height="104" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | unit 層 = 一次測一個模組（unit-test stage）
+V id=g4 parent=gu src= tgt= fs=12 geo=x="10" y="40" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | unit conftest 測試中一碰檔案、網路、Docker 就直接失敗
+V id=gi parent=gates src= tgt= fs=14 geo=x="20" y="520" width="420" height="232" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | integration 層 = 一個子命令走到底（四個 *-test stage）
+V id=g5 parent=gi src= tgt= fs=12 geo=x="10" y="40" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | integration conftest 只給臨時目錄；禁 Docker、網路；只能走 cli.main()（程式的正門）
+V id=g6 parent=gi src= tgt= fs=12 geo=x="10" y="104" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | 一個子命令一個 stage 各自只 COPY 自己的測試檔；哪個 stage 紅 = 第 5 頁哪條泳道壞
+V id=g7 parent=gi src= tgt= fs=12 geo=x="10" y="168" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | 時間預算 verify 200 個檔必須 < 0.5 秒（已安裝且版本一致時，每次 just 都會跑它）
+V id=gs parent=gates src= tgt= fs=14 geo=x="20" y="762" width="420" height="104" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | system = 整個 image；acceptance = 真的打 just（CI 主機）
+V id=g8 parent=gs src= tgt= fs=12 geo=x="10" y="40" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | 黑箱檢查（lint stage）＋ conftest 測試檔不准 import vendor_kit；只准 docker run／just 與檔案系統
+V id=gr parent=gates src= tgt= fs=14 geo=x="20" y="876" width="420" height="168" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | release = 出貨（release / release-test stage）
+V id=g1 parent=gr src= tgt= fs=12 geo=x="10" y="40" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | BuildKit stage 依賴 release 只 FROM runtime → 測試碼、pytest 進不了產品 image
+V id=g9 parent=gr src= tgt= fs=12 geo=x="10" y="104" width="400" height="56" as="geometry"/ pts=[] fill=#ffffff dash=False | release 必過 release-test release image 真的 install + verify 一次，失敗就不上傳
+V id=g_map parent=gates src= tgt= fs=11 geo=x="20" y="1054" width="420" height="50" as="geometry"/ pts=[] fill=none dash=False | 對應：unit ↔ 第 1 頁模組；integration ↔ 第 5 頁泳道；acceptance ↔ 第 3 頁泳道。 層級名稱依 ISTQB：unit / integration / system / acceptance；smoke 是測試類型（先於其他測試），不是層級
+V id=p8_lg0 parent=1 src= tgt= fs=14 geo=x="40" y="1240" width="200" height="60" as="geometry"/ pts=[] fill=#f8cecc dash=False | 紅：我們要開發的模組
+V id=p8_lg1 parent=1 src= tgt= fs=14 geo=x="260" y="1250" width="270" height="40" as="geometry"/ pts=[] fill=#e1d5e7 dash=False | 紫：image（每個 stage 都是一個 image）
+V id=p8_lg2 parent=1 src= tgt= fs=14 geo=x="550" y="1240" width="200" height="60" as="geometry"/ pts=[] fill=#f5f5f5 dash=False | 淺灰：分組（無狀態意義）
+V id=p8_lg3 parent=1 src= tgt= fs=14 geo=x="770" y="1250" width="120" height="40" as="geometry"/ pts=[] fill=#ffffff dash=False | 白：最小單元
+V id=p8_lgt parent=1 src= tgt= fs=12 geo=x="910" y="1240" width="300" height="60" as="geometry"/ pts=[] fill=none dash=False | 實線 = 依賴／複製方向
+V id=p8_th parent=1 src= tgt= fs=13 geo=x="40" y="1326" width="200" height="20" as="geometry"/ pts=[] fill=none dash=False | 本頁名詞
+V id=p8_tk0 parent=1 src= tgt= fs=12 geo=x="40" y="1350" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | stage
+V id=p8_tv0 parent=1 src= tgt= fs=12 geo=x="210" y="1350" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | Dockerfile 裡的一個階段（FROM … AS 名稱）；docker build --target <名稱> 只做到那一階
+V id=p8_tk1 parent=1 src= tgt= fs=12 geo=x="40" y="1380" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | FROM / COPY
+V id=p8_tv1 parent=1 src= tgt= fs=12 geo=x="210" y="1380" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | Dockerfile 的兩個指令：FROM = 以哪個 stage／image 為底；COPY = 把 repo 裡的檔案放進 stage
+V id=p8_tk2 parent=1 src= tgt= fs=12 geo=x="40" y="1410" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | BuildKit
+V id=p8_tv2 parent=1 src= tgt= fs=12 geo=x="210" y="1410" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | Docker 的建置引擎：只會建最終目標依賴到的 stage，沒被依賴的測試 stage 不會執行、也不會進 image
+V id=p8_tk3 parent=1 src= tgt= fs=12 geo=x="40" y="1440" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | bake
+V id=p8_tv3 parent=1 src= tgt= fs=12 geo=x="210" y="1440" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | docker buildx bake：用一個檔定義多個 stage 目標與群組，CI 一次平行跑
+V id=p8_tk4 parent=1 src= tgt= fs=12 geo=x="40" y="1470" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | smoke / env-test
+V id=p8_tv4 parent=1 src= tgt= fs=12 geo=x="210" y="1470" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | smoke = 正式測試前先確認東西能開機的最小檢查；env-test 就是它：確認 runtime image 的環境（Python、tomllib、進入點、toml-bridge）
+V id=p8_tk5 parent=1 src= tgt= fs=12 geo=x="40" y="1500" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | runtime / release / release-test
+V id=p8_tv5 parent=1 src= tgt= fs=12 geo=x="210" y="1500" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | runtime = 能執行 vendor_kit 的最小 image；release = 最終出貨的 image；release-test = 出貨前拿 release 真的裝一次
+V id=p8_tk6 parent=1 src= tgt= fs=12 geo=x="40" y="1530" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | toml-bridge
+V id=p8_tv6 parent=1 src= tgt= fs=12 geo=x="210" y="1530" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | vendor_kit image 的基底 image（另一個 repo 提供，內含 Python 與 TOML 工具）
+V id=p8_tk7 parent=1 src= tgt= fs=12 geo=x="40" y="1560" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | pytest / conftest.py
+V id=p8_tv7 parent=1 src= tgt= fs=12 geo=x="210" y="1560" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | Python 的測試框架／每個測試目錄的共用設定；這裡用它對該層測試強制限制
+V id=p8_tk8 parent=1 src= tgt= fs=12 geo=x="40" y="1590" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | ruff / import-linter
+V id=p8_tv8 parent=1 src= tgt= fs=12 geo=x="210" y="1590" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | Python 寫法檢查／檢查模組之間誰可以 import 誰（契約寫在設定檔）
+V id=p8_tk9 parent=1 src= tgt= fs=12 geo=x="40" y="1620" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | import / 純函式
+V id=p8_tv9 parent=1 src= tgt= fs=12 geo=x="210" y="1620" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | import = 一個模組引用另一個模組；純函式 = 只算結果、不碰檔案與網路的函式（template、diff、stamp、report）
+V id=p8_tk10 parent=1 src= tgt= fs=12 geo=x="40" y="1650" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | VERSION vs .version
+V id=p8_tv10 parent=1 src= tgt= fs=12 geo=x="210" y="1650" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | VERSION = image 內 /dist/VERSION：出貨時寫入的 image 識別字串，install 抄到印記第一行，就是拿來跟 .version 比的值（fixtures 裡是假的）；.version = 專案 repo 記工具版本的檔
+V id=p8_tk11 parent=1 src= tgt= fs=12 geo=x="40" y="1680" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | TOML / tomllib
+V id=p8_tv11 parent=1 src= tgt= fs=12 geo=x="210" y="1680" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | TOML = 設定檔格式（.version、init.toml 都用它）；tomllib = Python 3.11 起內建的讀 TOML 程式庫，環境檢查要確認它在
+V id=p8_tk12 parent=1 src= tgt= fs=12 geo=x="40" y="1710" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 鏡射
+V id=p8_tv12 parent=1 src= tgt= fs=12 geo=x="210" y="1710" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | test/ 的檔名跟 src/ 一一對應：src 有 cli.py，test 就必須有 test_cli.py
+V id=p8_tk13 parent=1 src= tgt= fs=12 geo=x="40" y="1740" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 黑箱
+V id=p8_tv13 parent=1 src= tgt= fs=12 geo=x="210" y="1740" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 只從外面用、不看裡面：system / acceptance 測試不准 import vendor_kit，只能像使用者一樣 docker run 或打 just
+V id=p8_tk14 parent=1 src= tgt= fs=12 geo=x="40" y="1770" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | install / verify / just
+V id=p8_tv14 parent=1 src= tgt= fs=12 geo=x="210" y="1770" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | install = 把 dist 裝進 .<name>/ 並寫印記；verify = 檢查 .<name>/ 沒被手改；just = 使用者在主機打的指令跑器（第 3、9 頁）
+V id=p8_tk15 parent=1 src= tgt= fs=12 geo=x="40" y="1800" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | fixture / 假專案
+V id=p8_tv15 parent=1 src= tgt= fs=12 geo=x="210" y="1800" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 測試用的假資料：假的 dist/、init.toml，以及一個只有 .version 與 justfile 的假專案
+V id=p8_tk16 parent=1 src= tgt= fs=12 geo=x="40" y="1830" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | cli.main()
+V id=p8_tv16 parent=1 src= tgt= fs=12 geo=x="210" y="1830" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | vendor_kit 程式的正門（命令介面的進入點）；integration 測試只准從這裡進
+V id=p8_tk17 parent=1 src= tgt= fs=12 geo=x="40" y="1860" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | docker run / CI
+V id=p8_tv17 parent=1 src= tgt= fs=12 geo=x="210" y="1860" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 把 image 跑成容器的指令／GitHub 上的自動化流程（每次推送都跑 bake validate）
+V id=p8_tk18 parent=1 src= tgt= fs=12 geo=x="40" y="1890" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | ADR / ISTQB
+V id=p8_tv18 parent=1 src= tgt= fs=12 geo=x="210" y="1890" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 設計決策紀錄（doc/adr/ 裡一個決策一個檔）／國際軟體測試標準，本頁的層級名稱來自它
+V id=p8_tk19 parent=1 src= tgt= fs=12 geo=x="40" y="1920" width="170" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 泳道
+V id=p8_tv19 parent=1 src= tgt= fs=12 geo=x="210" y="1920" width="900" height="30" as="geometry"/ pts=[] fill=#ffffff dash=False | 流程圖裡的一條直欄，代表一個子命令或情境的完整流程

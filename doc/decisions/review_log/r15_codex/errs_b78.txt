@@ -1,0 +1,252 @@
+== check_overlap
+== v1p5 流程 v2：bootstrap.sh（1）檢查 → 引擎 ref → --local 判別
+   無
+== v1p5x 流程 v2：bootstrap.sh（1″）引擎 image → LABEL 最低介面版
+   無
+== v1p5i 流程 v2：bootstrap.sh（1′）docker run install
+   無
+== v1p5ccc 流程 v2：bootstrap.sh（2）--local 記錄 → 逐工具 add
+   無
+== v1p5c 流程 v2：install（1）主機檢查 → 引擎 image → docker run
+   無
+== v1p5cm 流程 v2：install（1′）比對薄殼 → 進度檔 → 暫存
+   無
+== v1p5cw 流程 v2：install（1″）寫入
+   無
+== v1p5cc 流程 v2：install（2）根 justfile 與 .dockerignore
+   無
+== v1p5b 流程 v2：add（1）resolve → docker
+   無
+== v1p5bcc 流程 v2：add（1′）apply 前置
+   無
+== v1p5bc 流程 v2：add（2）apply 寫入段
+   無
+== v1p6 流程 v2：sync（1）啟動器快路徑
+   無
+== v1p6cc 流程 v2：sync（1′）引擎 resolve
+   無
+== v1p6c 流程 v2：sync（2）三叉 → docker → apply 前置
+   無
+== v1p6cw 流程 v2：sync（2′）apply 寫入段
+   無
+== v1p7 流程 v2：upgrade ── A. Renovate 路徑
+   無
+== v1p7c 流程 v2：upgrade ── B. 手動路徑（1）resolve → docker
+   be10f (b7q→b7qx) 壓到 b7e「否 → 目標 == 現鎖定版（且無待合併」 ['']
+== v1p7ccc 流程 v2：upgrade ── B. 手動路徑（1′）apply 前置
+   無
+== v1p7cc 流程 v2：upgrade ── B. 手動路徑（2）逐檔詢問與合併
+   無
+== v1p7cccc 流程 v2：upgrade ── B. 手動路徑（2′）收尾寫入
+   無
+== v1p7b 流程 v2：upgrade ── C. 逐檔判斷狀態機、衝突重入
+   無
+== v1p7bd 流程 v2：upgrade ── D. 回退
+   無
+== v1p7bc 流程 v2：upgrade ── E. 升引擎 (a)(b)
+   無
+== v1p7bca 流程 v2：upgrade ── E. 升引擎 (a′) apply 改第一行 → 接手
+   無
+== v1p7bcc 流程 v2：upgrade ── E(c) upgrade vendor_kit（1）
+   無
+== v1p7bcx 流程 v2：upgrade ── E(c) upgrade vendor_kit（1′）
+   無
+== v1p7bccc 流程 v2：upgrade ── E(c) upgrade vendor_kit（2）
+   無
+== v1p7bcce 流程 v2：upgrade ── E(c) upgrade vendor_kit（2″）config.toml
+   無
+== v1p7bccd 流程 v2：upgrade ── E(c) upgrade vendor_kit（2′）
+   無
+== v1p8 流程 v2：dev <repo>
+   無
+== v1p8ccc 流程 v2：dev vendor_kit
+   無
+== v1p8c 流程 v2：undev <repo>（1）resolve → apply 前置
+   無
+== v1p8cx 流程 v2：undev <repo>（2）寫入段
+   無
+== v1p8cc 流程 v2：undev vendor_kit
+   無
+== v1p8b 流程 v2：remove（1）resolve → apply 前置
+   無
+== v1p8bccc 流程 v2：remove（2）寫入段
+   無
+== v1p8bc 流程 v2：uninstall（1）resolve → apply 前置
+   無
+== v1p8bcc 流程 v2：uninstall（2）寫入段
+   無
+共 1 筆
+== check_cross_v1b
+== v1p5 流程 v2：bootstrap.sh（1）檢查 → 引擎 ref → --local 判別
+   無
+== v1p5x 流程 v2：bootstrap.sh（1″）引擎 image → LABEL 最低介面版
+   無
+== v1p5i 流程 v2：bootstrap.sh（1′）docker run install
+   無
+== v1p5ccc 流程 v2：bootstrap.sh（2）--local 記錄 → 逐工具 add
+   無
+== v1p5c 流程 v2：install（1）主機檢查 → 引擎 image → docker run
+   無
+== v1p5cm 流程 v2：install（1′）比對薄殼 → 進度檔 → 暫存
+   無
+== v1p5cw 流程 v2：install（1″）寫入
+   無
+== v1p5cc 流程 v2：install（2）根 justfile 與 .dockerignore
+   無
+== v1p5b 流程 v2：add（1）resolve → docker
+   無
+== v1p5bcc 流程 v2：add（1′）apply 前置
+   無
+== v1p5bc 流程 v2：add（2）apply 寫入段
+   無
+== v1p6 流程 v2：sync（1）啟動器快路徑
+   無
+== v1p6cc 流程 v2：sync（1′）引擎 resolve
+   無
+== v1p6c 流程 v2：sync（2）三叉 → docker → apply 前置
+   無
+== v1p6cw 流程 v2：sync（2′）apply 寫入段
+   無
+== v1p7 流程 v2：upgrade ── A. Renovate 路徑
+   無
+== v1p7c 流程 v2：upgrade ── B. 手動路徑（1）resolve → docker
+   無
+== v1p7ccc 流程 v2：upgrade ── B. 手動路徑（1′）apply 前置
+   無
+== v1p7cc 流程 v2：upgrade ── B. 手動路徑（2）逐檔詢問與合併
+   無
+== v1p7cccc 流程 v2：upgrade ── B. 手動路徑（2′）收尾寫入
+   無
+== v1p7b 流程 v2：upgrade ── C. 逐檔判斷狀態機、衝突重入
+   無
+== v1p7bd 流程 v2：upgrade ── D. 回退
+   無
+== v1p7bc 流程 v2：upgrade ── E. 升引擎 (a)(b)
+   s2gi_p × se6vr at ((1030.0, 1615.0),(540.0, 1615.0)) / ((600.0, 1352.0),(600.0, 1665.0))
+   s2lp_x × se6vr at ((440.0, 1635.0),(440.0, 1675.0)) / ((600.0, 1665.0),(335.0, 1665.0))
+   se6y × se6vr at ((580.0, 1499.0),(1230.0, 1499.0)) / ((600.0, 1352.0),(600.0, 1665.0))
+   se6lo × se6vr at ((610.0, 1433.0),(440.0, 1433.0)) / ((600.0, 1352.0),(600.0, 1665.0))
+== v1p7bca 流程 v2：upgrade ── E. 升引擎 (a′) apply 改第一行 → 接手
+   無
+== v1p7bcc 流程 v2：upgrade ── E(c) upgrade vendor_kit（1）
+   無
+== v1p7bcx 流程 v2：upgrade ── E(c) upgrade vendor_kit（1′）
+   無
+== v1p7bccc 流程 v2：upgrade ── E(c) upgrade vendor_kit（2）
+   se15wf × se15ns at ((860.0, 702.5),(1240.0, 703.0)) / ((1010.0, 610.0),(1010.0, 744.0))
+   se15ns × fb_s12jn at ((1010.0, 610.0),(1010.0, 744.0)) / ((1000.0, 626.8),(1016.0, 627.0))
+== v1p7bcce 流程 v2：upgrade ── E(c) upgrade vendor_kit（2″）config.toml
+   se17gpx × se17n at ((610.0, 415.5),(400.0, 416.0)) / ((430.0, 247.0),(430.0, 1250.0))
+   se17gpx × se17n at ((400.0, 866.0),(634.0, 866.0)) / ((430.0, 247.0),(430.0, 1250.0))
+   se17same × se17adn at ((420.0, 516.0),(420.0, 798.0)) / ((610.0, 648.5),(400.0, 648.0))
+   se17same × se17n at ((610.0, 516.5),(420.0, 516.0)) / ((430.0, 247.0),(430.0, 1250.0))
+   se17same × se17n at ((420.0, 798.0),(634.0, 798.0)) / ((430.0, 247.0),(430.0, 1250.0))
+   se17adn × se17n at ((610.0, 648.5),(400.0, 648.0)) / ((430.0, 247.0),(430.0, 1250.0))
+   se17adn × se17n at ((400.0, 798.0),(634.0, 798.0)) / ((430.0, 247.0),(430.0, 1250.0))
+== v1p7bccd 流程 v2：upgrade ── E(c) upgrade vendor_kit（2′）
+   無
+== v1p8 流程 v2：dev <repo>
+   無
+== v1p8ccc 流程 v2：dev vendor_kit
+   無
+== v1p8c 流程 v2：undev <repo>（1）resolve → apply 前置
+   無
+== v1p8cx 流程 v2：undev <repo>（2）寫入段
+   無
+== v1p8cc 流程 v2：undev vendor_kit
+   無
+== v1p8b 流程 v2：remove（1）resolve → apply 前置
+   無
+== v1p8bccc 流程 v2：remove（2）寫入段
+   無
+== v1p8bc 流程 v2：uninstall（1）resolve → apply 前置
+   無
+== v1p8bcc 流程 v2：uninstall（2）寫入段
+   無
+共 13 筆
+== check_self_v1b
+== v1p5 流程 v2：bootstrap.sh（1）檢查 → 引擎 ref → --local 判別
+   無
+== v1p5x 流程 v2：bootstrap.sh（1″）引擎 image → LABEL 最低介面版
+   無
+== v1p5i 流程 v2：bootstrap.sh（1′）docker run install
+   無
+== v1p5ccc 流程 v2：bootstrap.sh（2）--local 記錄 → 逐工具 add
+   無
+== v1p5c 流程 v2：install（1）主機檢查 → 引擎 image → docker run
+   無
+== v1p5cm 流程 v2：install（1′）比對薄殼 → 進度檔 → 暫存
+   無
+== v1p5cw 流程 v2：install（1″）寫入
+   無
+== v1p5cc 流程 v2：install（2）根 justfile 與 .dockerignore
+   無
+== v1p5b 流程 v2：add（1）resolve → docker
+   無
+== v1p5bcc 流程 v2：add（1′）apply 前置
+   無
+== v1p5bc 流程 v2：add（2）apply 寫入段
+   無
+== v1p6 流程 v2：sync（1）啟動器快路徑
+   無
+== v1p6cc 流程 v2：sync（1′）引擎 resolve
+   無
+== v1p6c 流程 v2：sync（2）三叉 → docker → apply 前置
+   無
+== v1p6cw 流程 v2：sync（2′）apply 寫入段
+   無
+== v1p7 流程 v2：upgrade ── A. Renovate 路徑
+   無
+== v1p7c 流程 v2：upgrade ── B. 手動路徑（1）resolve → docker
+   無
+== v1p7ccc 流程 v2：upgrade ── B. 手動路徑（1′）apply 前置
+   無
+== v1p7cc 流程 v2：upgrade ── B. 手動路徑（2）逐檔詢問與合併
+   無
+== v1p7cccc 流程 v2：upgrade ── B. 手動路徑（2′）收尾寫入
+   無
+== v1p7b 流程 v2：upgrade ── C. 逐檔判斷狀態機、衝突重入
+   無
+== v1p7bd 流程 v2：upgrade ── D. 回退
+   無
+== v1p7bc 流程 v2：upgrade ── E. 升引擎 (a)(b)
+   無
+== v1p7bca 流程 v2：upgrade ── E. 升引擎 (a′) apply 改第一行 → 接手
+   無
+== v1p7bcc 流程 v2：upgrade ── E(c) upgrade vendor_kit（1）
+   無
+== v1p7bcx 流程 v2：upgrade ── E(c) upgrade vendor_kit（1′）
+   無
+== v1p7bccc 流程 v2：upgrade ── E(c) upgrade vendor_kit（2）
+   無
+== v1p7bcce 流程 v2：upgrade ── E(c) upgrade vendor_kit（2″）config.toml
+   se17adn: 標籤寬 245 ≥ 兩端距離 161「否：不替換；推基準版並記 declined_hash」
+   se17n 穿過標題列 uE3c
+== v1p7bccd 流程 v2：upgrade ── E(c) upgrade vendor_kit（2′）
+   無
+== v1p8 流程 v2：dev <repo>
+   無
+== v1p8ccc 流程 v2：dev vendor_kit
+   無
+== v1p8c 流程 v2：undev <repo>（1）resolve → apply 前置
+   無
+== v1p8cx 流程 v2：undev <repo>（2）寫入段
+   無
+== v1p8cc 流程 v2：undev vendor_kit
+   無
+== v1p8b 流程 v2：remove（1）resolve → apply 前置
+   無
+== v1p8bccc 流程 v2：remove（2）寫入段
+   無
+== v1p8bc 流程 v2：uninstall（1）resolve → apply 前置
+   頁高 2413 > 2400
+== v1p8bcc 流程 v2：uninstall（2）寫入段
+   無
+共 3 筆
+== check_jog_r7
+v1p7cc be20qn b10fq→b13a dx=38
+共 1 筆
+== lint (non-termcov warn)
+- [decision][warn] b7q: 菱形出邊數 3（be10x, be10f, be10n）：「查 registry 結果？」
+- [decision][warn] b7e: 菱形出邊數 1（be10s）：「否 → 目標 == 現鎖定版（且無待合併）？」
+## v1p7c 流程 v2：upgrade ── B. 手動路徑（1）resolve → docker

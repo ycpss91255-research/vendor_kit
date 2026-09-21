@@ -1,0 +1,85 @@
+feat(prune.sh): clean up stale tagged images from removed worktrees
+## Context
+
+`prune.sh --images` wraps `docker image prune`, which **only cleans
+dangling images** (`<none>:<none>`) by default. Tagged images stay
+forever, even when their originating worktree / branch is long gone.
+
+Real example from a dev box (ros1_bridge):
+
+| Image tag | Origin |
+|---|---|
+| `yunchien/ros1_bridge:{builder,devel,runtime,test}` | Main checkout build output (keep) |
+| `yunchien/ros1_bridge-59:test` ... `-81:test` | PR worktree builds (worktrees deleted) |
+| `yunchien/ros1_bridge-readme-align:test` and 6 other slug variants | Branch worktree builds (worktrees deleted) |
+| `yunchien/ros1_bridge_humble:test` | Legacy naming |
+
+14 orphan tagged images, ~24 GB total. `make prune --all` /
+`--images` does not touch them because they are not dangling.
+
+Root cause: `setup.conf`'s `[image] rule_4 = @basename` turns the
+worktree directory name (`ros1_bridge-<PR>`) into the image tag.
+Once `git worktree remove` deletes the worktree, the image becomes
+an orphan with no automatic cleanup path.
+
+Related: #387 (auto-prune dangling predecessor after build) -- different
+problem, complementary scope. #387 covers `<none>:<none>` left by
+rebuilding the same tag; this issue covers tagged images whose owning
+worktree no longer exists.
+
+## Problem
+
+1. `prune.sh --images` cannot reach tagged orphans
+2. `docker system prune -a` would clean them, but also kills every
+   other idle tagged image on the daemon (other repos' `:devel` /
+   `:runtime`), too aggressive
+3. The multi-worktree workflow (`<workspace>/worktree/<repo>-<N>/`)
+   combined with the `@basename` IMAGE_NAME rule continuously
+   produces orphans, with no corresponding cleanup mechanism
+4. Manual `docker rmi` requires visually scanning + copy-pasting tag
+   names -- easy to miss, easy to delete the wrong one
+
+## Proposal
+
+Add a new mode `--worktree-orphans` to `prune.sh`:
+
+- Scan `docker images --format '{{.Repository}}:{{.Tag}}'`
+- For images matching the pattern `<repo>-<suffix>:<stage>` or
+  `<user>/<repo>-<suffix>:<stage>`, compare `<repo>-<suffix>` against
+  directories on the host:
+  - If `<workspace>/worktree/<repo>-<suffix>/` does not exist -> candidate
+    for removal
+  - If it exists -> keep
+- Print the candidate list, prompt for confirmation (skip with `-y`)
+- `--dry-run` prints the `docker rmi` commands but does not execute
+
+Open questions (to discuss in this issue):
+
+1. **How to locate `<workspace>`?** Simplest: caller passes
+   `--workspace <dir>`. Alternative: walk up from cwd looking for a
+   `worktree/` directory.
+2. **How to derive `<repo>`?** Option A: caller passes `--repo <name>`
+   to scope the scan. Option B: enumerate sibling repo names under
+   `<workspace>/` and use them automatically.
+3. **Cover images without `<user>/` prefix?** (e.g. the
+   `ros1_bridge-59:runtime` we hit -- looks like a fallback when
+   Docker Hub username detection failed.)
+4. **Fold into `--all`?** Today `--all = networks + images + builder`
+   (excludes volumes for data safety). worktree-orphans is a safe
+   operation (image can be rebuilt), so it could be included.
+
+## Alternatives considered
+
+- **Do it in `build.sh` (mirroring #387)**: record the image per
+  worktree at build time, then clean on `git worktree remove`.
+  Problem: `git worktree remove` has no hook point, and the
+  image-to-worktree mapping is hard to maintain long term.
+- **Change the `setup.conf` default rule to avoid `@basename`
+  fallback**: addresses the root cause but has broad impact, and
+  existing orphans still need manual cleanup. This issue is not in
+  conflict with that change.
+- **Do nothing, rely on manual `docker rmi`**: but this pattern will
+  keep recurring as long as the worktree workflow is in regular use,
+  worth automating.
+
+

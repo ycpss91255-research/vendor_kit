@@ -1,0 +1,90 @@
+just completion: namespace/module recipes do not space-drill (upstream-blocked, tracking)
+## Summary
+
+`just` shell tab-completion does not usefully drill into namespace (module) recipes with a space. This is an upstream `just` limitation, currently in progress but blocked further upstream in `clap`. This issue parks QA items 1 and 2 with full reference data so we can re-verify and act when upstream ships a fix. Do NOT build our own completion in the meantime (it would be throwaway).
+
+## Symptom (QA items 1 / 2)
+
+Reproduced empirically with the repo's shipped dynamic completer (`eval "$(JUST_COMPLETE=bash just)"`) on `just 1.52.0`, in a scaffolded downstream repo, using the real bash completion function (`_clap_complete_just` with real `COMP_WORDS`/`COMP_CWORD`/`COMP_WORDBREAKS`):
+
+- `just base <TAB>` (space) does NOT drill. It returns the full flat list: `base::completions base::default ... docker::build ... template::new` plus filesystem entries plus every `--flag`.
+- `just base u<TAB>` (space, partial) returns NOTHING, because the candidates are the full paths `base::update` / `base::upgrade`, which do not start with `u`. So you cannot type-then-complete-then-run with a space.
+- `just base::<TAB>` (colon) DOES drill cleanly: `base::completions base::default base::init base::update base::upgrade`.
+- Top-level `just <TAB>` is noisy: flattened `namespace::recipe`, filesystem entries (including the stray empty `base/` dir, see item 4), and all of just's `--flags`.
+
+Note: invocation works with BOTH forms (`just base update` and `just base::update` both run). Only tab-completion is limited to the `::` form.
+
+## Root cause (upstream)
+
+`just` switched its completion to clap's dynamic completion engine. The owner merged it as an intentional, self-described regression, to be restored in follow-ups:
+
+- casey/just#3167 "Switch to dynamic completion engine" — MERGED 2026-03-22. From the tracker: *"Strictly speaking, this was a regression, since we lost the ability to complete recipes... add back the missing functionality in follow-up PRs."*
+- casey/just#2912 "Shell completion does not work with modules" — CLOSED as completed (declared handled by the new engine, i.e. via `::`).
+- casey/just#2406 "Improve dynamic completions" — OPEN tracker, last updated 2026-06-20. The pending improvement (recipe grouping) is blocked on an upstream clap PR.
+- clap-rs/clap#6334 "group options by tag" — OPEN, not merged. Blocks the deeper completion UX in just.
+- The hand-maintained static-completion module fixes (casey/just#3111 zsh, #3112 bash/fish/PowerShell/Nushell) were CLOSED / superseded by the dynamic-engine route.
+
+## Version timeline (checked 2026-07-01)
+
+- Our version: just **1.52.0** (released 2026-06-08). Already includes #3167 (dynamic engine) and #3205 "Fix bash completion of commands containing `:`" (merged 2026-03-28) — so #3205 is NOT the fix for this.
+- Latest: just **1.55.1** (2026-06-30). Releases 1.53 / 1.54 / 1.55 in between contain NO module-completion fix (CHANGELOG: module aliases, `--clean` filtering, not completion).
+- Conclusion: upgrading 1.52 -> 1.55.1 does NOT fix this. No release fix exists yet.
+
+## Decision
+
+- WAIT for upstream. Do not ship our own bash/zsh/fish completion (throwaway once upstream restores recipe/module completion).
+- Do not vendor just's hand-maintained static completions (deprecated; their module fix was never merged).
+- When a `just` release restores space-drill module completion (watch #2406 / #3167 follow-ups), upgrade and re-verify with the reproduction above, then close this issue.
+- Cheap local win, tracked separately: remove the stray empty `base/` directory that pollutes top-level completion (item 4).
+
+## Re-verification steps
+
+On a new `just` version, in a scaffolded downstream repo:
+```
+eval "$(JUST_COMPLETE=bash just)"
+# simulate: just base u<TAB>  -> should offer update / upgrade (currently returns nothing)
+```
+If space-drill works, upgrade the pinned/prerequisite `just` and close.
+
+## Upstream links
+- https://github.com/casey/just/issues/2406 (open tracker)
+- https://github.com/casey/just/issues/2912 (closed)
+- https://github.com/casey/just/pull/3167 (merged regression)
+- https://github.com/clap-rs/clap/issues/6334 (upstream blocker)
+
+## The premise this was parked on has moved six minor versions
+
+This was measured against `just 1.52.0`. `dockerfile/Dockerfile.test-tools:22`
+now reads:
+
+```
+ARG JUST_VERSION=1.58.0
+```
+
+The issue says the upstream work was "in progress but blocked further upstream
+in `clap`". Six minor releases later, that is a question with an answer, and
+the answer is obtainable by running the same reproduction the issue records --
+the shipped dynamic completer (`eval "$(JUST_COMPLETE=bash just)"`) in a
+scaffolded downstream repo, driving the real `_clap_complete_just` with real
+`COMP_WORDS` / `COMP_CWORD` / `COMP_WORDBREAKS`.
+
+Nothing here says the symptom is gone. It says the parking reason is now
+unverified rather than true, which is a different state, and the issue's own
+framing anticipated it: "park QA items 1 and 2 with full reference data so we
+can re-verify and act when upstream ships a fix".
+
+## What to do
+
+Re-run the recorded reproduction at 1.58.0 and record the result on this
+issue, whichever way it comes out.
+
+- If the drill-in works: the parking reason is spent, and what remains is
+  whatever QA items 1 and 2 asked for.
+- If it still does not: say so with the version, so the next re-verification
+  starts from 1.58.0 rather than from 1.52.0. A tracking issue whose evidence
+  is six versions stale cannot tell anyone whether it is still tracking
+  anything.
+
+The standing instruction not to build our own completion is untouched by
+this: it would still be throwaway if upstream is close.
+

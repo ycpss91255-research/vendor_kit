@@ -1,0 +1,328 @@
+docs: five README and doc statements the tree contradicts
+## Five documentation statements the tree contradicts
+
+All five were verified against the code or the renderer. None has a behavioural
+effect; all five are read by someone deciding what to do next. Grouped because the
+fix is the same class of work and three of them need the same
+`just test sync-readme` re-stamp of the three translations.
+
+---
+
+## 1. The README "What's included" table is broken in half, and 12 rows render as literal pipes (#20)
+
+**Defect.** `README.md:140` (`| File | Description |`) plus the separator at `:141`
+opens a table that runs to `:177`. `:179-187` inserts a paragraph ("Test content
+is laid out **tool-first** ..."). The table then continues at `:189-200` with **12
+more rows and no header and no separator row**.
+
+**Evidence.**
+
+- POSTing `README.md:138-200` to GitHub's own markdown API
+  (`gh api -X POST /markdown`, mode gfm) returns exactly **one** `<table>`, and
+  those 12 rows come back as
+  `<p dir="auto">| <code>.hadolint.yaml</code> | Shared Hadolint rules |<br>...` --
+  literal pipe characters, from GitHub itself. python-markdown with the tables
+  extension agrees.
+- The 12 affected rows are the entry-point documentation: `justfile` (pointing at
+  `script/justfile`), the `docker` and `base` namespace rows,
+  `dist/script/base/init.sh`, `dist/script/base/upgrade.sh`,
+  `script/test/justfile.test`, `script/release/justfile.release`,
+  `script/watch/justfile.watch`, `dist/dockerfile/Dockerfile`,
+  `dockerfile/Dockerfile.test-tools`, `.github/workflows/`, `.hadolint.yaml`.
+- All three translations are broken the same way, because readme-sync faithfully
+  keeps the broken English in step: `doc/readme/README.zh-TW.md:189`,
+  `README.zh-CN.md:189`, `README.ja.md:191`.
+- Provenance, corrected during review: not `8e898b48` / `b5a310ea` (#787 / #790) --
+  those only edited lines inside the already-misplaced paragraph, and `git log -L`
+  attributed them because the line range drifted. The commit that inserted the
+  paragraph into the table is `b2f79599` (2026-06-05, the ADR-00000004 record for
+  #510). It has been broken for about three months, across more releases than first
+  reported.
+- Why nothing caught it: a tree-wide grep for `markdownlint|mdl|remark` returns
+  nothing -- **there is no markdown structure lint** -- and
+  `script/test/sync-readme-hashes.sh:1-40` is a per-section English-to-translation
+  fingerprint, which is clean when the English side is equally broken.
+
+**Impact.** The repo's front page and the main onboarding document for every
+downstream maintainer. No information is lost or wrong -- every filename and
+description is still there, just unformatted -- and no tool consumes the table;
+README's own directory tree (`:1181`) and `CONTEXT.md` sections 2.1/2.2 carry the
+same entries intact.
+
+**Fix.** Move `README.md:179-187` after the table's last row, or reopen a
+`| File | Description |` header plus separator at `:189`. Then re-stamp the three
+translations with `just test sync-readme` (`script/test/justfile.test:468`); expect
+the per-section hash validator to mark the reordered section STALE, needing either
+a translation edit or `--accept <id>`.
+
+**Do not** add a markdown structure lint. The repo has no markdown linter, its lint
+surface is shellcheck plus hadolint, and #1075 already closed on lint dominating CI
+wall clock.
+
+---
+
+## 2. README and `just --list` say `just test` runs kcov, the recipe says it does not (#21)
+
+**Defect.** `script/test/justfile.test:29` is the recipe's own comment: "just test
+-> run the whole self-test (ShellCheck + Bats, **no kcov**: fast)", and its body
+(`:30-31`) is a bare `./script/test/test.sh`. `README.md:46` says
+`just test   # ShellCheck + Bats + Kcov` and `README.md:1741` says
+`just test        # Full CI (ShellCheck + Bats + Kcov) via docker compose`.
+
+**Evidence.**
+
+- Dispatch traced end to end: `test.sh:2318` sets `local mode="compose"`; every
+  kcov path is gated on `mode == "coverage"` (`:2610`, `:2637`), reachable only via
+  `--coverage` / `--coverage-shard` / `--coverage-path` / `--coverage-local`. The
+  `compose)` branch (`test.sh:2825-2843`) is commented "Default: fast CI
+  (shellcheck + bats, no kcov)" and calls `_run_via_compose ci 0`, whose second
+  parameter is `_coverage` (`:2190-2191`) -- so that literal `0` is `COVERAGE=0`.
+  Inside the container the `ci)` branch (`:2651-2653`) says "Default path skips
+  kcov for speed". A bare `just test` provably cannot reach kcov.
+- `just --list` run for real:
+  `test ...  # Self-test: bats + shellcheck + hadolint + kcov (just test [lint|coverage|...])`
+  (`justfile:51`).
+- All three translations carry it: `doc/readme/README.zh-TW.md:49`, `:1149`;
+  `README.zh-CN.md:49`, `:1149`; `README.ja.md:49`, `:1236`. (Fixing one locale
+  leaves two.)
+- The next line in the same block is wrong too: `README.md:1742`'s
+  `just test lint        # ShellCheck only` -- `lint` runs the whole 23-entry
+  `_LINT_TOOLS` table (`test.sh:551`).
+- The same stale sentence is in the code: `test.sh:2681-2682` says "LINT_TOOL empty
+  = all linters (shellcheck + hadolint), matching bare `just test lint`", short by
+  21 drivers. And the nominated source of truth, `justfile.test:29`, is itself
+  imprecise -- `just test` runs all 23 `_LINT_TOOLS` and then bats
+  (`:2712`, `_run_all_lint_tools`, when neither BATS_ONLY nor COVERAGE is set).
+
+**Impact.** Both harm chains are absorbed by CI: `self-test.yaml:311-317` / `:323`'s
+`lint-static` is explicitly "the rest of the `just test` lint phase (#866)"
+(including adr-numbering and readme-sync), is listed as hard-required and ungated
+(`:1594-1600`) and is in the rollup's needs (`:1630`); the coverage figures come
+from the required coverage / coverage-gate jobs. The honest cost is one wasted CI
+round trip and a wrong first impression on the discovery surface.
+
+**Fix.** Correct `README.md:46` and `README.md:1741-1742` and re-stamp the three
+translations. The correct string is `ShellCheck + Hadolint + Bats, no kcov`
+(matching `test.sh:918`'s own `--help`; `justfile.test:29`'s shorthand omits
+Hadolint), and `just test lint` = all linters. Fix `test.sh:2681-2682` in the same
+pass.
+
+**Do not over-correct.** `README.md:1835`
+(`self-test.yaml   # base CI (ShellCheck + Bats + Kcov coverage gate)`) and
+`README.md:174` are **correct** -- CI does run kcov jobs -- so a global replace of
+"+ Kcov" breaks them. `justfile:51` is the most defensible of the three (it labels
+the `mod?` **namespace**, its sibling `justfile:49` likewise lists recipes rather
+than describing the default, and the parenthesis already names `coverage` as a
+subcommand); order it last.
+
+**Out of scope, needs your consent:** the workspace-root `CLAUDE.md` carries the
+same wording and has a wider blast radius (it enters every session's system
+prompt), but that file is edit-controlled and is not in this repo's PR.
+
+---
+
+## 3. README's "Drift detection" section describes four of five signals and still tells the user to re-run by hand (#23)
+
+**Defect.** `README.md:1200-1210` says setup.sh "stores `SETUP_CONF_HASH`,
+`SETUP_GUI_DETECTED`, and `SETUP_TIMESTAMP`", prints a non-blocking `[WARNING]` for
+three kinds of change, and closes with "Re-run with `--setup` to regenerate ...".
+`_check_setup_drift` (`dist/script/docker/lib/drift.sh:31-73`) reads back **five**
+values (`:37-41`: `SETUP_CONF_HASH`, `SETUP_DOCKERFILE_HASH`, `SETUP_GUI_DETECTED`,
+`GPU_ENABLED`, `USER_UID`) and compares all five, the fourth being
+`_compute_dockerfile_hash` with the message "Dockerfile stage list changed since
+last setup" (`:55-56`). `SETUP_TIMESTAMP` is written (`env_emit.sh:143`) and never
+compared.
+
+**Evidence.**
+
+- Reproduced end to end on a fake downstream tree: `setup.sh apply` writes six
+  values; appending `FROM devel AS my-extra-stage` makes `setup.sh check-drift`
+  exit 1 with "- Dockerfile stage list changed since last setup"; then a bare
+  `./build.sh` records `env_drift_detected` -> `build_drift_regen` ->
+  `env_regenerated` and rewrites `SETUP_DOCKERFILE_HASH`, with `--setup` never
+  typed.
+- `grep -rn SETUP_TIMESTAMP dist/` has exactly one hit, the write at
+  `env_emit.sh:143`. Nothing reads it.
+- Auto-regeneration lives at `wrapper.sh:620-627`, reached from
+  `wrapper/build.sh:462` and `wrapper/run.sh:490`, commented "Derived artifacts ...
+  carry no user-owned data, so regenerating on drift is always safe and saves the
+  user from remembering `--setup`".
+- Same staleness in all three translations: `doc/readme/README.zh-TW.md:666`,
+  `README.zh-CN.md:666`, `README.ja.md:718`.
+
+**Three corrections to keep.** (1) The arithmetic: README's three bullets already
+cover **four** of the five comparisons -- "GPU / GUI detection" spans two
+independent checks (`drift.sh:58` and `:60`). Only the Dockerfile stage list is
+missing. The sharper error is the stored-values sentence: it names three, one of
+which (`SETUP_TIMESTAMP`) is inert, and omits `SETUP_DOCKERFILE_HASH`,
+`GPU_ENABLED` and `USER_UID`. (2) The harm scenario does not hold:
+`README.md:385-388` -- the section a maintainer adding `FROM ... AS <stage>`
+actually reads -- already says the change triggers `check-drift` via
+`SETUP_DOCKERFILE_HASH` and the wrappers auto-regenerate on the next invocation,
+and `README.md:1252` repeats it. One stale section, two correct ones, same file.
+(3) `--setup` is not merely another code path: `RUN_SETUP=true` still regenerates
+(`wrapper.sh:611-621`, `setup.sh apply` when non-interactive, `setup_tui.sh` on a
+TTY), so the sentence is still true, just no longer necessary and imprecise about
+the TUI.
+
+**Fix.** Restate from `drift.sh:37-56`: five stored keys, five triggers (including
+the Dockerfile stage list), and close with "the next `just docker build` /
+`just docker run` regenerates automatically; `--setup` forces it now". Drop
+`SETUP_TIMESTAMP` from the stored-and-compared sentence or mark it informational.
+
+**Widen by one section:** the adjacent `README.md:1164-1176` ("When setup.sh runs")
+opens with "setup.sh runs only when explicitly triggered -- it is not re-run on
+every build or launch" and lists four triggers with drift-regen absent. That
+sentence is contradicted by the same wrapper path even more directly, and should
+be fixed together, then re-stamped through the existing `<!-- sync: ... -->`
+markers.
+
+**Do not** apply ADR-00000028's derived-figures framework here. That ADR's derived
+half is test statistics and per-`@test` tables; behavioural prose is its explicitly
+reserved authored half. This is ordinary prose maintenance.
+
+---
+
+## 4. `doc/test/TEST.md`'s static-lint table lists 15 of 23 lints and gives one of them a CI job that does not exist (#33)
+
+**Defect.** `TEST.md:135-137` says "The `just test` lint phase runs the tools listed
+in `script/test/test.sh`'s `_LINT_TOOLS` table" and then draws that table at
+`:141-157` with **15 data rows**. `_LINT_TOOLS` (`test.sh:165-188`) has **23**. The
+eight missing: `adr-structure`, `self-hosted-guard`, `changelog-layout`,
+`pin-coverage`, `action-ref-agreement`, `generated-workflow-actions`,
+`just-provenance`, `catalog-description`.
+
+**Evidence.**
+
+- Machine diff confirms 23 versus 15 and identifies exactly those eight.
+- Three of them run for real, host-direct: `--adr-structure-only` gives "34 ADR(s)
+  examined, clean"; `--self-hosted-guard-only` gives "clean (37 job(s) across 10
+  workflow(s); 4 self-hosted-eligible, all guarded)"; `--changelog-layout-only`
+  gives "clean (43 series, 110 version sections...)"; `--catalog-description-only`
+  gives "tests=4617 described=2039 ... clean".
+- **Second defect:** `TEST.md:156` gives `i18n-orphan` the CI job
+  `lint-static (i18n-orphan)`. No such job name exists anywhere in
+  `self-test.yaml` -- `lint-static` is a 4-way GROUP matrix (`:311`, `:516-517`,
+  `group: ['1/4'..'4/4']`), and the only lints with dedicated jobs are the three in
+  `_LINT_TOOLS_OWN_CI_JOB` (`test.sh:242-246`). `git log -S` traces the row to
+  `266cad66` (#908), written when the matrix key was still a per-lint `tool:`; the
+  group-matrix conversion left it in place.
+- Why nothing guards it: `TEST.md` is 100% hand-maintained -- it has no
+  `<!-- generated: catalogue sections -->` block (its five siblings all do), and
+  `sync-doc-counts.sh:17-26,340` records that #978 removed the generator's TEST.md
+  pass.
+
+**Impact, smaller than first reported.** The eight lints are not invisible in the
+code -- `lint-static`'s own comment block (`self-test.yaml:311-380`) names and
+explains each, including self-hosted-guard and changelog-layout. And TEST.md twice
+disclaims the table's authority: `:159-165` says adding a lint to a group "does not
+require changing the workflow, nor keeping any row here true", and `:175-180` says
+"That guard, not this table, is what keeps the list honest". So this is
+documentation failing to meet its own opening sentence, not a list claiming
+completeness while quietly rotting. All eight are also recorded in the generated
+`doc/test/unit.md` and in `doc/changelog/v0.43.md`, and all eight are v0.43-cycle
+additions -- one release cycle of drift. `dist/doc/` does not exist, so TEST.md
+ships to no downstream.
+
+**Fix.** Derive the table. `_LINT_TOOLS` plus `_LINT_TOOLS_OWN_CI_JOB` already
+determine it, and `test.sh --lint-group-members N/T` answers the group column; the
+repo already has the generator-plus-read-only-twin pattern
+(`script/test/drivers/changelog_layout.sh` re-derives the
+`doc/changelog/CHANGELOG.md` index and fails on any difference). If that is too
+much, the cheap half is a row-set assertion in
+`test/bats/unit/self_test_yaml_spec.bats`, which already reads `_LINT_TOOLS` for
+its CI-job completeness guard.
+
+**Care:** the "Enforces" column is authored prose (the errexit-bang cell is very
+long); if the table is generated, keep that column hand-written. The
+`lint-static (i18n-orphan)` row is a concrete false statement pointing at a job not
+in the checks list, and is the sharpest half of this item.
+
+This applies ADR-00000028 rather than reopening it: a list computable from the tree
+should not be stored where a human must keep it true.
+
+---
+
+## 5. The ADR index omits ADR-00000033 entirely, and its "Audit conclusion" contradicts its own table (#34)
+
+**Defect.** `doc/adr/README.md:3-7` declares itself "the index of base's
+Architecture Decision Records **and** the audit that maps each ADR onto
+doc/PRD.md ... this table is the consolidated view". There are 34 ADR files and 33
+table rows; `00000033` is on disk and not in the table. Separately, the "Audit
+conclusion" at `:108-131` no longer matches the table it summarises.
+
+**Evidence.**
+
+- Machine diff: `grep -oP '^\| \K[0-9]{8}' doc/adr/README.md | sort` against
+  `ls doc/adr/[0-9]*.md` -- the only difference is `00000033`. That ADR
+  (`doc/adr/00000033-ci-image-provisioning-is-a-script-not-a-job.md`, Accepted
+  2026-09-04, serves invariants 2 and 4) is referenced by
+  `doc/changelog/v0.43.md:239` and `doc/test/unit.md:4943`. It is live.
+- Machine count of the verdict column: `keep` is actually 21 rows while the
+  conclusion claims 18 and lists 18 numbers (omitting `00000022`, `00000030`,
+  `00000035`); `elevates-invariant` is actually 10 rows while the conclusion claims
+  9 (omitting `00000032`, `00000036`) -- and it lists `00000022 -> inv 3` under
+  elevates-invariant while the table's own cell reads
+  `keep (amended by 00000025)`.
+- Two more found during review: the conclusion carries both `00000030 -> invariant
+  6` and the next item's invariant 8 (the table row says 8), residue of a
+  mis-numbered `00000032`; and the table's tail is unsorted (29, 35, 36, 32, 31,
+  30), the signature of hand-appending.
+- Why nothing guards it: both ADR lints exempt this file **by filename** --
+  `adr_numbering.sh:17-19` and `adr_structure.sh:16-19` each call it "the one
+  conventional non-ADR file in the registry dir". `--adr-numbering-only` and
+  `--adr-structure-only` both report clean. Grepping `adr/README` across `script/`
+  and `test/` finds only those two drivers and their two specs, and only to exempt
+  it.
+
+**Impact, smaller than first reported.** This is **not** the only place to look up
+which PRD invariant a decision serves -- the README's own second paragraph
+(`:9-16`) says the opposite: "**The filesystem is the ADR registry.** There is no
+database and no manually-curated master list of numbers." And every ADR carries a
+`> Serves:` back-reference which **is** gated: `adr_structure.sh:229-233` fails
+when `^> Serves:` is not exactly one, with the message "which PRD invariant or
+design principle does this decision uphold?". ADR-33 answers it in its own first
+lines (`:3-6`). A reader who opens ADR-33 loses nothing but the summary row.
+
+**The half that does bite:** `doc/PRD.md:568-570` cites `doc/adr/README.md` --
+quoting that registry declaration verbatim -- as one of the three places design
+principle P2 is written down ("Derive the population; never enumerate it ... a hand
+list is wrong from the moment the first entry is added elsewhere, and silently
+so"). And that same file then carries a hand-enumerated 33-row table and a hand-run
+tally, both silently wrong. **The file PRD points at as the example violates P2.**
+
+**Fix.** Add the `00000033` row, then either recompute the Audit conclusion from
+the table or **delete it** -- its verdict tallies are derivable from column 2 and
+under ADR-00000028 should not be stored. The model for generating the whole table
+exists: `changelog_layout.sh` re-derives the changelog index and fails on
+difference, and `adr_structure.sh` already parses the `> Serves:` line that is the
+table's second column.
+
+**Note:** a narrower version of this (ADR-33 missing plus no guard) was **rejected**
+during the audit, because `> Serves:` is already linted and the registry decision is
+recorded. This survived only because of the self-contradicting tally, which is a
+concrete wrong number people quote. Fix both halves together.
+
+refs #1035
+
+---
+
+## How to verify (all five)
+
+- 1: POST the README section to GitHub's markdown API and require exactly the
+  intended number of `<table>` elements with no `<p>` containing a literal pipe.
+  Today it returns one table plus a paragraph of pipes.
+- 2: assert the README string matches `test.sh --help`'s own description of the
+  default mode. Today they disagree.
+- 3: assert the README section names every key `drift.sh:37-41` reads back. Today
+  it names three of five, one of them inert.
+- 4: assert TEST.md's row set equals `_LINT_TOOLS`, and that every CI job name it
+  cites exists in `self-test.yaml`'s job list. Today: 15 of 23 rows, and one job
+  name that does not exist.
+- 5: assert the index's row set equals `ls doc/adr/[0-9]*.md`, and that the
+  conclusion's tallies equal the table's verdict column. Today: one missing row and
+  four wrong tallies.
+
+Each check must be run against the current tree and be **red** before the fix.
+
+

@@ -1,0 +1,113 @@
+feat(build-worker): support Dockerfile in subdirectory via context_path / dockerfile_path inputs
+## Problem
+
+`build-worker.yaml` hardcodes `context: .` (and inherits the default `file: ./Dockerfile`) in three places — the `test` / `devel` / `runtime` build steps (currently lines 171, 187, 203 of `v0.14.0`).
+
+This assumes downstream repos keep their `Dockerfile` at repo root. Repos that want to **separate the docker environment from source code** by putting docker assets in a subdirectory (e.g. `docker/Dockerfile`, `docker/compose.yaml`, `docker/build.sh`) cannot use this reusable workflow as-is — CI fails with:
+
+```
+ERROR: failed to build: failed to solve: failed to read dockerfile:
+open Dockerfile: no such file or directory
+```
+
+## Concrete use case
+
+`ycpss91255-docker/seggpt` is a downstream repo whose layout is:
+
+```
+seggpt/
+├── docker/                      # docker environment (template subtree)
+│   ├── Dockerfile
+│   ├── compose.yaml
+│   ├── build.sh
+│   ├── run.sh
+│   └── setup.sh
+├── src/                         # Python source (3-layer architecture)
+│   ├── runtime/
+│   ├── api/
+│   └── server/
+├── third_party/detectron2/
+├── test/
+└── pyproject.toml
+```
+
+This separation matters because:
+
+- `docker/` is template-managed (subtree) → user-facing source under `src/` stays clean
+- Source-level tooling (ruff, mypy, pytest) operates on `src/` and `test/`, not on docker assets
+- Future ROS 2 packages added to `src/<pkg>/` won't pollute the docker context
+
+Local `./build.sh` works (compose.yaml's `context: .` is relative to the `docker/` folder where compose lives), but CI bypasses `build.sh` entirely and uses `docker/build-push-action` with the hardcoded root context.
+
+## Proposed solution
+
+Add two optional inputs to `build-worker.yaml`:
+
+```yaml
+inputs:
+  context_path:
+    required: false
+    type: string
+    default: "."
+    description: |
+      Build context passed to docker/build-push-action.
+      Defaults to repo root for backwards compatibility.
+      Set to "docker" (or similar) when the Dockerfile lives
+      in a subdirectory.
+
+  dockerfile_path:
+    required: false
+    type: string
+    default: ""
+    description: |
+      Optional explicit Dockerfile path relative to the repo
+      root. Empty string defers to docker/build-push-action's
+      default ("<context_path>/Dockerfile").
+```
+
+Then in the three build steps:
+
+```yaml
+- name: Build test stage
+  uses: docker/build-push-action@v7
+  with:
+    context: ${{ inputs.context_path }}
+    file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+    target: test
+    ...
+```
+
+Downstream repos with `docker/Dockerfile` would call:
+
+```yaml
+jobs:
+  build:
+    uses: ycpss91255-docker/template/.github/workflows/build-worker.yaml@v0.15.0
+    with:
+      image_name: seggpt
+      context_path: docker      # ← new
+      platforms: linux/amd64
+```
+
+Existing downstream repos (Dockerfile at root) keep working with no change because both inputs default to current behaviour.
+
+## Alternatives considered
+
+| Alternative | Drawback |
+|---|---|
+| Move `Dockerfile` to repo root in seggpt | Loses the docker / source separation; conflicts with template's own `setup.sh apply` flow which expects the docker folder layout |
+| Symlink `Dockerfile` → `docker/Dockerfile` at root | Build context = whole repo (heavy, cache-unfriendly); requires careful `.dockerignore` |
+| Replace seggpt's `main.yaml` with bespoke CI | Loses multi-arch / GHCR push / cache that template provides for free; defeats the point of using the template |
+
+The proposed change is the only option that keeps every downstream repo on a single shared CI definition while supporting both layouts.
+
+## Backwards compatibility
+
+Both new inputs default to current behaviour (`context_path: "."`, dockerfile path empty → defaults to `./Dockerfile`). No existing downstream repo's `main.yaml` would need to change.
+
+## Related
+
+- Affects: `.github/workflows/build-worker.yaml` lines 171, 187, 203
+- Discovered while migrating `ycpss91255-docker/seggpt` to template (PR ycpss91255-docker/seggpt#1, currently red on this exact failure)
+
+

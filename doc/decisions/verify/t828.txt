@@ -1,0 +1,35 @@
+bug: local :local image tags (test-tools:local) are not version-scoped -> collide across repos/versions
+## Bug
+
+The pre-built-image pattern tags the **local** image with a bare, version-agnostic `:local` tag, while CI uses a version-scoped GHCR tag. Locally the `:local` tag therefore collides across repos/versions.
+
+`test-tools` (base-owned):
+- `.base/script/docker/wrapper/build.sh` builds `docker build ... -t test-tools:local` (fixed).
+- `.base/dockerfile/Dockerfile.example` defaults `ARG TEST_TOOLS_IMAGE="test-tools:local"`.
+- `.base/.github/workflows/self-test.yaml` builds/consumes `test-tools:local`.
+- CI (build-worker / publish-worker) passes the version-scoped `ghcr.io/ycpss91255-docker/test-tools:${test_tools_version}`.
+
+**Failure mode:** if two downstream repos (or two builds on one host) pin different `test_tools_version`, they share the one `test-tools:local` tag — whichever built last wins, and the other silently builds/lints against the WRONG tool version. No error; no way to tell which version `:local` currently holds.
+
+## Confirmed in a downstream repo (same class of bug)
+
+`realsense_ros1` pins librealsense **v2.55.1** (deliberate ceiling) and `realsense_ros2` pins **v2.58.2**; both default `LIBREALSENSE_IMAGE=librealsense:local` and both `docker build -t librealsense:local` in `script/hooks/pre/build.sh`. Building ros2 clobbers ros1's SDK image and vice versa — a subsequent local build silently FROMs the wrong-version SDK. (Observed: a stale `librealsense:local` at v2.55.1 broke a local ros2 build; CI was unaffected because CI FROMs the version-scoped GHCR tag.)
+
+## Proposed convention
+
+Local tags mirror the GHCR version-scoped naming, minus the registry prefix:
+- base: `test-tools:${TEST_TOOLS_VERSION}` (instead of `test-tools:local`).
+- downstream (illustrative): `librealsense:${LIBREALSENSE_VERSION}-${UBUNTU_CODENAME}`.
+
+Benefits: collision-free across repos/versions; distinguishable from CI by the absent `ghcr.io/...` prefix; self-documenting; correct Docker cache keys per version.
+
+## Fix locations (base)
+
+- `.base/script/docker/wrapper/build.sh` (the `-t test-tools:local` build + `--clean-tools` rmi).
+- `.base/dockerfile/Dockerfile.example` (`ARG TEST_TOOLS_IMAGE` default + comments).
+- `.base/.github/workflows/self-test.yaml` (build/consume of `test-tools:local`).
+- A regression guard asserting the local tag is version-scoped.
+
+Downstream repos that copied the pattern (realsense_ros1/ros2 `librealsense:local`) will fix their own instance following whatever naming this issue standardizes.
+
+Downstream trackers (the librealsense:local instance of this bug): realsense_ros1#128, realsense_ros2#125 — being fixed now with the version-scoped naming (`librealsense:${VERSION}-${CODENAME}`) proposed above, pending base's ratification for test-tools:local.

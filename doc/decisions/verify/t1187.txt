@@ -1,0 +1,111 @@
+fix(test): the tooling image's egress failure reports a packaging mistake, and is re-paid on every invocation
+## What the operator reads, and what actually happened
+
+A local `just test` on this host failed while building the tooling image.
+What reached the operator was a packaging error, twenty-odd times over:
+
+```
+#19 [stage-7 1/10] RUN apk add --no-cache bash parallel git git-subtree ...
+#19   0.175 fetch https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/APKINDEX.tar.gz
+#19 240.4 fetch https://dl-cdn.alpinelinux.org/alpine/v3.22/community/x86_64/APKINDEX.tar.gz
+#19 240.4 WARNING: fetching https://dl-cdn.alpinelinux.org/alpine/v3.22/main: Permission denied
+#19 241.2 ERROR: unable to select packages:
+#19 241.2   bash (no such package):
+#19 241.2     required by: world[bash]
+#19 241.2   ca-certificates (no such package):
+...
+failed to solve: process "/bin/sh -c apk add --no-cache bash parallel ..." exit code: 21
+2026-09-07T14:55:50Z [build] INFO : transcript_complete exit_code=1 duration=244s
+```
+
+Full transcript:
+`worktree/base-toml-epic/log/build/20260907T145146Z-77ada917.log`.
+
+**The network is not blocked, it is intermittent.** Eight minutes later, the
+same build on the same host over the same Dockerfile reached the same index in
+0.259s and finished in 11s
+(`log/build/20260907T145944Z-f0d5b87f.log`, tag `test-tools:34692a1baea2`). So
+this is not a machine that needs to be configured once and then works; it is a
+failure the gate can hit on any invocation.
+
+## `Dockerfile.test-tools` predicted this reader, exactly
+
+The `alpine-apk` stage comment (added by #1008) says it in as many words:
+
+> what apk does there is spend 480s across the two repository indexes and then
+> report every package as "no such package", because an unreachable index reads
+> as an EMPTY one. The reader is told the package list does not contain `bash`,
+> not that it could not be fetched, and goes looking for a packaging mistake
+> that does not exist.
+
+#1008 shipped the `APK_MIRROR` build arg and the bare `- APK_MIRROR` forward in
+`compose.yaml`, so the knob exists and reaches every package-installing stage.
+What #1008 did not ship is anything that **names the knob at the moment of
+failure**. The paragraph above is a comment inside the file the operator is not
+reading; the last line they actually see is `bash (no such package)`.
+
+## Where the hint would go
+
+`script/test/test.sh:1615` -- `_ensure_test_tools_image` builds and does not
+look at the result:
+
+```bash
+  echo "--- Building the tooling image ${_image} (content hash of ${_TEST_TOOLS_DOCKERFILE_REL}) ---"
+  TEST_TOOLS_IMAGE="${_image}" docker compose -p "${_project}" \
+    -f "${REPO_ROOT}/compose.yaml" build test-tools
+```
+
+Every other failure this file can produce goes through `_die` with a named code
+and a sentence saying what clears it. This one does not, and it is the one
+failure whose surface message points at the wrong cause.
+
+## The cost is re-paid, not paid once
+
+The tag is derived from the sha256 of `Dockerfile.test-tools`, and existence is
+decided by `docker image inspect` (`test.sh:1620`). A failed build produces no
+image, so the next `just test` takes the same branch and re-enters the same
+build. BuildKit does cache the stages that succeeded -- in the run above every
+other stage was `CACHED` and only `stage-7` ran -- so a retry re-pays the
+failing stage rather than the whole file. That is still ~240s per invocation,
+for as long as the index is unreachable, with no accumulating progress and no
+message that suggests stopping.
+
+On a cold cache the arithmetic is worse: four stages here install packages
+(`bats-extensions`, `lint-tools`, `kcov-builder`, and the final stage), so more
+than one of them can pay the stall before the build gives up.
+
+## Suggested shape
+
+Handle a non-zero `docker compose build test-tools` and `_die` with a message
+naming the two ways past it:
+
+- `APK_MIRROR=<host> just test` -- repoint the Alpine index (the knob #1008
+  added; `compose.yaml` already forwards it).
+- `TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:main just test` --
+  skip the local build entirely. `_ensure_test_tools_image` already returns
+  early on a caller-pinned value, so this path works today and is simply
+  undiscoverable from the failure.
+
+Detecting the *shape* of the failure is not required and should not be
+attempted: the hint is correct for any tooling-build failure, and a matcher on
+apk's wording is one upstream string change away from silence. The value is
+that the last line the operator reads names the knob instead of naming `bash`.
+
+## Not this issue
+
+The suite's own duration is #1002 / #1069 / #1070 and is unrelated. This is a
+build that fails in ~240s and reports the wrong cause, and then reports it
+again on the next invocation.
+
+## What is not verified here
+
+- Whether the 240s stall is the host's egress proxy or dl-cdn itself. The
+  `Permission denied` at 240.4s is consistent with a proxy that stalls and then
+  refuses, but nothing here reads the proxy's side.
+- A report that `mirrors.tuna` answers 403 as an `APK_MIRROR` value. No
+  transcript in the tree records that attempt, so it is repeated here as
+  unconfirmed rather than as evidence.
+
+Refs #1008.
+
+
