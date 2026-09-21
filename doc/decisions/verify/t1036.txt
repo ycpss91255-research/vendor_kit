@@ -1,0 +1,89 @@
+fix(upgrade): the migrated Dockerfile is left uncommitted, then the user is told to push
+Found while validating `v0.43.0-rc1` against a real `v0.41.0` consumer
+(ycpss91255-docker/omniverse_web_viewer) BEFORE the stable release. #969 is
+genuinely fixed -- reported below as the good news -- but the upgrade leaves
+the file it just rewrote uncommitted, and then tells the user to push.
+
+## #969 verified fixed
+
+Throwaway clone of owv at `.base/.version = v0.41.0`, then
+`./.base/upgrade.sh v0.43.0-rc1`:
+
+    UPGRADE_EXIT=0
+    dangling symlinks: 0
+
+All five `.base/` paths its Dockerfile references were migrated and all five
+resolve afterwards:
+
+    .base/config                      -> .base/dist/config                                    OK
+    .base/script/docker/lib           -> .base/dist/script/docker/lib                         OK
+    .base/script/docker/runtime/*.sh  -> .base/dist/script/docker/runtime/  (collapsed)       OK
+    .base/script/docker/wrapper       -> .base/dist/script/docker/wrapper                     OK
+    .base/test/smoke/                 -> .base/dist/test/bats/smoke/{devel-test,shared}/      OK
+
+The last one is the one worth calling out: it is not a `dist/` prefix
+insertion, it moves to a different subpath, and the migration gets it right.
+
+## The problem: the migrated Dockerfile is not committed
+
+    $ git show --stat --oneline HEAD
+    f7a27e1 chore: update template references to v0.43.0-rc1
+     .github/workflows/main.yaml | 4 ++--
+     .gitignore                  | 5 +++++
+
+    $ git status --porcelain | wc -l
+    18          # including the Dockerfile the upgrade itself just rewrote
+
+    ...and the closing message says:
+
+    Next steps:
+      1. Run ./build.sh test to verify
+      2. git push
+
+A user who follows that literally pushes a commit claiming `v0.43.0-rc1`
+while the path migration that makes the tree buildable stays local. The
+committed half and the working half disagree about which layout the repo is
+on.
+
+## Why
+
+`./.base/upgrade.sh` runs the CONSUMER's copy -- the v0.41.0 one -- and its
+`Step 5/5` is a different step ("patch Dockerfile lint stage for lib/ split")
+from the shipped tree's `Step 5/5: apply Dockerfile/entrypoint migrations`,
+which is the one that does:
+
+    [[ -f "${_dockerfile}" ]] && git add "${_dockerfile}"
+
+The logs show the split directly: steps 4 and 5 emit through
+`.base/script/docker/lib/log.sh` (the OLD flat layout) while step 3 emits
+through `.base/dist/script/docker/lib/log.sh` (the NEW tree). So the new
+tree's `init.sh` applies the migrations and the old script does the
+committing, and it does not know about them.
+
+This is the same shape as #915 -- on a cross-version upgrade the OLD script
+drives -- but much milder: nothing is silently destroyed, `git status` shows
+it. The misleading part is the "git push" advice, which is printed by the old
+script and cannot know the tree is half-staged.
+
+## Suggested direction
+
+Since the driving script is always the old one, the staging cannot be fixed
+retroactively for consumers already on v0.41.0/v0.42.0. Two options that do
+work from where you are:
+
+1. Have `init.sh` (which comes from the NEW tree and therefore always runs the
+   current code) stage what its migrations touch, rather than relying on the
+   caller's Step 5.
+2. Failing that, have `init.sh` print an explicit warning naming the files it
+   rewrote and telling the user to commit them, so the old script's "git push"
+   is not the last word the user sees.
+
+Option 1 also makes the next cross-version upgrade correct by construction,
+which is the property #915 and this both lack.
+
+## Environment
+
+`v0.43.0-rc1`, consumer `omniverse_web_viewer@4375148` (`.base` at v0.41.0),
+throwaway clone, Ubuntu 24.04. Nothing was pushed; the test tree is disposable.
+
+

@@ -1,0 +1,78 @@
+fix(gitignore): a gitignore pattern is handed to git as a pathspec and the fatal is swallowed
+## The defect
+
+`_untrack_canonical_in_repo` strips only the **trailing** slash
+(`gitignore.sh:472`, `_path="${_entry%/}"`) and hands the result to
+`git ls-files -- "${_path}"` with stderr swallowed (`:475`). The one entry in the
+canonical set (`gitignore.sh:34-47`) with a leading slash, `/deploy/`, therefore
+becomes the pathspec `/deploy`, and git fails outright.
+
+## Evidence
+
+- Verified live (git 2.55.0, a temp repo tracking `deploy/a`, `log/b`,
+  `coverage/c`, `compose.yaml`): the function untracks three and leaves
+  `deploy/a`. Running `git ls-files -- /deploy` directly gives
+  `fatal: /deploy: '/deploy' is outside repository`, exit 128.
+- `2>/dev/null` swallows the fatal, `[[ -n ... ]]` is false, and the entry is
+  skipped silently.
+- The spec is roster-shaped: `test/bats/unit/gitignore_spec.bats:458` is titled
+  "untracks **all** canonical entries that match" and names four.
+- **A second, opposite mismatch:** `log/` and `coverage/` are **unanchored**
+  gitignore patterns, so they ignore `sub/log/` too, but the derived pathspec
+  matches from the repo root and does not match a nested copy. Force-adding
+  `sub/log/z` and `sub/coverage/z` and re-running leaves both in the index. So 3 of
+  12 canonical entries are treated incorrectly.
+- The same defect exists symmetrically in `_init_snapshot_index`
+  (`init.sh:981-990`).
+
+## Why it matters -- today, it does not
+
+The original narrative (a repo committed a bundle before the entry existed, and
+this is the only remedy) was overturned.
+`git show 78fdd53d:dist/script/docker/lib/gitignore.sh` shows `/deploy/` already
+in `_canonical_gitignore_entries` in the **same commit that introduced the deploy
+bundle feature** (#836). There was never a window in which the template produced a
+bundle with no ignore entry, so the population needing remedy is empty. None of
+the four local downstream checkouts tracks any `deploy` path.
+
+## The fix, and the trap in it
+
+**The only shape that could exist is a repo that hand-wrote `deploy/` before the
+feature -- and for that repo the broken pathspec is the safe direction.** Stripping
+the leading slash as first proposed would make base move a user's hand-written
+`deploy/` out of the index during the unattended commit at `upgrade.sh:758`, and
+the rollback index snapshot (`init.sh:988`) carries the same bug so it would not
+have recorded it. An aborted upgrade would then be unrecoverable.
+
+**Do this now (both are safe and mechanical):**
+
+1. Stop swallowing the failure: treat a non-1 exit from `git ls-files` as a bug
+   and surface it, in both `gitignore.sh:472-475` and `init.sh:981-990`.
+2. Derive `gitignore_spec.bats:458`'s population from
+   `_canonical_gitignore_entries` instead of naming four entries, so the title
+   becomes true and the `/deploy/` and nested-path cases show up as failures.
+
+**Blocked on a decision, recorded here so nobody does it accidentally:** correcting
+the pathspec itself. If it is corrected it must be (a) to what the leading slash
+actually means -- `:(top)deploy`, not bare `deploy` -- and (b) in
+`gitignore.sh:472` and `init.sh:988` **together**, and (c) only after deciding
+whether base should untrack a consumer's pre-existing hand-written `deploy/` at
+all. Do not land (a) or (b) without (c).
+
+**Explicitly dropped from the original report:** adding logging for skipped
+entries. `git commit` already lists each `delete mode` line, and every writer on
+every convergence path in `gitignore.sh` is equally silent -- that is the module's
+consistent convention.
+
+## How to verify
+
+- In a temp repo tracking `deploy/a`, run the function and require the swallowed
+  `git ls-files` failure to surface (exit 128 today, silently skipped).
+- Force-add `sub/log/z`, run the function, and require the derived spec to report
+  it. Today `gitignore_spec.bats:458` passes with three of twelve entries handled
+  incorrectly.
+
+Both runs are green today. A change that does not make them red has not fixed
+anything.
+
+

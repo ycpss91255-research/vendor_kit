@@ -1,0 +1,166 @@
+feat(setup): support mount propagation modes (rslave, rshared) in volumes
+## Problem
+
+`setup.sh` volume validator only accepts `ro` and `rw` as mount modes.
+Mount propagation flags like `rslave`, `rshared`, `rprivate` are
+rejected with:
+
+```
+ERROR: Invalid value: volumes.mount_10 = /dev:/dev:rslave
+```
+
+## Use Case
+
+`jetson_sdk_manager` needs `/dev:/dev:rslave` so that USB device
+re-enumeration events propagate into the container. During Jetson
+flash, the device reboots multiple times and re-enumerates on the USB
+bus. Without `rslave` propagation, new device nodes created by the
+kernel are invisible inside the container, causing flash to fail with
+"No Jetson device found."
+
+Currently all mounts get `Propagation: rprivate` (Docker default),
+which blocks device hotplug visibility.
+
+## Proposed Solution
+
+Extend the volume validator to accept standard Docker mount
+propagation modes in addition to `ro`/`rw`:
+
+- `rslave` — host mount events propagate into container
+- `rshared` — bidirectional propagation
+- `rprivate` — no propagation (current default)
+- `slave`, `shared`, `private` — non-recursive variants
+
+Format: `host:container[:ro|rw][,rslave|rshared|rprivate]`
+
+Example:
+```ini
+mount_10 = /dev:/dev:rslave
+```
+
+## Workaround
+
+Currently the only workaround is manually editing `compose.yaml`
+after generation, which gets overwritten on next build/run.
+## Update from jetson_sdk_manager testing
+
+After extensive testing, **`rslave` mount propagation is NOT required** for flashing Jetson devices from Docker containers.
+
+### What we tested
+
+- Ran `flash.sh jetson-agx-orin-devkit internal` from inside Docker container
+- `/dev:/dev` mount with default `private` propagation (no `rslave`)
+- `--privileged`, `--network host`
+- Full JetPack 6.2.2 flash to Jetson AGX Orin
+
+### Results
+
+Flash completed successfully in ~16.5 minutes. All partitions written, device cold-booted successfully.
+
+### The USB timeout issue was misdiagnosed
+
+The original assumption was that USB device re-enumeration during flash required `rslave` propagation to make new device nodes visible inside the container. In reality:
+
+1. **Device visibility was never the problem** — the Jetson device (0955:7023) was visible in the container at all times via `/dev:/dev` with `private` propagation
+2. **The `USBDEVFS_BULK32` timeout** was caused by the Jetson's USB endpoint being in a bad state from previous failed flash attempts
+3. **The fix** was a hardware power cycle (disconnect power → hold Recovery → reconnect) to get a clean recovery mode — not mount propagation
+
+### Recommendation
+
+This feature (mount propagation modes in setup.conf) is still useful for general-purpose volume configuration, but it is **not a blocker for jetson_sdk_manager flash functionality**. The priority can be lowered accordingly.
+
+Ref: ycpss91255-docker/jetson_sdk_manager#10
+## Correction: rslave IS needed for SDK Manager GUI
+
+My previous comment was premature. While `flash.sh` succeeded without `rslave` (because the flash runs in a single container session where the device doesn't re-enumerate), **SDK Manager GUI requires `rslave`** on the `/dev` mount.
+
+### The problem
+
+SDK Manager GUI runs as a long-lived container. When the user connects the Jetson to USB (or the Jetson re-enumerates during flash), Docker's default `rprivate` propagation on `/dev` means new device nodes created by the kernel on the host are **not visible** inside the container. SDK Manager reports:
+
+```
+Could not detect correct NVIDIA Jetson device connected to USB port.
+```
+
+Even though `lsusb` (which reads `/proc/bus/usb`) shows the device, the actual `/dev/bus/usb/003/NNN` device node does not exist in the container's filesystem.
+
+### Current workaround
+
+Manually patching `compose.yaml` after generation:
+
+```yaml
+# Replace:
+devices:
+  - /dev:/dev
+
+# With:
+volumes:
+  - type: bind
+    source: /dev
+    target: /dev
+    bind:
+      propagation: rslave
+```
+
+This gets overwritten on every `build.sh` / `run.sh` invocation.
+
+### What's needed from base
+
+Support mount propagation modes in `setup.conf` so this can be expressed as:
+
+```ini
+[devices]
+device_1 = /dev:/dev:rslave
+```
+
+Or alternatively under `[volumes]`:
+```ini
+mount_N = /dev:/dev:rslave
+```
+
+This **is a blocker** for the SDK Manager GUI workflow. The `flash.sh`-only workflow can work without it, but the GUI (which is the primary user-facing interface) cannot.
+## Design discussion: mount propagation for [devices]
+
+### Problem
+
+Docker compose `devices:` does not support mount propagation (`rslave`, `rshared`, etc.). When a device entry needs propagation (e.g. `/dev:/dev:rslave` for USB hotplug visibility), the compose emit must redirect to `volumes:` long-form bind mount syntax.
+
+### Agreed design
+
+User writes device entries in `[devices]` regardless of propagation:
+```ini
+[devices]
+device_1 = /dev/video0:/dev/video0      # normal → compose devices:
+device_2 = /dev:/dev:rslave             # propagation → compose volumes: long-form
+```
+
+Script auto-detects propagation keywords (`rslave|rshared|rprivate|slave|shared|private`) and emits to the correct compose section. User doesn't need to know about Docker's devices vs volumes distinction.
+
+### Implementation breakdown (proposed split)
+
+| Phase | Scope | Issue |
+|-------|-------|-------|
+| P1: validator + emit split | `_validate_mount` accepts propagation; device_* validator added; emit logic splits devices with propagation to volumes long-form | #450 |
+| P2: privileged guard | setup.sh apply warns/fails when propagation mode is used without `[security] privileged = true` | new issue |
+| P3: per-stage support | `[stage:runtime]` device overrides also support propagation split | new issue |
+| P4: duplicate path detection | warn when same target path appears in both `[devices]` and `[volumes]` after propagation redirect | new issue |
+
+### Disambiguation rules
+
+- Device permissions (`r`, `w`, `m`, `rw`, `rwm`) → compose `devices:` (no redirect)
+- Propagation modes (`rslave`, `rshared`, `rprivate`, `slave`, `shared`, `private`) → compose `volumes:` long-form bind mount
+- No overlap between the two sets — parsing is unambiguous
+
+### Open question
+
+Should the compose.yaml comment the redirected entries to show their `[devices]` origin?
+```yaml
+    volumes:
+      # [devices] device_2 (propagation=rslave → bind mount)
+      - type: bind
+        source: /dev
+        target: /dev
+        bind:
+          propagation: rslave
+```
+

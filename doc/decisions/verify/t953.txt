@@ -1,0 +1,85 @@
+fix(test): 260 tests pass when their subject is deleted, because 56 existence guards fail open
+## Problem
+
+**260 tests pass when the thing they check is deleted.** Verified by mutation.
+
+Renaming `.github/workflows/build-worker.yaml` produced:
+
+```
+52 tests reported  ok ... # skip
+the run exited 0
+```
+
+No other test in the repo asserts that workflow exists. The refactor those specs
+exist to catch is exactly the refactor they fail open on.
+
+## Mechanism
+
+**56 fail-open `|| skip` existence guards**, covering ~260 tests (8.4% of the
+suite). The same setup-level guard covers:
+
+```
+build_worker_yaml_spec      52
+self_test_yaml_spec        104
+ghcr_cleanup_yaml_spec      22
+multi_distro_build_worker   16
+release_test_tools_yaml     15
+worker_preflight_yaml       12
+publish_worker_yaml         12
++ five smaller specs
+```
+
+A guard that skips when its subject is missing cannot distinguish "this file is
+legitimately absent in this context" from "this file was deleted or renamed and
+nobody noticed". It answers the second case with silence and a green run.
+
+## The fix already exists in this repo
+
+`test/bats/integration/prev_release_upgrade_spec.bats:54-62` **fails** rather
+than skipping when its fixture cannot be resolved, and carries a comment
+explaining why: a spec that quietly shrinks to zero cases is the defect being
+guarded against.
+
+That is the idiom. It needs applying to the 56.
+
+## Judgement required, not a blanket rewrite
+
+Some of the 56 may guard a genuinely optional subject -- a file that is absent by
+design in some run mode. Those should stay a skip, but the **reason must be
+stated**, the way `prev_release_upgrade_spec` states its.
+
+Work out which is which. A guard whose subject is a tracked file that always
+exists on `main` has no business skipping; a guard whose subject depends on the
+dispatch mode may. Report the split rather than assuming it is all one way.
+
+Note the related trap found in the same audit: several specs **contain** the
+string they appear to guard on in a comment or an i18n table, so a naive grep
+suggests coverage that is not there. Verify by mutation, not by reading.
+
+## Verification bar
+
+For each converted guard: **delete or rename its subject and confirm the spec
+now goes red.** A conversion that is not mutation-verified has not been done --
+this whole issue exists because 56 guards were written and never tested against
+their own failure mode.
+
+Also confirm the inverse: a guard that legitimately stays a skip must still skip
+in the mode it was written for, and the whole suite must still pass on a clean
+tree.
+
+## Acceptance criteria
+
+- [ ] Renaming `.github/workflows/build-worker.yaml` turns the suite red.
+- [ ] Every remaining `|| skip` existence guard states why its subject is
+      optional.
+- [ ] Each conversion is mutation-verified, and the evidence is in the PR body.
+- [ ] The clean-tree run still passes, with no new skips.
+
+## Found by
+
+A measured audit of the suite (3091 tests, 173.5 s, 12 mutations). Its verdict
+on the suite overall was healthy -- near-zero duplication, correctly-scoped
+sensitivity, 1.14:1 test-to-source ratio. **This was the one correctness hole it
+found**, and it is not a cost problem.
+
+

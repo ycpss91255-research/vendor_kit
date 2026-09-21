@@ -1,0 +1,262 @@
+fix(ci): the base-version monitor has never reached a single downstream repo, and nothing checks delivery
+## The mechanism exists and has never reached a single repo
+
+#777 / PR #778 built a pull-based upgrade monitor: `check-base-version.sh` holds
+the logic, and `init.sh:437` writes
+`.github/workflows/base-version-monitor.yaml` into a consumer on resync.
+
+Checked every repo on the remote, which is authoritative:
+
+```
+realsense_ros2  ros1_bridge  claude_code  ros_distro
+sick_noetic     template     omniverse_web_viewer
+    -> 404 for .github/workflows/base-version-monitor.yaml, all seven
+```
+
+Zero adoption.
+
+## Why: the delivery vehicle is the thing being monitored
+
+```
+monitor is written only by init.sh
+    -> init.sh runs only during `just upgrade`
+        -> upgrade is broken for every repo on v0.41.0 (#915, and #925/F1 after it)
+```
+
+So a mechanism whose purpose is "tell you a new base release is available" can
+only arrive on a repo that is already able to upgrade. It cannot reach the repos
+that need it, by construction.
+
+That is a design property, not an accident of timing, and it will recur: **any
+file added to a consumer via `init.sh` inherits the upgrade path's availability.**
+The same is true of the `.gitignore` / `.dockerignore` canonical sync and every
+future generated file.
+
+## Nothing verifies delivery
+
+`check-template-versions.sh` fetches `.base/.version` from each repo and stops
+there. It answers "which release is this repo on", never "did the files that
+release was supposed to install actually arrive". It is also run by hand during
+release verification, not on a schedule.
+
+So between #778 merging and today, nothing would have reported that adoption was
+zero. It was found by asking.
+
+This is the same shape as the CI job that was red for two and a half months
+(#925): a thing nobody looks at is a thing that is not checked.
+
+## What to build
+
+**1. A delivery audit, not just a version audit.** Extend
+`check-template-versions.sh` (or add a sibling) to report, per repo from
+`lib/roster.tsv`: the `.base/.version`, and whether each file `init.sh` is
+supposed to install is present. Output should make "16 of 17 repos are missing
+the monitor" impossible to miss.
+
+Decide and state whether this runs on a schedule or stays a release-time check. A
+hand-run verifier has the same blind spot as the monitor itself.
+
+**2. Decide what the monitor is for, given it cannot self-deliver.** Options
+worth weighing, none obviously right:
+
+- Accept it and make the audit the safety net: the monitor is a convenience for
+  repos that are current, and the audit catches the ones that are not.
+- Make delivery independent of `init.sh` -- e.g. a base-side scheduled workflow
+  that opens the tracking issue in each roster repo directly, using the same
+  `check-base-version.sh` logic. Delivery then does not depend on the consumer
+  having upgraded. Costs: base needs write access to each repo, and the roster
+  becomes load-bearing.
+- Drop the per-repo workflow and keep only a base-side report.
+
+State the choice and why; this is the decision the issue exists for.
+
+**3. Once upgrades work again, confirm arrival.** The v0.42.1 fanout is the first
+chance to observe the monitor actually landing. Whatever is built in (1) should
+be run before and after that fanout, and the numbers recorded.
+
+## Acceptance criteria
+
+- [ ] One command reports, for every roster repo, which init-installed files are
+      present and which are missing.
+- [ ] The zero-adoption state this issue documents would have been reported by
+      it.
+- [ ] A decision is recorded for how the monitor reaches a repo that cannot
+      upgrade.
+- [ ] After the v0.42.1 fanout, adoption is measured and the number is stated.
+
+## Not in scope
+
+- Fixing the upgrade path itself (#915 is landed; #925/F1 is in flight).
+- Any change to what the monitor reports once it is running.
+
+Design settled 2026-08-26. This replaces both the "what is the monitor for"
+question in the issue body and the mechanism #822 proposed.
+
+## The weekly bot is removed; a release fans out
+
+The per-repo `base-version-monitor.yaml` is dropped. base's release fans PRs out
+directly instead. The bot's pull-based design was chosen to avoid a cross-org
+credential; that credential now exists deliberately (below), and a push model
+does not have the bot's fatal property -- **a monitor delivered by `init.sh` can
+only reach repos that have already upgraded**, which is why adoption was zero.
+
+## Scope is DISCOVERED, not declared
+
+The current model is an allowlist: `roster.tsv`'s `fanout` column, hand-set
+per repo. Measured today, that allowlist is wrong for **14 of 17 repos**:
+
+```
+REPO                     ROSTER   ACTUAL .base/.version
+ai_agent                 parked   v0.41.0   <-- has .base, not in fanout
+claude_code              parked   v0.41.0   <--
+codex_cli                parked   v0.41.0   <--
+gemini_cli               parked   v0.41.0   <--
+isaac                    n-a      v0.41.0   <--
+jetson_sdk_manager       n-a      v0.39.0   <--   (a release behind the rest)
+omniverse_web_viewer     n-a      v0.41.0   <--
+realsense_ros1           parked   v0.41.0   <--
+ros1_bridge              parked   v0.41.0   <--
+sick_humble              parked   v0.41.0   <--
+sick_noetic              parked   v0.41.0   <--
+template                 n-a      v0.41.0   <--
+urg_node_humble          parked   v0.41.0   <--
+urg_node_noetic          parked   v0.41.0   <--
+realsense_ros2           active   v0.41.0
+ros2_distro              active   v0.41.0
+ros_distro               active   v0.41.0
+```
+
+17 repos carry `.base/`; the roster nominates 3. `isaac` and
+`omniverse_web_viewer` are marked `n-a` ("not a `.base` consumer") while
+carrying one -- the mark predates their adoption and nothing re-checked. The
+`parked` reasons ("archive pending, no concrete container plan") were a
+judgement about the repo's future, not a statement that it does not need
+upgrades; a parked repo still rots, and still hits #915 when someone returns to
+it.
+
+**An allowlist fails silently: a repo that falls off produces no symptom.**
+
+So the model inverts:
+
+- **Membership is a scan.** A repo is in scope iff its default branch carries
+  `.base/.version`. That is a fact, not a judgement, so it cannot drift. A repo
+  created tomorrow is covered without anyone remembering.
+- **Opting OUT is explicit.** A blacklist entry, with a written reason. Not on
+  the blacklist -> a PR is opened, no exceptions.
+- **`roster.tsv`'s `fanout` column changes meaning**: from "should we?" to "why
+  not?". Its other columns (`path`, `settings`, `check`) are unaffected.
+- The scan covers **both orgs** (`ycpss91255-docker` and
+  `ycpss91255-research`); research repos are not `.base` consumers today but
+  will be.
+
+## Never auto-merge
+
+**A fanout PR is opened and left open. CI going green does NOT merge it. The
+receiving repo decides.**
+
+This is a rule, not a default, and it needs enforcing in two places:
+
+1. The fanout must not arm auto-merge. It does not today, but only by omission
+   -- make it explicit, with the reason in a comment.
+2. `remind_ci_auto_merge.sh` fires on every `gh pr create` and would nudge
+   toward arming on all N fanout PRs. It must recognise a fanout PR (the
+   `chore/base-v*` branch, or the title) and stay quiet.
+
+## Credentials
+
+`ORG_FANOUT_TOKEN` and `RESEARCH_FANOUT_TOKEN` are set as repo secrets on base.
+A fine-grained PAT binds to ONE resource owner, so two orgs means two tokens and
+the fanout must select by the repo's org. Permissions on each: Contents RW (push
+the branch), Pull requests RW (open the PR), **Workflows RW** -- the last is not
+optional, because `upgrade.sh` rewrites `.github/workflows/main.yaml`'s `@tag`
+references and GitHub refuses a workflow-file push without it.
+
+## Completeness is proved, not assumed
+
+After a fanout: scanned N, blacklisted M, therefore **exactly N-M PRs must
+exist**. Any other number fails loudly and names the missing repos. Today's
+`check-template-versions.sh` verifies `.base/.version` per repo -- it cannot
+answer "did every repo get a PR", and it iterates the same allowlist that is
+wrong.
+
+## Rollout
+
+The first fanout is **phased**: the 3 currently-`active` repos first. Only once
+those land clean do the remaining 11 follow. This crossing is unusually wide --
+v0.41.0 to v0.43.0 spans the `dist/` relayout and the `.env` rename -- and #915
+was a bug on exactly this path. Three real repos are a better probe than
+fourteen simultaneous ones. Steady state afterwards is all-at-once.
+
+## PR body carries the changelog
+
+The current template (`batch-base-pr-body.template.md`) says why, what commands
+ran, and how to verify -- and **nothing about what changed in the release**. A
+maintainer reading a v0.43.0 PR cannot see that it renames their `.env`.
+
+The body must carry the release's entries, generated from base's CHANGELOG, with
+**BREAKING expanded at the top** and the rest collapsible. This depends on #926
+(locked category set, per-0.Y files) -- extracting clean sections from today's
+641 KB single file with 20 heading variants is not reliable.
+
+## Acceptance criteria
+
+- [ ] Scope comes from a scan of both orgs; no hand-maintained allowlist decides
+      who gets a PR.
+- [ ] A repo carrying `.base/` and absent from the blacklist always gets a PR.
+- [ ] Every blacklist entry carries a reason.
+- [ ] The fanout never arms auto-merge, and the reminder hook stays quiet on
+      fanout PRs.
+- [ ] After a fanout, a single command proves N-M PRs exist and names any gap.
+- [ ] `base-version-monitor.yaml` is gone, and `init.sh` no longer generates it.
+- [ ] The PR body carries the release's BREAKING entries.
+- [ ] The 14 repos above are reconciled: each is either in scope or blacklisted
+      with a reason.
+
+## Supersedes
+
+#822 (downstream base-release notification/tracking) -- the notification
+mechanism it asks for is replaced by push-based fanout. Close it into this issue
+rather than building both.
+
+## Half of this landed: the delivery check exists now
+
+`check-base-delivery.sh`, in docker_harness#304 (merged). It reports, per
+repo, the release the subtree claims **and** which of the files `init.sh`
+installs are actually present -- which is the "nothing checks delivery" half
+of this issue.
+
+### The first real run found what the issue predicted, plus one it did not
+
+**The declared consumer set is 14. The real one is 17.** Consumers are
+discovered, not declared -- a repo carrying `.base/.version` is one, whatever
+the roster's `fanout` column says. Three repos marked `n-a` ("adjacent tooling
+repo, not a `.base` consumer") do carry `.base`, so they have been outside
+every delivery question anyone has asked, because a column said they were not
+consumers.
+
+### The expectations are asked for, not copied
+
+`init.sh --list-installed-paths`. A list kept in the audit would decay the
+first time `init.sh` learned to install one more file -- **which is the
+failure this audit exists to catch, one layer up.**
+
+### Two decisions worth carrying into the other half
+
+- **An audit that checked nothing is a failed audit**: exit 2 on an empty
+  selection or an empty manifest, rather than a clean report over zero repos.
+- Output leads with per-file gap counts, worst first, because a per-repo table
+  is something a reader scans and gives up on, and "every repo is missing the
+  monitor" has to survive that.
+
+## What is still open here
+
+**The monitor itself has still never reached a downstream repo.** The audit
+now measures that; it does not fix it. This issue stays open holding that
+half.
+
+The audit's own output is the input for it: it names which repos are missing
+which installed files, so "the monitor never arrived" is now a measured list
+of repos rather than an inference.
+
+Refs ycpss91255-docker/docker_harness#304
+

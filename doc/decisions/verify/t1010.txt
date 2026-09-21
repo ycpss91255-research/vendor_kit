@@ -1,0 +1,83 @@
+fix(ci): the test-tools staleness guard misses its sixth call site, and its roster names 5 of 15 tools
+## The mechanism that was supposed to catch a stale image is thin in three places
+
+`test-tools:main` is the image the whole gate runs inside. Three separate
+guards exist so a stale or racing `:main` cannot pass a check it should fail.
+All three are narrower than they read.
+
+### 1. One of the six consumers has no probe at all
+
+Five of the six jobs that pull `ghcr.io/ycpss91255-docker/test-tools:main`
+run a probe (`REQUIRED_TOOLS` presence plus a `just --version` content check)
+and rebuild from source if it fails -- `self-test.yaml:419, :579, :695, :873,
+:1578`.
+
+The **`acceptance`** job (`:1110-1133`) pulls and `exit 0`s:
+
+```
+if docker pull --platform ${{ matrix.platform }} \
+     ghcr.io/ycpss91255-docker/test-tools:main 2>/dev/null; then
+  printf 'FROM %s\nLABEL base.ci.run=%s\n' ... | docker build -q ...
+  exit 0
+fi
+```
+
+`acceptance` is the job that scaffolds a downstream repo and runs
+`just docker build test`, whose lint stage is `FROM ${TEST_TOOLS_IMAGE}`. It
+is precisely the job the mitigation was written for, and it is the one that
+did not get it. A stale image can pass a check it should fail, and a racing
+republish reddens it with no self-heal.
+
+### 2. The probe's roster is 5 of 15, and the missing one already bit us
+
+```
+419:  REQUIRED_TOOLS="kcov bats shellcheck hadolint just"
+```
+identical at `:579, :695, :873, :1578` -- **five hand-kept copies.**
+
+`dockerfile/Dockerfile.test-tools:198` installs:
+
+```
+bash parallel git git-subtree ca-certificates grep coreutils yq-go
+docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk
+```
+
+`yq` is not in `REQUIRED_TOOLS`. That is why the 2026-09-03 `yq-go` addition
+slipped through: the post-merge run took the pull path *and* the probe
+declared the stale `:main` acceptable.
+
+`grep` and `coreutils` are the more dangerous future omissions. On Alpine they
+**shadow busybox applets**, so removing one produces silently different
+`sort` / `date` / `grep -P` semantics rather than "command not found".
+
+### 3. `testtools_changed` is hardcoded false on every non-PR event
+
+`self-test.yaml:117-123`. `classify` hardcodes `code_changed=true`,
+`system_relevant=true`, `testtools_changed=false` for any event that is not
+`pull_request`. So a push to `main` that changes `Dockerfile.test-tools` does
+not rebuild it, and the probe that should have compensated is the roster
+above.
+
+The two halves are the same incident: the flag said "unchanged" and the probe
+said "good enough".
+
+## What to do
+
+Hoist the obtain-and-probe into **one** job that publishes the image as an
+artifact the fourteen consumers download.
+
+That removes the five-copy roster and the missing sixth call site in one
+move, and it also takes the per-shard image acquisition off the critical path
+-- each of the 8 coverage shards currently pulls `:main` independently,
+re-tags it through a `docker build`, and runs six `docker run --rm` probes.
+
+Then derive `REQUIRED_TOOLS` from `Dockerfile.test-tools` rather than
+restating it, so a tool added to the image is a tool the probe asserts.
+
+## Direction
+
+All three err toward too little CI. Found by the 2026-09-03 CI audit. No red
+`main` run appears in the last 40 -- the incident is repaired by content, not
+by mechanism.
+
+

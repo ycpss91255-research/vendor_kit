@@ -1,0 +1,77 @@
+fix(upgrade): two of the four shipped reusable workers keep their old ref, and the commit message claims otherwise
+## The defect
+
+`upgrade.sh:726-727` rewrites exactly two `uses:` refs -- `build-worker.yaml@`
+and `release-worker.yaml@` -- while the commit message at `:763`
+unconditionally claims `main.yaml: workflow @tag updated to ${target_ver}`.
+
+Base ships **four** reusable workers
+(`grep -l workflow_call .github/workflows/*.yaml`: build-worker, release-worker,
+publish-worker, multi-distro-build-worker). The other two are never touched by
+any upgrade, and the commit message says they were.
+
+## Evidence
+
+- `dist/script/base/upgrade.sh:726-727` (the two `sed` calls), `:763` (the
+  claim).
+- Org state, read via the GitHub API from each repo's `main.yaml` and
+  `.base/.version`: `ros_distro` and `ros2_distro` are both on `.base=v0.41.0`
+  and carry `build-worker.yaml@v0.41.0`, `release-worker.yaml@v0.41.0` and
+  `publish-worker.yaml@v0.20.0` -- **21 minors behind**, and every subsequent
+  `just base upgrade` leaves it alone. `ros_distro`'s caller grants that job
+  `packages: write`.
+- The fixture cannot see it: `test/bats/integration/upgrade_spec.bats:109-124`
+  builds a `main.yaml` containing only the two workers the `sed` handles, and
+  `:138-139` asserts only those two.
+  `grep -rn 'publish-worker.yaml@\|multi-distro-build-worker.yaml@' test/bats/`
+  returns nothing. The population is declared, not derived from the set of
+  workers base ships.
+- Base's own pin lint exempts this class of ref on a premise that is false:
+  `script/test/drivers/generated_workflow_actions.sh:157-159` and `:596-598`
+  exempt first-party worker refs because "`upgrade.sh` rewrites every
+  `<worker>.yaml@vX.Y.Z` in every downstream `main.yaml` on every upgrade".
+
+## Why it matters
+
+Both reviewers dismantled the security narrative, and that correction should
+stay: `publish-worker.yaml:203-207` documents its own fork guard as
+"Operationally inert today" and `publish_worker_yaml_spec.bats:194-197` restates
+it; `ros_distro`'s `call-publish` is gated on
+`if: startsWith(github.ref, 'refs/tags/')` and a fork PR cannot produce a tag ref
+in the upstream repo. The least-privilege claim in #957 is also wrong -- v0.20.0's
+publish job already pins `contents: read` plus `packages: write`. The
+last-shard-wins multi-arch defect from #602 does not bite either, because neither
+caller passes `platforms:` and v0.20.0 defaults to `linux/amd64`.
+
+**The cost today is not a security exposure. It is that any future publish-worker
+fix silently fails to reach those two repos**, and neither side can see it: the
+consumer's ref never moves, and base's own lint has exempted the ref on the
+grounds that it does move.
+
+## The fix
+
+- Make the rewrite **name-independent** rather than roster-driven. `upgrade.sh`
+  runs from the vendored `.base`, which ships only `dist/` -- there is no
+  `.github/workflows` there to enumerate. So the correct rule is: rewrite any ref
+  matching `ycpss91255-docker/base/.github/workflows/<any>.yaml@<semver>`.
+- Add a worker the `sed` does **not** name to the upgrade fixture, so an omission
+  shows up as a failure.
+- Change the commit message to report which refs were actually rewritten instead
+  of asserting a general rule.
+- Fix the false rationale comment at
+  `generated_workflow_actions.sh:157-159` / `:596-598`, or make the exemption
+  conditional on the ref genuinely having an owner that advances it.
+
+**Not part of this:** `omniverse_web_viewer`'s build@v0.41.0 / release@v0.42.0
+mismatch. Both of those refs are ones the `sed` does rewrite, so this bug cannot
+produce that state.
+
+## How to verify
+
+Extend the upgrade integration fixture's `main.yaml` with a
+`publish-worker.yaml@<old tag>` line and run the upgrade. **On today's tree that
+must fail** (the ref stays at the old tag while the commit message claims it was
+updated); after the fix it passes. A fixture containing only the two refs the
+`sed` names cannot distinguish the two states.
+
+

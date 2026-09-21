@@ -1,0 +1,3 @@
+part a exit=1
+part b exit=124
+part c exit=124

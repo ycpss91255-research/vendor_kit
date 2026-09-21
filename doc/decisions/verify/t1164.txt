@@ -1,0 +1,134 @@
+test: fixtures named setup.toml contain INI, so their assertions were never exercised (refs #1127)
+Part of #1127 (TOML config format unification epic). Surfaced by #1162.
+
+## Background
+
+#1162 fixed two defects that had been covering for each other:
+`dockerfile/toml_bridge.py`'s `--merge` mode exited 1 unconditionally
+after a botched merge, and `_conf_load_layers` in
+`dist/script/docker/lib/conf.sh` read the bridge's output through a
+process substitution, which put the exit status out of reach, and
+returned 0 regardless. Together they turned a total config-load failure
+into "empty config handle, every value falls back to its default" --
+silently.
+
+That silence hid two things. This issue is the first.
+
+## The problem
+
+A large number of test fixtures are named `setup.toml` but contain INI:
+bare `key = value` with unquoted string values, bare `[section]`
+headers, and `mount_1 = ...` style numbered keys instead of
+`[[volumes]]`. With the bridge fixed, these make it report
+
+```
+toml-bridge: <fixture>/setup.toml: Invalid value
+```
+
+Before the fix they passed only because the swallowed error left an
+empty handle and every value fell back to exactly the default the test
+asserted. So these tests were not testing what their names claim.
+
+A test that passes because an error was swallowed is worse than a
+failing one. A failing test tells you something. A test green for this
+reason tells you a path is guarded when nothing is guarding it.
+
+## Measurement (static, the full suite was not run)
+
+Measured on the `feat/toml-config-unification` branch. Every fixture
+body written to a `setup.toml` was extracted and fed to a TOML parser
+(shell variable references substituted with a placeholder first):
+
+- heredoc form (`cat > .../setup.toml <<EOF`): 175 fixtures, of which
+  **126 are not valid TOML**.
+- `printf` form (`printf '[section]\nkey = value\n' > .../setup.toml`):
+  36 fixtures, of which **26 are not valid TOML**.
+
+**152 invalid fixtures across 17 spec files.**
+
+| count | spec file (under `test/bats/`) |
+|---|---|
+| 65 | `unit/setup_cmd_spec.bats` |
+| 38 | `unit/setup_spec.bats` |
+| 10 | `unit/setup_detect_spec.bats` |
+| 8 | `unit/tui_spec.bats` |
+| 6 | `unit/conf_logging_spec.bats` |
+| 4 | `integration/upgrade_spec.bats` |
+| 4 | `unit/init_spec.bats` |
+| 3 | `unit/dockerfile_migrate_spec.bats` |
+| 3 | `unit/upgrade_spec.bats` |
+| 2 | `unit/compose_watchdog_spec.bats` |
+| 2 | `unit/lib_spec.bats` |
+| 2 | `unit/stage_spec.bats` |
+| 1 | `integration/gitignore_sync_spec.bats` |
+| 1 | `unit/drift_spec.bats` |
+| 1 | `unit/gitignore_spec.bats` |
+| 1 | `unit/resolve_spec.bats` |
+| 1 | `unit/tui_editor_flow_spec.bats` |
+
+The remaining fixtures are either real TOML (quoted values) or empty /
+comment-only, so a correct control group exists in the tree. The
+shipped template `dist/setup.toml` is itself valid TOML.
+
+Representative examples:
+
+`test/bats/integration/gitignore_sync_spec.bats:150`
+
+```
+[network]
+mode = bridge
+[volumes]
+mount_1 = ${WS_PATH}:/home/${USER_NAME}/work
+```
+
+`test/bats/unit/setup_detect_spec.bats:276`
+
+```
+[image]
+rule_1 = prefix:foo_
+rule_2 = @basename
+```
+
+`test/bats/unit/setup_cmd_spec.bats:1941`
+
+```
+[environment]
+env_1 = Q=a"b\c
+```
+
+## Why 152 is much larger than the count of newly-red tests
+
+Not every fixture reaches the bridge. `_parse_stage_sections`, for
+instance, scans text for `[stage:...]` headers and never parses values,
+so the INI fixtures in `unit/stage_spec.bats` do not turn red on its
+account. The failure count is "the subset that routes through the
+bridge today"; 152 is the whole of the debt where a file named `.toml`
+holds INI. The gap narrows as D5 (#1134) and D6 (#1135) move
+`compose_emit.sh` / `env_emit.sh` onto TOML.
+
+## Requirement for the fix
+
+The migration must not simply rewrite the fixture bodies into valid
+TOML. Each one needs its asserted values re-derived: some tests assert
+the schema default rather than the value their fixture configures, and
+once the fixture parses they will start receiving the configured value.
+The assertion has to be changed to test what the test's name claims.
+Go through them one at a time; do not batch-`sed` this.
+
+## Acceptance criteria
+
+- [ ] Every fixture body written to a `*.toml` path parses as TOML
+- [ ] For each touched test, the asserted value is re-derived rather
+      than carried over from the default it happened to match
+- [ ] A lint or test catches "file named `.toml`, body is not TOML" in
+      CI, so the next one is caught at the gate rather than by the next
+      person who trips on it
+
+## Cross-references
+
+- Upstream fix that made this visible: #1162
+- Epic: #1127
+- Conversion table for numbered keys to `[[array of tables]]`: #1132
+
+Sibling filed in the same round, on the other consequence of the same swallowed error: #1165 (the config writers still emit INI into `setup.toml`). The writer defect keeps producing new instances of the fixture defect, so #1165 lands first.
+

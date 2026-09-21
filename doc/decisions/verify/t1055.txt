@@ -1,0 +1,241 @@
+track(upgrade): declare what a Y may change and how far back repair reaches
+Part of #1054.
+
+## Context
+
+`v0.42.0` relocated `init.sh` under `dist/`. Every released `upgrade.sh` up to
+`v0.41.0` names the old path, so the upgrade died after the subtree pull had
+already committed, leaving repos that claimed the new version while `just`
+no longer ran. PR #919 added a forwarder afterwards.
+
+The reason that shipped is not that anyone was careless. It is that **no
+written rule said a Y release may not do it.** ADR-00000027 covers what a tag
+triggers and establishes that an upgrade is a single pull to the target with
+no loop over intermediate tags -- "nothing is skipped". That argument is
+about the content that lands. The healing of the consumer's *own* files is a
+separate axis and nothing states its reach.
+
+`PREV_RELEASE_WINDOW=2` is the de-facto answer, undeclared.
+`jetson_sdk_manager` sits at `v0.39.0`, outside it.
+
+## Problem
+
+Three things are unanswered, and they are load-bearing on each other:
+
+1. **What may a Y release change?** Specifically: may it move a path that a
+   released `upgrade.sh` or the template repo's `bootstrap.sh` names?
+2. **How far back is repair promised?** Not content -- content is already
+   answered -- but the `_MIGRATIONS` detectors and the `init.sh` migration
+   hygiene that heal a consumer's own files.
+3. **When may compatibility entries be pruned?** Both `_MIGRATIONS` and the
+   template's `INIT_CANDIDATES` accumulate. Nothing says when an entry has
+   earned removal, so nothing is ever removed and nothing can be, safely.
+
+Without (1) there is no rule the `v0.42.0` move would have broken. Without
+(2) and (3), the accumulated compatibility surface has no expiry and the test
+matrix has no defensible size.
+
+## Proposal
+
+Offered as analysis, not a decision.
+
+### On (1) and (3): prune at X, hold compatibility across Y
+
+A Y release maintains backward support; the compatibility entries that
+promise costs are pruned only at an X boundary.
+
+**For.** It is the standard semver reading, and it converts the `v0.42.0`
+incident from bad luck into a rule violation that a gate can catch. It is
+also what makes (3) answerable at all: "prune at X" is a date, where "prune
+when it feels stale" is not.
+
+**Against.** Base is at `v0.43.0` with no X yet, so under this rule nothing
+prunes until `v1.0.0`, and the surface grows the whole time.
+
+**Why that cost is smaller than it looks.** A compatibility entry tracks a
+*layout*, not a version. Across 43 minors there have been two stable
+layouts:
+
+| layout | versions | `INIT_CANDIDATES` entry |
+|---|---|---|
+| flat | v0.1.0 - v0.41.0 | `init.sh` |
+| dist | v0.42.0 - present | `dist/script/base/init.sh` |
+
+(The intermediate `downstream/` layout shipped only as a prerelease; the
+comment on `_migrate_downstream_to_dist` records that no stable consumer was
+ever on it.)
+
+So "never prune during 0.x" costs entries equal to the number of architecture
+moves, which in the whole 0.x series so far is two.
+
+**The alternative** -- treating Y as the breaking axis during 0.x, which
+`doc/changelog/CHANGELOG.md` already asserts ("at 0.x the minor is the
+breaking axis") -- would allow pruning now, at the price of `v0.41.0`
+consumers and `bootstrap.sh <old tag>` losing support immediately.
+
+### On (2): the migration model is a genuine fork
+
+Base currently uses **convergent** migrations: each `_MIGRATIONS` entry
+detects a shape and heals it, idempotently, from wherever the consumer is.
+The alternative is **sequential**: each migration handles only its own
+predecessor, applied in order.
+
+**Convergent (today).** One hop, no ordering to get wrong. Cost: every
+detector must stay correct against every historical shape, and a shape no
+detector recognises is skipped silently rather than reported. Base has
+already been bitten here -- `downstream_to_dist` matched a layout no stable
+consumer had, which is why `flat_to_dist` exists.
+
+**Sequential.** Each migration only has to be right about one transition, so
+the per-migration burden stops growing. Three costs:
+
+- it needs migrations tagged with the version they belong to; `_MIGRATIONS`
+  is currently an unversioned ordered list
+- it needs the upgrade to record where it came from; `upgrade.sh` does not
+- the file tree arrives in **one** pull at the target version, so an
+  intermediate migration would run against a tree that is neither its own
+  version's nor its predecessor's. Whether that is fatal or merely awkward is
+  the question to answer before adopting it
+
+Worth noting explicitly, because it is a natural objection and it is wrong:
+sequential does **not** require the consumer's old `upgrade.sh` to loop.
+Step 3 of every released `upgrade.sh` re-runs the freshly pulled `init.sh`,
+which is current code, so sequential migration application can be driven from
+there and does reach consumers already behind. That is the same seam PR #1045
+used.
+
+Also worth weighing: sequential's value is in long-distance upgrades, which
+is the thing a `v1.0.0` that drops the 0.x series would discard.
+
+### A gate for whichever is chosen
+
+Assert per **layout**, not per version: for each layout still inside the
+declared window, a repo on it can still be upgraded and bootstrapped. Two arms
+today, not 43.
+
+That gate is what would have failed on the `v0.42.0` move at CI time.
+
+## Acceptance criteria
+
+- [ ] (1), (2), (3) answered and recorded where `base` and the template
+      repo's `bootstrap.sh` can both be held to the same answer
+- [ ] `PREV_RELEASE_WINDOW` either matches the declared window or the
+      difference is deliberate and written down
+- [ ] `jetson_sdk_manager` at `v0.39.0` is either inside the window, or
+      outside it as a stated consequence rather than an accident
+
+## Out of scope
+
+- Implementing the chosen model.
+- The convergence gate, which is the sibling issue.
+
+## Decided on axis (1) and (3): compatibility counts FORWARD from v0.43.0. Everything behind re-bootstraps.
+
+This issue's proposal -- hold compatibility across Y, prune only at X -- was
+put up against the alternative and lost, but its central observation is
+correct and is why the question was reopened at all:
+
+> a compatibility entry tracks a **layout**, not a version
+
+That is right, and it demolishes the usual argument for a floor. "Never prune
+during 0.x" costs two entries across 43 minors, not 43. Anyone reaching for a
+support floor on the grounds that the set would grow unboundedly is reasoning
+from a premise this issue disproves.
+
+The decision goes the other way for a different reason.
+
+### The rule
+
+- **The support floor is v0.43.0.** Nothing released before it is owed
+  upgradability. Answering (1): a Y release MAY move a path a pre-floor
+  `upgrade.sh` names, because no pre-floor driver is promised anything.
+- **The 17 consumers below the floor do not get an upgrade path at all.**
+  After v0.43.0 ships, each is asked to be **re-established directly at
+  v0.43.0** rather than upgraded to it.
+
+Re-creating a consumer once is cheaper than building a two-generation upgrade
+path, verifying it against every intermediate layout, and then carrying the
+`_MIGRATIONS` detectors that path requires forever. The cost this issue
+prices at "two entries" is real, but it is not the only cost -- the detectors,
+their test matrix, and the silent-skip failure mode described under (2) all
+ride along with them.
+
+### Measured: every consumer is below the floor
+
+```
+v0.39.0  jetson_sdk_manager
+v0.41.0  ai_agent, claude_code, codex_cli, gemini_cli, omniverse_web_viewer,
+         realsense_ros1, realsense_ros2, ros1_bridge, ros2_distro, ros_distro,
+         sick_humble, sick_noetic, template, urg_node_humble, urg_node_noetic
+v0.42.0  isaac
+```
+
+**`template` is re-established first.** It is the source every new repo is
+cloned from and the only repo in the org carrying a repo-root `bootstrap.sh`;
+until it is at v0.43.0, new repos are still born on the old layout.
+
+### What this does and does not settle
+
+**Settles (1):** there is now a rule, and it is checkable. A Y may not move a
+path that a driver **at or above the floor** names. Today the floor-onward set
+is empty, so the rule binds nothing until v0.44.0 -- and that is stated rather
+than hidden. v0.43.0 itself is covered by evidence, not mechanism: the real
+released drivers of v0.41.0 and v0.42.0 were run against the rc1 tree and gave
+`ok/ok/ok`.
+
+**Settles (3) by making it moot for the current surface:** the pre-floor
+entries are not pruned on a schedule, they stop being load-bearing when the
+last consumer below the floor is re-established. That is a finite list of 17
+repos, not a date nobody can name.
+
+**Does NOT settle (2), and that stays open here.** The convergent-vs-sequential
+migration question is orthogonal to the floor, and the failure mode this issue
+names -- a shape no detector recognises is skipped SILENTLY rather than
+reported -- is a live defect regardless of how far back repair reaches. Base
+has already been bitten by it once (`downstream_to_dist` matching a layout no
+stable consumer ever had, which is why `flat_to_dist` exists). Whatever the
+model, "I did not recognise this tree" must report rather than pass.
+
+### Consequence for the gate this issue proposes
+
+The per-layout gate is still the right shape -- "for each layout inside the
+declared window, a repo on it can be upgraded and bootstrapped", two arms not
+43. What changes is the window: floor-onward, so it starts empty and grows by
+one release at a time. See #1041 and #1048 for the two halves that implement
+it.
+
+Refs #1041, refs #1048, refs #1049, refs #1054.
+
+Closing: what this issue asked for is decided, and the one part it deliberately
+left open now has its own issue.
+
+**Decided here** (see the decision comment above): the support floor is
+`v0.43.0`, a Y release may move a path that a pre-floor driver names because no
+pre-floor driver is promised anything, and the 17 consumers below the floor are
+re-established at `v0.43.0` rather than upgraded to it. That answers axis (1)
+and makes axis (3) moot for the current surface -- pre-floor entries stop being
+load-bearing when the last consumer below the floor is re-established, which is
+a finite list rather than a date.
+
+**Moved out**: axis (2), the silent-skip failure mode, is #1189. It was the one
+thing the decision explicitly did not settle, and leaving it inside a closed
+issue would have lost it -- nothing else tracks it. #1041 / #1048 / #1049 cover
+the gate and window halves.
+
+**Correction to one premise in the decision, which does not change it.** The
+decision states that until `template` is re-established, "new repos are still
+born on the old layout". That is not what happens. `bootstrap.sh` discards the
+snapshot `.base/` (`git rm -r`) and resolves base's newest stable tag from the
+remote before `git subtree add`, so the snapshot's version never reaches a
+generated repo.
+
+Verified rather than reasoned: `template`'s `bootstrap_live_spec.bats` runs
+`bootstrap.sh` against the real base remote from a tree whose snapshot is
+`v0.41.0`, and asserts the installed version is base's newest stable. It passes,
+installing `v0.42.0`.
+
+So re-establishing `template` first is not required to stop new repos being born
+on the old layout -- they already are not. It may still be wanted for other
+reasons (its own CI exercises its own snapshot; its placeholder files can go
+stale), but the ordering does not depend on this one.
+

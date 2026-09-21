@@ -1,0 +1,74 @@
+test: comprehensive input validation for all setup.toml parameters
+## Problem
+
+Each `setup.toml` parameter accepts specific values (e.g. `auto`/`force`/`off`, empty/non-empty, numeric ranges, regex patterns), but not all valid/invalid input combinations are tested. Missing coverage means invalid config can silently produce wrong compose output or crash at runtime.
+
+## Scope
+
+Every parameter in `setup.toml` must have tests covering:
+
+1. **All documented valid values** (e.g. `gpu_mode`: `auto`, `force`, `off`)
+2. **Edge cases**: empty string, missing key (inherits default), whitespace
+3. **Invalid values**: wrong type, out-of-range, typos -- must produce a clear error, not silent misbehavior
+4. **Auto-detect parameters** (`gpu_mode`, `gpu_runtime`, `dri_groups`, `gui.mode`, `build_network`): mock the detection source and verify the resolved value matches expectations
+
+## Parameters to cover
+
+### base extensions
+
+| Parameter | Valid inputs | Notes |
+|-----------|-------------|-------|
+| `base.project.name` | empty (auto-derive), explicit string | |
+| `base.image.rules[].rule` | `prefix:<str>`, `suffix:<str>`, `@basename` | Also: empty array, invalid syntax |
+| `base.build.build_network` | `auto`, `host`, `bridge`, `none`, `default`, `off` | Auto-detect: mock Jetson via `SETUP_DETECT_JETSON` |
+| `base.build.target_arch` | empty, architecture string (e.g. `arm64`, `amd64`) | |
+| `base.deploy.gpu_mode` | `auto`, `force`, `off` | Auto-detect: mock `nvidia-container-toolkit` |
+| `base.deploy.gpu_count` | `"all"`, numeric string | |
+| `base.deploy.gpu_capabilities` | space-separated capability list | |
+| `base.deploy.gpu_runtime` | `auto`, `nvidia`, `off` | Auto-detect: mock Jetson |
+| `base.deploy.dri_groups` | `auto`, `off` | Auto-detect: mock `/dev/dri` via `SETUP_DETECT_DRI_GROUPS` |
+| `base.gui.mode` | `auto`, `force`, `off` | Auto-detect: mock `$DISPLAY`/`$WAYLAND_DISPLAY` |
+| `base.watchdog.enabled` | `true`, `false` | |
+| `base.watchdog.check` | empty, command string | |
+| `base.watchdog.interval/timeout/start_period/failures/max_restarts` | positive integers | |
+| `base.watchdog.on_fail` | `restart-container`, `restart-service` | |
+| `base.watchdog.notify` | empty, command string | |
+| `base.log.local_path` | empty, valid path | |
+| `base.log.keep/days` | positive integers | |
+| `base.transcript.enabled` | `true`, `false` | |
+| `base.transcript.keep/days` | positive integers | |
+
+### Docker compose mapping
+
+| Parameter | Valid inputs | Notes |
+|-----------|-------------|-------|
+| `build.args.*` | valid TOML bare keys with string values | Also: empty table |
+| `service.restart` | `no`, `always`, `unless-stopped`, `on-failure` | Docker restart policies |
+| `service.init` | `true`, `false` | |
+| `network.mode` | `host`, `bridge`, `none` | |
+| `network.ipc` | `host`, `private`, `shareable` | |
+| `network.pid` | `host`, `private` | |
+| `network.network_name` | empty, valid name (`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`) | Invalid chars must be rejected |
+| `network.ports[].host/container` | port number strings | |
+| `security.privileged` | `true`, `false` | |
+| `security.cap_add[].name` | valid Linux capability names | |
+| `security.security_opt[].name` | valid security option strings | |
+| `resources.shm_size` | empty, size string (e.g. `"1g"`, `"512m"`) | |
+| `logging.driver` | `json-file`, `local`, `journald`, etc. | |
+| `logging.max_size` | size string (e.g. `"10m"`) | |
+| `logging.max_file` | positive integer | |
+| `logging.compress` | `true`, `false` | |
+
+## Deliverables
+
+- [ ] Test coverage for every parameter's valid input range
+- [ ] Test coverage for rejection of invalid inputs (clear error, not silent misbehavior)
+- [ ] Auto-detect parameters: mock-based tests for each detection path
+- [ ] Existing tests in `test/bats/unit/schema_spec.bats` and `test/bats/unit/resolve_spec.bats` may partially cover some of these -- audit first, then fill gaps
+
+## Related
+
+- #1152 -- parameter creation gate (namespace convention)
+- #1153 -- resolved config summary with auto-detect diff
+
+

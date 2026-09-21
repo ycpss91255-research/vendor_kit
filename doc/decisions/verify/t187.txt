@@ -1,0 +1,206 @@
+bug(setup_tui): saving wipes <repo>/setup.conf to 0 bytes (dst == tpl aliasing in _write_setup_conf)
+## Problem
+
+Saving from `setup_tui.sh` (e.g. after editing image rules) wipes
+`<repo>/setup.conf` to **0 bytes**. The TUI exits with the success
+banner, then `setup.sh apply` runs against the now-empty conf and
+silently falls back to template defaults. The user thinks their edit
+landed; in reality their entire per-repo configuration was destroyed.
+
+## Repro
+
+On a freshly cloned downstream repo (e.g. `ros_noetic`) with a
+committed `setup.conf`:
+
+1. `./run.sh` (or `./build.sh --setup`) to enter the TUI
+2. Go to `Image name rules`, change `rule_1` to a unique
+   `string:<value>` (or any other rule edit), Save
+3. Observe terminal:
+
+```
+[tui] Saved to /path/to/repo/setup.conf. Regenerating .env + compose.yaml...
+[setup] INFO: per-repo setup.conf has no section overrides — using template defaults for all sections
+[setup] .env + compose.yaml updated
+$ cat setup.conf
+$       # ← empty, 0 bytes
+```
+
+The `INFO: ... no section overrides` line is the smoking gun — it
+fires when `_announce_template_default_fallback` finds no `[section]`
+headers in the per-repo conf. Right after a "Save", that should never
+happen.
+
+## Root cause
+
+`setup_tui.sh:1605-1611`:
+
+```bash
+local _template_src="${_tpl_conf}"
+[[ -f "${_repo_conf}" ]] && _template_src="${_repo_conf}"
+
+_write_setup_conf "${_repo_conf}" "${_template_src}" \
+  _final_sections _final_keys _final_values \
+  "${_TUI_REMOVED[*]:-}"
+```
+
+When `<repo>/setup.conf` already exists (the normal case after the
+first save), `_template_src` is set to the same path as `_repo_conf`.
+`_write_setup_conf` is then invoked with **dst == tpl**.
+
+`_tui_conf.sh:321-398` cannot tolerate that aliasing:
+
+```bash
+_write_setup_conf() {
+  local _dst="${1:?}"
+  local _tpl="${2:?}"
+  ...
+  : > "${_dst}"                            # 1. truncate dst to 0 bytes
+  while IFS= read -r __line ...; do        # 2. read from tpl (== dst, now empty)
+    ...
+  done < "${_tpl}"                         # 3. loop body never runs
+}
+```
+
+When `_dst == _tpl`:
+1. Line 345 truncates the file via `: > "${_dst}"` — this completes
+   before the `while` loop begins.
+2. The `while ... < "${_tpl}"` then opens the (now empty) same file
+   for reading.
+3. Loop runs zero iterations; nothing is written. The file is left at
+   0 bytes.
+
+The unit tests in `test/unit/tui_spec.bats` (lines 423+) all pass two
+distinct paths (`out.conf` and `template.conf`), so this aliasing
+path never gets exercised.
+
+## Repro in 30 lines (no TUI / dialog needed)
+
+```bash
+sandbox=$(mktemp -d) && cd "$sandbox"
+mkdir -p template/script/docker
+cp <repo>/template/script/docker/_tui_conf.sh template/script/docker/
+cp <repo>/template/setup.conf ./setup.conf
+
+source template/script/docker/_tui_conf.sh
+declare -a sections=("image")
+declare -a keys=("image.rule_1")
+declare -a values=("string:my_unique_image")
+_write_setup_conf "./setup.conf" "./setup.conf" sections keys values ""
+
+wc -c setup.conf
+# 0 setup.conf
+```
+
+Confirmed locally: 19253 bytes → 0 bytes.
+
+## Suggested fix
+
+Two reasonable approaches; pick one.
+
+**(A) Read-into-memory then write-out (simplest):**
+
+```bash
+_write_setup_conf() {
+  ...
+  # Slurp the template up front so dst==tpl is safe.
+  local -a __tpl_lines=()
+  if [[ -f "${_tpl}" ]]; then
+    while IFS= read -r __line || [[ -n "${__line}" ]]; do
+      __tpl_lines+=("${__line}")
+    done < "${_tpl}"
+  fi
+
+  : > "${_dst}"
+  for __line in "${__tpl_lines[@]}"; do
+    ... existing parsing logic ...
+  done
+}
+```
+
+**(B) Write to a tempfile, mv into place (mirrors `_upsert_conf_value`
+at `_tui_conf.sh:417-454` which already does this):**
+
+```bash
+local _tmp
+_tmp="$(mktemp "${_dst}.XXXXXX")"
+... write to "${_tmp}" instead of "${_dst}" ...
+mv -f "${_tmp}" "${_dst}"
+```
+
+Approach (B) has the extra benefit of being **atomic**: a crash mid-
+write leaves the original `setup.conf` intact instead of half-written.
+Strongly preferred.
+
+## Affected code
+
+- `template/script/docker/_tui_conf.sh:321-398` (`_write_setup_conf`
+  — the dst==tpl aliasing assumption)
+- `template/script/docker/setup_tui.sh:1605-1611` (caller — passes
+  the same path twice when `<repo>/setup.conf` exists)
+
+## Tests to add
+
+- Unit: `_write_setup_conf` with `_dst == _tpl` round-trips correctly
+  (template comments + section order preserved, overrides applied,
+  removed keys dropped).
+- Integration: full TUI save flow with a pre-existing per-repo
+  `setup.conf` ends with file size > 0 and section headers present.
+
+## Severity
+
+Data-destroying, silent. Every TUI save after the first wipes the
+user's per-repo config. The follow-up `[setup] INFO: ... using
+template defaults for all sections` is the only visible signal — and
+it's INFO (see issue #186 — the rationale for promoting that to
+WARN gets stronger after this bug is filed).
+
+### Additional impact path: `./build.sh --reset-conf` followed by TUI Save
+
+The same data-loss bug also fires through the `--reset-conf` flow,
+even though that flow looks safe in isolation:
+
+`build.sh:203-227` correctly delegates to
+`init.sh --gen-conf --force`, which `cp -f`'s the template's
+`setup.conf` (19253 bytes) into place. So far, fine.
+
+But immediately after, `build.sh:226` flips `RUN_SETUP=true`, which
+then routes through `_run_interactive` (`build.sh:236-237`) and opens
+`setup_tui.sh` whenever a TTY is attached. The user is now in the TUI
+with a freshly-restored `setup.conf` — and the moment they press
+**Save** for any reason (including a no-op exit), `_write_setup_conf`
+runs with `_dst == _tpl`, the file gets truncated to 0 bytes, and the
+restore is undone.
+
+End-to-end path:
+
+```
+./build.sh --reset-conf
+├─ init.sh --gen-conf --force          # OK: 19253 bytes restored
+└─ RUN_SETUP=true → _run_interactive   # opens TUI
+   └─ user presses Save                # ← hits this bug
+      └─ _write_setup_conf(dst==tpl)   # → setup.conf back to 0 bytes
+```
+
+Net effect: `--reset-conf` is supposed to be the recovery path for a
+broken `setup.conf`. After this bug, going through the natural TUI
+prompt destroys the very file `--reset-conf` just restored.
+
+A no-change Save also triggers the wipe, because `: > "${_dst}"` at
+`_tui_conf.sh:345` runs unconditionally before any override logic.
+There is no "nothing to write, skip" guard.
+
+### Workarounds until fixed
+
+- Bypass the TUI: `bash template/init.sh --gen-conf --force` does the
+  copy without launching the TUI.
+- Or `./build.sh --reset-conf -y` and **exit the TUI with Esc /
+  Cancel**, never Save.
+
+### Why the test suite missed both paths
+
+`test/unit/tui_spec.bats` only exercises `_write_setup_conf` with two
+distinct files. The fix should add at least one assertion that the
+function is safe when called with `_dst == _tpl` (the realistic case
+in production), so neither the image-rule path nor the
+`--reset-conf` → TUI Save path can regress silently again.
+

@@ -1,0 +1,112 @@
+track(test): assert an upgraded repo equals a freshly bootstrapped one
+Part of #1054.
+
+## Context
+
+`prev_release_upgrade_spec.bats` already drives a **released** `upgrade.sh`
+against a downstream-shaped consumer and asserts exit code, `.version`,
+dangling symlinks (path-agnostically), `just --list`, and that every
+Dockerfile COPY source resolves. Two arms, newest release and N-1, per PR.
+It is thorough, and it exists because of the `v0.42.0` incident.
+
+It answers **"does the upgraded repo work"**.
+
+Nothing answers **"is the upgraded repo what a fresh one would be"**. #1044
+lived exactly in that gap: every assertion above passed on a repo whose smoke
+tree was still in the pre-`v0.42.0` layout, because a flat `test/smoke/` is
+perfectly functional -- it is just not what `init.sh` produces from scratch,
+so the repo silently never gained the per-stage split.
+
+`smoke_layout_convergence_spec.bats` (PR #1045) is the only fresh-vs-migrated
+comparison in the tree, and it is narrow on purpose: it compares `init.sh`'s
+two internal paths, over the smoke subtree only, and never invokes
+`upgrade.sh`.
+
+## Problem
+
+The composition -- **a consumer upgraded from vN-1 by its own released
+`upgrade.sh` is indistinguishable from one bootstrapped at vN** -- is
+asserted nowhere.
+
+That matters beyond the smoke tree because `upgrade.sh` does things `init.sh`
+does not, so an `init.sh`-level comparison structurally cannot see them:
+
+- Step 4 rewrites `main.yaml`'s `@tag` references; `init.sh` deliberately
+  never rewrites an existing repo's `main.yaml`
+- `_migrate_legacy_setup_conf` and `_migrate_lifecycle_restart_default` are
+  `upgrade.sh`'s own
+
+In the reproduction that produced #1044, the `v0.42.0` attempt left
+`main.yaml` on `@v0.41.0` precisely because Step 4 never ran. No existing
+assertion covers that.
+
+## Proposal
+
+### The oracle: use the freshly bootstrapped tree as the reference
+
+Every path in a fresh repo is base-owned **by construction** -- an empty
+directory run through `init.sh` cannot contain anything else. So:
+
+- every path in the fresh tree must exist in the upgraded tree, with matching
+  content
+- extra paths in the upgraded tree are the repo's own; ignore them
+- a small, explicit normalisation set covers the legitimate differences
+
+Measured, this session, the normalisation set is four items: the repo name
+embedded in generated filenames (`<repo>_env.bats`), timestamped log paths,
+the `.env.generated` interpolation cache, and git history.
+
+**Why not a declared list of base-owned paths.** That is what
+`_init_installed_paths` is, and it does not include the smoke tree -- so a
+comparison built on it would have missed #1044, the bug it would exist to
+prevent. Its sibling `_init_protected_paths` fell out of step with a new
+mutation within a day, and the spec named `covers every root the resync
+writes into` asserts six hardcoded lines and cannot detect a new one. Three
+hand-maintained declarations, three silent staleness events.
+
+The fresh tree has the property none of them have: when base starts
+generating a new file, the reference grows it automatically and the
+comparison starts checking it with nobody remembering anything. The
+normalisation set stays hand-maintained, but it fails **closed** -- an
+unlisted difference is a failure, not a silent pass.
+
+**The honest weakness**: if `_create_new_repo` is itself wrong, the reference
+is wrong and the comparison is confidently wrong with it. This measures the
+two paths against each other, not against an external truth. Worth stating in
+whatever records the decision.
+
+### Prior art worth borrowing from
+
+- Django's `makemigrations --check --dry-run` and the equivalent Rails
+  `db:migrate` vs committed-`schema.rb` CI job are the same oracle: replayed
+  state must equal declared state. Both are cheap per-PR gates.
+- Debian's `piuparts` is the closest analogue to the survival half base
+  already has, including an explicit `--fail-on-broken-symlinks`. The
+  dangling-symlink assertion in `prev_release_upgrade_spec` is the same
+  instinct arrived at independently.
+- Terratest's `ApplyAndIdempotentContext` and Molecule's idempotence step are
+  the named form of "run it twice, the second run changes nothing", which
+  `smoke_layout_convergence_spec` already asserts locally.
+
+### Matrix
+
+One arm per **layout** rather than per version -- two today. This is
+parameterised on the window that the sibling issue asks base to declare; the
+gate cannot be sized before that answer exists.
+
+## Acceptance criteria
+
+- [ ] A gate compares a tree upgraded by a released `upgrade.sh` against a
+      fresh bootstrap of the same version, and it fails on the #1044 shape
+- [ ] The comparison's reference is derived, not a maintained path list
+- [ ] The normalisation set is explicit, short, and fails closed
+- [ ] Adding a generated file to `init.sh` requires no edit to the gate
+
+## Out of scope
+
+- The compatibility window, which sizes the matrix; sibling issue.
+- Replacing the survival assertions. They are good and this is additive.
+- Running a real `docker build` in the comparison. Buildability is covered by
+  the `acceptance` job; this is a file-level gate.
+
+

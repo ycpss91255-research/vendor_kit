@@ -1,0 +1,70 @@
+fix(test): nothing in just stops what just test started, and an interrupted run reddens the next one with no failing test
+## What happened
+
+A `just test` run was interrupted. The next `just test` on the same worktree
+died before running a single test:
+
+```
+Network base-21edffd44abe_default Removing
+network:default Error response from daemon: error while removing network:
+  network base-21edffd44abe_default has active endpoints
+  (name:"base-21edffd44abe-ci-run-7f94f773082d")
+Network base-21edffd44abe_default Creating
+Error ... Post "/v1.55/networks/create": ... has active endpoints
+error: recipe `default` failed on line 24 with exit code 1
+```
+
+The gate reported `rc=1 not_ok=0` -- no test failed. The previous run's
+container was still shutting down and still attached to the project network,
+so compose could neither remove nor recreate it.
+
+It cleared on its own about a minute later. That it is transient is what makes
+it worth an issue rather than a footnote: the failure is a red gate with no
+failing test and no statement of what it was waiting for, so the reader's
+first move is to go looking for a code defect.
+
+## The gap
+
+**There is no `just` verb that stops what `just test` started, in a base
+self-test worktree.**
+
+- `just docker stop` runs `script/stop.sh`, which sources `env.sh` and dies:
+  `.../base-eb3/.env.generated: No such file or directory`. That file belongs
+  to a *configured consumer*; a base self-test worktree has none and should
+  not need one to stop a container.
+- `just docker prune --help` states plainly: "Does NOT touch running
+  containers or active resources." Correct for what prune is, and it means
+  prune is not the answer either.
+- Generating `.env.generated` just to stop a container would write files into
+  the worktree whose tree is under test.
+
+So the only way to clear it is raw `docker`, which the repo's own position
+rules out: `just` is the control surface, and a thing it cannot do is a gap in
+it, not a licence to reach past it.
+
+## What to do
+
+Two parts, and the second is the one that matters.
+
+**1. A verb.** `just test stop` (or `just docker stop` learning the
+self-test project) that stops and removes the containers of *this checkout's*
+compose project, deriving the project name the way `test.sh` already does --
+`base-<sha256(checkout path)[0:12]>` -- and requiring no `.env.generated`.
+Ownership is provable from the `base.checkout.path` label #995 added, so this
+can be exact rather than a name-prefix sweep.
+
+**2. The gate should say what it is waiting for.** A compose network that
+cannot be recreated because the previous run's endpoint is still attached is a
+*wait*, not a failure. The run should either wait for the endpoint to detach
+with a bounded timeout and say so, or fail with a message naming the
+container and the verb that would clear it. Today it emits the daemon's raw
+text and a `recipe failed` line, and `not_ok=0` is the only hint that no test
+was involved.
+
+## Provenance
+
+Hit while landing base#1006 on 2026-09-03, after a gate run was deliberately
+interrupted to re-target a moved `main`. Interrupting a gate is a normal thing
+to do; leaving the next run of the same worktree unable to start is not.
+
+

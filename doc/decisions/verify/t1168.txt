@@ -1,0 +1,231 @@
+The env.toml / env.local.toml layer is specified by ADR-37 but not implemented (refs #1163)
+## Summary
+
+ADR-00000037 specifies a second config file pair -- `.env.toml` (the repo's, committed) and its local variant (the operator's, gitignored) -- as the channel for service runtime env. The specification is complete; the implementation is absent. No code reads either file, neither is in any layer chain, the template is never installed into a repo, and no deploy bundle carries one.
+
+`doc/adr/00000037-toml-config-format-unification.md:145-152`:
+
+```
+compose.yaml     <- from setup.toml (infrastructure)
+.env             <- from setup.toml (infra env) + .env.toml (service env)
+.env.local       <- from .env.local.toml
+.env.generated   <- interpolation cache (unchanged)
+```
+
+Neither of the two middle generations exists.
+
+## Relationship to #1163
+
+#1163 is the release blocker: on `just upgrade`, `_migrate_env_local_to_toml` moves a downstream operator's working `.env.local` into a file nothing reads, and the log line reports success. #1163 lists three fix options; option (a) was "implement the `.env.toml` readers so the migration's destination is live".
+
+**This issue IS option (a), scoped as the feature work.** The two are not alternatives to each other and they are not duplicates: #1163 stops the bleeding (whichever of its three options is chosen, including a revert), and this issue builds the channel the design intends. #1163 can and should land first and on its own timescale -- it is a release gate; this one is not.
+
+## Evidence
+
+Verified against `feat/toml-config-unification` (PR #1148).
+
+**1. No reader anywhere.** `grep -rn '\.env\.toml' --include='*.sh' --include='*.py' dist/script dockerfile script` returns exactly two hits, both non-code:
+
+- `dist/script/docker/lib/env_emit.sh:231` -- a parameter doc comment
+- `dist/script/docker/lib/env_emit.sh:351` -- a section-header string in a `printf`
+
+Nothing opens `.env.toml` or its local variant.
+
+**2. Not in the layer chain.** `_setup_conf_layers` (`dist/script/docker/lib/setup_conf.sh:93-106`) returns exactly three paths -- `<dist>/setup.toml`, `<repo>/setup.toml`, `<repo>/setup.local.toml` -- and is the sole input to `_conf_load_layers` (`conf.sh:414`), which is the only consumer of `toml_bridge_merge` (`conf.sh:447`). There is no second chain, so there is no place a `.env.toml` layer is loaded from.
+
+**3. The emitter exists but is never fed.** `write_container_env` (`env_emit.sh:293`) takes an optional 5th parameter `<service_env_str>`: documented at `:231`, bound at `:298`, emitted at `:350-357` under a `# -- [environment] (from .env.toml) --` header. Neither production caller passes it:
+
+- `dist/script/docker/lib/setup_cmd.sh:1505-1506` passes 4 arguments
+- `dist/script/docker/lib/deploy.sh:704-705` (`_generate_bundle_env`) passes 3
+
+**4. Never installed.** `dist/.env.toml` exists as a template (it documents its own three-layer override chain at `:8-13`), but `init.sh` never copies it into a repo: `grep -c '\.env\.toml' dist/script/base/init.sh` returns 0. ADR-37's layer 2 (the per-repo committed file) has no scaffolding at all.
+
+**5. Not shipped in the bundle.** `_generate_deploy_bundle` (`dist/script/docker/lib/deploy.sh:1157-1271`) writes `Dockerfile.deploy`, `compose.yaml`, `deploy.sh`, `.env`, `.env.local`, `README`, `image.tar.xz`, and `config/*`. No TOML config file travels with a bundle.
+
+## Why this matters
+
+The design intent, confirmed with the repo owner: **`setup.toml` is build-time only. The `.env.toml` pair is the deploy-time-adjustable channel.**
+
+That is why a deploy bundle is self-contained and why a `setup.toml.local` sitting on a target machine is correctly ignored -- infrastructure is fixed at build time and the bundle carries a fully-resolved `compose.yaml`. The env pair is what an operator is supposed to edit in the field, without a rebuild.
+
+That channel does not exist today. What actually works is flat `KEY=VALUE` in the bundle's `.env.local`, which `dist/deploy/README:22` and `:39-45` document correctly ("`.env.local` YOUR env overrides -- this is the file to edit", `WATCHDOG_INTERVAL='5'`). Three other places now contradict that README -- the `_scaffold_env_local` body (`env_emit.sh:374-395`), the generated `.env` header (`env_emit.sh:326-333`), and the migration's log line (`ini_to_toml_migrate.sh:307`) -- which is the surface #1163 reports.
+
+So the gap is not cosmetic. Until this lands, the ONLY working field-override channel is the one the branch's own operator-facing text tells operators not to use.
+
+## Scope
+
+1. Install the template: `init.sh` copies `dist/.env.toml` into the repo on init and keeps it in the resync path, alongside how `setup.toml` is handled.
+2. Add the pair to a layer chain. Note that the merge semantics and the bridge are shared with `setup.toml` -- `_conf_load_layers` / `toml_bridge_merge` are format-generic, so this is either an extension of `_setup_conf_layers` or a second chain built on the same primitives. Which one is a real decision, not a detail: `_setup_conf_layers` is deliberately the single place that says what the chain CONTAINS and in what ORDER (see its comment at `setup_conf.sh:70-92`), and a second chain must not become a drifting copy of it.
+3. Feed `write_container_env`'s 5th argument at BOTH call sites (`setup_cmd.sh:1505`, `deploy.sh:704`), so `.env` carries the service env in the repo and in a bundle.
+4. Generate `.env.local` from the operator's local TOML, per ADR-37 line 150. Today `_scaffold_env_local` writes a comment-only file with TOML guidance into a path compose parses as flat dotenv.
+5. Ship whatever a bundle needs. If a field operator is meant to edit TOML in the bundle, the bundle must carry the file and `deploy.sh` must regenerate `.env.local` from it on `up`; if not, say so explicitly and keep the bundle's dotenv channel as the field interface.
+6. Make the operator-facing text agree afterwards: `dist/deploy/README`, the generated `.env` header (`env_emit.sh:326-333`), and the `_scaffold_env_local` body (`env_emit.sh:374-395`). Today two of those three describe a channel that does not exist.
+
+## Tests must cover the wiring, not just the emitter
+
+The existing tests have a specific shape that let the gap through: each one supplies the input the production caller is supposed to supply, so it cannot notice that no production caller supplies it.
+
+- `test/bats/unit/env_emit_spec.bats:294-330` (three tests) calls `write_container_env` with a literal 5th argument -- e.g. `:295`, `write_container_env "${_out}" "" "" "" $'ROS_DOMAIN_ID=42\nLOG_LEVEL=debug'`. It tests string formatting correctly and is blind to the fact that both real callers stop at argument 4.
+- `test/bats/unit/toml_config_wiring_spec.bats:96` and `:116` -- despite the file's name -- call `_scaffold_env_local` with a path the test itself chose (`:104`, `:123`), not the path production hands it. They pass regardless of what production does.
+
+A test for this feature has to assert that a value written in the operator's TOML file reaches a RUNNING container. That shape already exists: `test/bats/system/deploy_bundle_e2e_spec.bats:245-317` writes an override into the bundle and asserts `docker exec ... printenv` returns it (`:300-311`). It currently proves that for the flat dotenv channel; the TOML channel needs the same proof, not a unit test on the emitter.
+
+## Ordering constraint
+
+This work and #1167 (rename `.env.local.toml` to `.env.toml.local`) touch the same paths: `env_emit.sh`, `ini_to_toml_migrate.sh`, `gitignore.sh`, `dist/.env.toml`, ADR-37, and `toml_config_wiring_spec.bats`. Whichever lands second must rebase onto the first. #1161 (`setup.local.toml` to `setup.toml.local`) overlaps on `gitignore.sh` and ADR-37 as well.
+
+Refs #1127, #1163, #1167, #1161, ADR-00000037, PR #1148.
+
+## Scope addition: restore the migration call
+
+The scope list above covers installing the template, the layer chain, `write_container_env`'s 5th argument, generating from the local file, the bundle, and the operator-facing text. It does not name the step that closes the loop:
+
+**Restore the `_migrate_env_local_to_toml "${REPO_ROOT}"` call in `dist/script/base/init.sh`.**
+
+That call was removed under #1163 (`b03dd96b` on `feat/toml-config-unification`) because it moved an operator's working `.env.local` aside into a file nothing reads. A comment stands at the removal site (`_init_existing_repo`, after `_migrate_ini_to_toml`) naming this issue as the place the call comes back. The converter itself is intact at `dist/script/docker/lib/ini_to_toml_migrate.sh:268`.
+
+Without this as an explicit acceptance criterion, this issue can land looking complete -- readers built, template installed, tests green -- while the migration stays disconnected, so an upgrading repo never actually moves onto the new channel. The work would be done and the loop still open.
+
+### 1. Part of done, not a follow-up
+
+Restoring the call is in this issue's definition of done. A PR that lands the readers and leaves the call out has not finished this issue.
+
+### 2. Restore it writing #1167's name
+
+The converter currently writes `.env.local.toml` (`ini_to_toml_migrate.sh:271`). It must be restored writing whatever name #1167 settles on (`.env.toml.local`), not the current spelling. If #1167 lands first, follow its spelling; if this lands first, do not re-cement the old name.
+
+### 3. The acceptance test already exists and is already the right shape
+
+`test/bats/integration/prev_release_upgrade_spec.bats` -- "a released upgrade.sh still migrates a hand-written .env to .env.local (#868)" (`_assert_release_migrates_env`). It seeds a consumer with a hand-written `.env` containing `ROS_DOMAIN_ID=42` and `API_TOKEN=secret`, drives a real released `upgrade.sh`, and asserts those values are readable afterwards through the file the operator's overrides are supposed to live in. It was RED before #1163's fix -- the operator's values gone, only the comment-only scaffold left -- and green after.
+
+When the call is restored, that spec must still pass. Passing means the operator's values reach the generated config through the NEW channel, rather than being silently dropped again. A version of this work that makes that spec red has reintroduced #1163.
+
+### 4. Ordering consequence
+
+#1163's fix -- the absent call -- is currently the only thing keeping upgrades safe. Restoring the call before the readers work re-opens the release blocker. So the restore is the LAST step of this issue, and it is covered by the integration spec above, not by a unit test asserting which files exist. A unit test that checks for the presence of `.env.toml.local` after init is exactly the shape that passed while #1163 was live.
+
+## Name correction: the sources lose the dot, the generated files keep it
+
+The repo owner has settled the naming. This issue's body spells the TOML
+config sources with a leading dot throughout; that spelling is now wrong.
+The corrected names are:
+
+```
+setup.toml    setup.toml.local
+env.toml      env.toml.local
+```
+
+The dot came from `.env`'s dotenv convention and does not belong on a
+TOML config source. `setup.toml` never carried one.
+
+### The generated outputs are unchanged and still dotted
+
+Read this before assuming a dotted name below is a typo. `.env` and
+`.env.local` are compose dotenv files read via `env_file:`. They keep
+their dots. Only the TOML sources change:
+
+| source (TOML, undotted) | generated output (dotenv, dotted) |
+| --- | --- |
+| `env.toml` | `.env` |
+| `env.toml.local` | `.env.local` |
+
+So ADR-37's generated-outputs block becomes:
+
+```
+compose.yaml     <- from setup.toml (infrastructure)
+.env             <- from setup.toml (infra env) + env.toml (service env)
+.env.local       <- from env.toml.local
+.env.generated   <- interpolation cache (unchanged)
+```
+
+Every occurrence of `.env.toml` in the body above should be read as
+`env.toml`, and every `.env.local.toml` as `env.toml.local`. Every
+`.env`, `.env.local` and `.env.generated` stays exactly as written.
+
+**This is a requirement on the implementation, not just on prose.** The
+reader this issue asks for must consume the undotted sources and emit the
+dotted outputs. A reader that opens `.env.toml`, or a scaffolder that
+writes `.env.toml.local`, is wrong even if everything else works. The
+rename of the existing occurrences is #1167; this issue must land on the
+corrected names regardless of which of the two goes first.
+
+## Additional constraint the implementation must resolve: emission order
+
+While drafting the proposed `env.toml`, a hazard surfaced that this
+feature has to handle explicitly. Confirmed in the source at `17f33285`.
+
+`write_container_env` (`dist/script/docker/lib/env_emit.sh:293-359`)
+writes the generated `.env` in three blocks, in this order:
+
+- `:335` -- `# -- [environment] env_N (from setup.toml) --`
+- `:343` -- `# -- [lifecycle] watchdog_* (from setup.toml) --`
+- `:351` -- `# -- [environment] (from .env.toml) --` (the 5th-parameter
+  block, which is the one this issue makes live)
+
+The setup.toml watchdog block is emitted **before** the block that would
+come from `env.toml`. Dotenv semantics are last-wins within a file. So
+once the reader lands, a `WATCHDOG_*` key written in `env.toml` silently
+overrides the value computed from setup.toml's `[lifecycle] watchdog_*`
+knobs -- the file with lower authority over that setting winning over the
+file that owns it, with nothing reporting the shadowing.
+
+The `WATCHDOG_*` keys are derived from `[lifecycle]` in
+`dist/script/docker/lib/deploy.sh:314-329` (`watchdog_check` is the
+master switch; each remaining knob becomes `WATCHDOG_<KEY>`), so the
+collision surface is the full set of `WATCHDOG_*` names, not one key.
+
+This is sharpened, not resolved, by ADR-37 itself. ADR-37 lines 84-95 say
+the two files have zero intersection, that on overlap the service file
+takes precedence, and it names `WATCHDOG_ENABLED` as a key that belongs
+in the service file -- while the emitter derives `WATCHDOG_*` from
+setup.toml. Whichever way that resolves, it has to be a decision on the
+record rather than a side effect of the order three `printf` blocks
+happen to run in.
+
+Resolve it by emission order, by refusing the namespace in the reader, by
+detecting and reporting the collision, by moving the watchdog knobs
+outright, or by some other means -- this comment deliberately does not
+prescribe which. What it does require is that the implementation state
+which mechanism it chose and cover it with a test that fails if a
+`WATCHDOG_*` key in `env.toml` ever silently changes container behaviour.
+
+Refs #1163, #1167, ADR-00000037.
+
+## Correction: the local variant is `env.local.toml`, not `env.toml.local`
+
+Retitled. Naming only -- the gap this issue reports is unchanged.
+
+### What changed
+
+Wrong: `env.toml.local`
+Right: `env.local.toml`
+
+### Why
+
+The suffix form was reasoned from `.env` -> `.env.local`, and that
+precedent does not transfer. `.env` has no `name.extension` structure,
+so appending `.local` is the only placement available there, not a
+choice.
+
+`env.toml` has a real extension. `env.local.toml` keeps `.toml` as the
+actual extension, so editors syntax-highlight it, `*.toml` globs match
+it, and TOML linters read it. `env.toml.local` has extension `.local`,
+which no tooling recognises.
+
+General practice splits the same way: a loaded overlay takes an infix
+and keeps its extension (`compose.override.yaml`,
+`tsconfig.build.json`, `webpack.config.dev.js`), while a suffix after
+the extension marks a file that is not loaded as-is and must be copied
+first (`phpunit.xml.dist`, `config.yaml.example`). These are loaded
+overlays.
+
+It also matches what the shipped `dist/setup.toml` already documents
+for its own layer 3.
+
+### Unchanged
+
+The leading-dot decision stands: the TOML sources carry no leading dot,
+while the compose dotenv files they generate keep theirs.
+
+Body left as originally filed; corrections go in comments.
+

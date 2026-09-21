@@ -1,0 +1,93 @@
+fix(upgrade): migration + wrapper failure-path robustness (pip_helper delete, post-hook skip, subtree trap)
+## Context
+
+From a multi-agent audit of `base` (2026-08-28) focused on the repo's own
+shell sources. This issue collects **upgrade / migration / wrapper robustness**
+findings — failure paths under `set -euo pipefail` and a migration whose
+assumption the mechanism cannot verify. **Please reproduce / verify each
+before fixing**; the audit read the code but did not land a failing test for
+every item.
+
+---
+
+## 1. `pip_helper` migration deletes on an assumption it cannot verify, and is fragile to compound / multi-line RUN
+
+**Location:** `dist/script/docker/lib/dockerfile_migrate.sh:143-153`
+
+**Problem:** the migration unconditionally deletes any
+`pip install ... -r ...${CONFIG_DIR}.../pip/requirements.txt` line, asserting it
+"only ever installed base's empty placeholder." That line is **byte-identical**
+whether the config-overlaid `<repo>/config/pip/requirements.txt` is empty or a
+real dependency list (the overlay COPY brings the repo's file to the same
+in-image path). So a downstream that populated that path loses a **working**
+dependency install on a mechanical `just upgrade` — build stays green, packages
+silently missing. Secondary: the delete is a line-based `sed d`; on a compound
+`RUN pip install ... \` + `&& other-cmd` it removes only the matched physical
+line and can orphan a continuation / leave a dangling backslash.
+
+**Evidence:**
+```bash
+_migrate_pip_helper_detect() {  # :145 — line-based grep
+  grep -qE 'pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*/pip/requirements\.txt' "${_file}"
+}
+_migrate_pip_helper_apply() {   # :150 — unconditional delete
+  sed -i -E '/pip install .*-r[[:space:]]+.*\$\{?CONFIG_DIR\}?.*\/pip\/requirements\.txt/d' "${_file}"
+```
+The bats fixture (`test/bats/unit/dockerfile_migrate_spec.bats:180-181`) uses a
+single-line form, so the migration works as tested for that shape.
+Status: mechanism confirmed by reading; the empty-vs-real ambiguity is real.
+**Verify:** (a) check real downstream Dockerfiles for whether any populated
+`config/pip/requirements.txt` via this line, and for multi-line/compound RUN
+shapes; (b) decide the fix — skip the delete unless the requirements file is
+provably empty, or narrow detect to base's exact placeholder line, or `_log_warn`
+without deleting when the shape isn't the known placeholder.
+
+---
+
+## 2. Post-exec / post-setup hook silently skipped when the wrapped command fails
+
+**Location:** `dist/script/docker/wrapper/exec.sh:363-369`; same class at
+`dist/script/docker/wrapper/setup.sh:404-419`
+
+**Problem:** under `set -euo pipefail` the main command
+(`_compose_project exec ...` at exec.sh:363) is unguarded, so a non-zero exit
+aborts `main` before `_run_post_hook exec` runs. A repo that defines a
+post-exec hook (the documented "final reporting" use) never gets it on the
+failure path. `run.sh` / `deploy.sh` avoid this by capturing
+`|| _rc=$?` and running the hook regardless.
+
+**Evidence:** compare exec.sh:363-369 (unguarded call, then post-hook) with the
+`|| _rc=$?` pattern in `run.sh` / `lib/deploy.sh`.
+Status: **agent-found, please verify.** **Verify:** define a post-exec hook,
+run `just exec` a command that exits non-zero, confirm the hook does not fire;
+fix by mirroring the `|| _rc=$?` capture so the post-hook always runs and the
+original rc is preserved.
+
+---
+
+## 3. `git subtree pull` failing before the rollback trap is armed leaves partial merge state
+
+**Location:** `dist/script/base/upgrade.sh:644` vs `651-652`
+
+**Problem:** a conflicting `git subtree pull` (line 644) aborts under `set -e`
+*before* `_init_arm_rollback` installs the EXIT trap (651-652), so
+`_restore_pre_upgrade_state` never runs and the tree is left mid-merge
+(`MERGE_HEAD` / conflict markers). It is loud, not silent — the next run's
+`_require_clean_merge_state` refuses — and the trap genuinely cannot arm before
+the pull, hence medium.
+
+**Evidence:** ordering at upgrade.sh:644 (pull) then 651-652 (arm trap).
+Status: **agent-found, please verify.** **Verify:** force a subtree-pull
+conflict and confirm the working tree is left mid-merge with no auto-restore;
+fix by pre-checking / snapshotting so a failed pull is cleaned up or clearly
+guarded.
+
+---
+
+## Suggested handling
+
+TDD each fix. Item 1 is the most consequential (a mechanical upgrade can drop a
+real dependency); build a repro fixture first. Items 2-3 are failure-path
+robustness with existing sibling patterns to copy (`|| _rc=$?`).
+
+

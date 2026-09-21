@@ -1,0 +1,91 @@
+fix(coverage): kcov's bash engine discards lines under bash 5.3, which blocks the Alpine 3.23 bump due 2026-11-02
+## Deadline: 2026-11-02
+
+Not a guess. `dockerfile/Dockerfile.test-tools` pins `ALPINE_VERSION=3.22`,
+whose EOL is **2027-05-01**, and `alpine_eol_spec.bats` fails at a 180-day
+lead -- so the alarm re-arms on **2026-11-02**, one day after 3.21's own EOL.
+
+The next series is **3.23**, and 3.23 is on the far side of the bash boundary.
+So the next EOL bump cannot be taken without solving this. It is not "before
+3.22's EOL"; it is about two months.
+
+## The defect, measured
+
+kcov's bash engine defaults to the PS4/xtrace method, so the traced command's
+text rides on the same line as the `kcov@FILE@LINE@` marker. To cope with
+values spanning physical lines it tracks single-quote parity and **discards
+every line it reads, marker included, while it believes it is mid-quote**
+(`getInputType`, `src/engines/bash-engine.cc`):
+
+```c
+if (str[i] == '\\' && out == INPUT_NORMAL) i++;
+else if (str[i] == '\'') out = (out == INPUT_NORMAL ? INPUT_SINGLE_QUOTE : INPUT_NORMAL);
+```
+
+A backslash escape counts only **outside** a quote. bash 5.3 emits a
+newline-containing value as one ANSI-C line, `$'a\nb'`, writing an embedded
+quote as `\'`; bash 5.2 emits it as several physical lines in plain `'...'`
+form, writing an embedded quote as `'\''`.
+
+Under that rule every `\'` inside an ANSI-C string flips parity a net **odd**
+number of times, so even an even count leaves the line "inside a quote" and
+everything after is discarded until parity happens to flip back.
+
+| ALPINE_VERSION | bash | coverage |
+|---|---|---|
+| 3.21, 3.22 | 5.2.37 | 84.77% (7058/8326) |
+| 3.24 | 5.3.9 | **77.60% (6460/8325)** |
+
+598 lines, and the loss is silent: it reads as a coverage regression in the
+code, not as an instrument that stopped measuring.
+
+An eleven-line fixture reproduces it, and a Python port of `getInputType` run
+over the captured xtrace streams predicts the discarded set line for line, in
+both directions.
+
+## Two things this rules out
+
+**Bumping `KCOV_VERSION` is not a fix.** `getInputType` is byte-identical
+between v43 and master; the last two commits touching `bash-engine.cc` are
+heredoc parser fixes. Confirmed against the source.
+
+**It is not a known upstream issue.** Nothing in kcov's issues or PRs names
+bash 5.3, ANSI-C xtrace quoting, or this failure. #462 is the nearest and its
+reporter traced it to `cd` and path handling.
+
+## The lead nobody has costed
+
+`kcov --bash-method=DEBUG` is **immune**: its helper emits only
+`kcov@${BASH_SOURCE}@${LINENO}@` with no command text, so there is no quoting
+for the parity counter to get wrong. Measured clean under bash 5.3.9 on both
+fixtures.
+
+What is **not** measured: what the DEBUG engine does to the whole suite --
+runtime, and whether the valid-line set or the totals shift. That is the first
+thing to cost, because if it holds it is a one-flag fix rather than a patch
+carried forever.
+
+The patch route was tried and is on record in PR #983: a three-expression
+`sed` over `bash-engine.cc` in the `kcov-builder` stage, with a marker grep to
+verify it applied. It worked -- the patched kcov at 3.24 measured exactly the
+84.77% that stock kcov measures at 3.22 -- and it was **removed**, because a
+sed anchored to upstream source has to be re-derived at every `KCOV_VERSION`
+bump and fails silently when the anchor moves.
+
+## What done looks like
+
+- The suite measures the same line set under bash 5.3 as under 5.2, by a
+  mechanism that does not re-derive itself at each upstream bump.
+- `kcov_bash_instrumentation_spec.bats` stays as the acceptance, and passes
+  against the series chosen. It exists precisely to turn a bump across the
+  boundary into a red at the moment of the bump, rather than a 7-point
+  coverage slide nobody can distinguish from a regression.
+- Whatever is chosen is recorded, because "take the newest Alpine" was the
+  rule that produced this and it is still written down as the rule.
+
+Blocks the 3.21 -> 3.23 bump, which `alpine_eol_spec` will demand from
+2026-11-02.
+
+Refs #946, refs #947, refs #983
+
+

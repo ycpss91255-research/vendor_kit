@@ -1,0 +1,15 @@
+backslash	{"v":"a\\b"}
+quote	{"v":"a\"b"}
+newline	{"v":"a\nb"}
+tab	{"v":"a\tb"}
+cr	{"v":"a\rb"}
+ctrl1	{"v":"a\u0001b"}
+ctrl1f	{"v":"a\u001fb"}
+esc	{"v":"a\u001b[0mb"}
+brackets	{"v":"a[b]c"}
+slashn	{"v":"a\\nb"}
+utf8	{"v":"中文é😀"}
+empty	{"v":""}
+endslash	{"v":"a\\"}
+amp	{"v":"a&b/c"}
+dash	{"v":"-n foo"}

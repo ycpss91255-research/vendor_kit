@@ -1,0 +1,157 @@
+track(deploy): the container's user identity is fixed at build time, so a field operator's UID never matches
+## Problem
+
+The identity the container runs as is decided when the image is built, and it is
+decided from the **build host**. Nothing resolves it again on the machine the
+image is deployed to.
+
+The operator-visible consequence on a field machine whose user is not uid 1000
+(or not the developer's uid):
+
+- files the container writes into a bind-mounted host directory land owned by an
+  id the field user does not have, so the field user cannot read, edit or delete
+  them;
+- files the field user places on the host for the container to read are owned by
+  an id the container's user does not have, so the container cannot read them;
+- the `config/<basename>` override binds that ADR-00000023 gives the operator
+  are mounted `ro` by default, which hides half of the above until someone
+  declares one `rw`.
+
+This is a **deployment-time** identity problem, not a build-time one. The same
+image is correct on the machine that built it and wrong everywhere else. There
+is no bug to see in CI, on the developer's host, or in any test that builds and
+runs on one machine.
+
+`dist/script/docker/lib/deploy.sh` already states the gap in a comment, and
+defers it to a follow-up that was never filed:
+
+> `<mode>` ... is `ro` for anything the manifest did not explicitly declare `rw`
+> -- the operator writes on the host, the container reads, so a container write
+> fails at once in development instead of on a field host whose UIDs happen not
+> to line up. **host-user (`USER_UID`) handling is unchanged (a separate
+> field-user follow-up owns it).**
+
+This issue is that follow-up.
+
+## Where the identity is fixed, measured
+
+Verified against the v0.43.0-rc2 tree.
+
+**1. Detection reads the build host.**
+`detect_user_info` (`dist/script/docker/lib/setup_detect.sh`) is `id -un` /
+`id -gn` / `id -u` / `id -g` on whatever machine runs `setup`. There is no
+parameter and no override.
+
+**2. The values are cached into `.env.generated`.**
+`setup_cmd.sh` calls `detect_user_info` and passes the four values to
+`write_env`, which emits them under "User / hardware (auto-detected)"
+(`dist/script/docker/lib/env_emit.sh`):
+
+    USER_NAME=<build host user>
+    USER_GROUP=<build host group>
+    USER_UID=<build host id -u>
+    USER_GID=<build host id -g>
+
+**3. They become build args.**
+The compose emitter writes them into every service's `build.args`
+(`dist/script/docker/lib/compose_emit.sh`):
+
+        args:
+          ...
+          USER_NAME: ${USER_NAME}
+          USER_GROUP: ${USER_GROUP}
+          USER_UID: ${USER_UID}
+          USER_GID: ${USER_GID}
+
+**4. The Dockerfile creates the user from them, in the base stage.**
+`dist/dockerfile/Dockerfile` declares `ARG USER_NAME="user"`, `ARG USER_GID=1000`,
+`ARG USER_UID=1000`, `ARG USER_GROUP="user"` in `sys`, then `groupadd -g
+"${USER_GID}"` / `useradd -u "${USER_UID}" -g "${USER_GID}"`, and every later
+stage (`devel-base`, `devel`, `devel-test`, and each deployable stage) inherits
+that account and ends on `USER "${USER}"`.
+
+So the numeric id is compiled into `/etc/passwd` inside the image.
+
+## The deploy bundle does not resolve it -- and takes a third value
+
+`_generate_deploy_bundle` (`dist/script/docker/lib/deploy.sh`) is where a field
+artifact could have parameterised this. It does not, and the path it takes is
+different from the development path:
+
+- the build is a raw `docker build --target "${_stage}" -f "${_build_dockerfile}"
+  "${_base}"` with **no `--build-arg` at all** -- it does not go through
+  compose, so the `.env.generated` values in step 3 never reach it and the
+  Dockerfile's `ARG` **defaults apply: `user` / `1000` / `1000`**;
+- `_generate_bundle_env` writes the bundle's `.env` via `write_container_env`,
+  which emits only the `[environment]` and watchdog entries -- no `USER_*` key
+  travels, so the operator's `.env.local` override channel cannot reach it
+  either;
+- `_generate_resolved_compose` emits no `user:` directive on the service, so
+  compose does not override the image's baked user at run time.
+
+Two different wrong answers, then:
+
+| path | identity in the image |
+|---|---|
+| `just build` / `just run` (development) | the build host's real uid/gid |
+| `just docker setup deploy --stage S` (field bundle) | hardcoded `1000:1000` from the `ARG` defaults |
+
+The bundle case coincides with the developer's uid only because 1000 is the
+usual first account. It is a fixed value either way, and neither is the field
+machine's.
+
+## A same-class failure observed on this host today
+
+Not the deploy path, but the same mismatch and the same symptom -- worth
+recording because it shows what the field report will look like.
+
+    $ ls -la base/dist/script/docker/log/
+    drwxr-xr-x 6 nobody nogroup 4096 Jun 27 10:39 .
+    drwxr-xr-x 2 nobody nogroup 4096 Jun 27 10:39 build
+    drwxr-xr-x 2 nobody nogroup 4096 Jun 27 10:39 exec
+    drwxr-xr-x 2 nobody nogroup 4096 Jun 27 10:39 run
+    drwxr-xr-x 2 nobody nogroup 4096 Jun 27 10:39 stop
+
+    $ id -u; id -g
+    1000
+    1000
+
+    $ touch base/dist/script/docker/log/build/_probe
+    touch: cannot touch '.../log/build/_probe': Permission denied
+
+Written through a bind mount by a container process whose uid does not map to
+the host user. The host user owns the parent but cannot write into, or remove
+the contents of, the directories the container made. That is exactly the failure
+a field operator hits, arriving from the other direction.
+
+## Scope, and what is explicitly not being decided here
+
+Options exist and this issue does not pick one:
+
+- resolve the identity at container start (entrypoint reconciles the baked
+  account against the runtime uid) -- interacts with ADR-00000032, since base
+  owns the entry point;
+- map at run time (`user:` on the service, or a userns mapping) -- leaves the
+  baked `/etc/passwd` entry stale, with the "cannot find name for group ID N"
+  class of consequence already seen in #589;
+- make the bundle parameterise it (a `USER_UID` / `USER_GID` key in the bundle's
+  `.env`, overridable from `.env.local`) -- fits ADR-00000023's operator-overlay
+  axis and ADR-00000036's rule that nothing base emits may be a value the caller
+  cannot reach, but only helps if something also reconciles the image's account.
+
+Each of the three has a different blast radius, and at least one of them is
+partly an ADR question rather than a code question. Deciding is the work; this
+issue exists so the gap is not rediscovered at a customer site.
+
+## Provenance
+
+Carried out of the PRD invariant #8 round (#830-#833, #834-#837, all closed) as
+"field-user handling, task #16", and never filed. Adjacent but different:
+
+- #799 (closed) removed the *path* coupling by baking self-built artifacts under
+  `/opt` instead of `$HOME`; it did not touch the numeric identity.
+- #589 (closed) is the same family of symptom (unnamed device GIDs inside the
+  container) from the group side.
+- #1064 (open) is about stacking bundles, not about who runs them.
+
+

@@ -1,0 +1,580 @@
+你是 draw.io 產生器 `disc_v1_b.py` 的修改者（補漏輪，時間預算約 6 分鐘）。前幾輪已把 v1p5*～v1p8* 大部分頁改完，目前六項幾何檢查與 lint（非 termcov）全為 0，改完必須維持。這一輪**只處理三頁**：v1p8b、v1p7bcc、v1p7bccd（附件 F）；其他頁與其他檔一律不碰。附件 H 是 helper 與頁內共用段（不可改）。
+規則：每格一件事；線上字級 12；不可讓線交叉（check_cross_v1b）／壓框（check_overlap）／標籤寬 ≥ 線長（check_self_v1b）／折線 dx < 40（check_jog_r7）；頁高 ≤ 2400；菱形出邊只能 2。
+要做的：附件 F 三頁的必修與選修逐條處理。每一條都要有交代：要嘛改掉，要嘛在該頁右下角加一個黃底便條（`pend(cells, "待處理問題\n• 元件 id：一句說明")`，放在 foot() 之前，並把 foot 的排除集合中 "pend" 拿掉），不可以既不改也不寫便條。v1p8b 的 me8ax「逾時」標籤壓框：參考 v1p5c／v1p8cc／v1p8bc 這幾頁已處理過的做法（看目前檔案裡它們怎麼寫）。
+做法：先 `python3 run_v1_b.py`；改完跑 `python3 check_overflow.py v1_b.drawio`、`check_overlap.py`、`check_cross_v1b.py`、`check_self_v1b.py`、`check_jog_r7.py`、`check_align_v1b.py`（都要「共 0 筆」／全「無」）與 `python3 extract_pages.py v1_b.drawio r15_b_out && python3 lint_pages.py r15_b_out`（非 termcov warn 要 0）。解不掉就回退那個改動並寫便條。最後輸出：每頁改了什麼（對應附件 F 哪條）、加了哪些便條、檢查結果。
+
+==================== 附件 F ====================
+## 51 流程 v2：remove（1）resolve → apply 前置 (v1p8b): must_fix 1 / optional 1
+- [排版] me8ax: 「逾時」標籤（apply flock 格 → 1 + 6-26 橢圓）間距僅 30px，標籤壓在藍格右邊框上（與 v1p8cc、v1p8bc 同一問題）
+  (opt) [內容一致性] m3: 「0：未接入（提示）」直接從引擎判斷 m2 終止，啟動器三叉（m8q0／m8q1）沒有 apply|no → 0 的出路；spec §3.3 未接入時 resolve 回 0 + apply|no、由啟動器驗完文法後 exit 0，圖上此 0 終點在啟動器側不可達。同型：v1p8c u3、v1p8cc w3
+
+## 41 流程 v2：upgrade ── E(c) upgrade vendor_kit（1） (v1p7bcc): must_fix 0 / optional 2
+  (opt) [排版] se12f: 「指定 @<tag>？」的「否」線在 x≈590 垂直下行，距「是：目標 = @<tag>」框左緣只約 10px，縮圖上貼著框走；且「否」標籤放在終點（CI 模式菱形旁）而不是出發的菱形旁
+  (opt) [排版] se11y: inspect「有」線的回繞在 vendor_kit:vN 紫框右側與下側都只離約 15px，把紫框框住一半；回繞線外移
+
+## 45 流程 v2：upgrade ── E(c) upgrade vendor_kit（2′） (v1p7bccd): must_fix 0 / optional 1
+  (opt) [內容一致性] s13h: 菱形「啟動器：apply 後 grep 第一行 == apply 前（未變）？」把 grep 動作與比對判斷合在一格；E(a′) 頁（v1p7bca）同一件事拆成 s2h 白框 + 「第一行變了？」菱形，兩頁不一致
+
+
+
+==================== 附件 H：disc_v1_b.py 前 560 行（helper；不可改）====================
+"""提案 v2 流程頁（v1p5…v1p8b，拆格後超高的頁再拆成 …c 頁）。
+依據：decisions/proposal_v2.md（§2 表格、§5 初始檔規則、§6 啟動器、§7 CI）＋ v2.1 A–F ＋ v2.2 ＋ v2.3 ＋ v2.4 ＋ v2.5（最新優先），
+＋ v2.6（2026-09-19 規格審查 16 條必修 + Q22–Q27，最高優先；decisions/interface_spec.md v2 為動詞行為／選項／結束碼／訊息逐字來源），
+第十二輪（review_v2r11_findings.md 必修＋選修）：頁尾統一為「log_prune」→「launcher_exit」兩格 + 終點列（footer()/footer_edges()：所有終點的唯一前驅是 launcher_exit 格；各分支從左側匯流排 x=30 匯入，成功路徑直下）；每個 docker run 之後緊接 engine_start（EST_R／EST_A／EST_1）；啟動器 image 段統一 pullseg()（inspect／pull／image 同中心直下，本機有 → 頁面右側 bypass()，pull 失敗紅出口）；拆頁：bootstrap.sh（1′）v1p5i、install（1′）v1p5cw、D. 回退 v1p7bd、E(c)（1′）v1p7bcx；sync(1) 的 docker run 移到 sync(1′) 頁首；E(a) 的 (b) 段改成引用 sync(1)；C′ 出口改文字；內容：bootstrap 先驗 git／just 才建 log；install 的 git／巢狀檢查移到主機側；add 已接入且完成先於查 registry、--local 拆格；B(1) 6-3 橙出口；E(a) 新引擎 pull 移到 apply 前；E(c)(2) 建日誌＋config.toml 拆三格；remove(2) 逐行比對迴圈；undev u6x 措辭；名詞表逐頁裁剪（頁高 ≤ 2400）。備份：.v13（第十二輪前）。
+第十一輪（v2.13 + v2.14 + review_v2r10_findings.md）：主路徑補線（B(1) b1q→b2→b2c、uninstall(1) x2→x2b…x2e）；每頁 resolve／apply 段各一格 engine_start、頁尾一格 log_prune／launcher_exit；
+藍 = 引擎、白 = 啟動器全檔核對；gen/.stamp 只記引擎 ref、log.sh 帶自描述首行；sync(1′) 6-33 菱形；工具 image pull 失敗紅出口；uninstall(2) 不刪 log/、config.toml 依 v2.13 P6；
+E(c)(2) config.toml 三方合併；install(2) igq 拆兩菱形；B(2) 逐檔改「情況菱形 → 同意？」兩層（每菱形兩出邊）；共用名詞改常數；備份：.v12（第十一輪前）。
+以及 review_v2r4_findings.md 十六頁段落的必修＋選修（第五輪）。
+只定義 pages_v1_b = [(pid, name, cells), ...]；不寫檔（run_v1_b.py 負責組 mxfile）。備份：.v1（v1）、.v2（拆頁前）、.v4（第三輪前）、.v5（第四輪前）、.v6（第五輪前）、.v7（第六輪前）、.v8（第七輪前）、.v9（第八輪前）、.v10（第九輪前）、.v11（第十輪前）。
+第十輪（v2.11 + v2.12 + review_v2r9_findings.md）：upgrade vendor_kit 改回建進度日誌 .tmp.upgrade.<id>.toml（E(a) s2d／s2df、E(c)(1) s12j、E(c)(2) s13d 由新引擎刪；撤回 v2.10-4）；
+操作紀錄檔：啟動器起點後「建 log 檔並寫 launcher_start」一格（bootstrap(1) a0l、install(1) i0l、add(1) c0l、sync(1) n0l、B(1) b0l、E(c)(1) s10l、dev d0l、remove(1) m0l、uninstall(1) x0l），引擎 append engine_start 一格（i1e／c1e／b1e／d1e／m1e／x1e）或入口文字帶過；
+sync(1) 快路徑寫 sync_fast_path／launcher_exit（nql）；install(2) .dockerignore 四行（＋.vendor_kit/log/）；install(1) 建 config.toml（i4_5）；名詞表加操作紀錄檔／config.toml／6-38；
+--local 名詞：bootstrap tag 形 digest = 既有 version.toml 或內嵌引擎 ref、add --local 只收存在的 .tar；bootstrap(2) 本次 add 失敗即中止（a10x）；E(a) se6vr／E(c)(1) se11vr 補「否」線；s12hz 改續跑入口樣式；E(c)(1) @tag／frozen 拆開；dev vendor_kit v9 橙；uninstall(2) x5d 拆 gen/／baseline/ 兩格。
+第九輪（v2.10 + review_v2r8_findings.md）：需人動作的 1 結束一律橙（B(1′) b10dx／b10nx、dev d3a／d1x／d3c）；upgrade vendor_kit 不建進度日誌（E(c) 兩頁）；6-2b 只給第一行已改（E(a) s2lx、E(c)(2) s13x 拆兩個結束）；
+迴圈菱形（bootstrap(2)「還有下一個 -t？」、sync(1′)「還有工具？」）；install(1) 第一次直接建檔；install(2) 刪日誌獨立格；sync(2) 驗證／重裝拆格；失敗線不 T 接（各自進紅橢圓不同入口）；ae11b 不交叉；ce28n／ce28y 標籤離框。
+第八輪（v2.9 + review_v2r7_findings.md）：bootstrap tag 形不讀 .digest（a8q 否 → a8i）；dev 起點與菱形距 ≥ 40；add 私有 image 分支、dest／撞名改橙；sync 逐檔驗加「版本變動那次」（sync(2) 補一格）；
+B(2) 解析檢查移到替換前、B(2′) 解析失敗檔不推 baseline；uninstall append 行逐行比對；be7 RD、be17 對齊、te14 頂點。
+第七輪（v2.8 + review_v2r6_findings.md）：uninstall(2) 刪除集合補 baseline/ 根檔＋rmdir、xe16f/xe16w 不交叉；E(c) 薄殼比對移到拿鎖重驗後、改第一行前；bootstrap --local 三分支；
+install 第一次不建日誌／修復型建 .tmp.install；add(2) 逐檔迴圈（LL 線型）；dev vendor_kit inspect 移到啟動器；菱形入口一律頂點（D/U 對齊不動菱形入口）；files(cols=2／cw) 兩欄檔案框；PRE 框走 <pre>+&#9; 真 tab。
+第六輪（v2.7 + review_v2r5_findings.md）：一格一件事再細（inspect／pull 分格、建檔／印出分格、append／記 metadata 分格、materialize／原子替換分格、計畫／指紋分格、
+判斷格只放一個問句）；declined 語意（已納管檔拒絕 → state 不變只記 declined_hash；新檔被拒才 state=declined）；E(c) 查 registry 三種結果；undev vendor_kit 走 resolve→apply + .tmp.undev 日誌；
+bootstrap Q18 分支；逐字範例框 whiteSpace=pre + &nbsp; 縮排；頁名 <repo> 單次跳脫；線標籤不壓線（菱形只從底端中央／側邊出線；RD／LD／R 標籤放在線旁）。
+第五輪規則：不用 --pull never（啟動器 docker image inspect 驗本機 image ID，有就直接 run）；CI 一律寫「CI 為真（frozen）」；tools.just 一律 mod?；
+橙 = 需要人動作（請先 undev／add／git init／重跑／upgrade vendor_kit／解衝突），紅 = 失敗；跨頁出入口標頁名，入口用白底虛線橢圓「來自 <頁名>」（ENTRY）。
+泳道歸屬：所有判斷／合併／衝突處理畫在「引擎容器」；啟動器只有 grep 引擎 ref／gen/.stamp 比對／docker pull・create・cp・run・rm／轉發。
+動詞兩段：引擎 resolve（不寫）→ 啟動器 docker → 引擎 apply（v2.5 §3：flock → 重驗指紋 → dry-run 分支 → 建進度日誌 → 寫入們 → 最後刪日誌）。
+每格一件事；橢圓／菱形用 check_overflow.shape_spacing 補 spacing（v2.5 §15），高度以內接矩形估；檔案框一格一檔（多檔用 files() 標題容器）。"""
+import glob, re, math
+_latest = sorted(glob.glob("gen[0-9]*.py"), key=lambda p: int(re.findall(r"\d+", p)[0]))[-1]
+exec(open(_latest).read().split("# ================= Page 1")[0])   # helper：v/e/page/legend_flow/terms/SW/LEAF/FILE/NOTE/PEND/ELLIPSE/PURPLE_LEAF/TITLE/EDGE/顏色
+from check_overflow import wrap as _wrap, shape_spacing
+if not getattr(page, "_single_esc", False):                                          # 頁名 <repo> 不雙重跳脫（v2.7 §12）
+    import html as _html
+    _page_raw = page
+    def page(id, name, cells, **kw):
+        out = _page_raw(id, name, cells, **kw)
+        return out.replace(f'name="{esc(name)}"', f'name="{_html.escape(name, quote=True)}"', 1)
+    page._single_esc = True
+
+# ---------- 12pt 樣式 ----------
+def _12(st): return st.replace("fontSize=14", "fontSize=12")
+ORANGE = "#ffe6cc"
+PAD = "spacingLeft=6;spacingRight=6;"                                                # 長方形文字不貼框（折行寬 = w−16，與估算一致）
+W12 = _12(LEAF()) + PAD; F12 = _12(FILE) + PAD; G12 = _12(ELLIPSE(GREEN)); R12 = _12(ELLIPSE(RED)); D12 = _12(RHOMBUS)
+O12 = _12(ELLIPSE(ORANGE))                                                           # 橙橢圓 = 需要人動作（1／3 且印指令；2 解衝突也橙；v2.6 §15）
+ENTRY = _12(ELLIPSE("#ffffff")) + "dashed=1;"                                        # 白底虛線橢圓 = 來自其他頁的入口（v2.6 §15）
+IMG = _12(PURPLE_LEAF) + PAD                                                         # 紫 = image（與主圖 legend 一致）
+SUB = "rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;strokeWidth=2;" + PAD   # 藍 = 引擎子命令（容器內）
+FTREE = _12(FILE) + "align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;"     # 前／後目錄差異
+PRE = ("rounded=1;whiteSpace=pre;html=1;fillColor=#ffffff;strokeColor=#666666;dashed=1;strokeWidth=2;fontSize=12;fontFamily=Courier New;"
+       "align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;")                  # 逐字範例檔案框：等寬、不置中、不 wrap；縮排用 &nbsp;（v2.7 §9）
+NB4 = "&nbsp;&nbsp;&nbsp;&nbsp;"                                                    # 逐字框的 4 格縮排（html 不吃）
+FGRP = _12(FILE) + "align=left;verticalAlign=top;spacingLeft=8;spacingTop=2;fontStyle=1;container=1;collapsible=0;"   # 檔案標題容器（內排小框）
+RULE = ("rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;fontSize=12;fontStyle=1;"
+        "align=left;verticalAlign=middle;spacingLeft=8;")                           # 橘框 = 規則（已定）
+INV = ("rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;strokeWidth=3;fontSize=12;fontStyle=1;"
+       "align=left;verticalAlign=middle;spacingLeft=8;")                            # 紅粗框（白底）= 不變量
+PENDR = PEND + "fontStyle=1;"                                                       # 黃便條 = 待拍板
+HDR = "rounded=0;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#999999;strokeWidth=1;fontSize=12;fontStyle=1;align=center;"
+BAND = SW(NEUTRAL, 12).replace("startSize=38", "startSize=30")
+LBL = TEXT(12) + "align=left;fontStyle=1;"
+V2G = "#00b050"
+TAG = (f"rounded=1;whiteSpace=wrap;html=1;fillColor={V2G};strokeColor=none;fontColor=#ffffff;fontSize=9;fontStyle=1;"
+       "align=center;verticalAlign=middle;spacing=0;spacingLeft=0;spacingRight=0;spacingTop=0;spacingBottom=0;")
+def v2(st):
+    """v2 改：不改框色，只在格子右上角加綠色小標籤「v2」（close() 時把 v2=1 記號換成標籤格）。"""
+    return st + "v2=1;"
+
+
+def fl(text):
+    """把手動換行拿掉，交給 whiteSpace=wrap 自動折行（高度估算與畫面一致，行數最少）。英數之間補空白。"""
+    out = []
+    for i, ch in enumerate(text):
+        if ch == "\n":
+            a = text[i - 1] if i else ""; b = text[i + 1] if i + 1 < len(text) else ""
+            out.append(" " if (a.isascii() and a.isalnum()) or (b.isascii() and b.isalnum()) else "")
+        else: out.append(ch)
+    return "".join(out)
+
+def shape_f(st):
+    """內接矩形係數：橢圓 0.707、菱形 0.5、其餘 1（spacing 補上後折行寬 = 內接矩形寬，與 check_overflow 同一套）。"""
+    return 0.707 if st.startswith("ellipse") else (0.5 if st.startswith("rhombus") else 1.0)
+
+def fit_w(text, w, st=""):
+    """最寬的英數字（不能斷）塞不進內接矩形 → 自動加寬。"""
+    f = shape_f(st); need = max((_wrap(ln, 12, 1e9)[1] for ln in text.split("\n")), default=0) + 16
+    return w if w * f >= need else math.ceil(need / f)
+
+def fit_h(text, w, minh=40, extra=0, st=""):
+    """文字塞得進的高度（與 check_overflow 同一套估法；橢圓／菱形換算內接矩形）。"""
+    f = shape_f(st)
+    return max(minh, math.ceil((need_h(text, 12, w * f) + extra) / f) + 2)
+
+def pre_v(cid, parent, st, text, x, y, w, h):
+    """逐字框（whiteSpace=pre）：值包在 <pre> 內、tab 寫成 &#9;（XML 屬性裡的字面 tab 會被正規化）；同 disc_v1_a 的 code()（v2.7 §9）。"""
+    import html as _html
+    inner = _html.escape(text, quote=False).replace("\n", "<br>")
+    htmlv = '<pre style="margin:0;font-family:inherit;font-size:inherit;line-height:inherit;tab-size:8;">' + inner + '</pre>'
+    val = _html.escape(htmlv, quote=True).replace("\t", "&#9;")
+    return (f'<mxCell id="{cid}" value="{val}" style="{st}" vertex="1" parent="{parent}">'
+            f'<mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/></mxCell>')
+
+def emit(cells, cid, parent, st, text, x, y, w, h):
+    """輸出一格；style 帶 v2=1 → 另加右上角綠標籤；橢圓／菱形自動補 spacing（v2.5 §15）；whiteSpace=pre → pre_v。"""
+    tag = "v2=1;" in st; st = shape_spacing(st.replace("v2=1;", ""), w, h)
+    cells.append((pre_v if "whiteSpace=pre;" in st else v)(cid, parent, st, text, x, y, w, h))
+    if tag: cells.append(v(f"{cid}_v2", parent, TAG, "v2", round(x + w - 24), round(y - 10), 30, 20))
+
+# ---------- 泳道流程佈局 ----------
+class Flow:
+    """cols: [(名稱, x, w)]（絕對座標）。band() 開一個情境分組；box() 放格子（欄, 列）；H/D/U/R/LU/DL/LD/P 拉線；close() 排版並輸出。"""
+    def __init__(self, cells, cols, band_x=20, band_w=1600, gap=20):
+        self.cells, self.cols, self.bx, self.bw, self.gap = cells, {n: (x, w) for n, x, w in cols}, band_x, band_w, gap
+        self.abs = {}; self.y = 0; self.n = 0
+    def headers(self, y):
+        for i, (n, (x, w)) in enumerate(self.cols.items()):
+            self.cells.append(v(f"hdr{i}", "1", HDR, n, x, y, w, 28))
+        self.y = y + 44
+    def band(self, bid, title, pad=6, v2=False):
+        return _Band(self, bid, title, pad, v2)
+
+class _Band:
+    def __init__(self, f, bid, title, pad, v2flag):
+        self.f, self.bid, self.title, self.pad, self.v2 = f, bid, title, pad, v2flag
+        self.boxes, self.edges, self.extra = [], [], []
+    def box(self, cid, col, row, style, text, w, h=None, ax="c", minh=40, extra=0):
+        """ax: 'c' 置中／'l' 靠欄左／'r' 靠欄右／數字 = 欄左偏移。h 未給就依文字算（給了也至少要塞得下）。"""
+        w = fit_w(text, w, style)
+        hh = fit_h(text, w, minh, extra + (6 if "v2=1;" in style and shape_f(style) == 1 else 0), style)
+        h = hh if h is None else max(h, hh)
+        self.boxes.append(dict(id=cid, col=col, row=row, st=style, text=text, w=w, h=h, ax=ax)); return cid
+    def files(self, cid, col, row, title, items, w, ax="c", cols=1, cw=None):
+        """檔案框一格一檔（v2.5 §14）：虛線標題容器，內排每檔一個小框（id = cid_0, cid_1…）；cols=2 → 兩欄（同列取最高；cw=(w1, w2) 指定各欄寬）。"""
+        if cw is None: cw = [(w - 16 - 6 * (cols - 1)) // cols] * cols
+        cols = len(cw); assert sum(cw) + 6 * (cols - 1) <= w - 16
+        hs = [fit_h(t, cw[i % cols], 26) for i, t in enumerate(items)]
+        rows = [max(hs[i:i + cols]) for i in range(0, len(hs), cols)]
+        h = 26 + sum(rows) + 6 * len(rows) + 4
+        self.boxes.append(dict(id=cid, col=col, row=row, st=FGRP, text=title, w=w, h=h, ax=ax, items=list(zip(items, hs)), cols=cols, cw=cw, rows=rows)); return cid
+    def free(self, cid, style, text, x, y, w, h=None, minh=40):
+        """不參與排版的格子（band 內相對座標）；h 未給就依文字算（給了也至少要塞得下）。"""
+        w = fit_w(text, w, style); hh = fit_h(text, w, minh, 0, style)
+        h = hh if h is None else max(h, hh)
+        self.extra.append((cid, style, text, x, y, w, h))
+    def free_files(self, cid, title, items, x, y, w):
+        """free 版的檔案容器（一格一檔）；回傳容器高度。"""
+        iw = w - 16; hs = [fit_h(t, iw, 26) for t in items]
+        h = 26 + sum(hs) + 6 * len(items) + 4
+        self.extra.append((cid, FGRP, title, x, y, w, h)); self.extra_items = getattr(self, "extra_items", {}); self.extra_items[cid] = list(zip(items, hs))
+        return h
+    def H(self, eid, s, t, label="", sy=0.5): self.edges.append(("H", eid, s, t, label, sy))
+    def D(self, eid, s, t, label="", sx=0.5, tx=0.5, dy=0, al=False): self.edges.append(("D", eid, s, t, label, sx, tx, dy, al))
+    def U(self, eid, s, t, label="", sx=0.5, tx=0.5, dy=0, al=False): self.edges.append(("U", eid, s, t, label, sx, tx, dy, al))
+    def R(self, eid, s, t, label="", busx=0, tx=0.5, dy=0, vert=None):
+        """從 s 右側出去，沿 x=busx 的「匯流排」往下，在 t 上方的縫隙轉進 t 頂端（多個右側結果匯到同一格）。vert 給了 → 標籤放在垂直段旁（True=右、'left'=左）。"""
+        self.edges.append(("R", eid, s, t, label, busx, tx, dy, vert))
+    def LD(self, eid, s, t, label="", busx=0, vert=None):
+        """從 s 左側出去，水平到 x=busx，往下直接進 t 頂端（t 在下方、且 busx 落在 t 的寬度內）。vert 給了 → 標籤放在垂直段旁（'left'=線左、True=線右、'below'=水平段下）。"""
+        self.edges.append(("LD", eid, s, t, label, busx, vert))
+    def UL(self, eid, s, t, label="", busx=0, row=0, dy=0):
+        """從 s 頂端往上到第 row 列上方的縫隙（再偏 dy），水平到 x=busx 的左側匯流排，往下到 t 的中線高度，再水平進 t 的左側（繞過中間所有格子的回流線）。"""
+        self.edges.append(("UL", eid, s, t, label, busx, row, dy))
+    def LL(self, eid, s, t, label="", busx=0):
+        """從 s 左側出去，水平到 x=busx 的左側匯流排，往上到 t 的中線高度，再水平進 t 的左側（迴圈回上方的格子；標籤放匯流排左側）。"""
+        self.edges.append(("LL", eid, s, t, label, busx))
+    def RD(self, eid, s, t, label="", tx=0.5):
+        """從 s 右側出去，水平到 t 的 x=tx 處，往下進 t 頂端（t 在右下；菱形的側邊出口，不從底端分兩條）。標籤放在水平段下方。"""
+        self.edges.append(("RD", eid, s, t, label, tx))
+    def BL(self, eid, s, t, label="", busx=0, sx=0.5):
+        """從 s 底端往下到列間縫隙，水平到 x=busx 的左側匯流排，往下到 t 的中線高度，再水平進 t 的右側（t 在左下方；避開右側的寫入線）。"""
+        self.edges.append(("BL", eid, s, t, label, busx, sx))
+    def LU(self, eid, s, t, label="", tx=0.5):
+        """從 s 右側出去，水平到 t 正下方，再往上進 t 底端（t 在上一列）。"""
+        self.edges.append(("LU", eid, s, t, label, tx))
+    def DL(self, eid, s, t, label="", sx=0.5):
+        """從 s 底端往下到 t 的中線高度，再水平進 t 的側邊（t 在下一列的旁邊欄；不走列間縫隙，避免貼到同列的橢圓）。"""
+        self.edges.append(("DL", eid, s, t, label, sx))
+    def P(self, eid, s, t, label="", exit=None, entry=None, pts=(), pos=None, vert=None):
+        self.edges.append(("P", eid, s, t, label, exit, entry, pts, pos, vert))
+    def close(self):
+        f = self.f; g = f.gap; A = f.abs; RT = f.rt if hasattr(f, "rt") else {}
+        f.rt = RT; ST = f.st if hasattr(f, "st") else {}; f.st = ST; RB = f.rb if hasattr(f, "rb") else {}; f.rb = RB
+        def rh_off(cid, xr):
+            """菱形底部出口的實際周界點比外框底端高 |0.5−xr|×h（標籤要放在外框之外才不壓菱形邊；review r4）。"""
+            return abs(0.5 - xr) * A[cid][3] if ST.get(cid, "").startswith("rhombus") else 0.0
+        nrows = max([b["row"] for b in self.boxes], default=-1) + 1
+        rh = [max([b["h"] for b in self.boxes if b["row"] == r] or [0]) for r in range(nrows)]
+        top = [0] * nrows; y = f.y + 30 + self.pad
+        for r in range(nrows): top[r] = y; y += rh[r] + g
+        bh = 30 + self.pad + sum(rh) + max(nrows - 1, 0) * g + self.pad
+        if self.extra: bh = max(bh, max(yy + h for _, _, _, _, yy, _, h in self.extra) + self.pad)
+        bx, by = f.bx, f.y
+        f.cells.append(v(self.bid, "1", BAND, self.title, bx, by, f.bw, bh))
+        if self.v2: f.cells.append(v(f"{self.bid}_v2", self.bid, TAG, "v2", f.bw - 44, 5, 30, 20))
+        for b in self.boxes:
+            cx, cw = f.cols[b["col"]]
+            if b["ax"] == "c": x = cx + (cw - b["w"]) / 2
+            elif b["ax"] == "l": x = cx
+            elif b["ax"] == "r": x = cx + cw - b["w"]
+            else: x = cx + b["ax"]
+            yy = top[b["row"]] + (rh[b["row"]] - b["h"]) / 2
+            A[b["id"]] = (x, yy, b["w"], b["h"]); RT[b["id"]] = top[b["row"]]; ST[b["id"]] = b["st"]; RB[b["id"]] = top[b["row"]] + rh[b["row"]]
+            emit(f.cells, b["id"], self.bid, b["st"], b["text"], round(x - bx), round(yy - by), b["w"], b["h"])
+            if "items" in b:                                    # 檔案容器：小框相對容器座標（cols 欄）
+                iy = 26; nc = b["cols"]; cw = b["cw"]
+                for i, (t, hh) in enumerate(b["items"]):
+                    r, c = divmod(i, nc)
+                    emit(f.cells, f"{b['id']}_{i}", b["id"], F12, t, 8 + sum(cw[:c]) + 6 * c, iy, cw[c], b["rows"][r])
+                    if c == nc - 1 or i == len(b["items"]) - 1: iy += b["rows"][r] + 6
+        for cid, st, text, x, yy, w, h in self.extra:
+            emit(f.cells, cid, self.bid, st, text, x, yy, w, h); A[cid] = (bx + x, by + yy, w, h); RT[cid] = by + yy; ST[cid] = st
+            if cid in getattr(self, "extra_items", {}):
+                iy = 26
+                for i, (t, hh) in enumerate(self.extra_items[cid]):
+                    emit(f.cells, f"{cid}_{i}", cid, F12, t, 8, iy, w - 16, hh); iy += hh + 6
+        for ed in self.edges:
+            kind, eid, s, t = ed[:4]
+            sx0, sy0, sw, sh = A[s]; tx0, ty0, tw, th = A[t]
+            if kind == "H":
+                _, _, _, _, label, sy = ed
+                if tx0 > sx0: f.cells.append(e(eid, s, t, label, (1, sy), (0, sy)))
+                else: f.cells.append(e(eid, s, t, label, (0, sy), (1, sy)))
+            elif kind in ("D", "U"):
+                _, _, _, _, label, sxr, txr, dy, al = ed
+                ex, nx = sx0 + sxr * sw, tx0 + txr * tw
+                if 1 <= abs(ex - nx) < 40 or (al and abs(ex - nx) >= 1):   # 小折角很醜：把出／入點對齊成一直線（先動目標入口，再動來源出口）
+                    r = (ex - tx0) / tw                                      # 目標是菱形 → 入口只用頂點（entryX=0.5），不接斜邊（review r6）
+                    if 0.1 <= r <= 0.9 and not ST.get(t, "").startswith("rhombus"): txr, nx = r, ex
+                    else:
+                        r = (nx - sx0) / sw
+                        if 0.1 <= r <= 0.9 and not ST.get(s, "").startswith("rhombus"): sxr, ex = r, nx
+                if kind == "D":
+                    ey, ny = sy0 + sh, ty0; gy = RT[t] - g / 2 + dy; exit_, entry = (round(sxr, 3), 1), (round(txr, 3), 0)
+                else:
+                    ey, ny = sy0, ty0; gy = RT[s] - g / 2 + dy; exit_, entry = (round(sxr, 3), 0), (round(txr, 3), 0)
+                if abs(ex - nx) < 1:
+                    pos = None
+                    if label:
+                        off = rh_off(s, sxr) if kind == "D" else 0.0; L = off + abs(ny - ey)
+                        pos = -0.6 if off < 1 else min(0.5, 2 * ((off + 12) / L) - 1)   # 菱形：標籤放到外框底端之下 12px
+                    f.cells.append(e(eid, s, t, label, exit_, entry, vert=True if label else None, pos=pos))
+                else:
+                    pts = [(ex, gy), (nx, gy)]
+                    L1, L2, L3 = abs(gy - ey), abs(nx - ex), abs(ny - gy); tot = L1 + L2 + L3
+                    pos = 2 * ((L1 + L2 / 2) / tot) - 1
+                    f.cells.append(_edge(eid, s, t, label, exit_, entry, pts, pos))
+            elif kind == "R":
+                _, _, _, _, label, busx, txr, dy, vert = ed
+                ey = sy0 + sh / 2; gy = RT[t] - g / 2 + dy; nx = tx0 + txr * tw
+                pos = None
+                if label and vert:
+                    L1 = abs(busx - (sx0 + sw)); tot = L1 + abs(gy - ey) + abs(nx - busx) + abs(ty0 - gy)
+                    pos = 2 * ((L1 + 14) / tot) - 1
+                f.cells.append(_edge(eid, s, t, label, (1, 0.5), (round(txr, 3), 0), [(busx, ey), (busx, gy), (nx, gy)], pos, vert if label else None))
+            elif kind == "LD":
+                _, _, _, _, label, busx, vert = ed
+                ey = sy0 + sh / 2; txr = (busx - tx0) / tw
+                pos = -0.7 if label else None
+                if label and vert:
+                    L1 = abs(sx0 - busx); tot = L1 + abs(ty0 - ey)
+                    pos = 2 * ((L1 / 2) / tot) - 1 if vert == "below" else 2 * ((L1 + 14) / tot) - 1
+                f.cells.append(_edge(eid, s, t, label, (0, 0.5), (round(txr, 3), 0), [(busx, ey)], pos, vert if label else None))
+            elif kind == "UL":
+                _, _, _, _, label, busx, row, dy = ed
+                ex = sx0 + sw / 2; gy = top[row] - g / 2 + dy; ny = ty0 + th / 2
+                f.cells.append(_edge(eid, s, t, label, (0.5, 0), (0, 0.5), [(ex, gy), (busx, gy), (busx, ny)], None))
+            elif kind == "LL":
+                _, _, _, _, label, busx = ed
+                ey = sy0 + sh / 2; ny = ty0 + th / 2
+                L1 = abs(sx0 - busx); tot = L1 + abs(ey - ny) + abs(tx0 - busx)
+                pos = 2 * ((L1 + 14) / tot) - 1 if label else None
+                f.cells.append(_edge(eid, s, t, label, (0, 0.5), (0, 0.5), [(busx, ey), (busx, ny)], pos, "left" if label else None))
+            elif kind == "RD":
+                _, _, _, _, label, txr = ed
+                ey = sy0 + sh / 2; nx = tx0 + txr * tw
+                L1 = abs(nx - (sx0 + sw)); tot = L1 + abs(ty0 - ey)
+                if not label: pos, vert = None, None
+                elif L1 >= 24: pos, vert = 2 * ((L1 / 2) / tot) - 1, "below"        # 水平段夠長：標籤放水平段下方
+                else: pos, vert = 2 * ((L1 + 12) / tot) - 1, True                   # 水平段太短：標籤放垂直段右側
+                f.cells.append(_edge(eid, s, t, label, (1, 0.5), (round(txr, 3), 0), [(nx, ey)], pos, vert))
+            elif kind == "BL":
+                _, _, _, _, label, busx, sxr = ed
+                ex = sx0 + sxr * sw; gy = RB[s] + g / 2; ny = ty0 + th / 2
+                f.cells.append(_edge(eid, s, t, label, (round(sxr, 3), 1), (1, 0.5), [(ex, gy), (busx, gy), (busx, ny)], None))
+            elif kind == "LU":
+                _, _, _, _, label, txr = ed
+                ey = sy0 + sh / 2; nx = tx0 + txr * tw
+                f.cells.append(_edge(eid, s, t, label, (1, 0.5), (round(txr, 3), 1), [(nx, ey)], -0.3 if label else None))
+            elif kind == "DL":
+                _, _, _, _, label, sxr = ed
+                ex = sx0 + sxr * sw; ny = ty0 + th / 2; entry = (1, 0.5) if tx0 < sx0 else (0, 0.5)
+                off = rh_off(s, sxr); L1 = ny - (sy0 + sh); L2 = abs(ex - (tx0 + tw if tx0 < sx0 else tx0))
+                pos = 2 * ((off + max(L1 / 2, 12)) / (off + L1 + L2)) - 1   # 菱形：從外框底端再往下量
+                f.cells.append(_edge(eid, s, t, label, (round(sxr, 3), 1), entry, [(ex, ny)], pos, vert=True))
+            else:
+                _, _, _, _, label, exit_, entry, pts, pos, vert = ed
+                f.cells.append(_edge(eid, s, t, label, exit_, entry, pts, pos, vert))
+        f.y = by + bh + 16
+        return self
+
+def _edge(eid, s, t, label, exit_, entry, pts, pos=None, vert=None):
+    st = EDGE + f"exitX={exit_[0]};exitY={exit_[1]};exitDx=0;exitDy=0;entryX={entry[0]};entryY={entry[1]};entryDx=0;entryDy=0;"
+    if vert == "left": st += "align=right;verticalAlign=middle;spacingRight=6;spacingBottom=0;"
+    elif vert == "below": st += "align=center;verticalAlign=top;spacingTop=6;spacingBottom=0;"
+    elif vert: st += "align=left;verticalAlign=middle;spacingLeft=6;spacingBottom=0;"
+    arr = "".join(f'<mxPoint x="{round(px)}" y="{round(py)}"/>' for px, py in pts)
+    xa = "" if pos is None else f' x="{pos:.2f}"'
+    return (f'<mxCell id="{eid}" value="{esc(label)}" style="{st}" edge="1" parent="1" source="{s}" target="{t}">'
+            f'<mxGeometry{xa} relative="1" as="geometry"><Array as="points">{arr}</Array></mxGeometry></mxCell>')
+
+def pend(cells, text, x=1080, w=520, style=PENDR):
+    h = fit_h(text, w, 40, 4)
+    cells.append(v("pend", "1", style, text, x, 12, w, h)); return 12 + h
+
+LEG1 = [(LEGEND_BOX(NEUTRAL), "淺灰：情境分組（無狀態意義）", 200, 60, 0), (RHOMBUS, "黃：判斷", 140, 64, 0),
+        (ELLIPSE(GREEN), "綠：起點／終點", 140, 44, 8), (ELLIPSE(RED), "紅：失敗終止（拉不到／寫壞）", 190, 56, 2),
+        (ELLIPSE(ORANGE), "橙：需要人動作（1／3 印指令；2 解衝突）", 210, 56, 2),
+        (LEAF(), "白：步驟", 88, 40, 10), (FILE, "虛線框：專案裡的檔案", 170, 40, 10)]
+LEG2 = [("entry", ENTRY, "虛線橢圓：跨頁入口", 200), ("note", NOTE, "便條：補充說明", 120), ("pend", PENDR, "黃便條：待拍板", 130), ("rule", RULE, "橘框：規則（已定）", 150),
+        ("inv", INV, "紅粗框：不變量", 130), ("sub", SUB, "藍：引擎子命令（容器內）", 190), ("img", IMG, "紫：image（引擎與工具）", 170),
+        ("hdr", HDR, "灰底：泳道／表格表頭", 170), ("v2", v2(W12), "右上綠標 v2：與 v1 不同處", 200), ("tree", FTREE, "虛線樹：目錄差異", 140)]
+def terms2(prefix, x, y, rows, kw=150, vw=610, gap=40):
+    """名詞表排兩欄（省高度）；id 沿用 {prefix}_tk{i}/_tv{i}。"""
+    c = [v(f"{prefix}_th", "1", TEXT(13) + "align=left;fontStyle=1;", "本頁名詞", x, y - 34, 200, 28)]
+    hs = [max(28, math.ceil(max(need_h(k, 12, kw), need_h(d, 12, vw)))) for k, d in rows]
+    tot = sum(hs); acc = 0; split = len(rows)
+    for i, h in enumerate(hs):
+        acc += h
+        if acc >= tot / 2: split = i + 1; break
+    for cx, idx in ((x, range(0, split)), (x + kw + vw + gap, range(split, len(rows)))):
+        cy = y
+        for i in idx:
+            k, d = rows[i]; h = hs[i]
+            c.append(v(f"{prefix}_tk{i}", "1", TERM_K, k, cx, cy, kw, h)); c.append(v(f"{prefix}_tv{i}", "1", TERM_V, d, cx + kw, cy, vw, h)); cy += h
+    return c
+def foot(cells, prefix, y, rows, keys):
+    """legend 兩列 + 本頁名詞（兩欄）。keys = 本頁用到的第二列圖例（每頁都有便條 → 一律含 note）。"""
+    keys = set(keys) | {"note"}
+    x = 40
+    for i, (st, t, w, h, dy) in enumerate(LEG1):
+        emit(cells, f"{prefix}_lg{i}", "1", _12(st), t, x, y + dy, w, h); x += w + 20
+    cells.append(v(f"{prefix}_lgt", "1", TEXT(12) + "align=left;", "實線 = 執行順序（指向檔案時 = 寫入／讀取）", x, y, 300, 60))
+    x = 40
+    for k, st, t, w in LEG2:
+        if k in keys: emit(cells, f"{prefix}_lgx_{k}", "1", st, t, x, y + 68, w, 36); x += w + 20
+    cells += terms2(prefix, 40, y + 140, rows)
+
+COLS5 = [("使用者", 40, 220), ("啟動器（主機 sh）", 280, 280), ("引擎容器", 580, 400), ("GHCR", 1000, 220), ("專案目錄", 1240, 360)]
+COLS7 = [("使用者", 40, 220), ("Renovate（GitHub 上）", 280, 180), ("啟動器（主機 sh）", 480, 240), ("引擎容器", 740, 360), ("GHCR", 1120, 180), ("專案目錄", 1320, 280)]
+COLS5W = [("使用者", 40, 220), ("啟動器（主機 sh）", 280, 320), ("引擎容器", 620, 380), ("GHCR", 1020, 200), ("專案目錄", 1240, 360)]   # 啟動器欄要兩條車道（判斷＋pull）的頁
+COLS5B = [("使用者", 40, 220), ("啟動器（主機 sh）", 280, 460), ("引擎容器", 760, 260), ("GHCR", 1040, 180), ("專案目錄", 1240, 360)]   # bootstrap.sh：啟動器兩條車道各 200
+COLS5I = [("使用者", 40, 220), ("啟動器（主機 sh）", 280, 140), ("引擎容器", 440, 560), ("GHCR", 1020, 200), ("專案目錄", 1240, 360)]   # install（2）：引擎欄三條車道
+U, L, E, G, P, RN = "使用者", "啟動器（主機 sh）", "引擎容器", "GHCR", "專案目錄", "Renovate（GitHub 上）"
+ALL = {"note", "pend", "rule", "inv", "sub", "img", "hdr", "v2", "tree"}   # "entry" 只在有跨頁入口的頁加
+EXIT3 = ("結束狀態 0／1／2／3", "0 成功；1 失敗或需要人動作（工具層動詞不動 version.toml；自身升級後「請再跑原指令」也是 1）；2 有合併衝突（留標記、解完重跑）；3 協定不合／版本太舊（薄殼帶 --protocol P，引擎不支援 → 先 upgrade vendor_kit；v2.4 Q16／Q19）")
+def newpage(cells_title, note, cols, note_style=NOTE):
+    cells = [v("title", "1", TITLE, cells_title, 40, 20, 1000, 34)]
+    ny = pend(cells, note, style=note_style)
+    F = Flow(cells, cols); F.headers(ny + 8)
+    return cells, F
+pages_v1_b = []
+
+# ================= 第十三輪共用（頁內；helper 段不動；v2.15-1～6、r12_codex/findings1–4）=================
+# 1. 名詞換新（v2.15-1、decisions/review/terms.md）：TR() 對照表；用「包住」helper 的方式套到每格文字、線標籤、名詞表、頁名（helper 本體不改；
+#    box/free/files 在算高度前先換，v() 再換一次 → 規則一律冪等）。第 0 頁已有的詞不再進各頁名詞表（BM_T／MD_T／SYM_T／FROZEN_T／INIT_T／VL_T／EXIT3… 移除）。
+# 2. 執行紀錄改圖例約定（v2.15-2）：不畫 launcher_exit／log_prune 扇出格與各段 engine_start 格；圖例加兩條隱含約定（foot()）；
+#    只留啟動器起點「建執行紀錄、寫 launcher_started（失敗 → 1 + 6-38）」一格，其失敗畫紅出口；終點直接接各自分支（footer()/footer_edges() 重寫：無匯流）。
+# 3. 跨頁出入口一律白虛線橢圓 ENTRY（v2.15-3）：入口「來自「X」頁」、出口「續「X」頁」。
+# 4. vk-resolve/1 只傳協定內容（v2.15-4）：RES_OUT 固定文字；resolve 非 0 → 啟動器不讀 stdout（NZ_T）；apply 多「原 argv 與計畫一致？」一格（ARGV_T）。
+# 5. 詢問格三出口（v2.15-6）：共用小圖示 tty()（橙小標「無 tty→1+6-4」貼在問句格右上；圖例 tty）。
+import re as _re
+_TR = [
+ (r"工具 repo", "下游 repo"), (r"工具 image", "下游 image"), (r"使用者的檔", "專案檔"), (r"使用者檔", "專案檔"), (r"你的檔", "專案檔"),
+ (r"(?<!下游)使用者", "下游使用者"), (r"下游專案", "專案"),
+ (r"正規行", "版本鎖定行"), (r"(?<!版本)鎖定行", "版本鎖定行"),
+ (r"(?<![:/A-Za-z_.])baseline(?![/:_.A-Za-z])", "基準版"),
+ (r"進度日誌", "進度檔"), (r"操作紀錄檔", "執行紀錄"), (r"建 log 檔並寫", "建執行紀錄、寫"), (r"(?<![A-Za-z_])log 檔", "執行紀錄"),
+ (r"CI 為真（frozen）", "CI 模式"), (r"frozen（CI 為真）", "CI 模式"), (r"（frozen）", ""), (r"非 frozen", "非 CI 模式"), (r"frozen", "CI 模式"),
+ (r"CI 不為真", "非 CI 模式"), (r"CI 為真", "CI 模式"), (r"需改 tracked 檔", "需改任何進 git 的檔"), (r"tracked 五檔", "進 git 的五檔"),
+ (r"tracked 檔", "進 git 的檔"), (r"tracked 薄殼", "進 git 的薄殼"), (r"tracked", "進 git 的"),
+ (r"協定號", "介面版"), (r"協定不合", "介面版不合"), (r"schema 號", "檔案版"), (r"(?<![A-Za-z_])floor(?![A-Za-z_])", "最低介面版"),
+ (r"materialize", "取件"), (r"需要人動作", "需人處理"), (r"自身升級", "升引擎"),
+ (r"薄殼首行自描述", "薄殼自描述首行"), (r"首行自描述", "自描述首行"),
+ (r"launcher_started", "launcher_start"), (r"engine_started", "engine_start"),                      # v2.16-3：事件名回歸 spec §4.10 註冊表
+ (r"launcher_completed\|failed", "launcher_exit"), (r"engine_completed\|failed", "engine_exit"),
+]
+_TRC = [(_re.compile(p), r) for p, r in _TR]
+def TR(s):
+    """名詞對照（冪等）；非字串原樣回傳。"""
+    if not isinstance(s, str) or not s: return s
+    for p, r in _TRC: s = p.sub(r, s)
+    return s
+
+if not globals().get('_TR_WRAPPED'):   # 冪等：同一 namespace 重複 exec（gen_disc 先經 disc_v1_c 再 exec 本檔）時不可重包，否則 v→v 無限遞迴
+    _box0, _free0, _files0, _ffiles0 = _Band.box, _Band.free, _Band.files, _Band.free_files
+    _v0, _e0, _edge0, _pend0, _newpage0 = v, e, _edge, pend, newpage
+    _TR_WRAPPED = True
+def _box1(self, cid, col, row, style, text, w, *a, **k): return _box0(self, cid, col, row, style, TR(text), w, *a, **k)
+def _free1(self, cid, style, text, x, y, w, *a, **k): return _free0(self, cid, style, TR(text), x, y, w, *a, **k)
+def _files1(self, cid, col, row, title, items, w, *a, **k): return _files0(self, cid, col, row, TR(title), [TR(t) for t in items], w, *a, **k)
+def _ffiles1(self, cid, title, items, x, y, w): return _ffiles0(self, cid, TR(title), [TR(t) for t in items], x, y, w)
+_Band.box, _Band.free, _Band.files, _Band.free_files = _box1, _free1, _files1, _ffiles1
+def v(id, parent, style, value, x, y, w, h): return _v0(id, parent, style, TR(value), x, y, w, h)
+def e(id, src, tgt, label="", *a, **k): return _e0(id, src, tgt, TR(label), *a, **k)
+def _edge(eid, s, t, label, *a, **k): return _edge0(eid, s, t, TR(label), *a, **k)
+def pend(cells, text, x=1080, w=520, style=PENDR): return _pend0(cells, TR(text), x, w, style)
+def newpage(cells_title, note, cols, note_style=NOTE):
+    """第十四輪（v2.16-18）：沿革便條全刪 —— note 參數保留簽名但不畫；表頭直接接在頁標題下。"""
+    cells = [v("title", "1", TITLE, cells_title, 40, 20, 1000, 34)]
+    F = Flow(cells, cols); F.headers(64)
+    return cells, F
+def addpage(pid, name, cells): pages_v1_b.append((pid, TR(name), cells))
+
+# ---------- 圖例（第十三輪）：跨頁出入口、tty 小標、兩條隱含約定 ----------
+TTY = ("rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;fontStyle=1;align=center;verticalAlign=middle;"
+       "spacing=0;spacingLeft=0;spacingRight=0;spacingTop=0;spacingBottom=0;")
+TTY_TXT = "無tty→6-4"
+def tty(F, cells, *ids):
+    """問句格（菱形／步驟）左上角加橙小標「無 tty→1+6-4」= 第三出口（v2.15-6 共用小圖示；圖例 tty）。close() 之後呼叫。"""
+    for cid in ids:
+        x, y, w, h = F.abs[cid]
+        cells.append(v(f"{cid}_tty", "1", TTY, TTY_TXT, round(x), round(y - 10), 76, 20))   # 左上角（菱形頂點在中央，右上有 v2 標）
+LEG2 = [("entry", ENTRY, "白虛線橢圓：跨頁出入口", 220), ("note", NOTE, "便條：補充說明", 120), ("pend", PENDR, "黃便條：待拍板", 130),
+        ("rule", RULE, "橘框：規則（已定）", 130), ("inv", INV, "紅粗框：不變量", 120), ("sub", SUB, "藍：引擎（容器內）做的", 160), ("img", IMG, "紫：image", 100),
+        ("hdr", HDR, "灰底：泳道／表頭", 130), ("v2", v2(W12), "右上綠標 v2：與 v1 不同", 180), ("tree", FTREE, "虛線樹：目錄差異", 140),
+        ("tty", TTY, "橙小標：問句無 tty／EOF 且無 -y → 1 + 6-4（Ctrl-C 中止、不記拒絕）", 300)]
+LEG_IMPL = ("圖例約定（v2.15-2、v2.16-3）：每個終點橢圓隱含 —— 啟動器結束前已寫 log_prune、launcher_exit（結束碼、耗時）；"
+            "每個「docker run 引擎」格隱含 —— 容器開始寫 engine_start、結束寫 engine_exit（同一執行紀錄；事件名 = spec §4.10 註冊表）。白 = 啟動器（主機）做的。")
+def foot(cells, prefix, y, rows, keys):
+    """legend 兩列 + 兩條隱含約定 + 本頁名詞（兩欄；只列第 0 頁沒有的頁內特有詞）。"""
+    keys = set(keys) | {"note"}
+    x = 40
+    for i, (st, t, w, h, dy) in enumerate(LEG1):
+        emit(cells, f"{prefix}_lg{i}", "1", _12(st), t, x, y + dy, w, h); x += w + 20
+    cells.append(v(f"{prefix}_lgt", "1", TEXT(12) + "align=left;", "實線 = 執行順序（指向檔案時 = 寫入／讀取）", x, y, 300, 60))
+    x = 40
+    for k, st, t, w in LEG2:
+        if k in keys: emit(cells, f"{prefix}_lgx_{k}", "1", st, t, x, y + 68, w, 36); x += w + 20
+    cells.append(v(f"{prefix}_lgi", "1", TEXT(12) + "align=left;", LEG_IMPL, 40, y + 108, 1540, 40))
+    cells += terms2(prefix, 40, y + 188, [(TR(k), TR(d)) for k, d in rows])
+
+# ---------- 共用名詞（只留第 0 頁沒有的；term-diff：同名各頁同文） ----------
+LOGT = [   # 執行紀錄（第 0 頁已有）不再列；只留 config.toml 與 6-38
+ ("config.toml（install／uninstall）", ".vendor_kit/config.toml（進 git）：schema = 1、[log] keep = 50、days = 30；install 建（含註解）＋ 基準版副本 baseline/vendor_kit/config.toml；升引擎時三方合併；uninstall 只在 hash == 副本時刪；缺檔或缺鍵 = 預設"),
+ ("6-38", "執行紀錄建不了／寫不進 → 1，零寫入、不進 resolve；附清空間提示；所有動詞一致，無 --no-log"),
+]
+RA_T = ("resolve／apply 兩段", "動詞的兩段：resolve 只讀、算要拉哪些 image、輸出 vk-resolve/1（pull／extract／mount 清單、apply|yes／no、指紋；不寫檔）→ 啟動器 docker 拉到暫存 → apply 拿鎖、重驗指紋、驗原 argv 與計畫一致、建進度檔、寫檔、最後刪進度檔；細節 p3b 契約④")
+RAD_T = ("resolve／apply／--dry-run", "resolve 只讀只算（查目標版或讀 metadata、輸出要拉的 image 與指紋，不寫檔）；啟動器 docker image inspect 有則不拉、無才 pull；apply 拿 flock 後重驗指紋才寫；--dry-run = apply 的唯讀預覽（要先拉 image；本機 → 0；CI 模式且需改任何進 git 的檔 → 1）")
+FIP_T = ("flock／指紋", "flock = 專案目錄鎖（60 秒；VENDOR_KIT_NO_LOCK=1 可關），鎖在引擎；指紋 = resolve 讀過的檔的 hash＋鎖定 digest 等（算法見 add（1）頁「輸入指紋」），apply 拿鎖後重驗，不同 → 1 + 6-12「請重跑」（橙）")
+GM_T = ("git merge-file --diff3", "git 的三方合併指令；衝突時在檔內留 <<<<<<< vendor_kit:baseline ||||||| ======= >>>>>>> 標記（我們自己的標籤，重入時靠它偵測）；回傳衝突數 → 結束碼 2（需人處理，橙）；多工具（Q27）兩者皆回 2 時訊息全部列出")
+GS_T = ("gen/.stamp", "只記「gen/ 與薄殼是哪個引擎產生的」（引擎 ref 一行；本機覆寫時為 <tag>）；只由 install／upgrade vendor_kit 寫；≠ version.toml 版本鎖定行 → sync 退出 1 印 6-1；fresh clone 缺此檔時相容判定改用薄殼首行")
+BDN_T = ("B／D／N", "B = 基準版（上次合併時的初始檔原版副本，進 git）；D = 現況（專案裡你的那份檔）；N = 新版初始檔 = 啟動器把目標版 image 展開到暫存、掛進引擎的 /dist/<repo>（不是 cache；v2.5 §2）；「D==B」= 你沒改過")
+BOOT_T = ("bootstrap.sh 檔名與內嵌 ref", "release 附的 POSIX sh，內嵌所屬引擎的完整 ref（ghcr.io/<org>/vendor_kit:vN@sha256:<index digest>）；檔名固定：releases/download/vN/bootstrap.sh，README 連 releases/latest/download/bootstrap.sh；離線契約入口 = bootstrap.sh --local <tar>")
+GT_T = ("gen/tools.just／mod?", "不進 git；每個工具 just/<ns>.just 一行 mod? <ns> '../cache/<repo>/just/<ns>.just'（帶問號 = 檔不在也不掛）；add／remove／upgrade／sync 重生，最後寫、與 cache 同一 apply 內原子替換（I17）；裡面沒有 recipe")
+E2B_T = ("6-2b", "第一行已改但新引擎拉取／重產失敗，或第二次第一行又變 → 1：「引擎版本已鎖定為 vY，但薄殼尚未重產；請排除上述錯誤後執行：just vendor_kit upgrade vendor_kit」（.tmp.upgrade 進度檔保留）")
+PULLX_T = ("6-24／6-31（pull 失敗）", "docker pull 失敗 → 1 + 6-24（原文 + 網路／認證／不存在／主機錯誤分類；bootstrap／add 另附「離線可用：--local <tar>」）；pull 逾時 → 1 + 6-31（--timeout <秒> 或 VENDOR_KIT_PULL_TIMEOUT 調整）；docker create／cp／rm 或暫存目錄失敗同樣 → 1 停止")
+E22_T = ("6-22（upgrade 逐檔問句）", "「<X> 換成新版？」／「你和新版都改了 <X>，要三方合併嗎？」／「要建 <X> 嗎」／「<X> 是二進位檔，要換成新版嗎？」；config.toml 三方合併也用它；-y 免問")
+REN_T = ("Renovate", "GitHub 上的機器人（下游自選；vendor_kit 不出 bot）：有新版就開 PR 改 version.toml 那一行；見「A. Renovate 路徑」頁")
+E33_T = ("6-33（未完成交易）", "唯讀動詞偵測到 .tmp.<verb>.*.toml 或 metadata [progress] in-progress → 只印「偵測到未完成的 <verb>（<id>）。請先重跑：just vendor_kit <verb> <targets>」，不自動恢復、不寫檔；sync／update 結束 1，help 仍 0")
+E4_T = ("6-4（無 tty）", "需詢問但無 tty／EOF 且無 -y → 1：「需要確認但沒有終端可互動。請加 -y，或在終端執行。」；Ctrl-C 中止整個 apply 回 1、不套用、不記拒絕（declined 只記明確回答「否」）")
+E12_T = ("6-12（指紋不同）", "apply 拿鎖後重驗指紋不同（中間有人改了）→ 1：「專案狀態在執行期間變動，未寫入任何檔。請重跑：just vendor_kit <verb> …」；原 argv 與計畫不一致也 → 1")
+MSG_T = ("6-16／6-23／6-28／6-35", "前置檢查訊息：6-16 不在 git repo 內（請先 git init）；6-23 just 版本不足（印安裝指令）；6-28 薄殼被改過，列差異不動；6-35 禁止巢狀（上層或下層已有 .vendor_kit/）")
+NZ_T = ("resolve 非 0", "resolve 容器結束碼非 0（1／2／3）→ 啟動器不讀 stdout、不跑任何 docker／apply，原碼傳出；stdout 文法不合 → 1 + 6-30（§3.3）")
+ARGV_T = ("原 argv 與計畫一致", "apply 讀 /dist/vk-resolve（啟動器把 resolve 的 stdout 整份存成 .tmp.dist.<id>/vk-resolve 掛入）：重算指紋 ≠ 計畫的 fingerprint → 1 + 6-12；本次 argv 與計畫不一致 → 1；apply 不重新選最新版（§3.2）")
+N5I = "已定（v2.4 Q17、v2.5 §8、v2.6、v2.13 P5、v2.15-11）：install 第一次／修復判定用薄殼自描述首行；進度檔在第一個寫入（含暫存檔）之前建；修復型 config.toml 缺才建（含基準版副本與 metadata state=managed）、存在不動；根 justfile／.dockerignore 無則建、有則問後才加、symlink 不寫只印指示；引擎 image 一律先 docker image inspect，本機有就不 pull。"
+LS_T = "建執行紀錄、寫 launcher_start（失敗 → 1 + 6-38，零寫入）"     # （第十四輪改用 lstart() 拆兩格；此常數只留給舊引用）
+LS1 = "寫 launcher_start（失敗 → 1 + 6-38，零寫入）"                    # 啟動器起點第二格（v2.16-19）
+LSX = "1 + 6-38：執行紀錄建不了／寫不進（零寫入）"                    # 其紅出口
+E27X = "1 + 6-27：恢復失敗（未恢復：<檔名>，逐檔列出）"                # 共通前置格的紅出口（v2.16-1）
+E33X = "1 + 6-33：偵測到未完成的 <verb>（<id>）。請先重跑：just vendor_kit <verb> <targets>"   # 唯讀動詞（sync／update）
+E26X = "1 + 6-26：專案目錄被鎖定（PID <pid>，自 <time>）；60 秒內未釋放"   # flock 逾時出口（每個 apply 頁都有）
+NZX = "1／2／3：resolve 非 0 → 原碼傳出（不讀 stdout、不跑 docker／apply）"   # resolve 三叉（v2.16-2）第一叉
+E30X = "1 + 6-30：引擎輸出不完整或不相容，未執行任何動作（stdout 文法不合）"   # 第二叉
+RES_OUT = "stdout vk-resolve/1：pull／extract／mount 清單、apply|yes、指紋（只傳協定內容）"   # v2.15-4
+NZ_X = "1／2／3：resolve 非 0（啟動器不讀 stdout、不跑 docker／apply）"
+ARGV_Q = "原 argv 與計畫一致？"
+E64 = "1 + 6-4：無 tty／EOF 且無 -y（Ctrl-C 中止、不記拒絕）"
+
+def footer(b, F, row, ends, spacer=0, sp="r"):
+    """終點列（第十三輪：各分支直接接自己的終點，無匯流）。spacer > 0 → 第 row 列放透明佔位格（高 16×spacer+12），給左右匯流排的
+    水平段分層用，終點放 row+1；否則終點放 row。sp = 佔位格放哪（不能被水平段穿過）：'r' 專案目錄欄右緣（只有左側來源時）、
+    'l' 下游使用者欄左緣（只有右側來源時）、'm' GHCR 與專案目錄欄之間（兩側都有；右側終點須放 P 欄）。
+    ends: [(cid, style, text)] 依序放槽位 U、L、E-l、E-r、G、P（欄寬 ≥ 180；E ≥ 360 兩槽），或 (cid, style, text, col, ax) 指定位置。回傳終點所在列。"""
+    r0 = row
+    if spacer:
+        hh = 16 * spacer + 12
+        col, ax = {"r": (P, "r"), "l": (U, "l"), "m": (G, F.cols[G][1] + 5)}[sp] if sp != "m" or G in F.cols else (E, F.cols[E][1] + 5)
+        b.box("_sp", col, row, "text;html=1;fillColor=none;strokeColor=none;", "", 10, h=hh, minh=hh, ax=ax); r0 = row + 1
+    slots = []
+    for col in (U, L, E, G, P):
+        if col not in F.cols: continue
+        cx, cw = F.cols[col]
+        if col == E and cw >= 360:
+            sw = min(220, (cw - 20) // 2); slots += [(col, "l", sw), (col, "r", sw)]
+        elif cw >= 180: slots.append((col, "c", min(220, cw)))
+    i = 0
+    for en in ends:
+        cid, st, text = en[:3]
+        if len(en) > 3: b.box(cid, en[3], r0, st, text, 220, ax=en[4])
+        else:
+            col, ax, sw = slots[i % len(slots)]; b.box(cid, col, r0 + i // len(slots), st, text, sw, ax=ax); i += 1
+    return r0
+
+def footer_edges(F, srcs, busl=None, busr=None, dlevel=0):
+    """close() 之後畫終點線。srcs: [(eid, src, label, how, end[, sx])]：
+      'l'／'lb' 左出（'lb' 從底端 sx 出、經該列底縫隙）→ 左匯流排 → 分層水平段 → 終點頂端；'r'／'rb' 右側同理；'d' 從底端直下（不對齊時在終點上方縫隙折一次）。
+    分層：同側依來源由上到下排序，最上面的用最外側匯流排、最低的水平層、最左（右側：最右）的終點 → 不交叉（頁內終點順序須照這規則排）。"""
+    A, RT, RB, g = F.abs, F.rt, F.rb, F.gap
+    if busl is None: busl = F.cols[U][0] - 10
+    if busr is None: busr = F.cols[P][0] + F.cols[P][1] + 10
+    def rh_off(cid, xr): return abs(0.5 - xr) * A[cid][3] if F.st.get(cid, "").startswith("rhombus") else 0.0
+    ends = {s[4] for s in srcs}; ytop = min(RT[en] for en in ends) if ends else 0
+    for side in ("l", "r"):
+        grp = sorted([s for s in srcs if s[3] in (side, side + "b")], key=lambda s: (A[s[1]][1], A[s[1]][0]))
+        n = len(grp)
+        for i, it in enumerate(grp):
+            eid, s, label, how, en = it[:5]; sxr = it[5] if len(it) > 5 else 0.5
+            sx0, sy0, sw, sh = A[s]; tx0, ty0, tw, th = A[en]; nx = tx0 + tw / 2
+            busx = (busl - 14 * (n - 1 - i)) if side == "l" else (busr + 14 * (n - 1 - i))
+            lev = ytop - g / 2 - 12 - 16 * i
+            if how in ("l", "r"):
+                left = side == "l"; ex = sx0 if left else sx0 + sw; ey = sy0 + sh / 2
+                pts = [(busx, ey), (busx, lev), (nx, lev)]
+                tot = abs(ex - busx) + abs(lev - ey) + abs(nx - busx) + abs(ty0 - lev)
+                F.cells.append(_edge(eid, s, en, label, (0 if left else 1, 0.5), (0.5, 0), pts, 2 * (14 / tot) - 1 if label else None, "below" if label else None))
+            else:
+                ex = sx0 + sxr * sw; gy = RB[s] + g / 2; pts = [(ex, gy), (busx, gy), (busx, lev), (nx, lev)]
+                off = rh_off(s, sxr); L1 = gy - (sy0 + sh); tot = off + L1 + abs(ex - busx) + abs(lev - gy) + abs(nx - busx) + abs(ty0 - lev)
+                F.cells.append(_edge(eid, s, en, label, (round(sxr, 3), 1), (0.5, 0), pts, 2 * ((off + max(L1 / 2, 12)) / tot) - 1 if label else None, True if label else None))
+    for it in srcs:
+        eid, s, label, how, en = it[:5]; sxr = it[5] if len(it) > 5 else 0.5
+        if how != "d": continue
+        sx0, sy0, sw, sh = A[s]; tx0, ty0, tw, th = A[en]; ex = sx0 + sxr * sw; nx = tx0 + tw / 2
+        if abs(ex - nx) < 1 or (tx0 + 0.1 * tw <= ex <= tx0 + 0.9 * tw and not F.st.get(en, "").startswith("ellipse")):
+            txr = round((ex - tx0) / tw, 3); off = rh_off(s, sxr); L1 = ty0 - (sy0 + sh)
+            F.cells.append(_edge(eid, s, en, label, (round(sxr, 3), 1), (txr, 0), [], (2 * ((off + 12) / (off + L1)) - 1) if label else None, True if label else None))
+        else:
+            gy = RT[en] - g / 2 + dlevel; pts = [(ex, gy), (nx, gy)]; off = rh_off(s, sxr); L1 = gy - (sy0 + sh); tot = off + L1 + abs(nx - ex) + (ty0 - gy)
+            F.cells.append(_edge(eid, s, en, label, (round(sxr, 3), 1), (0.5, 0), pts, 2 * ((off + max(L1 / 2, 12)) / tot) - 1 if label else None, True if label else None))
+
+def bypass(F, cells, eid, s, t, label="有", busx=None):
+    """close() 後畫：inspect 菱形「本機有」→ 跳過 pull 直接到 t：s 右側出線 → 頁面右側匯流排（預設專案目錄欄左 10px）→ t 上方縫隙 → t 頂端。"""
+    A = F.abs; busx = busx or F.cols[P][0] - 10
+    sx0, sy0, sw, sh = A[s]; tx0, ty0, tw, th = A[t]
+    ey = sy0 + sh / 2; gy = F.rt[t] - F.gap / 2; nx = tx0 + tw / 2
+    tot = (busx - (sx0 + sw)) + (gy - ey) + (busx - nx) + (ty0 - gy)
+    cells.append(_edge(eid, s, t, label, (1, 0.5), (0.5, 0), [(busx, ey), (busx, gy), (nx, gy)], 2 * (14 / tot) - 1 if label else None, "below" if label else None))
+
+def pullseg(b, row, ids, texts, nxt, w=(260, 200, 280), imgw=180):
+    """啟動器 image 段（三格同中心直下，pull 失敗從左側出線）：row inspect 菱形；row+1 pull 白格 + GHCR 欄 image；nxt 放 row+2。
+    契約④（v2.15-10）：inspect 本機已有 → 跳過 pull（bypass()）；只有 extract kind 才 create／cp。"""
+    qi, pi, gi = ids; qt, pt, gt = texts
+    b.box(qi, L, row, v2(D12), qt, w[0]); b.box(pi, L, row + 1, v2(W12), pt, w[1]); b.box(gi, G, row + 1, IMG, gt, imgw)
+    b.box(nxt[0], L, row + 2, nxt[1], nxt[2], w[2])
+    b.D(f"{qi}_n", qi, pi, "無", al=True); b.H(f"{gi}_p", gi, pi, "拉" if "vendor_kit" in gt else "拉 /dist"); b.D(f"{pi}_x", pi, nxt[0], al=True)
+
+def sidebus(F, cells, eid, s, t, label="", busx=0, side="l", tx=0.5, pos=-0.7, vert="left"):
+    """close() 後畫：s 側邊出線 → x=busx 匯流排往下 → t 上方縫隙 → t 頂端 tx 處（菱形用 0.5 = 頂點）。跳過中間幾列的分支線。"""
+    A = F.abs; sx0, sy0, sw, sh = A[s]; tx0, ty0, tw, th = A[t]
+    ey = sy0 + sh / 2; gy = F.rt[t] - F.gap / 2; nx = tx0 + tx * tw

@@ -1,0 +1,65 @@
+fix(init): a rolled-back resync leaves the smoke-tree rename staged in the index
+## Context
+
+Split out of #1050 / PR #1058, which promised it separate triage.
+
+`_migrate_smoke_tree` (`dist/script/docker/lib/smoke_migrate.sh`) ends by
+staging its own rename, so the move rides the caller's upgrade commit:
+
+```
+git -C "${_root}" add -A -- test/smoke test/bats/smoke
+```
+
+It is called from `_init_existing_repo`, INSIDE the rollback bracket
+(`_init_arm_rollback` ... `_init_disarm_rollback`) and before
+`_migrate_dockerfile`. The general staging pass #1053 added runs after the
+bracket closes, so this is the one stager the rollback can observe.
+
+## Problem
+
+The rollback restores the working TREE (`_init_restore_tree`) and, for the
+index, only re-adds entries it recorded being removed
+(`_init_restore_index`, sourced from `_canonical_gitignore_entries`). No
+path removes an index entry the run ADDED.
+
+So after `_migrate_dockerfile` fails, the working tree is correct -- #1058
+made `test/smoke` and `test/bats/smoke` protected roots -- but the index
+still describes the migrated shape: `test/smoke/<spec>` staged as deleted,
+`test/bats/smoke/shared/<spec>` and the two `.gitkeep`s staged as added,
+none of it matching what is on disk.
+
+`git status` nets out to nothing against HEAD, which is what hides it. A
+subsequent bare `git commit` commits the INDEX, so the consumer commits a
+migration that was rolled back, referencing blobs for files the restore
+removed. The rollback's own contract -- "the consumer's files are back as
+they were" -- is then true of the tree and false of the repository.
+
+## Proposal
+
+Make the rollback's index restore symmetric with its tree restore: record
+the index state of the protected roots in `_init_snapshot_index`, not only
+the canonical gitignore entries, and on restore reset those paths to the
+recorded state (removing entries the run added, not just re-adding entries
+it removed). `_init_restore_index`'s existing rule -- never overwrite
+something staged around this run -- should survive the change.
+
+An alternative worth weighing: have the migration not stage at all and let
+the post-bracket staging pass #1053 introduced pick the rename up, so there
+is one stager rather than two and none of them inside the bracket.
+
+## Acceptance criteria
+
+- After a mid-`_migrate_dockerfile` failure on a repo that tracked
+  `test/smoke/`, `git diff --cached` is empty (or exactly what the consumer
+  had staged before the run).
+- An integration assertion for it in `test/bats/integration/init_rollback_spec.bats`,
+  whose fixture already carries the tracked flat smoke tree and already
+  checks one index entry (`compose.yaml`).
+- Anything the consumer staged before the resync is still staged after.
+
+## Out of scope
+
+- The post-bracket staging pass added by #1053 on the success path.
+- The tree half of the rollback, fixed in #1058.
+
+

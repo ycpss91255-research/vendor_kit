@@ -1,0 +1,130 @@
+fix(dockerfile): multi-platform builds hardcode one architecture, and nothing reports which literals leaked
+## Problem
+
+Downstream repos build multi-platform while their Dockerfiles hardcode a single
+architecture. The assumption is not expressed anywhere -- it is scattered as
+literal strings that nothing checks.
+
+**base's own Dockerfile has zero architecture handling.** No `TARGETARCH`, no
+`TARGETPLATFORM`, no detection:
+
+```
+$ grep -nE 'TARGETARCH|TARGETPLATFORM|BUILDPLATFORM|uname -m|dpkg --print-architecture' \
+    dist/dockerfile/Dockerfile
+(no matches)
+```
+
+Meanwhile `realsense_ros2` and `ros1_bridge` both build
+`platforms: linux/amd64,linux/arm64`.
+
+## Evidence
+
+`ycpss91255-docker/realsense_ros2`'s Dockerfile, by stage:
+
+```
+lint-tools  shellcheck-v0.10.0.linux.x86_64.tar.xz
+lint-tools  hadolint-Linux-x86_64
+sys         ARG HARDWARE="x86_64"
+```
+
+The first two sit in a stage that may not be built for arm64, so they may not
+fail today. The third is in `sys`, the main line -- and it declares a value that
+**nothing in the file ever reads** (one occurrence, no consumer). An unused ARG
+naming an architecture is a leftover assumption, not a configuration point.
+
+This is the symptom of a single Dockerfile pretending to be
+architecture-agnostic: the assumptions do not disappear, they scatter into
+string literals, and nothing reports which ones scattered.
+
+## Decision
+
+**One Dockerfile, architecture expressed explicitly via `TARGETARCH` -- plus a
+lint so it cannot regress.** Separate per-architecture Dockerfiles were
+considered and rejected.
+
+### This is Docker's own recommendation, not a preference
+
+From `docs.docker.com/build/building/multi-platform/`:
+
+> Special build arguments, such as `BUILDPLATFORM` and `TARGETPLATFORM`, are
+> **automatically available for use in your Dockerfile.**
+
+and
+
+> if the programming language you use has good support for cross-compilation,
+> you can leverage multi-stage builds to build binaries for target platforms
+> from the native architecture
+
+The documented Go example is a single Dockerfile passing `TARGETOS` /
+`TARGETARCH` to the compiler -- explicitly to avoid both separate Dockerfiles
+and reliance on emulation.
+
+### Why not separate Dockerfiles per architecture
+
+It trades "one place forgotten" for "two places out of sync", and the second is
+harder to notice: two files 90% identical will drift, and nothing makes the drift
+visible. buildx is designed around one Dockerfile and N platforms.
+
+### The two halves
+
+**(B) Express it.** Architecture-varying values come from `TARGETARCH`, which
+buildx injects, instead of being written into the string:
+
+```dockerfile
+ARG TARGETARCH
+RUN curl -fsSL ".../shellcheck-v0.10.0.linux.${SHELLCHECK_ARCH}.tar.xz"
+```
+
+**(C) Enforce it.** A lint refusing a bare architecture literal in a Dockerfile,
+so the next person who writes `x86_64` is told at once rather than at the first
+arm64 build.
+
+## The wrinkle (C) has to handle
+
+`TARGETARCH`'s values are Docker's (`amd64` / `arm64`), and upstream release
+assets frequently use other spellings:
+
+```
+shellcheck   linux.x86_64   /  linux.aarch64
+hadolint     Linux-x86_64   /  Linux-arm64
+```
+
+So `${TARGETARCH}` cannot be dropped into a URL directly -- a mapping layer is
+usually needed. That means the lint **cannot simply ban every architecture
+string**: a legitimate mapping table contains both spellings by design. It needs
+a scoped opt-out (a marked mapping block, or a per-line allow comment) with a
+reason, in the shape the repo's other lints already use.
+
+Getting that wrong in the strict direction is the failure mode: a lint that
+fires on the correct implementation of the thing it is asking for gets muted.
+
+## Scope
+
+- base's `dist/dockerfile/Dockerfile`: introduce the pattern, including for the
+  commented-out runtime/builder blocks a consumer may uncomment.
+- The new lint plus its opt-out, registered the way `_LINT_TOOLS` entries are
+  (table, dispatch arm, both flags, `lint-static` matrix entry, a `_die` event
+  id, a `doc/test/TEST.md` row).
+- Downstream repos are NOT in scope here. They are reached by the release
+  fanout (#927); this issue establishes the pattern and the guard in base.
+- `realsense_ros2`'s three literals need their own issue in that repo, including
+  whether `ARG HARDWARE` should exist at all.
+
+## Acceptance criteria
+
+- [ ] base's Dockerfile expresses architecture through `TARGETARCH`, with no bare
+      architecture literal outside a marked mapping.
+- [ ] A lint refuses a bare architecture literal, and its opt-out requires a
+      stated reason.
+- [ ] A legitimate two-spelling mapping table passes.
+- [ ] A spec covers both directions: the literal fails, the mapping passes.
+- [ ] The chosen pattern is recorded where a consumer writing a Dockerfile will
+      meet it (the Dockerfile's own comments are the likely home).
+
+## Out of scope
+
+- Whether any given repo should build arm64 at all.
+- Emulation vs cross-compilation as a build strategy -- this is about expressing
+  the target, not about how the build reaches it.
+
+

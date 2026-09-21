@@ -1,0 +1,77 @@
+Rename setup.local.toml to setup.toml.local for naming consistency
+## Summary
+
+Rename `setup.local.toml` to `setup.toml.local` to align with the project naming convention: "standard name + `.local` suffix".
+
+The local variant of `.env` is `.env.local`, but the local variant of `setup.toml` currently uses `setup.local.toml` -- which reads as a different file rather than a local override. Unifying to `setup.toml.local` removes this ambiguity.
+
+## Locations to change
+
+### Code
+- `setup_conf.sh`: `_setup_conf_layers()` layer 3 filename
+- `gitignore.sh`: `_canonical_gitignore_entries()` entry
+- `setup_cmd.sh`: `--local` flag output path
+- `ini_to_toml_migrate.sh`: migration target for `.setup.conf.local`
+
+### Tests
+- All specs referencing the old filename
+
+### Documentation
+- README
+- ADR-37
+- CONTEXT.md
+- proposed setup.toml header comment
+
+## Rejected: the current name is already the correct one
+
+Closing as not planned. `setup.local.toml` stays; the proposed
+`setup.toml.local` would be a regression.
+
+### The `.env` precedent does not transfer
+
+This issue reasons from `.env` -> `.env.local`, but `.env` has no
+`name.extension` structure at all -- the entire filename is the format
+identifier. Appending `.local` there is the only placement available,
+not a placement that was chosen over another. There is no rule in that
+example to generalise from.
+
+`setup.toml` is a different shape: it has a real extension, so where
+the variant marker goes is an actual decision with consequences.
+
+### The extension has to stay last, because tooling reads it
+
+`setup.local.toml` has extension `.toml`. Editors syntax-highlight it,
+`*.toml` globs match it, and TOML linters and formatters pick it up.
+
+`setup.toml.local` has extension `.local`, which nothing recognises.
+Every one of those behaviours is lost, and each has to be recovered by
+hand with per-file editor overrides and widened glob patterns.
+
+### The mainstream convention splits the same way
+
+The two placements are not interchangeable in general practice; they
+mean different things.
+
+An overlay that is loaded as-is takes the marker as an infix, keeping
+its real extension: `compose.override.yaml`, `tsconfig.build.json`,
+`webpack.config.dev.js`.
+
+A suffix after the extension marks a file that is deliberately NOT
+loaded and must be copied into place first: `phpunit.xml.dist`,
+`config.yaml.example`.
+
+The local files here are loaded overlays -- the config reader merges
+them directly, nobody copies them. So they take the infix.
+
+### Nothing to do
+
+`dist/setup.toml` already documents `setup.local.toml` as layer 3, and
+the code already reads that name. The listed call sites are correct as
+they stand. Related drafts that had drifted toward the suffix form have
+been corrected back.
+
+The other half of the surrounding rename work -- dropping the leading
+dot from the TOML sources, so `env.toml` rather than `.env.toml` while
+the generated compose dotenv files keep theirs -- is unaffected and
+stands.
+

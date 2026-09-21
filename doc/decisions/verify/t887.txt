@@ -1,0 +1,91 @@
+fix(test-tooling): shared test-tools tag collides between runs, and no just entry runs one spec under kcov
+## Context
+
+Both found while implementing #869. Both forced raw `docker` where `just` should
+have been enough, and one of them silently corrupted a run's results.
+
+## 1. The shared `test-tools:local` tag collides between concurrent runs
+
+`just docker build --target test-tools` writes the fixed tag `test-tools:local`.
+When two worktrees build it at the same time, the second overwrites the first.
+
+This is not theoretical. During #869 a sibling agent rebuilt the tag mid-run and
+**kcov silently vanished from the image** the first run was using -- the tooling
+did not fail, it just stopped having kcov in it. The workaround was to rebuild
+and freeze a private tag (`test-tools-869-kcov:local`).
+
+The same signature is very likely what made earlier runs report "kcov
+unavailable" during #867. That was never explained at the time.
+
+Severity is in the silence: an overwritten image does not error, it produces a
+result that looks real. A run can report a clean coverage pass having never run
+kcov at all.
+
+**Fix direction:** derive the tag per worktree (or per checkout) instead of a
+fixed literal, so concurrent builds cannot alias. Whatever is chosen, a stale or
+missing tool inside the image should be a loud failure rather than a skipped
+check.
+
+## 2. There is no `just` entry to run ONE spec under kcov
+
+`--bats-path` explicitly refuses `--coverage` (#523), so the only kcov recipes
+are the whole suite or a whole shard -- 8 to 12 minutes.
+
+For a bug whose entire evidence is "this spec is red under kcov and green
+without it" -- which is exactly the #869 class, and the class the coverage gate
+exists to catch -- that is the whole inner loop. Every red-green iteration costs
+a full suite.
+
+So the before/after evidence for #869 was gathered with raw `docker run` + kcov
+by hand. Every other step in that task went through `just`; this one could not.
+
+**Fix direction:** a `just test coverage-path <spec>` (or lift the `--bats-path`
++ `--coverage` refusal, if the original reason no longer holds -- check #523
+before assuming it was arbitrary).
+
+## Why these are filed together
+
+Same root: the local test-tooling surface has gaps that get worked around with
+raw `docker`, and a hand-rolled workaround is neither repeatable by the next
+person nor covered by anything. #885 is a third instance (the shipped smoke
+specs have no `just` entry at all).
+
+The standing expectation in this repo is that `just` is the control surface --
+if `just` cannot do it, that is a missing recipe, not a reason to reach past it.
+
+## Acceptance criteria
+
+- [ ] Two concurrent test-tools builds cannot clobber each other's image.
+- [ ] A missing tool inside the built image fails loudly instead of being
+      skipped.
+- [ ] A single spec can be run under kcov in one `just` command.
+
+## Out of scope
+
+- The shipped smoke specs' missing entry (#885).
+- Coverage shard layout / `COVERAGE_MIN` (#615, #855).
+
+## Scope correction: the first half already landed
+
+Item 1 (the shared `test-tools:local` tag colliding between concurrent runs) was
+fixed by #892: the local tag is now derived from a hash of the build inputs, so
+two checkouts with identical inputs deliberately SHARE the image (correct, and a
+cache hit) while any difference produces a tag that cannot clobber. The #869
+incident this issue was filed over cannot recur in that form.
+
+Two adjacent defects came out of that work and are tracked separately:
+
+- #896 -- `TEST_TOOLS_IMAGE` still has two conflicting defaults, so the tag you
+  build is not the tag you run.
+- #900 -- the same class of collision in CI, where the discriminator #892 uses
+  (the checkout path) is constant across runs on one host.
+
+**What remains in THIS issue is item 2 only:** there is no `just` entry to run a
+single spec under kcov, because `--bats-path` refuses `--coverage` (#523). For a
+bug whose entire evidence is "this spec is red under kcov and green without it"
+-- the #869 class, and the class the coverage gate exists to catch -- that is the
+whole inner loop, and it is why #869's before/after had to be gathered with raw
+`docker run`.
+
+Check #523 before assuming the refusal was arbitrary.
+

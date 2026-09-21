@@ -1,0 +1,77 @@
+feat(setup): parameterise both generate APIs so an orchestrator can drive one repo N times
+## Decision
+
+base is a building block; `multi_run` is the assembler. Both of base's
+generation stages -- **devel** (`just docker setup`) and **deploy**
+(`just docker setup deploy`) -- become APIs an orchestrator can call N times
+against ONE repo, each call carrying that instance's parameters and writing to
+a directory the caller names. The repo itself is not mutated by a call.
+
+Nothing base emits may be a value the caller cannot reach. Where a value is
+fixed today, that is a defect to be closed, not a property to be documented.
+
+## The two changes this needs
+
+### 1. The `.setup.conf.local` layer takes a path
+
+The conf chain is `<template>/.setup.conf` -> repo `.setup.conf` ->
+`.setup.conf.local`, section-replace at each step (`CONTEXT.md:148-155`,
+`resolve.sh:147`, `stage.sh:370`). The third layer is the right one for
+per-instance parameters -- it already overrides **any** section, not a
+whitelist (ADR-00000025:68).
+
+What is missing is that its path is fixed. An orchestrator cannot say "use
+THIS file as the local layer for this call", so two instances cannot have two
+parameter sets without writing into the repo and racing each other.
+
+Add a way to name the file. The flag/env spelling is an implementation detail;
+the requirement is that one call reads a caller-supplied local layer and
+another call reads a different one, concurrently, with no write to the repo's
+own `.setup.conf.local`.
+
+### 2. Generation takes an output directory
+
+`deploy` already has `--output` (`setup_cmd.sh:1568`, `:1585-1586`). `devel`
+writes `compose.yaml` and `.env` into the repo root with no alternative, so
+a second instance's generation overwrites the first's.
+
+devel gains the same parameter, so a call emits a complete, self-contained set
+(`compose.yaml`, `.env`, `.env.generated`) into the caller's directory.
+
+## ADR-00000022 has to be amended
+
+Section 1 rejects per-instance regeneration of `compose.yaml`. That reasoning
+held while generation could only write into the repo -- regenerating meant
+mutating the shared checkout. Once a call writes to a caller-named directory,
+the objection does not apply, and the overlay-only model is what blocks the
+building-block contract.
+
+The amendment should state: per-instance generation is the supported path when
+the output is external; the `.env` overlay remains valid for values that do not
+change the shape of the emitted file.
+
+## Why an overlay alone cannot do this
+
+An interpolation can carry a **value**. It cannot carry a **shape**. Build
+args, image rules, an extra `deploy.resources` block, a GUI-conditional
+`hostname:` -- these change which lines exist in `compose.yaml`, and no
+`${VAR}` substitution reaches them. That is the whole reason the parameterised
+call is needed rather than more interpolation.
+
+## Acceptance criteria
+
+- Two calls against one repo, differing only in a caller-supplied local conf
+  file and an output directory, produce two complete generated sets that
+  differ in the parameterised values, concurrently, with the repo unmodified.
+- The same holds for `deploy`.
+- ADR-00000022 carries the amendment.
+
+## Related
+
+Enables #1051 (colliding fields with no channel), answers the mechanism half of
+#1056 (the 15-section boundary), and is the vehicle for #1062 (emitter
+decisions with no key) and #1064 (a co-locatable bundle).
+
+refs #1051, refs #1056, refs #1062, refs #1064, refs #25, refs #600
+
+

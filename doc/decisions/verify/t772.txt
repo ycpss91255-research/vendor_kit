@@ -1,0 +1,18 @@
+test(e2e): full real-flow e2e for just base upgrade (defer to v1.0.0)
+## What to build
+
+Add a full real-flow e2e for `just base upgrade`: stand up the example repo with an OLDER `.base` tag, run the real `upgrade` (real `git subtree pull` to the current tag), and assert the upgrade + migration applied correctly end-to-end. This complements #769 (which covers the other commands) but is split out because it needs a from-old-tag scenario.
+
+DEFERRED to v1.0.0 / repo stability. While the architecture, API, and config are still iterating rapidly, an older-tag-based upgrade e2e would churn constantly. The upgrade LOGIC is already covered today at integration level by `upgrade_spec` (real subtree pull + migration assertions); this issue is only about adding the full downstream-repo real-flow layer on top, once the surface stabilizes.
+
+## Acceptance criteria
+
+- [ ] e2e inits the example from an older base tag, runs the real `just base upgrade` to current, and asserts files/migrations updated.
+- [ ] Runs on both amd64 and arm64; green.
+- [ ] Does not duplicate what `upgrade_spec` already asserts -- adds the full-repo real-flow layer only.
+
+## Blocked by
+
+None to author, but intentionally DEFERRED to v1.0.0 (repo-surface stability). Builds naturally on the e2e command-coverage structure from #769.
+
+

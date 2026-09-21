@@ -1,0 +1,60 @@
+fix(ci): a cleanup failure reddens a good build, a fork PR reddens with no reason, and nothing declares concurrency or timeouts
+## Three reds that carry no information, and two absences
+
+### 1. A cleanup failure fails a build that succeeded
+
+`build-worker.yaml:900-905`. The `Reclaim this run's docker artifacts` step is
+`if: always()` with **no `continue-on-error`**, so a failing sweep fails a job
+whose build was fine. Same shape at `self-test.yaml:506, :643, :759, :967,
+:1524, :1650`.
+
+`if: always()` here *adds* a failure rather than swallowing one. Litter left
+behind is worth a warning; it is not worth a red build.
+
+### 2. A fork PR is permanently red with no message
+
+`build-worker.yaml:473-476` and `:935-938`. A fork PR skips `build`,
+`needs.build.result` is `skipped`, and the aggregator's `!= "success"` makes
+the required check red forever -- with nothing distinguishing "we refuse to
+build fork code" from "the build broke".
+
+Fail-closed is right. Unactionable is not. `self-test.yaml:1748-1772` handles
+the identical case correctly: it prints an `::error::` explaining the fork
+posture. Copy that.
+
+### 3. `ci-rollup` never says why it collapsed to skips
+
+A doc-only PR emits nine grey "skipped" entries beside a green `ci-rollup`
+(confirmed on runs 33587582552 and 32012699799, 71s versus 8m41s). A reviewer
+reading the checks list can see that. A reviewer reading only the required
+check sees an undifferentiated green, and the rollup emits no `::notice::`
+naming the doc-only classification -- its summary line is identical for
+"everything passed" and "almost nothing ran".
+
+### 4. No `concurrency:` in any workflow except `ghcr-cleanup.yaml`
+
+Nothing can leave a required check pending and nothing cancels a needed run,
+because nothing cancels anything. The costs:
+
+- every push to a PR branch starts a fresh 8-shard coverage matrix while the
+  previous one keeps running;
+- two `main` merges touching `Dockerfile.test-tools` run two unserialised
+  publishes whose `imagetools create` last-writer-wins is decided by **arm64
+  queue time, not commit order**;
+- self-test's `:main` pull races the publisher with no ordering primitive.
+
+If a group is added, `cancel-in-progress` must be PR-scoped:
+`build-worker.yaml:918`'s `if: always()` aggregator turns a cancelled `build`
+into `exit 1`.
+
+### 5. No `timeout-minutes` on any job or step
+
+In `build-worker.yaml` or `multi-distro-build-worker.yaml`. A hung buildx
+burns the six-hour default **per shard**.
+
+## Direction
+
+1 and 2 err toward too much CI noise, in the way that trains a reader to stop
+looking. 3, 4 and 5 are absences. Found by the 2026-09-03 CI audit.
+
+

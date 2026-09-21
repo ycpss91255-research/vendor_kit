@@ -1,0 +1,245 @@
+"""三階段 draw.io 審查工具鏈 ─ 第 2 步：機械 lint。
+用法: python3 lint_pages.py <outdir>            （<outdir> = extract_pages.py 的輸出目錄）
+輸出 <outdir>/lint.md（依頁分組，每條含 id、規則代號、等級 warn/info）與 <outdir>/lint.json（同內容，機器用）。
+
+規則（代號）：
+  dangling   懸空：流程頁（頁名符合 FLOW_PAGE_RE）上 step／decision 要有進邊＋出邊；end_* 只需進邊（綠橢圓沒進邊但有出邊 = 起點，不報）；
+             entry 只需出邊；IMG（紫 image 框）至少一條線（info）。非流程頁略過（info 一行）。
+  decision   判斷菱形出邊數 ≠ 2（warn）；出邊標籤不以「是」「否」開頭（info；「失敗」「成功」「是：…」「否 →…」都算列出）；兩條出邊標籤相同（warn）。
+  endcolor   終點顏色 vs 文字：含「→ 0」「0：」但不是綠（warn）；含「→ 1／2／3」或以「1：／2：／3：」開頭但是綠（warn）；
+             含「請」「先」「手動」「重跑」「解決」而是紅（info：候選改橙）。
+  xref       文字引用的頁名在頁名清單找不到（warn）；只靠拆字模糊比對到（info）。
+  term-diff  跨頁：同一名詞 name 在不同頁 text 不一致 → 列版本與差異摘要（放在最後「跨頁」段；warn）。
+  base       文字出現 \\bbase\\b（排除 BASE_ALLOW 內的片語；warn）。
+  color      頁內 fillColor 不在該頁圖例（warn；白／none 不算）；沒有圖例的頁 info。
+  termcov    名詞覆蓋：node 文字出現 KEYWORDS 的關鍵字，名詞表沒有對應條：名詞 name 或 text 含 → 過（text-only 的只彙總成一行 info）；都沒有 → warn。
+  onething   一格一事候選：step／end 節點文字中「→」「並」「然後」「再」「、」「；」總數 ≥ 2 → info（交第 3 階段代理判定）。
+"""
+import re, json, os, sys, glob, difflib
+from collections import defaultdict, Counter
+
+# ---------- 可調參數 ----------
+FLOW_PAGE_RE = re.compile(r'^(?:\d+ )?(流程|狀態機)')   # 頁名可帶序號前綴「NN 」
+KEYWORDS = [                      # (顯示名, regex)。名詞表的 name 或 text 含到 regex 命中的原字串就算覆蓋
+    ('訊息碼 6-xx', r'\b6-\d+[a-z]?\b'),
+    ('.tmp.*', r'\.tmp\.[A-Za-z_]+'),
+    ('gen/…', r'\bgen/[\w.]*'),
+    ('version.local.toml', r'version\.local\.toml'),
+    ('version.toml', r'(?<!local\.)\bversion\.toml'),
+    ('config.toml', r'config\.toml'),
+    ('log/', r'\blog/'),
+    ('baseline/', r'baseline/'),
+    ('cache/', r'\bcache/'),
+    ('metadata', r'metadata'),
+    ('frozen', r'\bfrozen\b'),
+    ('flock', r'\bflock\b'),
+    ('digest', r'\bdigest\b'),
+    ('--local', r'--local\b'),
+    ('resolve／apply', r'\b(resolve|apply)\b'),
+    ('Renovate', r'\bRenovate\b'),
+    ('薄殼', r'薄殼'),
+    ('進度日誌', r'進度日誌'),
+]
+BASE_ALLOW = ['對齊 base 的 just 慣例', 'test-base', 'base_raw', 'base_ref']   # 這些片語裡的 base 不算實例
+COLOR_WHITELIST = {'#ffffff', 'none', '-', ''}
+ONETHING_TOKENS = ['→', '並', '然後', '再', '、', '；']
+ONETHING_MIN = 2
+YESNO_RE = re.compile(r'^(是|否)')
+NEEDS_HUMAN = ['請', '先', '手動', '重跑', '解決']
+
+def load_pages(outdir):
+    """依 pages.json（文件內頁序）讀每頁 JSON；沒有 pages.json 就照檔名。"""
+    pj = os.path.join(outdir, 'pages.json')
+    if os.path.exists(pj):
+        names = json.load(open(pj, encoding='utf-8'))
+        files = [os.path.join(outdir, f"{p['id']}.json") for p in names]
+    else:
+        files = sorted(glob.glob(os.path.join(outdir, 'v*.json'))); names = None
+    pages = [json.load(open(f, encoding='utf-8')) for f in files if os.path.exists(f)]
+    if names is None: names = [p['page'] for p in pages]
+    return pages, names
+
+def norm(s): return re.sub(r'\s+', '', s)
+
+def xref_ok(ref, page_names):
+    """回傳 'exact' / 'fuzzy' / None。exact = 頁名包含引用（去空白）；
+    fuzzy = 把引用拆成 token（英數字串／CJK 連續字），某頁名全部包含，例如「B（1′）」對到「B. 手動路徑（1′）apply 前置」；
+    「X（1）（2）」／「E(a)(b)」這種多括號引用展開成多個，每個都要找得到。"""
+    r = norm(ref); names = [norm(n) for n in page_names]
+    if any(r in n for n in names): return 'exact'
+    parens = re.findall(r'[（(][^（）()]*[）)]', r)
+    if len(parens) > 1:
+        head = re.sub(r'[（(][^（）()]*[）)]', '', r)
+        res = [xref_ok(head + p, page_names) for p in parens]
+        return None if any(x is None for x in res) else 'fuzzy'
+    toks = re.findall(r"[A-Za-z0-9′.\-]+|[\u4e00-\u9fff]+", r)
+    if toks and any(all(t in n for t in toks) for n in names): return 'fuzzy'
+    return None
+
+def lint_page(d, page_names, out):
+    pid = d['page']['id']; name = d['page']['name']
+    nodes = d['nodes']; byid = {n['id']: n for n in nodes}
+    edges = [e for e in d['edges'] if e['source'] in byid and e['target'] in byid]
+    outs = defaultdict(list); ins = defaultdict(list)
+    for e in edges: outs[e['source']].append(e); ins[e['target']].append(e)
+    add = lambda rule, level, cid, msg: out.append(dict(page=pid, page_name=name, rule=rule, level=level, id=cid, msg=msg))
+    is_flow = bool(FLOW_PAGE_RE.search(name))
+
+    # ---- dangling ----
+    if not is_flow:
+        add('dangling', 'info', '-', '非流程頁，略過懸空檢查')
+    else:
+        for n in nodes:
+            k = n['kind']; i, o = len(ins[n['id']]), len(outs[n['id']])
+            if k in ('step', 'decision'):
+                if i == 0 and o == 0: add('dangling', 'warn', n['id'], f'{k} 無進邊也無出邊：「{n["text"][:40]}」')
+                elif i == 0: add('dangling', 'warn', n['id'], f'{k} 無進邊：「{n["text"][:40]}」')
+                elif o == 0: add('dangling', 'warn', n['id'], f'{k} 無出邊：「{n["text"][:40]}」')
+            elif k in ('end_orange', 'end_red'):
+                if i == 0: add('dangling', 'warn', n['id'], f'{k} 無進邊：「{n["text"][:40]}」')
+            elif k == 'end_ok':
+                if i == 0 and o == 0: add('dangling', 'warn', n['id'], f'綠橢圓無進邊也無出邊：「{n["text"][:40]}」')
+            elif k == 'entry':                                   # 白虛線橢圓：入口（來自「X」頁，要有出邊）／出口（續「X」頁，要有進邊；v2.15-3）
+                if '續「' in n['text'] and '來自' not in n['text']:
+                    if i == 0: add('dangling', 'warn', n['id'], f'出口無進邊：「{n["text"][:40]}」')
+                elif o == 0: add('dangling', 'warn', n['id'], f'入口無出邊：「{n["text"][:40]}」')
+            elif n['cls'] == 'IMG':
+                if i == 0 and o == 0: add('dangling', 'info', n['id'], f'image 框沒有任何線：「{n["text"][:40]}」')
+
+    # ---- decision ----
+    for n in nodes:
+        if n['kind'] != 'decision': continue
+        o = outs[n['id']]
+        if len(o) != 2: add('decision', 'warn', n['id'], f'菱形出邊數 {len(o)}（{", ".join(e["id"] for e in o) or "無"}）：「{n["text"][:40]}」')
+        labels = [e['label'].replace('⏎', ' ') for e in o]
+        for e, lab in zip(o, labels):
+            if not YESNO_RE.match(lab): add('decision', 'info', e['id'], f'菱形 {n["id"]} 出邊標籤不以是／否開頭：「{lab or "(無標籤)"}」')
+        if len(labels) == 2 and labels[0] and labels[0] == labels[1]:
+            add('decision', 'warn', n['id'], f'兩條出邊標籤相同「{labels[0]}」（{o[0]["id"]}, {o[1]["id"]}）')
+
+    # ---- endcolor ----
+    for n in nodes:
+        k = n['kind']; t = n['text']
+        if k not in ('end_ok', 'end_orange', 'end_red'): continue
+        if re.search(r'→\s*0\b|(^|[^\d])0：', t) and k != 'end_ok':
+            add('endcolor', 'warn', n['id'], f'文字像成功（0）但是 {k}：「{t[:40]}」')
+        if k == 'end_ok' and re.search(r'→\s*[123]\b|^[123]：', t):
+            add('endcolor', 'warn', n['id'], f'綠終點文字含 1／2／3：「{t[:40]}」')
+        if k == 'end_red' and any(w in t for w in NEEDS_HUMAN):
+            add('endcolor', 'info', n['id'], f'紅終點文字含需人動作字眼（候選改橙）：「{t[:40]}」')
+
+    # ---- xref ----
+    for x in d['xrefs']:
+        r = xref_ok(x['ref'], page_names)
+        if r is None: add('xref', 'warn', x['id'], f'引用「{x["ref"]}」頁在 {len(page_names)} 頁名單找不到')
+        elif r == 'fuzzy': add('xref', 'info', x['id'], f'引用「{x["ref"]}」頁只靠拆字比對到')
+
+    # ---- base ----
+    for n in nodes + [dict(id=e['id'], text=e['label']) for e in d['edges']]:
+        t = n['text']
+        if not re.search(r'\bbase\b', t): continue
+        t2 = t
+        for a in BASE_ALLOW: t2 = t2.replace(a, '')
+        if re.search(r'\bbase\b', t2):
+            m = re.search(r'.{0,20}\bbase\b.{0,20}', t2)
+            add('base', 'warn', n['id'], f'出現 base 當實例：「…{m.group(0)}…」')
+
+    # ---- color ----
+    if not d['legend_fills']:
+        add('color', 'info', '-', '此頁沒有圖例，略過顏色檢查')
+    else:
+        missing = [c for c in d['fills'] if c not in d['legend_fills'] and c not in COLOR_WHITELIST]
+        for c in missing:
+            ex = [n['id'] for n in nodes if n['fill'] == c and not n['legend']][:4]
+            add('color', 'warn', ','.join(ex), f'fillColor {c} 不在圖例（{sum(1 for n in nodes if n["fill"] == c and not n["legend"])} 格，如 {ex}）')
+
+    # ---- termcov ----
+    tnames = ' '.join(t['name'] for t in d['terms']); ttexts = ' '.join(t['text'] for t in d['terms'])
+    seen = {}
+    for n in nodes:
+        if n['kind'] in ('term',) or n['legend'] or n['cls'] in ('TITLE', 'TERM_H'): continue
+        for label, rx in KEYWORDS:
+            for m in re.finditer(rx, n['text']):
+                hit = m.group(0)
+                if hit in seen: continue
+                if hit in tnames: seen[hit] = 'ok'
+                elif hit in ttexts: seen[hit] = ('info', n['id'], label)
+                else: seen[hit] = ('warn', n['id'], label)
+    textonly = [hit for hit, v in seen.items() if v != 'ok' and v[0] == 'info']
+    for hit, v in seen.items():
+        if v == 'ok' or v[0] == 'info': continue
+        lvl, cid, label = v
+        add('termcov', 'warn', cid, f'「{hit}」（{label}）名詞表沒有對應條（name 與說明文都沒有）')
+    if textonly:
+        add('termcov', 'info', '-', f'{len(textonly)} 個關鍵字只在名詞說明文出現、沒有獨立條（略）：{"、".join(textonly[:12])}{"…" if len(textonly) > 12 else ""}')
+
+    # ---- onething ----
+    for n in nodes:
+        if n['kind'] not in ('step', 'end_ok', 'end_orange', 'end_red'): continue
+        cnt = {tok: n['text'].count(tok) for tok in ONETHING_TOKENS}
+        total = sum(cnt.values())
+        if total >= ONETHING_MIN:
+            add('onething', 'info', n['id'], f'[{n["kind"]}] 分隔詞 {total}（' + ' '.join(f'{k}{v}' for k, v in cnt.items() if v) + f'）：「{n["text"]}」')
+
+def lint_terms(pages, out):
+    by = defaultdict(lambda: defaultdict(list))     # name -> text -> [pid]
+    for d in pages:
+        for t in d['terms']:
+            if t['name']: by[t['name']][t['text']].append(d['page']['id'])
+    for name, variants in sorted(by.items()):
+        if len(variants) < 2: continue
+        vs = sorted(variants.items(), key=lambda kv: -len(kv[1]))
+        lines = [f'名詞「{name}」有 {len(vs)} 個版本：']
+        for i, (text, pids) in enumerate(vs):
+            lines.append(f'  v{i + 1}（{len(pids)} 頁：{" ".join(pids)}）長度 {len(text)}')
+        a, b = vs[0][0], vs[1][0]
+        sm = difflib.SequenceMatcher(None, a, b)
+        diffs = []
+        for op, i1, i2, j1, j2 in sm.get_opcodes():
+            if op == 'equal': continue
+            diffs.append(f'{op}: v1「{a[max(0, i1 - 8):i2 + 8]}」 ↔ v2「{b[max(0, j1 - 8):j2 + 8]}」')
+            if len(diffs) >= 3: break
+        lines.append('  v1↔v2 差異：' + ' ｜ '.join(diffs) if diffs else '  （僅空白差異）')
+        out.append(dict(page='跨頁', page_name='共用名詞不一致', rule='term-diff', level='warn', id=name, msg='\n'.join(lines)))
+
+def render(items, pages):
+    by = defaultdict(list)
+    for it in items: by[it['page']].append(it)
+    L = ['# lint.md', '', f'頁數 {len(pages)}；條目 {len(items)}（warn {sum(1 for i in items if i["level"] == "warn")}、info {sum(1 for i in items if i["level"] == "info")}）', '']
+    rc = Counter((i['rule'], i['level']) for i in items)
+    L.append('| 規則 | warn | info |'); L.append('|---|---|---|')
+    for r in ['dangling', 'decision', 'endcolor', 'xref', 'term-diff', 'base', 'color', 'termcov', 'onething']:
+        L.append(f'| {r} | {rc[(r, "warn")]} | {rc[(r, "info")]} |')
+    L.append('')
+    for d in pages:
+        pid = d['page']['id']
+        its = by.get(pid, [])
+        L.append(f'## {pid} {d["page"]["name"]}')
+        L.append(f'nodes {len(d["nodes"])}／edges {len(d["edges"])}／terms {len(d["terms"])}；warn {sum(1 for i in its if i["level"] == "warn")}、info {sum(1 for i in its if i["level"] == "info")}')
+        for it in its:
+            L.append(f'- [{it["rule"]}][{it["level"]}] {it["id"]}: {it["msg"]}')
+        L.append('')
+    if by.get('跨頁'):
+        L.append('## 跨頁：共用名詞不一致（term-diff）')
+        for it in by['跨頁']:
+            L.append(f'- [term-diff][warn] {it["id"]}:')
+            for ln in it['msg'].split('\n')[1:]: L.append('    ' + ln)
+        L.append('')
+    return '\n'.join(L)
+
+def main():
+    if len(sys.argv) < 2: print(__doc__); sys.exit(2)
+    outdir = sys.argv[1]
+    pages, names = load_pages(outdir)
+    page_names = [p['name'] for p in names]
+    items = []
+    for d in pages: lint_page(d, page_names, items)
+    lint_terms(pages, items)
+    md = render(items, pages)
+    open(os.path.join(outdir, 'lint.md'), 'w', encoding='utf-8').write(md)
+    json.dump(items, open(os.path.join(outdir, 'lint.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    print(md.split('\n\n')[1]); print('\n'.join(md.split('\n')[4:16]))
+    print(f'→ {outdir}/lint.md, lint.json')
+
+if __name__ == '__main__':
+    main()

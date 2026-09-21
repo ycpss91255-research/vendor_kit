@@ -1,0 +1,8 @@
+docs: remove i18n for TEST.md and CHANGELOG.md
+Keep English only for TEST.md and CHANGELOG.md. README i18n remains.
+
+Generated with Claude Code
+## [Codecov](https://app.codecov.io/gh/ycpss91255-docker/template/pull/27?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=ycpss91255-docker) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

@@ -1,0 +1,59 @@
+Add safe multi-arch-aware GHCR cleanup for the test-tools package
+## Problem
+
+`release-test-tools.yaml` publishes `ghcr.io/ycpss91255-docker/test-tools` as a **multi-arch** image (`linux/amd64,linux/arm64`) on each release / `main` push. Every multi-arch push writes a tagged index plus its per-arch **child manifests**, which show as *untagged*. When a moving tag (`latest`, `main`) is re-pushed, the previous index + children are left behind as **untagged orphans** — these accumulate on the package over many releases (plus provenance/SBOM attestation manifests).
+
+Same class of sprawl we just addressed for the `librealsense` package in realsense_ros1 (issue/PR there). Filing here with the full solution per the owner's request — **base is the package owner, so the cleanup belongs here.**
+
+## ⚠️ Footgun
+
+Do **NOT** use `actions/delete-package-versions` with `delete-only-untagged-versions: true`. It deletes the per-arch child manifests that a live tag references, which **breaks that tag** (`docker pull` → 404). Use a **multi-arch-aware** action that resolves manifest references.
+
+## Full solution — `.github/workflows/ghcr-cleanup.yaml`
+
+```yaml
+name: GHCR test-tools cleanup
+
+# Deletes untagged ORPHAN digests from the base-owned test-tools package.
+# dataaxiom/ghcr-cleanup-action is multi-arch aware: per-arch child manifests
+# referenced by a live tag (latest / main / vX.Y.Z) are preserved, so tags
+# never 404. Only truly-orphaned untagged digests older than the window go.
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # weekly, Monday 03:00 UTC (offset from downstream cleanups)
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Log what would be deleted without deleting"
+        type: boolean
+        default: true
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean up untagged test-tools orphans
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          owner: ycpss91255-docker
+          package: test-tools
+          delete-untagged: true
+          older-than: 7 days
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## Rollout
+
+1. Merge, then **Actions → GHCR test-tools cleanup → Run workflow** with `dry-run=true`.
+2. Review the "would delete" list — confirm it only lists untagged orphans, no `latest`/`main`/`vX.Y.Z` and no digests those tags reference.
+3. Let the weekly schedule take over (deletes for real).
+
+> If the default `GITHUB_TOKEN` lacks delete rights on the package, use a PAT secret with `write:packages`+`delete:packages`.
+
+Per the owner's workflow policy this issue provides the complete solution for base to apply — no PR opened from downstream.
+

@@ -1,0 +1,100 @@
+fix(bootstrap): a new repo cannot bootstrap against v0.42.0 (template bootstrap.sh names the pre-dist init.sh)
+## Problem
+
+Creating a new downstream repo from `ycpss91255-docker/template` fails at step
+4 when it bootstraps against `v0.42.0` -- which, with no argument, is what it
+resolves to, because `bootstrap.sh` picks the latest base tag.
+
+`bootstrap.sh:85-86`:
+
+```bash
+_log "Step 4/5: run init.sh"
+"./${TEMPLATE_REL}/init.sh"        # = ./.base/init.sh
+```
+
+`v0.42.0` has no `.base/init.sh`. The `dist/` reorganisation (#714 / #715) moved
+it to `dist/script/base/init.sh`, and `bootstrap.sh` has no fallback -- grepping
+it for `dist/script/base/init.sh` returns 0 hits.
+
+Verify without creating a repo:
+
+```bash
+gh api repos/ycpss91255-docker/template/contents/bootstrap.sh --jq .content \
+  | base64 -d | sed -n '85,86p'
+git ls-tree --name-only v0.42.0 | grep -E '^init\.sh$'   # no output
+```
+
+## Where it leaves the new repo
+
+Steps 1-3 have already run and committed by then: the template-only files are
+removed, the snapshot `.base/` is removed, and the real subtree is added at
+`v0.42.0`. So the repo is left with a correct subtree and **no generated
+scaffolding at all** -- no `justfile`, no `script/` wrappers, no `Dockerfile`,
+no `.env`. `bootstrap.sh` also never reaches step 5, so it does not delete
+itself, which at least leaves a visible marker that something did not finish.
+
+Passing an explicit older tag (`./bootstrap.sh v0.41.0`) still works, so this is
+not a total block -- but the documented default path is the broken one.
+
+## Same root cause as the upgrade break
+
+This is the sibling of the upgrade failure: two callers of `init.sh` live
+**outside base's tree** -- the template repo's `bootstrap.sh`, and every
+consumer's vendored copy of an older `upgrade.sh`. base's own suite exercises
+`init.sh` at its current path, so nothing is wrong from base's point of view and
+nothing failed in CI.
+
+Fixing one without the other leaves the other broken, so they should be decided
+together even if they land separately.
+
+## Fix directions
+
+The narrow fix is a path update in `bootstrap.sh`. But note that `bootstrap.sh`
+is pinned to nothing -- it is whatever is on the template repo's `main` at the
+moment someone creates a repo, and it bootstraps an arbitrary base tag. So a
+hardcoded new path breaks bootstrapping an OLD tag, which currently works.
+
+That argues for `bootstrap.sh` resolving the path rather than naming it: prefer
+`dist/script/base/init.sh`, fall back to `init.sh`, and fail with a message
+naming both if neither exists. Whether the same applies to any other path it
+names is worth checking in the same pass.
+
+## Acceptance criteria
+
+- [ ] `./bootstrap.sh` with no argument produces a working repo against the
+      current latest tag.
+- [ ] `./bootstrap.sh v0.41.0` still works -- the old layout is not broken by
+      the fix.
+- [ ] A missing `init.sh` fails naming the paths tried, rather than
+      `No such file or directory` from bash.
+- [ ] Something covers this; today no test in either repo runs `bootstrap.sh`.
+
+## Refs
+
+- The upgrade-side sibling, with a full reproduction.
+- #714 / #715 -- the `dist/` move that changed the path.
+
+Cross-ref: the sibling break on the upgrade side is #915 (a v0.41.0 consumer half-upgrades and loses `just`), reproduced end to end. Same root cause -- `init.sh` moved in #714/#715 and both out-of-tree callers still name the old path. Deciding them together is probably right even if they land separately.
+
+Worth recording, since it sharpens what class this belongs to.
+
+base already solved both halves of the version-resolution defect, in
+`dist/script/base/upgrade.sh:_get_latest_version`:
+
+- the peeled `refs/tags/vX.Y.Z^{}` row is handled explicitly (comment at :392)
+- rc ranking has its own comment at :405-408, naming a real incident: after
+  v0.12.0 was published, downstreams stayed pinned to v0.12.0-rc1, because GNU
+  `sort -V` orders a final release BELOW its own pre-releases
+
+So `bootstrap.sh` was not missing something subtle -- it was missing something
+this org had already been burned by and fixed, in a file it cannot see.
+
+That is the same structure as the init.sh break: **a caller outside base's tree
+does not inherit what base learned.** Three instances this cycle now (this,
+#915, #914), and in every one base's own tests were green and correct.
+
+The durable question is not "did we fix bootstrap.sh" but "what else lives
+outside base's tree and re-implements something base already got right". The
+answer is at least: the template's `bootstrap.sh`, every consumer's vendored
+`upgrade.sh`, and `release-worker.yaml`'s consumer-side assumptions.
+

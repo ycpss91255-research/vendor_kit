@@ -1,0 +1,87 @@
+fix(init): the Dockerfile and .env migrations rewrite consumer files with no rollback on the repos that will run them
+## The protection ships in code the consumer does not run
+
+#915 gave `upgrade.sh` an EXIT trap so a failure after the subtree pull commits
+rolls the repo back instead of leaving it half-upgraded. Verified in the current
+tree: armed at `dist/script/base/upgrade.sh:652`, Step 3 (`init.sh`) runs at
+`:659`, disarmed at `:722`. So the current `upgrade.sh` **does** cover the
+`init.sh` resync.
+
+The 16 downstream repos do not run it. Checked their vendored copy:
+
+```
+$ grep -c 'trap .*EXIT' app/sick_noetic/.base/upgrade.sh
+0
+$ grep -n 'init.sh' app/sick_noetic/.base/upgrade.sh
+299:  _log "Step 3/5: re-run init.sh to sync symlinks"
+```
+
+**Zero traps.** A v0.41.0 consumer's own `upgrade.sh` commits the pull and then
+calls `init.sh` with no rollback of any kind.
+
+## Why that now matters more than it did
+
+`init.sh` used to only create symlinks and scaffolding. This release gives it
+**two responsibilities that rewrite the consumer's tracked files**, both on the
+existing-repo resync path:
+
+- the Dockerfile migration dispatcher (#929, merged) -- rewrites `COPY` sources
+  in the consumer's `Dockerfile`
+- the `.env` -> `.env.local` rename (#868 / PR #936, pending) -- moves a
+  **gitignored, unrecoverable, hand-written** file
+
+Both run on exactly the repos with no rollback, inside an upgrade that has
+already committed. If either fails partway, the repo is left with the subtree
+pull committed, a possibly half-rewritten `Dockerfile`, and `.env` possibly
+moved or possibly not -- with nothing to undo it and no record of which.
+
+`init.sh` has no trap of its own (6 `trap` occurrences, none guarding these).
+
+## This is #915's shape, again
+
+#915 was: *the fix lives in base's `upgrade.sh`, but the upgrade is driven by the
+consumer's vendored copy, so the fix reaches nobody.* #929 hit the same wall and
+solved it by moving the call site into `init.sh` -- the one piece of current code
+an old `upgrade.sh` executes.
+
+The rollback did not get the same treatment. So the mutations moved to where they
+would run, and the protection stayed where it would not.
+
+## What to do
+
+**`init.sh` should protect its own mutations**, rather than depending on its
+caller having a trap. It is invoked from `upgrade.sh` (old and new),
+`bootstrap.sh`, and `just base init` -- three callers with three different
+guarantees, and only one of them has a rollback.
+
+Shape worth considering, not prescribed: capture the pre-mutation state of the
+files it is about to rewrite, arm a trap around the mutating region, restore on
+failure, and disarm once the last mutation succeeds. `upgrade.sh`'s own trap is
+the precedent, including its sweep of paths that became untracked -- and if both
+traps end up armed, the inner one must be a no-op for the outer one, not a
+conflict.
+
+**Decide whether #936 should land before or after this.** It is the change that
+makes the gap consequential, because it is the one that moves an unrecoverable
+file. Landing it first means the release's highest-consequence mutation ships
+unprotected on the repos it targets.
+
+## Acceptance criteria
+
+- [ ] A failure inside `init.sh`'s Dockerfile migration leaves the consumer's
+      `Dockerfile` byte-identical to before the run.
+- [ ] A failure inside the `.env` migration leaves both `.env` and `.env.local`
+      as they were.
+- [ ] Holds when `init.sh` is called by a **v0.41.0** `upgrade.sh` (no outer
+      trap), by the current one (outer trap present), and by `just base init`.
+- [ ] A spec drives a mid-mutation failure and asserts the unchanged state --
+      not merely a non-zero exit.
+
+## Found by
+
+The pre-`v0.43.0-rc1` review's `integration` dimension, which asks what the
+release's PRs do to each other rather than in isolation. Both mutating
+responsibilities are individually correct and were individually gated; the gap
+only exists in combination with the caller they will actually have.
+
+
