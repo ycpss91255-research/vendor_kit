@@ -1,9 +1,9 @@
 export const meta = {
-  name: 'diagram-review',
-  description: '對 draw.io 圖檔做雙軌審查：Claude 子代理看圖 + codex 獨立審查，交叉比對後逐條驗證',
+  name: 'diagram-review-claude',
+  description: '單軌版（codex 不可用時）：兩個獨立 Claude 子代理看圖，只有一方提出的逐條驗證',
   whenToUse: '每次改完 dist_distribution.drawio 之後，交付前必跑',
   phases: [
-    { title: '審查', detail: 'Claude 子代理與 codex 各自獨立審查' },
+    { title: '審查', detail: '兩個 Claude 子代理各自獨立審查' },
     { title: '驗證', detail: '只有一方提出的項目，由第三個代理對照圖面確認' },
   ],
 }
@@ -44,7 +44,7 @@ const CRITERIA = `審查標準（使用者定的）：
 7. 每個方塊只放一件事（一個動作、一個判斷、一個檔案、一個最小單元）；一格裡有兩件事（例如「寫 A 並刪 B」「檢查 X 然後重生 Y」）就是問題，要拆成兩格。`
 
 phase('審查')
-const [claude, codex] = await parallel([
+const [claude, codex] = await parallel([  // codex 變數在此版 = 第二位 Claude
   () => agent(`你是圖面審查員。用 Read 工具逐一看這些 PNG（白底）：
 ${pageList}
 draw.io XML：${xml}（未壓縮，可 grep cell id）；決策紀錄：${notes}。
@@ -54,22 +54,14 @@ ${CRITERIA}
 逐頁找問題。第一次看、沒有背景的人看不懂的地方也算問題（可讀性）。只回報真正的問題，不要建議改設計。`,
     { label: 'Claude 看圖', phase: '審查', schema: FINDINGS, agentType: 'general-purpose' }),
 
-  () => agent(`你負責跑 codex 做獨立審查，然後把 codex 的結論轉成結構化清單。步驟：
-1. 用 Bash 產生 brief 檔（放在 /tmp/claude-1000 底下任何目錄），內容依序為：
-   (a) 下面這段審查標準與本輪改動；(b) 「附件：決策紀錄」= ${notes} 的全文；(c) 「附件：drawio XML」= ${xml} 的全文（用 \`\`\`xml 包起來）。
-   codex 的 sandbox 讀不到本機檔案，所以檔案內容一定要直接貼進 brief。
-2. 執行（在 ${notes} 所在目錄）：
-   timeout 580 codex exec --sandbox read-only ${pngs.map(p => '-i ' + p.path).join(' ')} - < <brief檔> > <輸出檔> 2>&1
-   必須用 Bash 前景執行、timeout 參數設 600000；絕對不要 run_in_background，也不要用 Monitor 等待——你一結束回合，workflow 就會把你當作完成。
-   跑完後讀取輸出檔。codex 的回答在最後一個「codex」標記之後、「tokens used」之前。若 codex 逾時或沒有回答，findings 回傳空陣列、verdict 寫「codex 逾時」。
-3. 把 codex 指出的每個問題轉成 findings；codex 的最終判定放進 verdict。不要加入你自己的意見。
-
-要貼進 brief 的審查標準與要求（請用繁體中文寫進去）：
-${CRITERIA}
+  () => agent(`你是第二位圖面審查員（獨立作業，不知道另一位的結果）。用 Read 工具逐一看這些 PNG（白底）：
+${pageList}
+draw.io XML：${xml}（未壓縮，可 grep cell id）；決策紀錄：${notes}。
 本輪改動：${changes}
 ${focus ? '特別注意：' + focus : ''}
-要 codex 回答：逐頁列出 (A) 排版問題 (B) 顏色不符圖例 (C) 一般人看不懂的點與名詞表遺漏 (D) 與 notes 矛盾之處，每項給 id 與一句說明；最後給「可以交付」或「還不行」。附件 PNG 的頁次：${pngs.map(p => p.page).join('、')}。`,
-    { label: 'codex 審查', phase: '審查', schema: FINDINGS, agentType: 'general-purpose' }),
+${CRITERIA}
+逐頁找問題，優先找「內容與 notes 矛盾」與「流程缺線／缺分支」。只回報真正的問題，不要建議改設計。`,
+    { label: 'Claude 看圖 B', phase: '審查', schema: FINDINGS, agentType: 'general-purpose' }),
 ])
 
 const tag = (r, src) => (r?.findings ?? []).map(f => ({ ...f, sources: [src] }))
