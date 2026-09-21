@@ -1,0 +1,18 @@
+# Allow routine commands and edits inside this repository while requiring
+# approval before Codex crosses the workspace boundary.
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+
+[sandbox_workspace_write]
+writable_roots = ["~/Desktop/vendor-kit_ws/worktree"]
+
+[agents]
+max_concurrent_threads_per_session = 100
+
+# Reuse the draw.io MCP package already downloaded by Claude Code.  Keep a
+# separate HTTP port because Claude's stdio MCP instance currently owns 6002.
+# This avoids `npx -y` and therefore does not install or update host packages.
+[mcp_servers.drawio]
+command = "node"
+args = ["/home/cyc/.npm/_npx/4d0da7c6f53b225e/node_modules/@next-ai-drawio/mcp-server/dist/index.js"]
+env = { PORT = "6003" }
