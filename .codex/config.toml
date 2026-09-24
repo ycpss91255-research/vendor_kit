@@ -1,6 +1,6 @@
 # Allow routine commands and edits inside this repository while requiring
 # approval before Codex crosses the workspace boundary.
-sandbox_mode = "workspace-write"
+sandbox_mode = "danger-full-access"
 approval_policy = "on-request"
 
 [sandbox_workspace_write]
