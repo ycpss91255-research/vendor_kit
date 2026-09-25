@@ -1,6 +1,6 @@
 # Issue tracker：GitHub
 
-本 repo 的 issue 與 PRD 都放在 GitHub `ycpss91255-research/vendor_kit`。所有操作一律用 `gh` CLI。
+本 repo 的 issue 與 spec 都放在 GitHub `ycpss91255-research/vendor_kit`。所有操作一律用 `gh` CLI。對外契約與承諾見 `doc/decisions/review/01_purpose.md`、名詞見 `doc/decisions/review/02_terms.md`（定稿後併入根 `CONTEXT.md`）、不變量見 `doc/decisions/review/03_invariants.md`、ADR 見 `doc/adr/`。
 
 ## 為什麼每個 `gh` 都要帶 `-R`
 

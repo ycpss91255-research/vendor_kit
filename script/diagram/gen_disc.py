@@ -13,7 +13,7 @@ def opt(pid, x, y, w, h, title, body, rec=False):
 
 pages = []
 
-# ================= 討論 DC：對外契約（PRD，待拍板） =================
+# ================= 討論 DC：對外契約（待拍板） =================
 import math as _math
 dc = [v("title", "1", TITLE, "對外契約（PRD）── vendor_kit 要做什麼、使用者只需要 bootstrap.sh + 2 個指令、其他一律自動", 40, 20, 1000, 34)]
 dc.append(v("dc_pend", "1", PEND.replace("strokeColor=#d6b656", "strokeColor=#b85450"),

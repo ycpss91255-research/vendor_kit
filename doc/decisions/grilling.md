@@ -124,3 +124,5 @@
 - 語法記法改 POSIX：二選一 `a|b`，不用「／」（agy 查證：POSIX.1-2017 XBD §12.1、man-pages(7)、docopt）。
 - 字典只留「是什麼」；規則、語法、選項、模組、附錄移出到 `review/terms_moved.md` 待歸位。可寫／唯讀動詞名稱保留。
 - 流程：一頁一頁審，使用者回 OK 前後面頁凍結；看完的頁才 commit。
+
+- 2026-09-24：不再依賴 doc/PRD.md，內容搬到 review/03_invariants.md、design_principles.md、scope_roadmap.md；PRD.md 刪除。
