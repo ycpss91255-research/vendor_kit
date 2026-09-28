@@ -1,6 +1,6 @@
 # ADR 索引
 
-vendor_kit 的架構決議紀錄（Architecture Decision Record）索引，以及每份 ADR 對不變量與設計原則的對映。每份 ADR 檔頭有一行 `> Serves:` 回連它所建立或服務的不變量（1–10，見 [`doc/decisions/review/03_invariants.md`](../decisions/review/03_invariants.md)）、設計原則（P1–P6，見 [`doc/decisions/design_principles.md`](../decisions/design_principles.md)）或範圍項目（見 [`doc/decisions/scope_roadmap.md`](../decisions/scope_roadmap.md)）；下表是彙整的檢視。
+vendor_kit 的架構決議紀錄（Architecture Decision Record）索引，以及每份 ADR 對不變量與設計原則的對映。每份 ADR 檔頭有一行 `> Serves:` 回連它所建立或服務的不變量（1–11，見 [`doc/decisions/review/02_invariants.md`](../decisions/review/02_invariants.md)）、設計原則（P1–P6，見 [`doc/decisions/design_principles.md`](../decisions/design_principles.md)）或範圍項目（見 [`doc/decisions/scope_roadmap.md`](../decisions/scope_roadmap.md)）；下表是彙整的檢視。
 
 ## 檔案系統即登錄
 
@@ -31,29 +31,26 @@ vendor_kit 的架構決議紀錄（Architecture Decision Record）索引，以�
 
 1. 討論記在 issue（`ycpss91255-research/vendor_kit`，中文），必要時走 `decision-review`（Claude 子代理 + codex 雙軌）。
 2. 定案後寫 ADR：從 `TEMPLATE.md` 起稿，`> Serves:` 指向不變量或設計原則；不變量頁的對應條目若列的是「待寫 ADR-xxxx」，把 xxxx 換成新編號。
-3. 一份 ADR 若**建立**了新的不變量或原則，`doc/decisions/review/03_invariants.md`／`doc/decisions/design_principles.md` 同一個 PR 修訂；ADR 記機制，那兩份記性質與判準。
-4. 架構圖（`.drawio`）若因決議改變，同一個 PR 更新；圖是測試依據（不變量 10）。
+3. 一份 ADR 若**建立**了新的不變量或原則，`doc/decisions/review/02_invariants.md`／`doc/decisions/design_principles.md` 同一個 PR 修訂；ADR 記機制，那兩份記性質與判準。
+4. 架構圖（`.drawio`）若因決議改變，同一個 PR 更新；圖是測試依據（工作約定見 `../../AGENTS.md`）。
 
 ## 索引表
 
 | 編號 | 標題 | 狀態 | Serves |
 |---|---|---|---|
-| 0001 | 測試分層與強制閘門 | Accepted；**在 `../proto/vendor_kit/doc/adr/`，待搬回**；搬回時補 `> Serves:` 行，acceptance 層改為不變量 9 的完整流程 | 不變量 9（驗收 = 真引擎、乾淨下游、完整流程）、10（架構圖是測試依據） |
-| 0002 | 引擎與工具 image 分離（乙版） | Accepted；**在 proto，待搬回**；搬回時補 `> Serves:`，並修訂 §3（`gen/` 改用 `.vendor_kit/.gitignore`，不碰 `.git/info/exclude`）與 §5（`just` 最低版本待拍板） | 不變量 7（工具 image 純資料；引擎與工具分離）、6（引擎版本由專案鎖定；啟動器薄殼）；也服務 5（主機只需三個工具） |
-| 0003 | 為什麼不用現成工具（vendir、Copier、subtree、submodule、套件管理器） | Accepted | 設計原則 P2（借主機已有的，不養第三方）；不變量 5（主機只需 docker + git + just，見 `../decisions/review/03_invariants.md` 第 5 條） |
-
-## 計畫中的 ADR
-
-以下決議已在 grilling／decision-review 定案（來源：`scratchpad/decisions/grilling.md`、`interface.md`、`isolation.md`、`prior_art.md`、`devmode.md`），尚未寫成 ADR。編號在檔案落地時取用；`doc/decisions/review/03_invariants.md` 目前以「待寫 ADR-xxxx（<主題>）」引用。
-
-| 主題 | 決定了什麼（摘要） | Serves |
-|---|---|---|
-| 介面動詞 | 常用 `add`／`upgrade`／`dev`，進階 `remove`／`undev`／`update`／`sync`／`install`／`uninstall`；`update` 只查／`upgrade` 套用（跟 base）；結束狀態 0/1/2；`sync` 只寫 ignored 路徑、CI 下需 tracked 寫入即失敗；一行 `verb *args` 轉發放 tracked `vendor.just`；不開 `init`／`diff`／`accept`／`rollback` | 不變量 3、4、8；P1、P3、P4 |
-| 檔案佈局 | 全收進 `.vendor_kit/`（`version.toml`、`version.local.toml`、`cache/<repo>/`、`gen/`、`baseline/<repo>/`、自有 `.gitignore`）；根 `justfile` 無則建、有則詢問加一行；不碰 `.git/info/exclude` 與使用者 `.gitignore`；工具 recipe 用 `cd "{{justfile_directory()}}"` 回專案根 | 不變量 1、2；P1 |
-| 初始檔合併 | `add` 建、已存在不納管（`adopted=false`）只 warn；`upgrade` 逐檔狀態機（`disk==new` 不動 → `old==new` 不動 → `disk==old` 詢問換新版 → 三方 `git merge-file --diff3` 詢問合併，衝突留標記回 2）；`-y` 免問；永不刪（上游刪檔只 warn）；二進位只比對不合併；「永不覆蓋」的正式定義與兩個例外 | 不變量 1、4；P3 |
-| bootstrap 薄層 | `bootstrap.sh` = 下載引擎 + 呼叫 `install`，再跑 = 修復、不自刪、EOF 不算同意；`install` 要求已是 git repo、不做 `git init`；啟動器 POSIX sh 只用 `docker` + `grep`／`sed`、只讀宣告第一行；主機 `docker create`／`cp` 拉 dist；不引進 vendir／crane／Copier（四項門檻記入） | 不變量 5、6；P2、P5 |
-| dev 自身與驗收 | `dev <repo> -p <dir>`／`undev <repo>`；`dev` 要求工具已在宣告；`dev vendor_kit -i <image>` 用 `version.local.toml` 覆寫引擎；驗收用剛 build 的引擎 image 在乾淨 fixture repo 跑 `install → add → upgrade → dev/undev → remove → uninstall`；CI 下拒絕 dev | 不變量 9；ADR-0001 的 acceptance 層 |
+| 0001 | 為什麼不用現成工具（vendir／Copier／subtree／submodule／套件管理器） | Accepted | 設計原則 P2（借主機已有的，不養第三方）；不變量 5（主機只需 docker + git + just，見 `../decisions/review/02_invariants.md` 第 5 條） |
+| 0002 | VK 的狀態全收進 `.vendor_kit/`，版本鎖定行只認一種正規形 | Accepted | 機制：不變量 2（一份版本鎖定行、進 git）、1（只動有紀錄的檔）、3（自動化只碰不進 git 的東西） |
+| 0003 | 初始檔升級走基準版全文加逐檔狀態機，移除只認紀錄原文恰好一處 | Accepted | 機制：不變量 1（可以建、要改先問、永不刪、永不覆蓋）、4（結束碼不由 `git merge-file` 的原生狀態決定） |
+| 0004 | VK recipe 一行轉發、寫入邊界，與 CI 模式的封閉紅燈清單 | Accepted | 機制：不變量 8（使用者介面極少；recipe 語意固定）、3（自動化只碰不進 git 的東西）、4（永不靜默失敗） |
+| 0005 | 機器可讀的輸出只走執行紀錄，事件名由註冊表封閉 | Accepted | 機制：不變量 4（永不靜默失敗——執行紀錄不可關閉那一段） |
+| 0006 | 工具 image 只搬不跑——取件走 `docker create`／`cp`，位元組相同靠三層 | Accepted | 機制：不變量 7（工具 image 只承載交付資料；引擎與工具不互相綁發版）；也服務 5（取件只借主機已有的 docker）、6（引擎單一實作） |
+| 0007 | 主機薄層：依賴下限與命令白名單固定，薄殼以自描述標頭鎖住，引擎升級分兩段 | Accepted | 機制：不變量 5（主機依賴最小）、6（引擎版本由安裝目錄鎖定；啟動器不判斷 repo 內容的意義）；也服務 10（舊薄殼遇新 major 的處置） |
+| 0008 | 介面版 P 與檔案版 schema 分開計數；版本組合不合就零寫入回 3 | Accepted | 機制：不變量 10（相容性與演進：同一個 X 內不破壞，X 變動才可能不相容且先公告） |
+| 0009 | Release 資產的形狀與離線導入——旁檔給 digest，已釋出的永不刪 | Accepted | 機制：不變量 2（決定性重建在提供端）；也服務 10（退得回） |
+| 0010 | dev 自身與驗收共用同一條「用指定 image 當引擎」的路 | Accepted | 機制：不變量 9（對外承諾必須黑箱可驗；本機開發與正式啟動走同一個入口）；也服務 10（退得回） |
+| 0011 | 測試分層與強制閘門——multi-stage 的固定順序、兩個平台、CI 的 just 矩陣 | Accepted | 機制：不變量 9（驗收 = 真引擎、乾淨 repo、完整流程）、11（正確性不綁單一平台）；架構圖是測試依據（`../../AGENTS.md`） |
+| 0012 | 引擎容器內的語言與時區寫死，行尾與跳脫逐處指定 | Accepted | 機制：不變量 11（同一份輸入在每個支援平台得到相同的對外結果） |
 
 ## 待拍板（不寫 ADR，直到定案）
 
-`doc/decisions/review/03_invariants.md` 與 `doc/decisions/scope_roadmap.md` 內標「> ⚠ 待拍板」的項目：宣告檔名（`version.toml` vs `lock.toml`）、`just` 最低版本、dist image 單架構 amd64、衝突時 baseline 是否推到新版、Renovate 路徑由 PR 作者本機補合併、多命名空間工具、image 公開／私有、`.gitignore` 類初始檔。每項定案後併入上表對應主題的 ADR，或獨立成一份。
+`doc/decisions/review/02_invariants.md` 與 `doc/decisions/scope_roadmap.md` 內標「> ⚠ 待拍板」的項目：宣告檔名（`version.toml` vs `lock.toml`）、`just` 最低版本、dist image 單架構 amd64、衝突時 baseline 是否推到新版、Renovate 路徑由 PR 作者本機補合併、多命名空間工具、image 公開／私有、`.gitignore` 類初始檔。每項定案後併入上表對應主題的 ADR，或獨立成一份。
