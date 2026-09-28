@@ -7,7 +7,7 @@ task = """你是 draw.io 產生器 `disc_v1_b.py` 的修改者。它是 Python �
 注意：本檔的頁 id 只有 v1p5*／v1p6*／v1p7*／v1p8*（共 38 頁）。其他頁（v1p0…v1p4、v1p9 以後）在別的檔，由別人同時處理，不要碰 `disc_v1_a.py`、`disc_v1_c.py`、`gen_disc.py`、`drawio_common.py`、任何 check_*.py／lint_pages.py／extract_pages.py。附件 L、R 中屬於別的檔的頁（如 v1p1b／v1p2b／v1p3／v1p9c／v1p16*／v1p10）忽略；跨頁 term-diff 條目若本檔頁是其中一方，把本檔頁的名詞文字改成與較長版本一致（或直接刪掉那條名詞，只要不是本頁流程必需）。
 """
 # R
-prop = S.joinpath('decisions/proposal_v2.md').read_text().splitlines()
+prop = S.joinpath('decisions/_legacy/proposal_v2.md').read_text().splitlines()
 def sect(lines, start_pat, stop_pat=None):
     out=[]; on=False
     for l in lines:
@@ -39,7 +39,7 @@ H = '\n'.join(S.joinpath('disc_v1_b.py').read_text().splitlines()[:560])
 K = S.joinpath('review_v2_README.md').read_text()
 brief = f"""{task}
 
-==================== 附件 R：decisions/proposal_v2.md 的 v2.16 與 v2.17 ====================
+==================== 附件 R：decisions/_legacy/proposal_v2.md 的 v2.16 與 v2.17 ====================
 {r16}
 
 {r17}

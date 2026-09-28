@@ -1,0 +1,130 @@
+# 討論紀錄（grilling，2026-09-18）
+- Q1 定案：自寫 + 主機 docker（拉 image）+ 引擎內 git merge-file；第一版不放 vendir/Copier。
+- 第 1 頁討論：
+  - base 的 update/upgrade 確認對齊 apt（ADR-00000011 §2）；我們跟 base。
+  - 專案層動詞 `install`（第一次建立、再跑 = 修復、要求已是 git repo、不做 git init）↔ `uninstall`；bootstrap.sh = 下載引擎 + 呼叫 install；`--repair` 取消。引擎內部「拉 image 展開」改名 fetch。—— 使用者 OK。
+  - `ensure` → `sync`：使用者 OK，待 codex 批判確認。
+  - codex 批判（agy/codex_verbs.md）：同意 install/uninstall、同意 sync；附帶條件：`install <repo>` 誤用要導向 `add`；help 明寫「已接入的專案跑 sync，不是 install」；sync help =「依 .version 重建本機工具快取與產生的模組；不修改鎖定版本或需提交的檔案」；fresh clone 的 sync 入口在 gen/ 不存在時也要能跑（recipe 放 tracked vendor.just 已解）；frozen 模式要明寫多禁止什麼；uninstall 要交代初始檔處理（保留並印清單）。內部展開步驟名：codex 建議 materialize（非 fetch）——內部名，不對外。
+- 第 1 頁便條 (3)(4)(6)(11) 回覆：
+  - add = 正式使用（GHCR、進 git、共享）；dev = 開發用（本機目錄、.version.local、只在本機）；**dev 要求工具已在 .version**。使用者 OK，要記 issue/ADR。
+  - update/upgrade 語意 OK；upgrade 含 install+合併+推 baseline OK。
+  - remove 不開 --purge OK；bootstrap 第二次拒絕 → 作廢（bootstrap = 下載 + install，再跑 = 修復）。
+  - 「vendor_kit 會碰使用者的東西」只有三處：根 justfile 一行、初始檔（add 建立不覆蓋；upgrade 合併；**永不刪**——新版刪除的檔改為只 warn 不刪）、.git/info/exclude 我們的區塊（不碰 .gitignore）。使用者要求再研究：根 justfile 能否不碰（base 式 symlink？）、.version 改名或收進 .vendor_kit/、初始檔隔離方式 → agy + Claude/codex 雙軌（進行中）。
+  - (11) dev 自身：**要支援**（使用者定案）。機制 = .version.local `vendor_kit = "<本機 image tag>"`，`dev vendor_kit -i/--image <tag>`；驗收測試 = 用剛 build 的引擎 image 在乾淨下游 fixture repo 跑完整流程，放 test 分層最後一關。
+- 隔離題定案（2026-09-18）：
+  - **不變量**：vendor_kit 對使用者的檔——可以建（要明確說明建立或修改了什麼）、要改先問（`-y` 免問）、永不刪、永不覆蓋。
+  - A 根 justfile：無 → 建（import 一行 + default: @just --list）；有 → 詢問加一行，`-y` 直接加並印出；uninstall 對稱詢問，只刪與我們寫的完全相同的行。不接管根檔（base 會對齊我們，共存問題消失）。
+  - B 全收進 `.vendor_kit/`：version.toml、version.local.toml、cache/<repo>/、.gitignore（自有）；不碰 .git/info/exclude 與使用者 .gitignore；工具 recipe 用 `cd "{{justfile_directory()}}"` 回專案根。
+  - C 初始檔：add 建（已存在不納管、不覆蓋）；upgrade 逐檔判斷後**詢問**（沒改→換新版？；都改→三方合併？），`-y` 免問，衝突留標記回 2，baseline 推到新版；remove/uninstall 不刪只印清單；CI 無 -y 需改檔 → 1 印清單。
+  - PRD/ADR 一律中文；PRD 結構學 base（不變量／原則／衝突優先序；機制放 ADR）。
+- Q3 定案：vendor_kit 只輸出一個命名空間 `vendor_kit`；工具 `dist/just/<ns>.just` 每檔一個頂層命名空間，數量工具自己決定；add 時跨工具撞名報錯拒絕。（proto ADR-0002 §4 與此一致）
+- Q4 進行中：工具 image 單架構 amd64 + arm64 CI 驗收守門 vs 多架構 index。實測：amd64 主機（無 qemu）docker create --platform linux/arm64 + docker cp 展開 arm64-only 純資料 image 成功（scratchpad/archtest）。
+- PRD 草稿已寫（src/doc/PRD.md 234 行、doc/adr/README.md、TEMPLATE.md）；子代理列出 10 處來源矛盾，除 Q4／just 最低版本／多命名空間（已定）外，一律以 grilling.md 為準；CONTEXT.md 待同步。
+- Q4 定案：工具 image **多架構 amd64+arm64**（同一次 buildx、COPY-only、CI 驗兩平台內容一致）；引擎 image 同；平台 Linux amd64 + arm64（Jetson、RPi 64 位元）、WSL2；armv7 不支援；docker 最低 19.03；印記記 index digest（與 version.toml 一致）。多架構測試開 issue 追蹤，做完才關。
+- Q5 定案（Renovate）：vendor_kit 本身無 bot、不 commit、不開 PR；Renovate 是下游自選；PR 只改 version.toml 一行，初始檔合併由維護者本機 `upgrade <repo> -y` → commit → push（Renovate 預設不動有人推過的分支，PR body 警告勿勾 rebase）。**PR 的 CI 必須以新版跑完整流程（sync frozen → verify → upgrade --dry-run → 工具測試 → 專案測試），一行改動本身不可能出錯，不構成通過依據；需合併 → 1 印指令；人補完 push 後全部再跑一次。** bot commit／postUpgradeTasks 不採（附註）。
+- Q7 定案（雙軌一致）：引擎 image 公開、工具自決、認證是主機的事；公開不可逆要提醒。
+- Q8：維持 just ≥ 1.33（來源：[group] 放 mod 上需 1.33 #2263）；CI 用 1.33.0 跑完整 fixture 才定案。
+- Q9 定案：自身升級後停下、退出 1、要求重跑；契約「同一次 just 呼叫內不會看到新 recipe」。
+- Q6 雙軌一致：只 warn + 明列條目；工具契約禁止初始檔以根 .gitignore/.dockerignore/.editorconfig 為目標（lint）；required/optional 待使用者。
+- Q6 定案（使用者：對齊不變量）：init.toml `mode = "append"` 的初始檔——無檔則建；已有則**問**後 append（-y 免問，印出加了什麼）；upgrade 用原文完全比對找上次加的行（記在 baseline），找到→問後替換，找不到→不動只印新內容；remove/uninstall 問後只刪原文相同的行。不用標記區塊；required/optional 不需要。
+- Q7 定案：(c) 引擎 image 公開；工具 image 由各工具 repo 自決；認證是主機／CI／Renovate 各自的事，vendor_kit 契約只承諾「主機 docker 拉得到就能用」；文件提醒公開不可逆、denied 分不出不存在／無權限。
+- Q8 定案：just ≥ 1.33.0（來源：[group] 放 mod 上 #2263；ADR-0002 理由要改）；一律 GitHub release 下載版；bootstrap.sh 低於即印下載＋安裝指令；CI 矩陣 1.33.0 + latest（不跑中間版）；禁用比 1.33 新的功能由 lint 擋；定案前用 1.33.0 跑完整 fixture。
+- Q9 定案：引擎升級後 sync 一次重寫完薄殼＋gen、退出 1、統一印「vendor_kit 已更新 vX → vY，請再跑一次剛才的指令」；不自動續跑（just 一開始即載入定義，續跑會用舊定義）。契約：「同一次 just 呼叫內不會看到新 recipe」。
+- Q8 補充：lint 現在擋比 1.33 新的功能；just 有重大功能時允許提高下限（agy 查 1.33 後變更中）。
+- Q8 補充（just 1.33→1.58 調查，scratchpad/agy/ 子代理以 gh api + 實測完成，agy 逾時無輸出）：無值得提高下限的功能；候選 1.51 `[working-directory: justfile_directory()]`、1.55 `set minimum-version`。ADR 記破壞性變更：1.53 which() 需 set lists；1.40 --list-submodules 必配 --list；1.42.0–1.42.2 submodule cwd 回歸（提高下限時跳過）；1.52 缺席 mod? 相依 recipe 改 disabled；settings 永遠 per-module（entry.just/tools.just 零 set 規則永久）。
+- bootstrap.sh 交付定案：README 連 `releases/latest/download/bootstrap.sh`（GitHub 內建，不需 latest tag，實測 302）；每版 `releases/download/vN/bootstrap.sh`；腳本內嵌所屬引擎 ref；檔名固定。
+- 待確認：bootstrap.sh `--image <本機 image>` / `--image-tar <tar>`（version.toml 寫正式 ref、version.local.toml 寫本機覆寫；release 附各平台 docker save tar）。
+- 2026-09-19 codex 審三小題（agy/codex_small3.md）：
+  - 私有 image 查最新：預設「未提供 registry 憑證時不支援需認證的版本列舉」，update 對該工具回 1 印「可設 VENDOR_KIT_REGISTRY_TOKEN（PAT classic read:packages）或用 upgrade <repo> -t <tag>」；多工具照查其他再彙總；不掛 ~/.docker/config.json。
+  - init.toml 欄位：`strategy = "copy" | "append"`（預設 copy；mode 在 Ansible 是權限）；規格明寫 append 首次加入並記錄、重跑不重複、upgrade 只對可辨識的上次插入內容提修改；copy 已存在就跳過，-y 也不覆蓋。
+  - append 行比對：CRLF/LF 等價、其餘精確；記錄實際插入片段（原先就存在的相同行不認領）；零命中或多處 → 保留並 warn。
+- Q10 待使用者：傾向 (2) 只報 1 提示 `upgrade vendor_kit`（升級者多一個指令；pull 的人 hash 相符無事）。
+- **Q10 定案 (2)**：sync 發現薄殼與引擎不符只回 1 提示 `just vendor_kit upgrade vendor_kit`；重產薄殼只由明確動作（upgrade vendor_kit／install）做，做之前比對現內容 == 上次產物（hash 在 gen/.stamp），被改過 → 1 列差異不動。sync 只寫 cache/、gen/（不變量回到「自動化只碰不進 git 的東西」，不需精確化為「不碰使用者的檔」）。
+- **Q11 定案 (b)**：未提供 registry 憑證時不支援需認證的版本列舉；update 對該工具回 1 印「可設 VENDOR_KIT_REGISTRY_TOKEN（+ _USER；或 _TOKEN_FILE）或用 upgrade <repo> -t <tag>」；只在 update/upgrade 的 resolve 階段以 -e 傳入引擎；不寫 log/檔、不傳給工具。「查最新」= registry tags/list 取 SemVer 最大正式版。引擎實作 Docker Registry 標準協定（WWW-Authenticate 換 token → /v2/<name>/tags/list 分頁）；契約標「GHCR 已測試，其他 registry 依標準協定可用但未驗證」。PAT 種類／權限細節實作時手動測再定。README 要有「私有 image」一節；測試：unit（token 交換、分頁、SemVer）、integration（無 token→1 逐字訊息、錯 token→1、對 token→列出、TOKEN_FILE）、洩漏 grep、驗收 fixture 私有工具案例。
+- **Q12 定案**：init.toml 欄位 `strategy = "copy" | "append"`（預設 copy）；規格明寫 append 首次確認後加入並記錄、重跑不重複、upgrade 只對可辨識的上次插入內容提修改；copy 已存在跳過、-y 不覆蓋。
+- **Q13 定案 (2)**：append 行比對 CRLF/LF 等價、其餘精確；metadata 記實際插入的行（原本就存在的相同行不認領）；零命中或多處 → 保留只 warn，-y 不硬加。行尾政策（repo 預設 LF、.gitattributes、dist lint）開 issue #29；使用者確認預設 LF。
+- 使用者（2026-09-19）：drawio 上的決策記錄（便條、規則框、「v2 改」、待拍板）只是討論期暫放；**全部驗證完後要搬到正確位置**——定案 → ADR（doc/adr/）／issue；圖只留架構與流程本身。整合進主圖時要把這些決策文字拿掉，改成引用 ADR 編號。
+- **Q14 定案 (1)**：upgrade 遇新版新增初始檔 → 問「要建 X 嗎」（-y 建）；拒絕 → metadata 記 declined，之後不再問但 dry-run／check.sh 印「有 N 個範本你拒絕過」；dest 在 CI 路徑（.github/workflows/、.gitlab-ci.yml）時訊息醒目；工具契約：初始檔只能引用穩定入口（`just <ns> …`），不得引用 cache 內部路徑（base #1078/#1111）。
+- 文件位置（skills 查證）：skills 無 PRD.md 概念；spec → issue（可丟棄）、不變量 → ADR、名詞 → CONTEXT.md。doc/PRD.md 為 base 式自家慣例，待使用者選 (a) 全走 ADR／(b) 保留 PRD.md + domain.md 註明。
+- **文件與結構定案**：完全照 mattpocock/skills：根 README（入口）、CONTEXT.md（名詞）、ADR 短格式（無索引無模板）、spec → issue → tickets；drawio 只放架構／流程／契約。刪 doc/PRD.md、doc/adr/README.md、TEMPLATE.md（內容拆進 README 與 ADR）。base 只移植決策／政策。使用者確認：路徑改回 skill 預設 `docs/`（docs/adr、docs/agents）。
+- **Q15 定案 (1)**：metadata 對每個範本記四種狀態（已納管／拒絕過／本來就有沒納管／使用者刪了）；`upgrade --dry-run` 與 check.sh 印「X 沒納管，與範本差 N 行」「Y 你拒絕過，vZ 有新版」，不動檔、不紅燈；新版有更新時對拒絕過的檔再問一次（base #1093／ADR-32）。
+- **Q16 定案 (1) 分兩層相容承諾**：薄殼每次呼叫附 `--protocol P`，引擎依 P 回應。永久：任何舊薄殼可呼叫新引擎的救援路徑（install／upgrade vendor_kit／sync 不符提示，單段 docker run，不依賴 resolve/apply 與 gen）並得正確提示；舊資料永遠可讀、可遷（讀任一舊 schema → 直接寫當前 schema，不鏈式）。非永久：舊薄殼跑新 major 的一般動詞只保證乾淨回 1 提示先 upgrade vendor_kit。floor = 固定 release 常數（第一個正式版）寫在契約，只能經 ADR 提高。前例：Gradle wrapper（舊 wrapper 可跑新版、跑第二次重產）、Docker Engine API 版本協商。
+- **Q17 定案 (1) 薄殼自描述**：entry.just／vendor.just／.gitignore 第一行、ci/check.sh 第二行（第一行 shebang）寫 `# vendor_kit-shell/<P> engine=<vX> sha256=<其餘內容 LF 正規化後的 hash>`；引擎重算比對 + 對 image 內薄殼模板二次比對；不符 → 1 列差異不動（使用者 git checkout 還原後再跑）。gen/.stamp 不再承擔薄殼 hash（只記引擎 ref 供 sync 快速比對）。
+- **Q18 定案 (1)**：bootstrap.sh 遇專案已有 version.toml → 用該行指定的引擎跑 install（不用內嵌引擎；拉不到就失敗、不得退回內嵌）；只有第一次接入才用內嵌引擎 ref。
+- **Q19 定案**：降版 `upgrade vendor_kit -t <舊版>`：舊引擎能無損讀現有檔 → 成功；否則在改任何檔前拒絕並印「請 git revert」。結束狀態新增 **3 = 協定不合／版本太舊**（與 1 一般失敗、2 衝突區分）。`dev vendor_kit -i <舊 image>` 禁止重產 tracked 薄殼。
+- 相容性其餘採納（機制層，雙軌一致）：每個 vendor_kit 寫的 TOML 有 `schema = N` + 寫入者版本（min_reader），同 schema 只加不改、讀時忽略未知欄位寫時保留；version.toml 契約 = 唯一符合 `^vendor_kit\s*=` 的行（禁 BOM／重複鍵／表旁路），不是行號；新讀舊在記憶體轉換、只在本來要寫該檔的明確動作寫回，跨版直遷不鏈式，metadata 遷移由 upgrade vendor_kit 做並在 dry-run 明列；讀先出貨寫延後（同 major 內 N-1 必能讀 N 寫的檔）；tools.just 最後寫且與 cache 同一 apply 內原子替換；已釋出 GHCR image、Release 資產、fixture 永不刪；Renovate preset 建議 major 分開 PR。驗收 F：floor 以來每個已釋出 bootstrap.sh + image 驅動候選（線性），每版最低環境（docker 19.03、just 1.33）跑完整，其他環境按世代；補列：只改第一行後 frozen sync、fresh clone 無 gen、使用者改薄殼／未納管檔、中斷重跑、歷史 parser × 合法／異常 TOML；成本上限當觸發討論條件。前例只引已查證者（Gradle wrapper、Cargo encode.rs、git repository-layout、K8s Rule #4b、Terraform version/terraform_version、npm arborist、Docker Engine API）。
+- **Q21 定案**：vendor_kit 只搬移；dist 內容能否在目標平台執行是工具 repo 的責任（用出貨的 check.sh --dist 驗佈局／init.toml／image 可展開／兩平台一致 + 工具自己的測試）；vendor_kit 不檢查 binary、不承諾可執行（base #1149）。
+- Q20 待確認：一 git repo 只有根目錄一個 .vendor_kit/；所有動詞 $PWD 必須 = git toplevel（否則 1 印路徑）；monorepo 多套列 v2（base #1036）。
+- **Q20 定案（改）**：第一版支援 monorepo 子專案：專案根 = 含 `.vendor_kit/` 的目錄（recipe 用 justfile_directory() 定位，引擎掛該目錄為 /repo），不是 git toplevel；robot/、sim/ 各自 bootstrap、各自 cache；指令在該層或更深層打（just 向上找 justfile）；在別層打是使用者用錯層。引擎不讀 .git、不碰 index（worktree 的 .git 是檔案也無關）。禁止巢狀：install 時上層已有 .vendor_kit/ → 1。要求目錄在某個 git repo 內。
+- Q20 修正：vendor_kit 動詞只准在含 .vendor_kit/ 的那一層執行：recipe 檢查 invocation_directory() == justfile_directory()，否則 1 印「請到 <dir> 執行」（just 向上找 justfile 擋不掉，所以在 recipe 內擋）。工具自己的 recipe 是否擋由工具決定。
+- **19 條疑似遺漏定案（2026-09-19）**：1 worktree 引擎不讀 .git（驗收加案例）；2 proxy → issue v2；3 引擎 LC_ALL=C.UTF-8、TZ=UTC、時間戳 UTC ISO 8601；4 容器以 host uid:gid 跑（既定），HOME 設容器內暫存目錄為實作細節；5 啟動器 trap 清容器與暫存、apply 靠進度日誌；6 需詢問但無 tty/EOF → 1 印「加 -y 或在終端執行」；7 -t 指舊版工具允許 warn；8 路徑含空白：啟動器一律引號、驗收加案例；9 舊 image 累積：第一版不處理（待使用者決定是否 v1 做 prune）；10 submodule → 派子代理實測寫進驗收；11 離線 upgrade 不支援，local_bootstrap.sh 只支援 install/add --local；12 rootless/Podman/Docker Desktop **進驗收矩陣**；13 SELinux 不支援；14 pull 逾時 **v1.0.0 必做**：預設逾時 + 可調參數，開 issue；15 引擎基底 EOL 列 v2；16 唯一 publisher 拿掉；17 Renovate currentValue+currentDigest 已定；18 驗收加「升級後 == 全新安裝」比對（排除時間戳、digest）；19 不列。
+- remove/uninstall 進度日誌放 `.vendor_kit/.tmp.*`（metadata 會被刪）；add/upgrade 記 metadata state=in-progress。
+- 9 修正：**第一版做 `prune`**：容器與 image 打 label；清 version.toml 未引用的舊引擎／工具 image、殘留容器、.vendor_kit/.tmp.*；network/volume 不建，驗收加「完整流程前後 docker network/volume ls 差集為空」。
+- 12 修正：rootless docker（docker/setup-docker-action `rootless: true`，已查證）與 Podman（Ubuntu 24.04 runner 內建 4.9.3）進驗收矩陣；Docker Desktop 記 issue 未驗證。
+- 14：pull 逾時 v1.0.0 必做，預設值 + 可調參數。
+- 9 補充（使用者）：不建 network/volume，但**若意外建立了也要能刪**：所有 docker 資源（容器、image、network、volume）一律帶 vendor_kit label；`prune` 依 label 掃四類資源並刪除 version.toml 未引用者；驗收：故意留一個帶 label 的 network/volume，prune 後必須消失。
+- **deploy 包定案**：base（工具）的功能，vendor_kit 不參與打包、不檢查。工具契約加一句：「工具 recipe 產生的交付物在執行期不得依賴 .vendor_kit/、version.toml 或 GHCR；需要的檔打包時複製進去」；保證方式 = 工具 repo 自己在乾淨機器解包驗收；初始檔／recipe 不得寫死 cache 內部路徑（Q14）。version.toml 為公開格式，工具可讀它寫來源紀錄。
+- **CI 平台定案**：ci_bridge（#25）短期不會有，第一版以 GitHub 為主：Renovate preset 放 vendor_kit repo（GitHub App 託管版）、GHCR、GitHub Actions 驗收；check.sh 維持平台無關設計；GitLab（PAT、Renovate 自架）留 #25 後續。
+- **Q22 定案 (1) sync 快路徑**：啟動器只用 grep 比對 gen/*.stamp 第一行 vs version.toml 各行，全相符 → 不起容器；有差才起引擎。每檔 sha256 verify 只在明確 `just vendor_kit sync`、CI（frozen）、版本變動那次做。條件：`.vendor_kit/cache/`（與 gen/、version.local.toml、.tmp.*）明確列在 `.vendor_kit/.gitignore`；若 cache 會進 docker build context（工具 recipe 的 build 用專案根當 context），工具契約要求 `.dockerignore` 排除 `.vendor_kit/cache/`（或 install 以 append 模式問後加入根 .dockerignore）。
+- 介面規格審查 16 條必修（`decisions/_legacy/interface_spec_review.md`）直接採納：根 justfile default 兩行、tools.just 用 mod?、拿掉 --pull never 改 docker image inspect、CI 真值規則（非空且非 0/false）、resolve 不加 -t、rootless 不加 -u／Podman --userns=keep-id、TOKEN_FILE 用 -v 掛、轉發 NO_LOCK、Dockerfile.dist 必含 LABEL、vendor_kit= 行唯一正規形、-y 不解除 frozen、未知 TOML 欄位忽略、二進位問後換、唯讀動詞不自動恢復、Renovate preset 根目錄 default.json、主機命令白名單明列、min_reader 改純資訊欄 written_by、metadata 單一 state 列舉 + declined_hash、F1 = mod? + 工具模組內私有 _sync recipe + --dist lint。
+- Q22 補：install 把 `.vendor_kit/cache/`、`gen/`、`.tmp.*` 加進根 `.dockerignore`（無則建；有則問後加、-y 免問）。
+- **Q23 定案**：結束碼 3 = 版本／協定／schema 不合，先升級或退回才能繼續（含舊薄殼叫新 major 一般動詞——Q16 的「回 1」改為 3；舊引擎讀高 schema；< floor；-t 降版無法無損讀）。回 3 時零寫入；新舊以協定號／schema 比較，不用版本字串。既定回 1 的情境（印記不符、薄殼被改、自身升級完成要重跑）維持 1。
+- **Q24 定案 vk-resolve/1 格式**：欄位 `|` 分隔（或 TAB），路徑等自由文字以 POSIX `printf '%b'` 可解的 `\ooo` 八進位跳脫編碼（任何 byte 安全，啟動器一行解碼）；首行 `vk-resolve/1`，末行 `end <N>`；啟動器先收完整份、驗首尾與筆數才動 docker；清單原樣掛給 apply 重驗指紋；「引擎已變」由啟動器 apply 前後 grep version.toml 第一行比對，不從 stdout 讀。實作層其餘取捨（暫存目錄放專案內 .vendor_kit/.tmp.dist.<id>/、prune 由啟動器執行 docker 指令、pull 逾時預設 300 秒僅正整數、label 前綴 io.github.<org>.vendor_kit、metadata 單一 state、C5 .tmp.<verb>.<id>.toml、E2 根目錄 default.json）依審查交叉比對結論直接定。
+- **Q25 定案 選項表**：短選項只給常用：-t/--tool <repo>[@<tag>]（bootstrap.sh）、-y/--yes、-p/--path、-i/--image、-h/--help；長形限定：--dry-run、--source、--local、--exit-code、--timeout（=VENDOR_KIT_PULL_TIMEOUT）、--no-justfile；--protocol 為內部。版本一律 `<repo>@<tag>`，拿掉 --tag。--repair 併進 install（冪等修復）；--purge 明確不提供（永不刪使用者檔），開 issue 供後續討論。#27 同步改 `-t base@v1.4.0` 語法。
+- **Q26 定案 (1)**：離線包每個 tar 附同名 `.digest` 旁檔（正式 index digest）；`add --local` 讀它寫入 version.toml，並在 metadata 記 image ID ↔ digest 對照供離線驗證。**離線可用**：啟動器先 `docker image inspect`，本機有就不 pull；斷網 + 本機已有 image → sync／build 必須成功（驗收）；斷網 + 無 image → 1「拉不到」不 hang（逾時）。
+- **Q27 定案**：多工具動詞做得完的做完，最後回最需要處理的碼（失敗 1 > 衝突 2 > 有新版 2 > 0；update 遇 1 與 2 → 1），訊息全列。
+- 規格 v2 剩兩待定定案：`--local` 值含 `/` 或以 .tar 結尾 → 路徑（必須存在），其餘 tag，兩者皆成立 → 1 消歧；`sync`（無參數）= Q22 快路徑，`sync --verify`（長形）或 CI 為真 = 每檔 sha256 全驗。規格子代理補的 9 條小規則採納（EOF/Ctrl-C 不記 declined；合併結果解析失敗 → baseline 不推、記 conflicts；TOKEN 與 TOKEN_FILE 同設 → 1；.dockerignore append 記在 baseline/.vendor_kit.toml；prune image 範圍 = 帶 label 且本專案未引用，--dry-run 先看；vk-resolve 只用 `|`；update 唯讀不受 frozen 限制）。
+
+## 2026-09-20 第八～九輪審查後定案
+- `add --local` 只收 tar（tag 形只有 bootstrap.sh：既有 version.toml 或內嵌引擎 ref 才有正式 digest 來源）；不提供 `--digest`。→ v2.10-3、v2.11-2
+- `upgrade vendor_kit` 一律建進度日誌 `.tmp.upgrade.<id>.toml`（統一規則、不設例外；撤回 v2.10-4）。→ v2.11-1
+- 需人動作的 1 結束一律橙；6-2b 只適用第一行已改；help 偵測未完成交易印 6-33 但仍 0。→ v2.10-1、-5、-6
+- 新需求：操作紀錄檔（每動詞每次執行寫檔、資料夾 ignore、格式參考業界／使用者 Notion 筆記「Debug 資訊架構」：JSONL + OTel 欄位 + lnav）。研究中：`decisions/_legacy/log/`。
+- 資料整理方向（使用者要求「確定的資料放到對的位置，不要全在 drawio」）：表格 7 頁 → spec issue；取捨 → ADR；名詞 → CONTEXT.md；圖只留架構／流程／狀態機／契約圖／目錄樹（34 頁）；先轉文字再看圖。
+- 操作紀錄檔 L1–L6 定案 → v2.12（L6 事件集合待 codex 審後定）。待議：啟動器讀 config 的方式在鍵變多時重評；base 反向採用 POSIX log.sh（issue）。
+- 審閱規則（2026-09-20）：由外而內一頁一頁；頁 N 不得引用頁 N 之後才出現的內容（p1b、p3、出貨、§7.4…）；三方角色（工具 repo／下游專案／vendor_kit 開發者）與「誰對誰承諾」第一頁明寫；出處標記移文末。01 頁圖上的「灰橢圓不對自己承諾」改寫為「vendor_kit 開發者＝承諾方：維護引擎 image 與薄殼，履行對兩方的承諾；內部實作不屬本契約、可變更」。
+
+## 2026-09-20 名詞與縮寫定案（第 0 頁／CONTEXT.md）
+- 三方（圖文一律全名、不縮）：**下游開發者**（開發工具 repo 的人；dev／undev、dist/ 出貨契約）、**下游使用者**（在專案裡接入／升級／使用工具的人，含只打 `just <ns> …` 的人）、**VK**（我們，承諾方）。同一人可兼兩種身分。「上游」「工具方」「專案方」「使用者的檔」不再用。
+- VK 零件：引擎／薄殼／啟動器；引擎內 **VK 模組** 8 個（中文名＋英文代號＝程式模組名）：版本解析 resolve、取件 fetch、初始檔 initfile、薄殼產生 shell、交易 txn、設定與格式 schema、執行紀錄 log、清理 prune。
+- 常用詞：**專案檔**（原使用者的檔）、**VK 檔**、**版本鎖定行**（原鎖定行／正規行）、**初始檔**、**基準版**（baseline）、**進度檔**（原進度日誌／交易日誌，`.tmp.<verb>.<id>.toml`）、**執行紀錄**（原操作紀錄檔，`log/…jsonl`）、**CI 模式**（原 frozen）、**需人處理**（橙）、**失敗**（紅）、**專案檔四原則**、**介面版**（原協定版 P）、**檔案版**（原格式版 schema）、**最低介面版**（原 floor）。
+- 動詞小寫原文；`upgrade vendor_kit` = **升引擎**；「→ 1：X」「→ 0」寫法。
+- 每個名詞 CONTEXT.md 附英文對照；第 0 頁「00 名詞與縮寫」放 01 之前；之後各頁只用第 0 頁定義的詞，各頁名詞表只留頁內特有詞；頁 N 不得前引頁 N 之後。
+- deploy 歸屬（2026-09-20）：維持「deploy 是 base 的 recipe，VK 只搬移」（C「VK 自管 deploy」不做）；「抽成獨立工具 repo（deploy_kit）」的可行性——deploy 包綁 base 的 setup.conf／resolved compose／.env 覆寫軸線（ADR-23），能否剝離、剝離後怎麼接，需 base 那邊評估：**開 issue 給 base repo 徵詢意見**，vendor_kit 這邊同步記 issue 追蹤。VK 對部署包的唯一承諾 = I9（交付物執行期不依賴 .vendor_kit/、version.toml、GHCR）。
+
+## 2026-09-20 第 0 頁定案補充與 registry 定案
+- **組件／模組層級**：VK 由三個**組件**（component）組成：引擎／薄殼／啟動器；**模組**（module）是引擎內的程式單元；組件 > 模組。
+- **progress 模組**：原「交易 `txn`」改名「**進度與寫入** `progress`」：建／恢復／刪進度檔、鎖、原子替換。
+- **下游 repo／下游 image**：原「工具 repo」「工具 image」全面改名；`dist/` = 下游 repo 的出貨目錄；下游開發者 = 開發下游 repo 的人。
+- **語法記法**：`<x>` 必填佔位符；`[x]` 可省略；`[@<tag>]` 可省略的版本後綴、緊接 repo 名；`-x <值>`／`--long <值>` 短／長選項等價、只有常用的才有短的；`-y` 不帶值的開關；`a／b` 二選一。第 0 頁在動詞表前列一節，並一句話列 `-p <dir>`、`-i <tag>`、`--exit-code`、`-y`。
+- **規則去處**：CONTEXT.md 只放 glossary（每條「是什麼」一到兩句、附英文與 _Avoid_，通用程式概念不收）；記法與顏色進 spec 與主圖第 0 頁「00 圖例與記法」（見 `decisions/_legacy/review/legend_page.md`）；審閱規則（由外而內、頁 N 不前引、各頁名詞表只列頁內特有詞、頁名帶序號、出處進文末附錄、例子一律 `<repo>`、決策不進 drawio／名詞不進 spec／規則不進 CONTEXT）進 AGENTS.md（草稿 `decisions/_legacy/review/AGENTS.addition.md`）。
+- **registry 定案**：留 GHCR——公開 image 免費、官方無公布 pull 上限；私有目前免費（"currently free"），未來可能套 Packages 額度（Free 500 MB／1 GB·月）。換站以 `crane copy`（不帶 `--platform`）或 `skopeo copy --all` 搬遷，index digest 不變、版本鎖定行只換 host；`docker buildx imagetools create` 不可用於搬遷（digest 有變的風險）。「host 可替換設定點」列待議。依據 `decisions/_legacy/registry_summary.md`。
+- 程式碼不變式（2026-09-20，使用者）：**巢狀迴圈／區塊不超過 3 層；判斷一律以提前返回（guard clause）為優先**。適用引擎 Python 與薄殼／啟動器 sh。落地：進 AGENTS.md 工作約定；lint 層強制（Python：ruff `PLR1702` too-many-nested-blocks 上限 3、`C901` 複雜度；shell：shellcheck + 自寫巢狀深度檢查）；違反 = CI 紅。→ spec §7 lint、ADR 不需要（非取捨）。
+- 01 頁四點拍板（2026-09-20）：(1) 禁巢狀：上層或下層已有 .vendor_kit/ 都 → 1；(2) 動詞只准在專案根執行，**sync 亦無例外**（自動觸發的 _sync 自己先 cd 到專案根，不受影響）；撤回 spec F1 豁免；(3) CI 模式下需改進 git 的檔一律 → 1 印清單，與 -y 無關；-y 只省略詢問；CI 模式由 CI 環境變數為真觸發（平台自設／check.sh 自設；本機手設 = 唯讀驗證，允許）；(4) 顏色語意：橙 = 需人處理、紅 = 失敗（error）——補進 spec §2。其餘 3 條矛盾（零寫入的執行紀錄例外、.dockerignore 四行、舊薄殼回 3）維持 spec。01 頁待拍板清空。
+  - 補充（使用者原話意）：-y 與 CI 模式是兩個獨立開關；CI 內可帶 -y（省略詢問），但 -y ≠ CI 模式、CI 模式也不隱含 -y。
+- CI 架構（2026-09-20，**記錄、後續討論**）：前例研究在 `decisions/_legacy/ci_summary.md`（agy 逾時，Claude 直接核對 11 個專案 26 個 workflow 原檔）。主流：同一入口檔掛 PR＋push main（靠 `if:`／標籤／changed-files 計畫 job 分流，不分檔）；release 另一檔（tag 觸發或 dispatch+environment）；共用用 `workflow_call` reusable 與 composite action；唯一 required check = 彙總 job；PR 只 build 不 push image；原生 arm runner 跑測試、QEMU 只 build。暫定建議：ci.yml（入口）＋release.yml＋build-image.yml（workflow_call）＋nightly.yml（可選）。**尚未定案，待 codex 雙軌與使用者討論。**
+- 審閱頁形式（使用者 2026-09-20）：動詞頁太多文字——動詞是動作，細節屬流程圖；02 頁改成精簡表（動詞｜語法｜一句話｜寫哪類檔｜結束碼｜對應流程頁），步驟細節在對應流程頁審。
+- 02 頁 6 點定案（2026-09-20，codex 一致）：① CI 模式定義加「update 除外」；② 驗收 harness 明確 CI=0，另設 CI=1 案例驗唯讀拒寫；③ 其餘動詞靠通則，表只寫偏離通則的例外；④ prune 保留清單 = 版本鎖定行 + 本機覆寫**實際引用的 image**（引擎 tag／ID 覆寫；工具 path 覆寫無 image）；⑤ 內部子命令 materialize 改名 fetch；⑥ 第 0 頁 update 改「只寫執行紀錄」。
+- 兩條新規則（codex 審 00–02 後）：(a) 執行紀錄順序：不寫、不拉、不起容器的前置檢查（git repo？just 版本？）可在建紀錄之前；任何寫入／拉取／起引擎之前必已有紀錄（非 git 目錄無處可寫）。(b) `dev` 也建進度檔（I11 無例外；它寫本機覆寫、cache symlink、印記三處）。
+- codex 審 00–02 的 56 條（`decisions/_legacy/review/codex_findings_00_02.md`）全部採納修正；另補三條不變量：VK TOML 檔案版＋未知欄位讀時忽略寫時保留；多工具動詞先完整預檢、任一不過整體不動；gen/tools.just 與 cache 同一次原子替換。下游使用者的 repo 定名「專案」（含 .vendor_kit/ 的 repo）。
+- codex 修正後的 12 個疑慮取捨（2026-09-20 主對話）：log.sh 無 shebang、自描述在首行（spec §4.5 不動）；dev 進度檔內容 = 覆寫行、symlink 目標、印記第一行；**remove／uninstall 的版本鎖定行最後刪，回 1 時鎖定行不動**（與 add／upgrade 一致；失敗留下的狀態 = 工具仍鎖定且 cache 可能部分缺，下次 sync 補回）；I16 只涵蓋會寫檔的多工具動詞；§8 增為 13 條；其餘照子代理所寫。
+- 第十二版 codex 4 組審查（`r12_codex/findings1–4.md`，245 條）→ 第十三輪規則 v2.15（1–18）。新增定案：baseline/.gitkeep 保留為 VK tracked 檔；release 候選 tag → 驗收後 imagetools 打正式 tag；update 6-15 末行、TOKEN 互斥；sync verify 只重裝一次；逐檔判斷依 state 分流。執行紀錄事件改圖例約定不逐格畫（launcher_started／completed|failed、engine_started／completed|failed）。
+- 00–02 codex 三審新定案（2026-09-20）：`<repo>` 名稱規則改 `[a-z0-9_][a-z0-9_-]*`（小寫、**不含句點**，避免 TOML dotted key；OCI repo 名本就小寫）；工具版本鎖定行在 `[tools]` 表下，不與頂層 `schema`／`written_by`／`vendor_kit` 撞名，保留名仍列 `vendor_kit`；`--local` 判別順序：以 `.tar` 結尾 → 檔案路徑（必須存在）；否則值含 `/` 且存在同名檔 → 6-37 消歧；否則 image tag。bootstrap.sh 也寫執行紀錄（`log/bootstrap/`）。名詞補「工具 recipe」（`just <ns> …`，工具 `<ns>.just` 提供的指令）。
+- 00–02 經 codex 六輪收斂（56→19→9→6→1→0），可交付審閱（2026-09-20）；**定案需使用者對該頁明確回覆**，00／01 尚未定案（使用者要求 drawio 也開獨立頁呈現後再審）。附帶定案：spec 的「自描述首行」統一改名「自描述標頭」（純替換，下次 spec 同步做）；upgrade (0) 停止條件明確化：`conflicts` 非空時，仍含衝突標記的檔 → 2 停；標為解析失敗（無標記）的檔 → 重跑時重新合併一次，仍失敗 → 2。
+- 第十三版 codex 4 組（r13_codex/findings1–4.md）→ 第十四輪規則 v2.16（1–18）。新定案：事件名維持 spec 註冊表原名（launcher_start/exit、engine_start/exit），L6 改名列待議；remove 拒絕刪 append 行仍完成移除、孤兒行記在 baseline/.vendor_kit.toml；最低介面版檢查在 pull 前（本機無 image 時 pull 後立即檢查、失敗 3 零寫入）。
+- 工作方式調整（使用者 2026-09-20）：(1) 規格先動、圖跟著追＝正常；(2) 修圖引入新錯不可接受 → 角色互換：codex 執行修改（產生器／spec），Claude 檢查；反覆發生的問題寫成 lint／產生器守衛（resolve 三叉、事件名白名單、可寫動詞前置格、終點顏色 vs 文字、前引、資料流斷線），修完先過 lint 歸零再送審；(3) 審查標準提高＝本來就要做。第十四輪（Claude 修）已派，跑完即改用新流程。
+- 收斂上限（使用者 2026-09-20）：第十五輪（codex 修＋lint 守衛）之後若仍有問題，**不再修圖**，把剩餘問題以清單形式寫在對應頁面（頁內「待處理問題」便條），後續再處理；使用者要先針對整個框架（00–05 名詞／不變量、動詞表、契約、架構）做處理。
+- 第十四版 Claude 檢查（必修 67／選修 89）＋lint 22 → v2.17 第十五輪規則；本輪 codex 執行修改、Claude 檢查；之後不再修圖，剩餘寫頁面清單。
+
+
+## 01 頁名詞重定（2026-09-22，使用者定案）
+- 承諾關係只有兩方：**使用者**（會跑 VK 動詞的人）↔ **VK**。只打 `just <ns> …` 的人不是「方」。「下游使用者／下游開發者」廢止。
+- 只有一種 repo：使用者的 git repo。一個 repo 對 VK 有兩個角色，可同時扮演：**出貨**（有 `dist/`，打成工具 image）、**接入**（有 `.vendor_kit/`，跑 VK 動詞）。「專案」只指 VK 自己的專案，不再指使用者的 repo。
+- 連帶改名：下游 image → 工具 image；專案根 → 接入根；專案檔 → repo 檔；三方合併 → 基準版合併（baseline merge）；版本鎖定行英文 lock version line。
+- 語法記法改 POSIX：二選一 `a|b`，不用「／」（agy 查證：POSIX.1-2017 XBD §12.1、man-pages(7)、docopt）。
+- 字典只留「是什麼」；規則、語法、選項、模組、附錄移出到 `review/terms_moved.md` 待歸位。可寫／唯讀動詞名稱保留。
+- 流程：一頁一頁審，使用者回 OK 前後面頁凍結；看完的頁才 commit。
+
+- 2026-09-24：不再依賴 doc/PRD.md，內容搬到 review/03_invariants.md、design_principles.md、scope_roadmap.md；PRD.md 刪除。
+
+- 2026-09-26：不支援 Podman（使用者定案）。原 19 條-12「rootless docker 與 Podman 進驗收矩陣」縮為只含 rootless docker；spec §0、§3.1、§7.4-22、§10 與 03 頁第 5 條同步。

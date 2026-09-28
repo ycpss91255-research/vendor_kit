@@ -1,6 +1,6 @@
 """討論圖 v2 新增八頁（v2.6 §17）：v1p9 prune、v1p10 update、v1p11 初始檔五態、v1p12 交易與進度檔、
 v1p13 相容性矩陣、v1p14 結束碼決策表、v1p15 vendor_kit release、v1p16 離線包。
-依據（唯一）：decisions/interface_spec.md v2（§0 共通、§1.2 動詞表、§2 結束碼、§3 協定、§4 schema、§4.8 離線包、§6 訊息、§7.4 驗收、§8 相容性）、
+依據（唯一）：decisions/_legacy/interface_spec.md v2（§0 共通、§1.2 動詞表、§2 結束碼、§3 協定、§4 schema、§4.8 離線包、§6 訊息、§7.4 驗收、§8 相容性）、
 proposal_v2.md v2.4～v2.9（v2.9 最高優先）、review_v2r7_findings.md 本檔十頁段落（第八輪必修＋選修；備份 .v9）、grilling.md（Q9、Q11、Q15、Q16–Q19、Q23、Q26、Q27、#26、#27）。
 只定義 pages_v1_c = [(pid, name, cells), ...]；不寫檔（run_v1_c.py 負責組 mxfile）。
 版面規則：12pt；每格一件事；橢圓／菱形由 emit() 用 shape_spacing 補 spacing；頁高 ≤ 2400、寬 ≤ 1650（band_w=1590）；
@@ -579,9 +579,9 @@ T15 = [
  ("release", "vendor_kit 引擎的一次發行：候選 → 兩平台各自 build → release-test → 綠了才 push-by-digest → 合成 index 打候選 tag → 驗收（完整 §7.4 矩陣，fixture 第一行 = 候選 ref@index digest）→ 兩平台一致 → 產資產 → 正式 GHCR image tag vN + Git tag vN → Release；任一關失敗就不成為正式版；已釋出 image／Release 資產／fixture 永不刪"),
  ("候選 tag／正式 tag", "候選 image 先以候選 tag（vN-rc.<n> 或 candidate-<sha>）推上 GHCR；index inspect 與資產都對候選 tag 做；全過才 docker buildx imagetools create 打正式 GHCR image tag vN（不重 build、index digest 不變）；Git tag vN 是 repo 上的另一個物件，圖上分開標"),
  ("多架構 image／index digest（#26）", "兩個 runner（amd64、arm64 原生）各自單平台 build + release-test，綠了才 push-by-digest，由單一 job 以 docker buildx imagetools create 合成 index（不是同一次 buildx --platform 多平台；兩 runner 各自 push 同 tag 會互相覆蓋）；index 的 sha256 = version.toml 鎖定用的 digest"),
- ("release-test", "amd64 與 arm64 原生 runner（不用 QEMU 當閘門）各跑 env-test + 一條完整主機流程（install → add → upgrade → dev/undev → remove → prune → uninstall）；rootless docker 與 Podman 進矩陣；just 1.33.0 + latest"),
+ ("release-test", "amd64 與 arm64 原生 runner（不用 QEMU 當閘門）各跑 env-test + 一條完整主機流程（install → add → upgrade → dev/undev → remove → prune → uninstall）；rootless docker 進矩陣（不支援 Podman）；just 1.33.0 + latest"),
  ("env-test", "release-test 的第一段：在乾淨 runner 驗主機需求（docker ≥ 19.03、just ≥ 1.33.0、POSIX sh、git）與引擎 image LABEL 齊全；過了才跑完整主機流程"),
- ("驗收（§7.4）", "完整驗收矩陣 35 條（逐條見契約⑤頁的驗收矩陣）：最低介面版以來每個已釋出 bootstrap.sh(r) + 引擎 image r 建 fixture 驅動候選 C；連升；跳升；降版；離線包；私有 registry；append；空白路徑；worktree；rootless／Podman；prune；多工具；F1；無 tty；Renovate；動詞集合；執行紀錄 fail-closed…；缺任一不得出貨（§8-12）"),
+ ("驗收（§7.4）", "完整驗收矩陣 35 條（逐條見契約⑤頁的驗收矩陣）：最低介面版以來每個已釋出 bootstrap.sh(r) + 引擎 image r 建 fixture 驅動候選 C；連升；跳升；降版；離線包；私有 registry；append；空白路徑；worktree；rootless docker；prune；多工具；F1；無 tty；Renovate；動詞集合；執行紀錄 fail-closed…；缺任一不得出貨（§8-12）"),
  ("fixture", "驗收用的乾淨小 git repo：用已釋出的 bootstrap.sh(r) 接入後把第一行改成候選 C 跑完整流程；禁止由候選樹複製、禁 stub 引擎；fixture 永不刪"),
  ("兩平台一致檢查", "下游 dist：兩平台逐檔位元組一致（路徑、型別、hash、權限、禁 symlink）；引擎 image：兩平台 LABEL（….protocol、….schema）一致；index inspect 斷言含 linux/amd64 與 linux/arm64"),
  ("bootstrap.sh（release 資產）", "release 附的 POSIX sh 薄層，內嵌所屬引擎的完整 ref（ghcr.io/<org>/vendor_kit:vN@sha256:<index digest>）；檔名固定：releases/download/vN/bootstrap.sh，README 連 releases/latest/download/bootstrap.sh；離線契約入口 = bootstrap.sh --local <tar>"),
@@ -589,7 +589,7 @@ T15 = [
  ("LABEL", "引擎 image build 時帶 io.github.<org>.vendor_kit=1、….protocol=<floor_P>-<current_P>、….schema=<N>（啟動器不起容器即可判最低介面版）"),
  ("SemVer", "版本號 major.minor.patch；update 取 tags/list 中 SemVer 最大的正式版（預發行如 -rc 排除）；major = 提高最低介面版或需要下游使用者手動步驟；minor = 新功能（含介面版 +1、新增欄位）；patch = 修正；Renovate preset 建議 major 分開 PR"),
 ]
-N15 = "已定（#26 多架構、#27 bootstrap.sh 交付、Q26 .digest、v2.7-1、v2.15-9／-15、interface_spec §4.7 image 命名／label、§7.4 驗收、§8-12；decisions/multiarch 最終建議）：兩架構原生 runner 分建分測、綠了才 push-by-digest 再由單一 job 合成 index 打候選 tag；驗收（完整 §7.4 矩陣）對候選 tag 做（fixture 第一行寫候選 ref@index digest）、在正式 release 之前；全過才打正式 vN（digest 不變）；bootstrap.sh 內嵌完整 ref；各平台 tar + .digest + SHA256SUMS 進 Release；local_bootstrap.sh 只是便利包裝（非契約）；失敗不進正式 tag；已釋出物永不刪。"
+N15 = "已定（#26 多架構、#27 bootstrap.sh 交付、Q26 .digest、v2.7-1、v2.15-9／-15、interface_spec §4.7 image 命名／label、§7.4 驗收、§8-12；decisions/_legacy/multiarch 最終建議）：兩架構原生 runner 分建分測、綠了才 push-by-digest 再由單一 job 合成 index 打候選 tag；驗收（完整 §7.4 矩陣）對候選 tag 做（fixture 第一行寫候選 ref@index digest）、在正式 release 之前；全過才打正式 vN（digest 不變）；bootstrap.sh 內嵌完整 ref；各平台 tar + .digest + SHA256SUMS 進 Release；local_bootstrap.sh 只是便利包裝（非契約）；失敗不進正式 tag；已釋出物永不刪。"
 _T15 = {r[0]: r for r in T15}
 T15A = [_T15["release"], _T15["候選 tag／正式 tag"], _T15["多架構 image／index digest（#26）"], _T15["release-test"], _T15["env-test"], _T15["驗收（§7.4）"], _T15["fixture"], _T15["兩平台一致檢查"]]   # ≤ 8
 T15B = [_T15["候選 tag／正式 tag"], _T15["多架構 image／index digest（#26）"], _T15["bootstrap.sh（release 資產）"], _T15["tar／.digest／SHA256SUMS（#27、Q26）"], _T15["LABEL"], _T15["SemVer"]]
@@ -599,7 +599,7 @@ b.box("v0", MT, 0, G12, "推候選（候選 commit／workflow_dispatch 指定 vN
 b.box("v1", GA, 0, W12, "workflow 觸發：amd64 job + arm64 job（原生 runner）", 560)
 b.box("v2", GA, 1, W12, "build（#26）：兩 runner 各自單平台 buildx build（同一份 Dockerfile；LABEL =1／.protocol／.schema）", 560)
 b.box("v3a", GA, 2, W12, "release-test（各平台原生）：env-test", 560)
-b.box("v3n", RA, 2, NOTE, "release-test 環境矩陣：rootless docker、Podman 各跑一次", 390)
+b.box("v3n", RA, 2, NOTE, "release-test 環境矩陣：只跑 rootless docker", 390)
 b.box("v3b", GA, 3, W12, "release-test：完整主機流程 install → add → upgrade → dev/undev → remove → prune → uninstall", 560)
 b.box("v3n2", RA, 3, NOTE, "原生 runner 各跑一次；不用 QEMU 當閘門", 390)
 b.box("v3x", MT, 4, R12, "否 → 失敗：候選作廢（不推 image、不發 Release）", 220)
@@ -620,7 +620,7 @@ b.box("v4c", GA, 11, W12, "執行完整 §7.4 驗收矩陣（35 條，逐條見�
 b.box("v4x", MT, 12, R12, "否 → 失敗：候選作廢；印失敗的條號", 220)
 b.box("v4q", GA, 12, D12, "驗收 35 條全過？", 300, ax="l")
 b.box("v6a", GA, 13, W12, "是：兩平台一致檢查：下游 dist 逐檔位元組一致", 560)
-b.box("v6n", RA, 13, NOTE, "已定（decisions/multiarch）：不能靠單一 bake --push 帶測試就宣稱「失敗就不發佈」；分架構各自 build／test，綠了才 push-by-digest，最後由單一 job 合成 index；兩 runner 各自 push 同 tag 會互相覆蓋", 390)
+b.box("v6n", RA, 13, NOTE, "已定（decisions/_legacy/multiarch）：不能靠單一 bake --push 帶測試就宣稱「失敗就不發佈」；分架構各自 build／test，綠了才 push-by-digest，最後由單一 job 合成 index；兩 runner 各自 push 同 tag 會互相覆蓋", 390)
 b.box("v6b", GA, 14, W12, "兩平台一致檢查：引擎 image 兩平台 LABEL（protocol／schema）一致", 560)
 b.box("v7x", MT, 15, R12, "否 → 失敗：不發 Release、不進正式 tag（候選作廢；候選 tag 留著）", 220)
 b.box("v7", GA, 15, D12, "兩平台一致？", 220, ax="l")
