@@ -1,10 +1,10 @@
-# ADR-0003：為什麼不用現成工具（vendir／Copier／subtree／submodule／套件管理器）
+# ADR-0001：為什麼不用現成工具（vendir／Copier／subtree／submodule／套件管理器）
 
 > Serves: 設計原則 P2（借主機已有的，不養第三方）——這份 ADR 記錄 P2 在「要不要引進現成的搬檔、範本、套件工具」這個問題上的應用，並固定將來重評的門檻。也服務不變量 5（主機只需 docker + git + just）。機制決議，不建立不變量。
 
 - **Status:** Accepted
 - **Date:** 2026-09-25
-- **Related:** `doc/decisions/design_principles.md` P2、`doc/decisions/review/03_invariants.md` 第 5 條、`doc/decisions/grilling.md` Q1（第一版不放 vendir/Copier）、`doc/decisions/prior_art.md`（前例研究）、`doc/decisions/review/01_purpose.md`（第 01 頁只留結論一句，完整比較在本檔）、`doc/decisions/review_log/codex_out_vendir_eval.md`（2026-09-25 vendir 實測與獨立評估）
+- **Related:** `doc/decisions/design_principles.md` P2、`doc/decisions/review/02_invariants.md` 第 5 條、`doc/decisions/review/01_purpose.md`（第 01 頁只留結論一句，完整比較在本檔）、`doc/decisions/review_log/codex_out_vendir_eval.md`（2026-09-25 vendir 實測與獨立評估）
 
 ## Context
 
@@ -13,9 +13,9 @@ vendor_kit 要同時做到四件事：搬檔、鎖版、初始檔升版不蓋掉
 硬性限制：
 
 - 設計原則 P2「借主機已有的，不養第三方」（`doc/decisions/design_principles.md`）：拉與展開交給 docker（`create`／`cp`），文字基準版合併交給引擎內的 `git merge-file`，版本追蹤交給 Renovate 一條 regex；vendir、crane、Copier 都不進引擎。
-- 不變量 5「主機只需 docker + git + just；正確性不綁單一平台」（`doc/decisions/review/03_invariants.md` 第 5 條）：任何「主機要先裝 X」都會在 Jetson、WSL2、共用工作站其中一台失敗。
+- 不變量 5「主機只需 docker + git + just；正確性不綁單一平台」（`doc/decisions/review/02_invariants.md` 第 5 條）：任何「主機要先裝 X」都會在 Jetson、WSL2、共用工作站其中一台失敗。
 
-已定案的事實：`doc/decisions/grilling.md` Q1 定案「自寫 + 主機 docker（拉 image）+ 引擎內 git merge-file；第一版不放 vendir/Copier」。
+已定案的事實：2026-09-18 定案「自寫 + 主機 docker（拉 image）+ 引擎內 git merge-file；第一版不放 vendir/Copier」。
 
 ## Decision
 
@@ -44,13 +44,13 @@ vendor_kit 要同時做到四件事：搬檔、鎖版、初始檔升版不蓋掉
 
 先修掉一個舊說法。實測結果是 **vendir 的 `image` 來源可以直接展開 `FROM scratch` 純資料 image**：不需要 `.imgpkg/` bundle，也不經 docker daemon——它自帶 registry client，能驗證並回報實際解析出的 digest，還能用 `includePaths`／`newRootPath` 只取 `dist/` 裡要的部分。也就是 §5 門檻的第 1 項（能展開現有的 scratch 純資料 image），vendir 其實通得過。不採用的理由換成下面這些。
 
-1. **`sync` 的模型是「這個目錄整份由我管」。** 實測：目標目錄裡使用者新增的檔被刪掉，改過的檔被還原成 image 內容——vendir 先移除目標目錄，再把 staging directory 整份換上去，沒有任何三方合併，也沒有「改過就不覆蓋」。這與基準版合併、以及「不刪不覆蓋 repo 檔」直接衝突；`ignorePaths`／`manual` 只是讓某些路徑不由它管，不是合併。它適合 `.vendor_kit/cache/<repo>/` 這種由 vendor_kit 完全擁有、可隨時重建的目錄，不適合初始檔所在的 repo 路徑。
+1. **`sync` 的模型是「這個目錄整份由我管」。** 實測：目標目錄裡使用者新增的檔被刪掉，改過的檔被還原成 image 內容——vendir 先移除目標目錄，再把 staging directory 整份換上去，沒有任何基準版合併，也沒有「改過就不覆蓋」。這與基準版合併、以及「不刪不覆蓋 repo 檔」直接衝突；`ignorePaths`／`manual` 只是讓某些路徑不由它管，不是合併。它適合 `.vendor_kit/cache/<repo>/` 這種由 vendor_kit 完全擁有、可隨時重建的目錄，不適合初始檔所在的 repo 路徑。
 2. **多架構 index 挑不了平台。** v0.46.2 內嵌的 imgpkg 對 image index 要求給具體的 manifest digest，不會按主機平台自行挑 manifest（[imgpkg pull 實作](https://github.com/carvel-dev/imgpkg/blob/v0.48.1/pkg/imgpkg/v1/pull.go#L184-L192)）。版本鎖定行若鎖 amd64／arm64 共用的 index digest，vendir 用不了；改成每個平台各鎖一個 digest，就打破「同一行在任何機器裝到同一份內容」。
 3. **離線接不上。** `vendir sync` 沒有從本機 tar／OCI archive 匯入的介面，接不上 `docker save`／搬運／`docker load` 那條離線路徑；離線時它仍需要一個連得到的 registry。要走 imgpkg 的 air-gap bundle，那是另一個 binary、另一種格式、另一個產品決策。
 4. **認證是第二條路徑。** vendir 走 imgpkg 的 keychain（aks、ecr、gke、github）與 `DOCKER_AUTH_CONFIG`（[imgpkg 認證文件](https://carvel.dev/imgpkg/docs/develop/auth/)）；它雖然也讀得到 `~/.docker/config.json`，但解析順序與主機 docker credential helper 不同，實質是兩套。風險具體是：`docker pull ghcr.io/...` 成功，不保證同一台機器上 `vendir sync` 成功（`$HOME`、`DOCKER_CONFIG`、helper 是否在 `PATH`、WSL2 加 Docker Desktop 都會造成差異）。私有 GHCR 要另外指定並測試一條憑證路徑。
 5. **目錄權限不同。** vendir 建的上層目錄是 `0700`，與 repo 內其他目錄的權限預期不一致：要嘛接受這個契約，要嘛同步後自己校正權限，後者又多一層平台與錯誤處理邏輯。
 6. **收益很小。** 換掉的只是「建暫存 container」那幾行：`docker create` + `docker cp` + `docker rm`。vendor_kit 本來就要 docker 才能啟動引擎，所以「不經 daemon」沒有移除任何相依，只是多開第二條下載路徑。
-7. **多一個第三方 binary。** vendir 會變成正式的執行期相依：固定版本、分發 linux amd64 與 arm64、驗 `checksums.txt`（要來源真實性還得驗 release 的簽章而不只是 sha256）、鏡像保存以防 GitHub release 不可達、離線包內帶對架構的 binary、跟升版與 CVE、再測 Jetson／WSL2／CI 的權限與路徑行為。與不變量 5 直接相衝。
+7. **多一個第三方 binary。** vendir 會變成正式的執行期相依：固定版本、分發 linux amd64 與 arm64、驗 `checksums.txt`（要來源真實性還得驗 release 的數位簽章而不只是 sha256）、鏡像保存以防 GitHub release 不可達、離線包內帶對架構的 binary、跟升版與 CVE、再測 Jetson／WSL2／CI 的權限與路徑行為。與不變量 5 直接相衝。
 8. **lock 檔是第二份版本真相。** 實測：v0.46.2 沒有 `--no-lock`，完整的 remote sync 最後會無條件建立 lock config、印到 stdout、再寫檔（[sync 實作](https://github.com/carvel-dev/vendir/blob/v0.46.2/pkg/vendir/cmd/sync.go)）。可以壓制持久檔案：`--lock-file <path>` 能把它改道到暫存檔，`-d 'dir=local-dir'` 時 vendir 會印 `Lock config is not saved due to command line overrides` 而不寫檔。但沒有官方的「完全不產生 lock」選項，lock 內容照樣出現在 stdout；`--lock-file /dev/null` 不是受支援的用法（不跨平台、`--locked` 會讀到空 lock、partial sync 會嘗試讀舊 lock）。要維持「宣告唯一」就得靠一層嚴格 wrapper 一直防著它。
 
 ### 3. Copier、cookiecutter
@@ -72,7 +72,7 @@ vendor_kit 要同時做到四件事：搬檔、鎖版、初始檔升版不蓋掉
 5. 有一項 docker 後端確實做不到的硬需求（例如正式要求 daemonless fetch），且已寫成需求條目——「少三行指令」不算。
 6. 不產生第二份版本真相：工具有官方選項保證不寫、不讀、不輸出可被當成版本真相的 lock；或能直接吃 vendor_kit 的完整 `tag@digest`，不需要持久的第二份 config／lock。
 7. 多架構 digest 可解析：工具能依主機平台可靠解析 OCI index digest；否則工具 image 的發布契約已明文改成單一、架構無關的 manifest digest，且該改動已記入 ADR。
-8. binary 供應鏈有人負責：版本固定、有 sha256 與簽章驗證、有鏡像保存、離線包能帶對架構的 binary，並有升版與 CVE 的處理流程。
+8. binary 供應鏈有人負責：版本固定、有 sha256 與數位簽章驗證、有鏡像保存、離線包能帶對架構的 binary，並有升版與 CVE 的處理流程。
 9. 新後端與現有 docker 後端跑同一組 golden test 且全過：展開內容逐檔相同、檔案與目錄權限相同、symlink 處理相同、失敗時的原子性相同、重跑結果相同。
 10. 若該工具會改動「主機只需 docker + git + just」這條承諾，不變量 5 已先修訂並經維護者拍板。
 
