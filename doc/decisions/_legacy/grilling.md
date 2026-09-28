@@ -66,7 +66,7 @@
 - **deploy 包定案**：base（工具）的功能，vendor_kit 不參與打包、不檢查。工具契約加一句：「工具 recipe 產生的交付物在執行期不得依賴 .vendor_kit/、version.toml 或 GHCR；需要的檔打包時複製進去」；保證方式 = 工具 repo 自己在乾淨機器解包驗收；初始檔／recipe 不得寫死 cache 內部路徑（Q14）。version.toml 為公開格式，工具可讀它寫來源紀錄。
 - **CI 平台定案**：ci_bridge（#25）短期不會有，第一版以 GitHub 為主：Renovate preset 放 vendor_kit repo（GitHub App 託管版）、GHCR、GitHub Actions 驗收；check.sh 維持平台無關設計；GitLab（PAT、Renovate 自架）留 #25 後續。
 - **Q22 定案 (1) sync 快路徑**：啟動器只用 grep 比對 gen/*.stamp 第一行 vs version.toml 各行，全相符 → 不起容器；有差才起引擎。每檔 sha256 verify 只在明確 `just vendor_kit sync`、CI（frozen）、版本變動那次做。條件：`.vendor_kit/cache/`（與 gen/、version.local.toml、.tmp.*）明確列在 `.vendor_kit/.gitignore`；若 cache 會進 docker build context（工具 recipe 的 build 用專案根當 context），工具契約要求 `.dockerignore` 排除 `.vendor_kit/cache/`（或 install 以 append 模式問後加入根 .dockerignore）。
-- 介面規格審查 16 條必修（interface_spec_review.md）直接採納：根 justfile default 兩行、tools.just 用 mod?、拿掉 --pull never 改 docker image inspect、CI 真值規則（非空且非 0/false）、resolve 不加 -t、rootless 不加 -u／Podman --userns=keep-id、TOKEN_FILE 用 -v 掛、轉發 NO_LOCK、Dockerfile.dist 必含 LABEL、vendor_kit= 行唯一正規形、-y 不解除 frozen、未知 TOML 欄位忽略、二進位問後換、唯讀動詞不自動恢復、Renovate preset 根目錄 default.json、主機命令白名單明列、min_reader 改純資訊欄 written_by、metadata 單一 state 列舉 + declined_hash、F1 = mod? + 工具模組內私有 _sync recipe + --dist lint。
+- 介面規格審查 16 條必修（`decisions/_legacy/interface_spec_review.md`）直接採納：根 justfile default 兩行、tools.just 用 mod?、拿掉 --pull never 改 docker image inspect、CI 真值規則（非空且非 0/false）、resolve 不加 -t、rootless 不加 -u／Podman --userns=keep-id、TOKEN_FILE 用 -v 掛、轉發 NO_LOCK、Dockerfile.dist 必含 LABEL、vendor_kit= 行唯一正規形、-y 不解除 frozen、未知 TOML 欄位忽略、二進位問後換、唯讀動詞不自動恢復、Renovate preset 根目錄 default.json、主機命令白名單明列、min_reader 改純資訊欄 written_by、metadata 單一 state 列舉 + declined_hash、F1 = mod? + 工具模組內私有 _sync recipe + --dist lint。
 - Q22 補：install 把 `.vendor_kit/cache/`、`gen/`、`.tmp.*` 加進根 `.dockerignore`（無則建；有則問後加、-y 免問）。
 - **Q23 定案**：結束碼 3 = 版本／協定／schema 不合，先升級或退回才能繼續（含舊薄殼叫新 major 一般動詞——Q16 的「回 1」改為 3；舊引擎讀高 schema；< floor；-t 降版無法無損讀）。回 3 時零寫入；新舊以協定號／schema 比較，不用版本字串。既定回 1 的情境（印記不符、薄殼被改、自身升級完成要重跑）維持 1。
 - **Q24 定案 vk-resolve/1 格式**：欄位 `|` 分隔（或 TAB），路徑等自由文字以 POSIX `printf '%b'` 可解的 `\ooo` 八進位跳脫編碼（任何 byte 安全，啟動器一行解碼）；首行 `vk-resolve/1`，末行 `end <N>`；啟動器先收完整份、驗首尾與筆數才動 docker；清單原樣掛給 apply 重驗指紋；「引擎已變」由啟動器 apply 前後 grep version.toml 第一行比對，不從 stdout 讀。實作層其餘取捨（暫存目錄放專案內 .vendor_kit/.tmp.dist.<id>/、prune 由啟動器執行 docker 指令、pull 逾時預設 300 秒僅正整數、label 前綴 io.github.<org>.vendor_kit、metadata 單一 state、C5 .tmp.<verb>.<id>.toml、E2 根目錄 default.json）依審查交叉比對結論直接定。
@@ -79,7 +79,7 @@
 - `add --local` 只收 tar（tag 形只有 bootstrap.sh：既有 version.toml 或內嵌引擎 ref 才有正式 digest 來源）；不提供 `--digest`。→ v2.10-3、v2.11-2
 - `upgrade vendor_kit` 一律建進度日誌 `.tmp.upgrade.<id>.toml`（統一規則、不設例外；撤回 v2.10-4）。→ v2.11-1
 - 需人動作的 1 結束一律橙；6-2b 只適用第一行已改；help 偵測未完成交易印 6-33 但仍 0。→ v2.10-1、-5、-6
-- 新需求：操作紀錄檔（每動詞每次執行寫檔、資料夾 ignore、格式參考業界／使用者 Notion 筆記「Debug 資訊架構」：JSONL + OTel 欄位 + lnav）。研究中：`decisions/log/`。
+- 新需求：操作紀錄檔（每動詞每次執行寫檔、資料夾 ignore、格式參考業界／使用者 Notion 筆記「Debug 資訊架構」：JSONL + OTel 欄位 + lnav）。研究中：`decisions/_legacy/log/`。
 - 資料整理方向（使用者要求「確定的資料放到對的位置，不要全在 drawio」）：表格 7 頁 → spec issue；取捨 → ADR；名詞 → CONTEXT.md；圖只留架構／流程／狀態機／契約圖／目錄樹（34 頁）；先轉文字再看圖。
 - 操作紀錄檔 L1–L6 定案 → v2.12（L6 事件集合待 codex 審後定）。待議：啟動器讀 config 的方式在鍵變多時重評；base 反向採用 POSIX log.sh（issue）。
 - 審閱規則（2026-09-20）：由外而內一頁一頁；頁 N 不得引用頁 N 之後才出現的內容（p1b、p3、出貨、§7.4…）；三方角色（工具 repo／下游專案／vendor_kit 開發者）與「誰對誰承諾」第一頁明寫；出處標記移文末。01 頁圖上的「灰橢圓不對自己承諾」改寫為「vendor_kit 開發者＝承諾方：維護引擎 image 與薄殼，履行對兩方的承諾；內部實作不屬本契約、可變更」。
@@ -97,16 +97,16 @@
 - **progress 模組**：原「交易 `txn`」改名「**進度與寫入** `progress`」：建／恢復／刪進度檔、鎖、原子替換。
 - **下游 repo／下游 image**：原「工具 repo」「工具 image」全面改名；`dist/` = 下游 repo 的出貨目錄；下游開發者 = 開發下游 repo 的人。
 - **語法記法**：`<x>` 必填佔位符；`[x]` 可省略；`[@<tag>]` 可省略的版本後綴、緊接 repo 名；`-x <值>`／`--long <值>` 短／長選項等價、只有常用的才有短的；`-y` 不帶值的開關；`a／b` 二選一。第 0 頁在動詞表前列一節，並一句話列 `-p <dir>`、`-i <tag>`、`--exit-code`、`-y`。
-- **規則去處**：CONTEXT.md 只放 glossary（每條「是什麼」一到兩句、附英文與 _Avoid_，通用程式概念不收）；記法與顏色進 spec 與主圖第 0 頁「00 圖例與記法」（見 `decisions/review/legend_page.md`）；審閱規則（由外而內、頁 N 不前引、各頁名詞表只列頁內特有詞、頁名帶序號、出處進文末附錄、例子一律 `<repo>`、決策不進 drawio／名詞不進 spec／規則不進 CONTEXT）進 AGENTS.md（草稿 `decisions/review/AGENTS.addition.md`）。
-- **registry 定案**：留 GHCR——公開 image 免費、官方無公布 pull 上限；私有目前免費（"currently free"），未來可能套 Packages 額度（Free 500 MB／1 GB·月）。換站以 `crane copy`（不帶 `--platform`）或 `skopeo copy --all` 搬遷，index digest 不變、版本鎖定行只換 host；`docker buildx imagetools create` 不可用於搬遷（digest 有變的風險）。「host 可替換設定點」列待議。依據 `decisions/registry_summary.md`。
+- **規則去處**：CONTEXT.md 只放 glossary（每條「是什麼」一到兩句、附英文與 _Avoid_，通用程式概念不收）；記法與顏色進 spec 與主圖第 0 頁「00 圖例與記法」（見 `decisions/_legacy/review/legend_page.md`）；審閱規則（由外而內、頁 N 不前引、各頁名詞表只列頁內特有詞、頁名帶序號、出處進文末附錄、例子一律 `<repo>`、決策不進 drawio／名詞不進 spec／規則不進 CONTEXT）進 AGENTS.md（草稿 `decisions/_legacy/review/AGENTS.addition.md`）。
+- **registry 定案**：留 GHCR——公開 image 免費、官方無公布 pull 上限；私有目前免費（"currently free"），未來可能套 Packages 額度（Free 500 MB／1 GB·月）。換站以 `crane copy`（不帶 `--platform`）或 `skopeo copy --all` 搬遷，index digest 不變、版本鎖定行只換 host；`docker buildx imagetools create` 不可用於搬遷（digest 有變的風險）。「host 可替換設定點」列待議。依據 `decisions/_legacy/registry_summary.md`。
 - 程式碼不變式（2026-09-20，使用者）：**巢狀迴圈／區塊不超過 3 層；判斷一律以提前返回（guard clause）為優先**。適用引擎 Python 與薄殼／啟動器 sh。落地：進 AGENTS.md 工作約定；lint 層強制（Python：ruff `PLR1702` too-many-nested-blocks 上限 3、`C901` 複雜度；shell：shellcheck + 自寫巢狀深度檢查）；違反 = CI 紅。→ spec §7 lint、ADR 不需要（非取捨）。
 - 01 頁四點拍板（2026-09-20）：(1) 禁巢狀：上層或下層已有 .vendor_kit/ 都 → 1；(2) 動詞只准在專案根執行，**sync 亦無例外**（自動觸發的 _sync 自己先 cd 到專案根，不受影響）；撤回 spec F1 豁免；(3) CI 模式下需改進 git 的檔一律 → 1 印清單，與 -y 無關；-y 只省略詢問；CI 模式由 CI 環境變數為真觸發（平台自設／check.sh 自設；本機手設 = 唯讀驗證，允許）；(4) 顏色語意：橙 = 需人處理、紅 = 失敗（error）——補進 spec §2。其餘 3 條矛盾（零寫入的執行紀錄例外、.dockerignore 四行、舊薄殼回 3）維持 spec。01 頁待拍板清空。
   - 補充（使用者原話意）：-y 與 CI 模式是兩個獨立開關；CI 內可帶 -y（省略詢問），但 -y ≠ CI 模式、CI 模式也不隱含 -y。
-- CI 架構（2026-09-20，**記錄、後續討論**）：前例研究在 `decisions/ci_summary.md`（agy 逾時，Claude 直接核對 11 個專案 26 個 workflow 原檔）。主流：同一入口檔掛 PR＋push main（靠 `if:`／標籤／changed-files 計畫 job 分流，不分檔）；release 另一檔（tag 觸發或 dispatch+environment）；共用用 `workflow_call` reusable 與 composite action；唯一 required check = 彙總 job；PR 只 build 不 push image；原生 arm runner 跑測試、QEMU 只 build。暫定建議：ci.yml（入口）＋release.yml＋build-image.yml（workflow_call）＋nightly.yml（可選）。**尚未定案，待 codex 雙軌與使用者討論。**
+- CI 架構（2026-09-20，**記錄、後續討論**）：前例研究在 `decisions/_legacy/ci_summary.md`（agy 逾時，Claude 直接核對 11 個專案 26 個 workflow 原檔）。主流：同一入口檔掛 PR＋push main（靠 `if:`／標籤／changed-files 計畫 job 分流，不分檔）；release 另一檔（tag 觸發或 dispatch+environment）；共用用 `workflow_call` reusable 與 composite action；唯一 required check = 彙總 job；PR 只 build 不 push image；原生 arm runner 跑測試、QEMU 只 build。暫定建議：ci.yml（入口）＋release.yml＋build-image.yml（workflow_call）＋nightly.yml（可選）。**尚未定案，待 codex 雙軌與使用者討論。**
 - 審閱頁形式（使用者 2026-09-20）：動詞頁太多文字——動詞是動作，細節屬流程圖；02 頁改成精簡表（動詞｜語法｜一句話｜寫哪類檔｜結束碼｜對應流程頁），步驟細節在對應流程頁審。
 - 02 頁 6 點定案（2026-09-20，codex 一致）：① CI 模式定義加「update 除外」；② 驗收 harness 明確 CI=0，另設 CI=1 案例驗唯讀拒寫；③ 其餘動詞靠通則，表只寫偏離通則的例外；④ prune 保留清單 = 版本鎖定行 + 本機覆寫**實際引用的 image**（引擎 tag／ID 覆寫；工具 path 覆寫無 image）；⑤ 內部子命令 materialize 改名 fetch；⑥ 第 0 頁 update 改「只寫執行紀錄」。
 - 兩條新規則（codex 審 00–02 後）：(a) 執行紀錄順序：不寫、不拉、不起容器的前置檢查（git repo？just 版本？）可在建紀錄之前；任何寫入／拉取／起引擎之前必已有紀錄（非 git 目錄無處可寫）。(b) `dev` 也建進度檔（I11 無例外；它寫本機覆寫、cache symlink、印記三處）。
-- codex 審 00–02 的 56 條（`decisions/review/codex_findings_00_02.md`）全部採納修正；另補三條不變量：VK TOML 檔案版＋未知欄位讀時忽略寫時保留；多工具動詞先完整預檢、任一不過整體不動；gen/tools.just 與 cache 同一次原子替換。下游使用者的 repo 定名「專案」（含 .vendor_kit/ 的 repo）。
+- codex 審 00–02 的 56 條（`decisions/_legacy/review/codex_findings_00_02.md`）全部採納修正；另補三條不變量：VK TOML 檔案版＋未知欄位讀時忽略寫時保留；多工具動詞先完整預檢、任一不過整體不動；gen/tools.just 與 cache 同一次原子替換。下游使用者的 repo 定名「專案」（含 .vendor_kit/ 的 repo）。
 - codex 修正後的 12 個疑慮取捨（2026-09-20 主對話）：log.sh 無 shebang、自描述在首行（spec §4.5 不動）；dev 進度檔內容 = 覆寫行、symlink 目標、印記第一行；**remove／uninstall 的版本鎖定行最後刪，回 1 時鎖定行不動**（與 add／upgrade 一致；失敗留下的狀態 = 工具仍鎖定且 cache 可能部分缺，下次 sync 補回）；I16 只涵蓋會寫檔的多工具動詞；§8 增為 13 條；其餘照子代理所寫。
 - 第十二版 codex 4 組審查（`r12_codex/findings1–4.md`，245 條）→ 第十三輪規則 v2.15（1–18）。新增定案：baseline/.gitkeep 保留為 VK tracked 檔；release 候選 tag → 驗收後 imagetools 打正式 tag；update 6-15 末行、TOKEN 互斥；sync verify 只重裝一次；逐檔判斷依 state 分流。執行紀錄事件改圖例約定不逐格畫（launcher_started／completed|failed、engine_started／completed|failed）。
 - 00–02 codex 三審新定案（2026-09-20）：`<repo>` 名稱規則改 `[a-z0-9_][a-z0-9_-]*`（小寫、**不含句點**，避免 TOML dotted key；OCI repo 名本就小寫）；工具版本鎖定行在 `[tools]` 表下，不與頂層 `schema`／`written_by`／`vendor_kit` 撞名，保留名仍列 `vendor_kit`；`--local` 判別順序：以 `.tar` 結尾 → 檔案路徑（必須存在）；否則值含 `/` 且存在同名檔 → 6-37 消歧；否則 image tag。bootstrap.sh 也寫執行紀錄（`log/bootstrap/`）。名詞補「工具 recipe」（`just <ns> …`，工具 `<ns>.just` 提供的指令）。
@@ -126,3 +126,5 @@
 - 流程：一頁一頁審，使用者回 OK 前後面頁凍結；看完的頁才 commit。
 
 - 2026-09-24：不再依賴 doc/PRD.md，內容搬到 review/03_invariants.md、design_principles.md、scope_roadmap.md；PRD.md 刪除。
+
+- 2026-09-26：不支援 Podman（使用者定案）。原 19 條-12「rootless docker 與 Podman 進驗收矩陣」縮為只含 rootless docker；spec §0、§3.1、§7.4-22、§10 與 03 頁第 5 條同步。
