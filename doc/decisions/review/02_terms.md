@@ -1,6 +1,6 @@
 # 02 名詞與縮寫
 
-本頁是所有審閱頁的共同字典：之後每一頁只用這裡定義的詞。本頁只定義、不決議。第 01 頁已出現的詞，這裡給正式定義。審閱方式：逐條看名稱與定義是否貼切，不貼切的寫一句理由。
+本頁是所有審閱頁的共同字典：VK 特定的名詞以這裡的定義為準，一般技術詞不收。本頁只定義、不決議。第 01 頁已出現的詞，這裡給正式定義。
 
 ## VK 組件（component）
 
@@ -14,12 +14,12 @@
 
 | 中文名 | 英文 | 定義 |
 |---|---|---|
-| **repo** | repo | 使用者的 git repo；一個 repo 可以有多個導入根，例如 monorepo 的各個子目錄。 |
+| **repo** | repo | 使用者的 git repo；一個 repo 可以有多個安裝目錄，例如 monorepo 的各個子目錄。 |
 | **`<repo>`** | repository name | 出貨的那個 repo 的名字，也是工具名。 |
 | **工具** | tool | repo 出貨、供另一個（或同一個）repo 導入的內容單位，名字是 `<repo>`。 |
 | **`<ns>` 命名空間** | namespace | 工具在 just 中提供 recipe 的命名空間。 |
 | **工具 recipe** | tool recipe | 工具在 `dist/just/<ns>.just` 提供、使用者以 `just <ns> …` 執行的 recipe；相對於 VK 自己的 recipe（`just vendor_kit …`）。 |
-| **導入根** | install root | `.vendor_kit/` 的直接父目錄，也是 VK 的導入單位。 |
+| **安裝目錄** | install directory | `.vendor_kit/` 的直接父目錄，也是 VK 的安裝單位。 |
 | **`dist/`** | dist | repo 交付給 VK 的工具出貨目錄，內含 `files/`（要搬給導入的 repo 的檔案內容）、`init.toml`（宣告哪些檔是初始檔）、`just/<ns>.just`（工具提供的 recipe）。 |
 | **工具內容** | tool content | 工具在 `dist/files/` 交付、展開後放進 `cache/<repo>/` 的那些檔。 |
 | **取件** | fetch | 把工具內容從工具 image 取出、寫進 `cache/` 的動作。 |
@@ -54,8 +54,8 @@
 
 | 中文名 | 英文 | 定義 |
 |---|---|---|
-| **版本鎖定行** | lock version line | `version.toml` 中的 TOML 項目。<br>• 內容：把引擎或工具名稱對應到確切 image 版本。<br>• 作用：決定引擎或工具使用的鎖定版本。 |
-| **鎖定版本** | locked version | 版本鎖定行指定的那一版；沒有本機覆寫時，導入的內容就是它。 |
+| **版本鎖定行** | lock version line | `version.toml` 中的 TOML 項目。<br>• 內容：把引擎或工具的名稱對應到一個鎖定版本，寫成 image 引用。<br>• 作用：記錄該引擎或工具要用的鎖定版本。 |
+| **鎖定版本** | locked version | image 引用用 `tag@digest` 唯一指定的那個版本與內容；沒有本機覆寫時，導入的內容就是它。 |
 | **本機覆寫** | local override | 讓引擎或工具暫時改用本機開發來源的 VK 項目。<br>• 內容：記錄本機開發來源。<br>• 作用：有本機覆寫時，優先於版本鎖定行。 |
 | **本機開發來源** | local source | 本機覆寫指到的來源：工具是一個本機目錄，引擎是一個本機 image；只在這台機器有效，不進 git。 |
 
