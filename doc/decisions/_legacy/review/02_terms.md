@@ -17,7 +17,7 @@
 | 中文名 | 英文 | 定義 |
 |---|---|---|
 | repo | repo | 使用者的 git repo；一個 repo 可以有多個安裝目錄，例如 monorepo 的各個子目錄。 |
-| `<repo>` | repository name | 出貨的那個 repo 的名字，也是工具名。 |
+| `<repo>` | repository name | 出貨的那個 repo 的名字，也是工具名。<br>• 名稱規則：`[a-z0-9_][a-z0-9_-]*`，一律小寫、不含句點（它是版本鎖定行裡未加引號的 TOML 鍵，句點會被讀成另一層鍵）。<br>• `vendor_kit` 是保留名，不能當工具名。 |
 | 工具 | tool | repo 出貨、供另一個（或同一個）repo 導入的內容單位，名字是 `<repo>`。 |
 | `<ns>` 命名空間 | namespace | 工具在 just 中提供 recipe 的命名空間。 |
 | 工具 recipe | tool recipe | 工具在 `dist/just/<ns>.just` 提供、使用者以 `just <ns> …` 執行的 recipe；相對於 VK 自己的 recipe（`just vendor_kit …`）。 |
@@ -90,7 +90,8 @@
 | 檔案版 | schema version | VK 寫入檔案時標示其資料格式的整數版號。 |
 | 最低介面版 | floor | 引擎仍支援的最低介面版。 |
 | 結束碼 | exit code | VK 程序向呼叫端回報結果的整數。 |
-| 契約 | contract | VK 對使用者承諾不會隨意改變的部分：recipe 與選項、版本鎖定行與其他 VK 檔的格式、結束碼、`dist/` 的出貨格式。引擎內部實作不屬契約。 |
+| 救援路徑 | rescue path | 不論薄殼、VK 檔與引擎的版本組合是否相符都必須能用的那幾個 recipe：`install`、`upgrade vendor_kit`、`sync` 的不符判定、`help`。 |
+| 契約 | contract | VK 對使用者承諾不會隨意改變的部分：<br>• recipe 與選項。<br>• 版本鎖定行與其他 VK 檔的格式。<br>• 結束碼。<br>• `dist/` 的出貨格式。<br>• 薄殼呼叫引擎的方式：子命令、掛載、使用者身分旗標、介面版旗標（`--protocol`）的位置、label 鍵。<br>• 引擎回給啟動器的執行計畫文法（`vk-resolve/<P>`，`<P>` 是介面版）。<br>• 救援路徑的 recipe 名與參數。<br>引擎內部實作不屬契約。 |
 
 ## VK recipe
 
