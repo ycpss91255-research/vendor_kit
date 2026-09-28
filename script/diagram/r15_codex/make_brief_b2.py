@@ -13,7 +13,7 @@ task = f"""你是 draw.io 產生器 `disc_v1_b.py` 的修改者（第二輪）�
 **每一條都要有交代**：要嘛改掉，要嘛（會造成交叉、頁高超 2400、頁序固有、或與其他規則衝突）在該頁右下角加一個黃底便條（style 同 `pend`，標題「待處理問題」），條列「元件 id：一句說明為何不改」。不可以既不改也不寫便條。便條也要通過 check_overlap（放在空白處，寬 ≤ 360，必要時放在最下方列的右側）。
 做法：先 `python3 run_v1_b.py` 確認能跑；每改幾頁就跑一次，最後跑 `python3 check_overflow.py v1_b.drawio`、`check_overlap.py`、`check_cross_v1b.py`、`check_self_v1b.py`、`check_jog_r7.py`、`check_align_v1b.py`（都要「共 0 筆」／全「無」）與 `python3 extract_pages.py v1_b.drawio r15_b_out && python3 lint_pages.py r15_b_out`（非 termcov 的 warn 要 0）。若某個改動造成交叉或壓框且無法在幾次嘗試內解掉，就回退那一個改動並寫進便條。最後輸出：改了哪些頁（id）與每頁改了什麼（對應附件 F 的哪條）、加了哪些「待處理問題」便條（頁 id ＋ 內容）、檢查結果。
 """
-prop = S.joinpath('decisions/proposal_v2.md').read_text().splitlines()
+prop = S.joinpath('decisions/_legacy/proposal_v2.md').read_text().splitlines()
 def sect(lines, start_pat):
     out=[]; on=False
     for l in lines:
@@ -29,7 +29,7 @@ H = '\n'.join(S.joinpath('disc_v1_b.py').read_text().splitlines()[:560])
 K = S.joinpath('review_v2_README.md').read_text()
 brief = f"""{task}
 
-==================== 附件 R：decisions/proposal_v2.md 的 v2.16 與 v2.17 ====================
+==================== 附件 R：decisions/_legacy/proposal_v2.md 的 v2.16 與 v2.17 ====================
 {r16}
 
 {r17}

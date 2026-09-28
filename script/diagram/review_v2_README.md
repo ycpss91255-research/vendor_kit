@@ -10,7 +10,7 @@
 | `extract_pages.py <drawio> <outdir> [page_id …]` | 每頁 → `<outdir>/<id>.json` + `<id>.md`；另寫 `pages.json`（頁序＋頁名） |
 | `lint_pages.py <outdir>` | 讀上面的 JSON → `<outdir>/lint.md`（依頁分組）+ `lint.json` |
 | `shrink_png.py <pngdir> <outdir> [scale] [page_id …]` | PIL 縮圖（預設 50%，白底）→ `<outdir>/*.png` + `pngs.json` |
-| `<repo>/.claude/workflows/diagram-review-v2.js` | workflow（不跑 shell，只吃上面三個的產物） |
+| `<repo>/doc/decisions/_legacy/workflows/diagram-review-v2.js` | 已停用的 workflow（只吃上面三個的產物）。圖面審查要重啟時以它為範本，改寫成命名 workflow 放 `.claude/workflows/` |
 
 ## 主對話要先跑的三個指令
 
@@ -31,7 +31,7 @@ lint 的跨頁名詞比對只會比有抽出的頁。
   "extracted": "<scratchpad>/review_v2_out",
   "lint":      "<scratchpad>/review_v2_out/lint.md",
   "pngs":      [ {"page": "v1p5c", "path": ".../review_v2_png/v1p5c.png"}, ... ],
-  "notes":     "<scratchpad>/decisions/proposal_v2.md",
+  "notes":     "<scratchpad>/decisions/_legacy/proposal_v2.md",
   "changes":   "第十一輪：…",
   "focus":     "E(c) 兩頁的續跑入口",
   "pages":     ["v1p7bcc", "v1p7bccc"],

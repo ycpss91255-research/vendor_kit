@@ -574,7 +574,7 @@ pages.append(("d4", "討論 #12：verify 比什麼", d4))
 
 pages.insert(0, ("dc", "對外契約（PRD，待拍板）", dc))
 
-# ================= 提案 v1（decisions/proposal_v1.md）：v1p1–v1p8，放最前面 =================
+# ================= 提案 v1（decisions/_legacy/proposal_v1.md）：v1p1–v1p8，放最前面 =================
 # disc_v1_a.py / disc_v1_b.py 各自也 exec 最新 gen*.py 的 helper；這裡把那行拿掉，helper 只在本檔開頭 exec 一次。
 def _v1_src(path):
     return "\n".join(l for l in open(path).read().splitlines() if not l.startswith("exec(open(_latest)"))
