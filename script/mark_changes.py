@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""產生審閱頁的標示版：改動處底線 <ins>、被取代的舊文字刪除線 <del>。
+"""產生審閱頁的標示版：改動處斜體、被取代的舊文字刪除線 <del>。
+
+底線 <u> 是名詞標記，所以改動不用底線，避免兩種意思混在一起。
 
 用法：
     python3 script/mark_changes.py <舊版後綴> <檔名…>
@@ -23,6 +25,11 @@ BACKUP = pathlib.Path("doc/decisions/_backup/review")
 MARKED = REVIEW / "_marked"
 
 
+def mark(body: str, tag: str) -> str:
+    """改後用斜體，改前用刪除線。"""
+    return f"*{body}*" if tag == "ins" else f"<del>{body}</del>"
+
+
 def wrap(line: str, tag: str) -> str:
     """把一行包成 <ins>／<del>。
 
@@ -37,7 +44,7 @@ def wrap(line: str, tag: str) -> str:
         for cell in cells:
             body = cell.strip()
             if body and not set(body) <= set("-: "):  # 跳過分隔列
-                out.append(f" <{tag}>{body}</{tag}> ")
+                out.append(f" {mark(body, tag)} ")
             else:
                 out.append(cell)
         return "|".join(out)
@@ -45,10 +52,10 @@ def wrap(line: str, tag: str) -> str:
     prefix, body = m.group(1), m.group(2)
     if not body.strip():
         return line
-    return f"{prefix}<{tag}>{body}</{tag}>"
+    return f"{prefix}{mark(body, tag)}"
 
 
-def mark(name: str, suffix: str) -> tuple[int, int]:
+def build(name: str, suffix: str) -> tuple[int, int]:
     old = (BACKUP / f"{name}.{suffix}.md").read_text().splitlines()
     new = (REVIEW / f"{name}.md").read_text().splitlines()
     out = []
@@ -68,7 +75,7 @@ def mark(name: str, suffix: str) -> tuple[int, int]:
             if line.strip():
                 ins += 1
     header = [
-        f"<!-- 標示版：改動處底線 <ins>、被取代的舊文字刪除線 <del>；"
+        f"<!-- 標示版：改動處斜體、被取代的舊文字刪除線 <del>；底線 <u> 是名詞標記；"
         f"基準 {suffix}。正式內容看 ../{name}.md -->",
         "",
     ]
@@ -82,7 +89,7 @@ def main() -> None:
         sys.exit(__doc__)
     suffix, names = sys.argv[1], sys.argv[2:]
     for name in names:
-        ins, dele = mark(name, suffix)
+        ins, dele = build(name, suffix)
         print(f"{name}: {ins} ins, {dele} del")
 
 
