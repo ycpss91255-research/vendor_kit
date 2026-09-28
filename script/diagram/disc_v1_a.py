@@ -1,4 +1,4 @@
-"""契約 v2（decisions/interface_spec.md v3.3 為準）與架構頁：11 頁 v1p1／v1p1b／v1p1c／v1p2／v1p2b／v1p2c／v1p3／v1p3b／v1p3c／v1p3d／v1p4。
+"""契約 v2（decisions/_legacy/interface_spec.md v3.3 為準）與架構頁：11 頁 v1p1／v1p1b／v1p1c／v1p2／v1p2b／v1p2c／v1p3／v1p3b／v1p3c／v1p3d／v1p4。
 第十三輪（v2.15 + r12_codex/findings1.md；備份 .v14）：名詞全面換新（decisions/review/terms.md）、名詞表只留第 0 頁沒有的詞；執行紀錄事件改圖例約定①②（p3b 移除 engine_start／launcher_exit 格）；
 p3b：gen/.stamp 判斷只在 sync、查 registry 只在 add／update／upgrade 未指定 @tag、inspect 有 → 跳過 pull、只有 extract kind 才 create／cp、resolve 非 0 出口、⓪ 拆三格；p3c：自身 CI 候選 tag → release-test → 驗收 → 正式 release、結束 3 獨立橙終點、驗收矩陣拆到 p3d（分組索引留 p3c）；
 p4：8 模組（resolve／fetch／initfile／shell／progress／schema／log／prune）、主機載入鏈連線、log.sh 獨立檔、config.toml → schema、進度檔兩種落點、啟動器↔引擎拆兩線；p2：version.local.toml uninstall 直接刪、.tmp.* 加 dev、去 sync 豁免、基準版解析失敗不推、install 責任、.gitkeep 定義；p3：特殊檔、local_bootstrap.sh、d4_1／_sync 拆格。
@@ -368,8 +368,8 @@ TERMS = {
  "vkresolve": ("vk-resolve/1", "resolve 的 stdout 文法：首行 vk-resolve/<P>、每行 <kind>|<f1>[|<f2>…]（欄位以單一 | 分隔）、末行 end|<N>；kind = pull／extract／mount／engine／fingerprint／apply／keep／end；自由文字用 \\0ooo 八進位跳脫（printf '%b' 可解）；啟動器先收完整份、驗文法才動 docker"),
  "tmpdist": ("暫存 .tmp.dist.<id>/", "啟動器在專案內 mktemp -d 的暫存（.vendor_kit/.tmp.dist.XXXXXX）：放展開的工具 dist 與 vk-resolve；唯讀掛進引擎當 /dist；trap 刪；自有 .gitignore 的 .tmp.* 擋"),
  "mount": ("掛載（-v）", "docker run -v：把主機目錄接進容器；/repo = 專案根（可寫，-w /repo）；/dist = 暫存工具檔（唯讀）；/dist/<repo> = 本機覆寫的 <dir>/dist（唯讀）；/run/vk-token = TOKEN_FILE（唯讀）"),
- "uid": ("uid 旗標（-u）", "rootful docker 加 -u \"$(id -u):$(id -g)\"（寫出的檔才不會變 root 的）；rootless docker（docker info SecurityOptions 含 name=rootless）不加 -u；Podman（docker --version 含 podman）改加 --userns=keep-id、不加 -u"),
- "rootless": ("rootless／Podman", "rootless = 不用 root 跑的 docker 模式（容器內已是你自己，不加 -u）；Podman = 相容 docker 指令的另一套容器工具（GitHub runner 內建 4.9.3；--userns=keep-id）；兩者都進驗收"),
+ "uid": ("uid 旗標（-u）", "rootful docker 加 -u \"$(id -u):$(id -g)\"（寫出的檔才不會變 root 的）；rootless docker（docker info SecurityOptions 含 name=rootless）不加 -u；偵測到 podman（docker --version 含 podman）→ 以 1 結束、不支援 Podman"),
+ "rootless": ("rootless docker", "rootless = 不用 root 跑的 docker 模式（容器內已是你自己，不加 -u）；進驗收矩陣。Podman 不支援：偵測到即以 1 結束"),
  "whitelist": ("主機命令白名單", "啟動器（POSIX sh）只准用：sh（printf、read、trap、kill、cd）、grep、sed、id、mktemp、mkdir、date、od、tr、rm、sleep、git rev-parse、docker {pull, create, cp, run, rm, inspect, image inspect, image ls, image rm, container ls, network ls, network rm, volume ls, volume rm, load, info}；check.sh 另可用 git ls-files；lint 擋清單外"),
  "createcp": ("docker create／cp", "只建容器殼（docker create <ref> /x）再把 /dist 複製出來（docker cp）→ docker rm；純資料 image 沒有程式、不能 docker run；不帶 --platform（daemon 挑原生）"),
  "daemon": ("daemon", "主機上常駐的 docker 服務；拉 image、挑原生架構、回答 image inspect 都是它做"),
@@ -440,7 +440,7 @@ pages_v1_a = []
 RX, RW, RLH = 20, 1580, 1.4      # 審閱頁：左邊距 20、內容寬 1580（page() 右邊自動留 40 → 頁寬 1640）、行距 1.4
 def M(s):
     """md 行內記法 → 圖上文字：`code` 去反引號；**x** → 粗體。其餘一字不改。"""
-    s = s.replace("`", "")
+    s = s.replace("`", "").replace("<br>", "\n").replace("\\|", "|")
     return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
 def hvl(text, w, lh, fs=12, pad=6):
     """行距 lh 的最小高度：行數×fs×(lh+0.1)+8+pad（估法同 need_h；check_overflow 以 1.3 估，必過）。"""
@@ -476,137 +476,106 @@ def rtitle(pid, title):
 # ================= P0 v1p0：審閱頁 00 名詞與縮寫 =================
 p0 = rtitle("p0", "名詞與縮寫")
 Y = 70
-Y = para(p0, "p0_intro", Y, M("本頁是所有審閱頁的共同字典：之後每一頁只用這裡定義的詞。本頁只定義、不決議。審閱方式：逐條看名稱與定義是否貼切，不貼切的寫一句理由。"))
-# ---- 兩方與承諾關係 ----
+Y = para(p0, "p0_intro", Y, M('本頁是所有審閱頁的共同字典：之後每一頁只用這裡定義的詞。本頁只定義、不決議。審閱方式：逐條看名稱與定義是否貼切，不貼切的寫一句理由。'))
 Y = sec(p0, "p0_s1", Y, "兩方與承諾關係")
 Y = mtbl(p0, "p0_t1", Y, [("名稱", 150), ("是誰", 870), ("跟 VK 的互動", 300), ("地位", 260)], [
- ["**使用者**", "會跑 VK 動詞的人，兩個場合：①在下游 repo 裡維護 `dist/`、把工具打成下游 image、用 dev／undev 在本機開發工具；②在專案裡跑 `bootstrap.sh` 接入、add／upgrade／remove、回答詢問或給 `-y`、commit 薄殼與版本鎖定行、升版有衝突就手動編輯再重跑、把 `ci/check.sh` 接進 CI", "直接跑 `just vendor_kit …`", "被承諾方"],
- ["**VK**", "我們，vendor_kit 開發者", "維護引擎 image 與薄殼（含啟動器），履行對使用者的承諾；內部實作不屬契約、可變更", "承諾方"],
-])
-Y = para(p0, "p0_t1n", Y, M("只打 `just <ns> …` 的人不是『方』：VK 在他背後只做工具 recipe 前的自動 `sync`；sync 失敗的訊息要寫清楚該找誰、做什麼，但那是對使用者的承諾內容，不是另一個角色。圖文一律寫全名，不縮寫。"))
-Y = para(p0, "p0_t2l", Y, M("兩種 repo 要分清楚："))
-Y = mtbl(p0, "p0_t2", Y, [("中文名", 150), ("英文", 200), ("定義", 1230)], [
- ["**專案**", "project", "使用者的 git repo（或 monorepo 裡的一個子專案）：接入 VK 後含 `.vendor_kit/`；VK 的動詞都在專案裡跑"],
- ["**下游 repo**", "downstream repo", "提供工具的 git repo；把 `dist/` 用三行 Dockerfile 打成純資料的下游 image 推到 registry（公開或私有，由使用者自決；私有需憑證）。`<repo>` 是它的名字"],
-])
-# ---- VK 組件 ----
-Y = sec(p0, "p0_s2", Y, "VK 組件（component）")
-Y = para(p0, "p0_c0", Y, M("VK 由三個組件組成；組件是對外可見的最大單位，模組是組件內部的程式單元，**組件 > 模組**。"))
+ ['**使用者**', '會跑 VK 動詞的人，兩個場合：①在 repo 裡維護 `dist/`、把工具打成工具 image、用 dev、undev 在本機開發；②在 repo 裡跑 `bootstrap.sh` 接入、add、upgrade、remove、回答詢問或給 `-y`、commit 薄殼與版本鎖定行、升版有衝突就手動編輯再重跑、把 VK 提供的 CI 檢查腳本接進自己的 CI', '直接操作 VK 的明示入口：首次接入使用 `bootstrap.sh`，接入後使用 `just vendor_kit …`。', '被承諾方'],
+ ['**VK**', '我們，vendor_kit 開發者', '維護引擎 image 與薄殼（含啟動器），履行對使用者的承諾；內部實作不屬契約、可變更', '承諾方'],
+ ])
+Y = para(p0, "p0_t1n", Y, M('只打 `just <ns> …` 的人不是『方』：VK 在他背後只做工具 recipe 前的自動 `sync`；`sync` 失敗的訊息要寫清楚該找誰、做什麼，但那是對使用者的承諾內容，不是另一個角色。'))
+Y = sec(p0, "p0_s2", Y, "repo 與角色")
+Y = para(p0, "p0_t2d", Y, M('**repo**：使用者的 git repo。一個 repo 可以有多個接入根，例如 monorepo 的各個子目錄。'))
+Y = para(p0, "p0_t2r", Y, M('一個 repo 對 VK 可以扮演兩個角色：**接入**（把別人做好的工具裝進來用）與**出貨**（把自己做的工具交出去給別人裝）。同一個 repo 可以只扮演一個，也可以兩個都扮演。'))
+Y = mtbl(p0, "p0_t2", Y, [("角色", 140), ("這個 repo 有什麼", 380), ("使用者在裡面做什麼", 560), ("VK 的承諾", 500)], [
+ ['**接入**', M('• `.vendor_kit/`：VK 建的目錄，放薄殼、版本鎖定行與本機狀態<br>• 工具搬進來的內容（在 `cache/`）與初始檔（在 repo 檔裡）'), M('• 第一次用 `bootstrap.sh` 把 VK 裝進這個 repo<br>• 用 `just vendor_kit add <repo>` 把工具搬進來，版本鎖成一行<br>• 用 `just vendor_kit upgrade <repo>` 升版，初始檔做基準版合併<br>• 把薄殼與版本鎖定行 commit 進 git<br>• 用 `just <ns> …` 執行工具提供的 recipe'), M('• 不刪、不覆蓋 repo 檔<br>• 版本鎖得住：同一行鎖定行在任何機器都裝到同一份內容<br>• 升得了：升版只改工具內容與初始檔的合併結果<br>• 失敗必印原因與下一步')],
+ ['**出貨**', M('• `dist/`：要交出去的內容（`files/`、`init.toml`、`just/<ns>.just`）<br>• 把 `dist/` 打成工具 image 的 Dockerfile'), M('• 維護 `dist/` 的內容<br>• 把 `dist/` 打成工具 image 推到 registry<br>• 用 `dev`、`undev` 在本機邊改邊測，不必每次推 image'), M('• 照 `dist/` 的格式出貨，VK 就搬得到<br>• VK 只搬檔，不執行、不驗證內容能不能跑')],
+ ])
+Y = para(p0, "p0_t2n1", Y, M('`<repo>` 是出貨角色那個 repo 的名字，也是工具名；接入的人用這個名字指定要裝哪個工具。'))
+Y = para(p0, "p0_t2n2", Y, M('例：`ros_env` 這個 repo 出貨一個工具；`robot_a` 這個 repo 接入它。`ros_env` 自己也可以接入別的工具，這時它同時扮演兩個角色。'))
+Y = sec(p0, "p0_s3", Y, "VK 組件（component）")
 COMP = [
- M("**引擎**：VK 的主程式，是容器 image；所有判斷與寫檔都在裡面做，只透過掛入的 `/repo` 看專案根。"),
- M("**薄殼**：`.vendor_kit/` 內進 git、由引擎產生、人不改的五個檔（`entry.just`、`vendor.just`、`log.sh`、`.gitignore`、`ci/check.sh`）；五檔用同一套自描述標頭（通常在首行，`ci/check.sh` 在第二行）與 hash 契約。"),
- M("**啟動器**：薄殼內的 POSIX sh 片段，負責拉 image、展開工具內容、起引擎容器；`bootstrap.sh` 是第一次接入時的啟動器。"),
+ M('**引擎**：執行 VK 動詞的主程式，以容器 image 發布。'),
+ M('**薄殼**：`.vendor_kit/` 內由引擎產生、隨 repo 進 git、供使用者呼叫 VK 的一組檔。'),
+ M('**啟動器**：從主機啟動引擎的入口；薄殼內的 POSIX sh 片段與首次接入用的 `bootstrap.sh` 都是啟動器。'),
 ]
-CW = 516; ch = max(hvl(t, CW, RLH) for t in COMP)          # 516×3 + 16×2 = 1580
+CW = 516; ch = max(hvl(t, CW, RLH) for t in COMP)
 for i, t in enumerate(COMP):
     p0.append(vb(f"p0_c{i + 1}", "1", rlh(LT12), t, RX + i * (CW + 16), Y, CW, ch))
 Y += ch + 10
-Y = sec(p0, "p0_s2b", Y, "VK 模組（module）——引擎內的 8 個程式單元")
-Y = mtbl(p0, "p0_t3", Y, [("中文名", 150), ("英文代號", 150), ("做什麼", 1280)], [
- ["版本解析", "`resolve`", "讀版本鎖定行、查 registry 最新版、算出這次要拉哪些 image、寫哪些檔"],
- ["取件", "`fetch`", "把展開的工具內容寫進 `cache/`、逐檔驗指紋、寫印記"],
- ["初始檔合併", "`initfile`", "依工具宣告建初始檔、存基準版、升版時做三方合併"],
- ["薄殼產生", "`shell`", "產生或重產薄殼五檔與自描述標頭，並比對薄殼是否被改"],
- ["進度與寫入", "`progress`", "建、恢復、刪進度檔；鎖；原子替換，讓可寫動詞中斷後能接續"],
- ["設定與格式", "`schema`", "讀寫 VK 檔的 TOML：檔案版檢查、未知欄位保留、`config.toml`"],
- ["紀錄", "`log`", "每次執行寫一份執行紀錄"],
- ["清理", "`prune`", "找出版本鎖定行與本機覆寫都未引用的舊 image、殘留容器與暫存並刪除"],
-], bold0=False)
-# ---- 常用詞 ----
-T4_COLS = [("中文名", 190), ("英文", 170), ("定義", 1220)]
-T4 = [
- ["**專案檔**", "project file", "根 `justfile`、根 `.dockerignore`、建立後歸使用者的初始檔，以及專案裡其他原有的檔。VK 對它們只守專案檔四原則"],
- ["**VK 檔**", "VK file", "VK 自己建、自己管的檔，全在 `.vendor_kit/` 內：`version.toml`、`version.local.toml`、`config.toml`、薄殼、基準版與 metadata、`cache/`、`gen/`、進度檔、執行紀錄"],
- ["**進 git 的檔**", "tracked file", "會被 commit 的檔；在 VK 檔中是 `version.toml`、`config.toml`、薄殼、基準版與 metadata；專案檔一律視為進 git 的檔"],
- ["**版本鎖定行**", "lock line", "`.vendor_kit/version.toml` 內每個工具（與引擎）各一行；進 git；只有這行決定裝哪一版。**唯一正規形**：引擎行在檔案頂層 `vendor_kit = \"<image>:<tag>@sha256:<digest>\"`；工具行在 `[tools]` 表下 `<repo> = \"<image>:<tag>@sha256:<digest>\"`（`<repo>` 是未加引號的 TOML 鍵，名稱規則見佔位符）。每行：行首無空白、鍵後一個空白、`=`、一個空白、雙引號字串、無尾端註解、LF 結尾；引擎寫出一律此形。禁 BOM、禁重複鍵、禁 TOML 表旁路寫法（例如 `[tools.<repo>]`、`[vendor_kit]`）；引擎讀到非正規形 → 1 列出差異、不動。頂層另有 `schema`、`written_by` 兩個欄位，與 `[tools]` 下的工具行不同層、不會撞名"],
- ["**正式版**", "release version", "registry 上的正式 tag（排除預發行如 `-rc`、`-beta`）；沒指定 `@<tag>` 時「最新版」一律指最新正式版"],
- ["**初始檔**", "init file", "工具在 `dist/init.toml` 宣告、`add` 時建進專案的檔，分兩型：**copy 型**（`strategy = copy`，預設；整檔複製成專案裡的新檔）、**append 型**（`strategy = append`；把幾行插進專案既有檔，不整檔複製）；建立後歸使用者、進 git"],
- ["**基準版**", "baseline", "`.vendor_kit/baseline/<repo>/` 內上次套用的初始檔原版副本；進 git；升版時三方合併的共同祖先（另兩份是使用者的現況與新版初始檔）"],
- ["**三方合併**", "three-way merge", "升版時對每個納管初始檔拿基準版（共同祖先）、使用者現況、新版三份做的合併；兩邊都改的地方合不起來就在檔內留衝突標記"],
- ["**metadata**", "metadata", "基準版旁的 `.vendor_kit.toml`：記每個初始檔的來源、狀態（納管／拒絕過…）、進行中的進度；進 git"],
- ["**可寫動詞**", "writing verb", "會建進度檔的動詞：install、uninstall、add、remove、upgrade（含升引擎）、dev、undev、prune"],
- ["**唯讀動詞**", "read-only verb", "不建進度檔的動詞：update、sync、help；都不寫進 git 的檔、也不恢復進度檔。`sync` 仍會寫 `cache/`、`gen/`（不進 git）"],
- ["**進度檔**", "progress file", "可寫動詞的交易紀錄；成功即刪；中斷後下次可寫動詞先恢復再繼續（prune 例外：遇活躍進度檔只列出提示、不恢復、不阻擋）。兩種落點：`.vendor_kit/.tmp.<verb>.<id>.toml`（install、uninstall、remove、undev、prune、dev、升引擎用）與 metadata 內的 `[progress]`（add、`upgrade <repo>` 用）"],
- ["**執行紀錄**", "run log", "`.vendor_kit/log/<verb>/<時間戳>-<id>.jsonl`；每個動詞及每次 `bootstrap.sh` 執行各一檔（`bootstrap.sh` 自己那段寫在 `log/bootstrap/`）；不進 git；事後追溯用。順序：不寫檔、不拉 image、不起容器的前置檢查（是否 git repo、just 版本）可在建紀錄之前；任何寫入、拉取、起引擎之前必已有紀錄；紀錄建不了就不做任何事"],
- ["**CI 模式**", "CI mode", "環境變數 `CI` 為真（非空且不是 `0`／`false`）時的模式：不寫任何進 git 的檔、不查最新版（`update` 除外：它的用途就是查）"],
- ["**需人處理**", "needs human", "動詞停下並印出下一步指令的結束：結束碼 1 或 3 且附指令，衝突 2 亦同；圖上橙色"],
- ["**失敗**", "failure", "拉不到、寫不進、驗證不過這類無法繼續的結束；印原因；結束碼 1；圖上紅色"],
- ["**專案檔四原則**", "four rules", "① 可以建，但要明說建了什麼；② 要改先問，`-y` 免問；③ 永不刪；④ 永不覆蓋（不用工具版本取代客製內容）"],
- ["**預檢**", "precheck", "動詞在寫任何檔之前做的全部檢查（撞名、憑證、dev 中、要問什麼）；多工具動詞先對全部工具預檢完，任一不過就整體不動"],
- ["**resolve／apply（兩段式）**", "two-phase", "兩段式動詞（add、remove、upgrade、sync、undev、uninstall、prune）分兩段、最多起兩個引擎容器：先在唯讀的 resolve 容器算計畫與指紋，啟動器再拉 image（需要新版內容的動詞才拉），最後在 apply 容器重驗指紋後寫入（`sync` 算出沒事做時到 resolve 為止）；單段動詞（install、升引擎、update、dev、help）只有一個容器"],
- ["**介面版**", "protocol version", "薄殼與引擎之間的整數版號 `P`；薄殼每次呼叫附上；與 release 版號無關"],
- ["**檔案版**", "schema version", "VK 寫的每個 TOML 內的 `schema = N`；決定引擎能不能讀這個檔"],
- ["**最低介面版**", "floor", "引擎仍支援的最低介面版；固定常數；只能經 ADR 提高"],
- ["**結束碼**", "exit code", "`0` 成功（含 warn）；`1` 需人處理或失敗（哪一種由訊息語意決定，不由碼決定）；`2` 合併衝突（留標記、基準版仍推到新版；合併結果是 TOML／just 而解析不過的檔 → 也是 2，但留原檔、該檔基準版不推）；`3` 介面版／檔案版不合，先升級或退回，零寫入"],
- ["**本機覆寫**", "local override", "`version.local.toml` 內由 dev（或 `bootstrap.sh --local`）寫的項目，每個工具或引擎各一項：工具那項 = 一行 `path:<dir>`，把工具指到本機目錄；引擎那項 = tag ＋ image ID 兩欄，把引擎指到本機 image（image ID 供後續驗證：啟動器每次起引擎前比對本機 image 的 ID）；不進 git；有就優先於版本鎖定行"],
- ["**symlink**", "symlink", "符號連結：一個指向別處目錄或檔案的捷徑；dev 用它讓 `cache/<repo>/` 指向本機目錄"],
- ["**hash**", "hash", "檔案內容的 sha256 指紋；同內容必同 hash。用在薄殼自描述標頭、印記、指紋重驗"],
- ["**image ID**", "image ID", "docker 本機 image 的內容 ID（`sha256:<hex64>`）；只在本機有意義，與 registry 的 digest 不同"],
- ["**tty**", "tty", "互動終端；有 tty 才能問問題。沒 tty（CI、管線）又沒 `-y` 時，需詢問的動詞以 1 結束"],
- ["**佔位符**", "placeholder", "`<repo>` 下游 repo 名，規則 `[a-z0-9_][a-z0-9_-]*`（小寫、不含句點，才能當 `[tools]` 下未加引號的 TOML 鍵；OCI repo 名本就小寫），`vendor_kit` 保留給引擎、不得作工具名；`<ns>` 工具的 just 命名空間；`<image>` image 名（含 registry 與路徑）；`<tag>` image 版本名；`<digest>` image 內容指紋的 64 位十六進位 `<hex64>`，寫法 `sha256:<digest>`；`<dir>` 目錄；`<id>` 一次執行的交易 id"],
-]
-Y = sec(p0, "p0_s3", Y, "常用詞")
-Y = mtbl(p0, "p0_t4", Y, T4_COLS, T4)
-Y = sec(p0, "p0_s4", Y, "其他既有詞")
-Y = mtbl(p0, "p0_t5", Y, [("中文名", 190), ("英文", 190), ("定義", 1200)], [
- ["**下游 image**", "downstream image", "`FROM scratch` 只放檔案的 image，沒有程式、不會被執行；多架構 amd64 + arm64"],
- ["**`dist/`**", "dist", "下游 repo 的出貨目錄：`files/`（全部展開到 `cache/`）、`init.toml`、`just/<ns>.just`；其他內容不出貨"],
- ["**工具 recipe**", "tool recipe", "工具的 `dist/just/<ns>.just` 提供、使用者以 `just <ns> …` 執行的 just 指令；相對於 VK 自己的動詞 `just vendor_kit …`。每次執行前自動觸發一次 `sync`"],
- ["**專案根**", "project root", "專案內含 `.vendor_kit/` 的目錄；不是 git toplevel；monorepo 子專案各自一套"],
- ["**`cache/`、`gen/`**", "—", "`.vendor_kit/` 內不進 git 的兩個目錄：`cache/<repo>/` 放工具內容的本機副本，`gen/` 放引擎產生、供 just 載入的檔；其中 `gen/tools.just` 是引擎產生、把各工具的 `<ns>.just` 接進 `just` 的入口檔（每個 `<ns>.just` 一行；由薄殼 `entry.just` 載入）"],
- ["**印記**", "stamp", "`gen/<repo>.stamp`：第一行 = 裝的是哪個 digest（dev 時是 `path:<dir>`），之後每檔一行指紋；只是已裝版本的快取鍵，不是信任來源"],
- ["**納管**", "managed", "初始檔經使用者同意建立後，VK 在 metadata 記下它的來源與狀態；拒絕建立也記（拒絕過）"],
- ["**自描述標頭**", "self-describing header", "薄殼每檔的 `# vendor_kit-shell/<介面版> engine=<引擎版> sha256=<其餘內容的 hash>`；通常在首行，檔案有 shebang 時（`ci/check.sh`）在第二行；引擎重算比對，不符就不動（規格原文稱「自描述首行」）"],
- ["**救援路徑**", "rescue path", "不依賴 `gen/` 的單段引擎呼叫；任何 ≥ 最低介面版的薄殼永久可用。兩種情境：第一次接入由 `bootstrap.sh` 啟動 `install`；既有薄殼修復用 `install` 再跑、升引擎、sync 的不符提示、help"],
-])
-# ---- 語法記法 ----
-Y = sec(p0, "p0_s5", Y, "語法記法")
-Y = para(p0, "p0_n0", Y, M("動詞表與後頁的指令寫法一律照這張表。"))
-Y = mtbl(p0, "p0_t6", Y, [("記法", 260), ("意思", 1320)], [
- ["`<x>`", "必填佔位符"],
- ["`[x]`", "可省略"],
- ["`[@<tag>]`", "可省略的版本後綴，緊接 repo 名（`<repo>@<tag>`）"],
- ["`-x <值>`／`--long <值>`", "短／長選項等價；只有常用的才有短的"],
- ["`-y`", "不帶值的開關"],
- ["`a／b`", "二選一"],
-], bold0=False)
-Y = para(p0, "p0_o0", Y, M("動詞表用到的選項（短形只有 `-t`、`-y`、`-p`、`-i`、`-h`）："))
-OPTS = [
- "`-t <repo>[@<tag>]`／`--tool <repo>[@<tag>]`：`bootstrap.sh` 要接入的工具與版本，可重複；省略 `@<tag>` = 最新正式版。",
- "`-p <dir>`／`--path <dir>`：把工具指到本機目錄（`dev <repo>`）。",
- "`-i <tag>`／`--image <tag>`：把引擎指到本機 image（`dev vendor_kit`；只能 tag）。",
- "`-y`／`--yes`：省略詢問，視同回答「是」。",
- "`--exit-code`：`update` 有新版時以結束碼 2 回報，而不是只印出來。",
- "`--dry-run`：只預覽會問什麼、會改什麼，不寫任何進 git 的檔、不建進度檔；需要新版內容的動詞（add、upgrade）仍會拉 image 展開，uninstall、remove、prune 不拉。只有這五個動詞接受。",
- "`--source <image>`：`add` 時下游 image 名不照 `<repo>-dist` 慣例時指定。",
- "`--local <tar>`：`add` 離線：只收存在的 `.tar` 離線包。`bootstrap.sh` 的 `--local <image tag／tar>` 另可收本機 image tag，值依序判別：以 `.tar` 結尾 → 檔案路徑（必須存在，否則 1）；否則值含 `/` 且存在同名檔 → 1 要求消歧；否則 → image tag。",
- "`--verify`：`sync` 逐檔驗指紋（CI 模式下本來就逐檔驗，不必加）。",
- "`--no-justfile`：`install` 跳過根 justfile 那一步，只印手動加那一行的指示。",
- "`--help`（`-h`）：印該動詞的用法；所有動詞都接受，不列在各動詞語法裡。",
- "`--timeout <秒>`：單次拉 image 的上限秒數；會拉 image 的動詞（add、upgrade、sync、undev、`bootstrap.sh`）都接受。",
-]
-for i, t in enumerate(OPTS):
-    h = hvl(M(t), RW, RLH, pad=2)
-    p0.append(vb(f"p0_o{i + 1}", "1", rlh(LT12), M(t), RX, Y, RW, h)); Y += h
-Y += 10
-# ---- 動詞 ----
-Y = sec(p0, "p0_s6", Y, "動詞")
-Y = para(p0, "p0_v0", Y, M("寫法：小寫原文，前面省略 `just vendor_kit`。"))
-Y = mtbl(p0, "p0_t7", Y, [("動詞", 330), ("做什麼", 1250)], [
- ["`install`", "第一次接入：建 `.vendor_kit/`、薄殼、`version.toml`、`config.toml`、空 `baseline/`；根 `justfile` 無 → 建四行（import、空行、`default:`、`@just --list`），有 → 問後加 import 一行；根 `.dockerignore` 無 → 建四行，有 → 問後加四行；再跑 = 冪等修復；不做 `git init`"],
- ["`uninstall`", "移除 VK 自產的檔、根 `justfile` 那一行與根 `.dockerignore` 那四行（都經詢問、只刪仍與原文相同的行，改過的跳過並 warn）；保留：執行紀錄、初始檔（只印清單）、被使用者改過的 `config.toml` 與薄殼、非空目錄"],
- ["`add <repo>[@<tag>]`", "接入一個工具：展開到 `cache/`、建初始檔與基準版、最後寫版本鎖定行"],
- ["`remove <repo>`", "移除該工具的版本鎖定行、`cache/`、基準版；初始檔不刪只印清單"],
- ["`update [<repo>]`", "只查有沒有新版，只寫執行紀錄；`--exit-code` 有新版回 2"],
- ["`upgrade [<repo>[@<tag>]]`", "升到最新（或指定）版：換 `cache/`、初始檔三方合併、基準版推到新版、改版本鎖定行"],
- ["`dev <repo> -p <dir>`／`dev vendor_kit -i <tag>`", "把工具指到本機目錄：寫本機覆寫、`cache/<repo>/` 改成指向 `<dir>/dist` 的 symlink、印記記 `path:<dir>`；或把引擎指到本機 image：寫本機覆寫（tag 與 image ID）。工具須已在版本鎖定行；也建進度檔"],
- ["`undev <repo>`／`undev vendor_kit`", "撤銷 dev，回到版本鎖定行的版本"],
- ["`sync [<repo>]`", "依版本鎖定行重建 `cache/` 與 `gen/`；不改任何進 git 的檔；工具 recipe 執行前自動觸發"],
- ["`prune`", "刪版本鎖定行與本機覆寫都未引用的舊 image、殘留容器／network／volume 與暫存；遇活躍進度檔只列出提示、不恢復、不阻擋"],
- ["`help`", "印命名空間層說明；不觸網、只寫執行紀錄"],
-], bold0=False)
-Y = para(p0, "p0_v1", Y, M("**升引擎** = `upgrade vendor_kit[@<tag>]`：改引擎那一行的版本鎖定行、用新引擎重產薄殼，然後回 1 要求再跑一次剛才的指令。"))
-Y = para(p0, "p0_v2", Y, M("記法與顏色見主圖第 0 頁「圖例與記法」；審閱規則見 AGENTS.md。"), style=TEXT(12) + "align=left;")
+Y = sec(p0, "p0_s4", Y, "常用詞")
+Y = sec(p0, "p0_s4a", Y, "工具與 image")
+Y = mtbl(p0, "p0_t3a", Y, [("中文名", 190), ("英文", 190), ("定義", 1200)], [
+ ['**`<repo>`**', 'repository name', '出貨角色的 repo 名，也是該 repo 所出貨工具的名稱。'],
+ ['**工具**', 'tool', 'repo 出貨、供另一個（或同一個）repo 接入的內容單位，名字是 `<repo>`。'],
+ ['**`<ns>` 命名空間**', 'namespace', '工具在 just 中提供 recipe 的命名空間。'],
+ ['**工具 recipe**', 'tool recipe', '工具提供、使用者以 `just <ns> …` 執行的 just 指令。'],
+ ['**接入根**', 'install root', '`.vendor_kit/` 的直接父目錄，也是 VK 的接入單位。'],
+ ['**`dist/`**', 'dist', 'repo 交付給 VK 的工具出貨目錄。'],
+ ['**工具 image**', 'tool image', '封裝單一工具出貨內容、供 VK 取出且不作為程式執行的純資料容器 image。'],
+ ['**引擎 image**', 'engine image', '裝載 VK 引擎的容器 image。'],
+ ['**registry**', 'registry', '存放並提供工具 image 與引擎 image 的服務。'],
+ ['**image 引用**', 'image reference', '唯一指定 registry 上某個 image 版本與內容的字串。<br>• 形式：`<名稱>:<tag>@sha256:<digest>`；`<digest>` 不含 `sha256:` 前綴。'],
+ ['**tag**', 'tag', 'registry 中標示 image 版本的名稱。'],
+ ['**digest**', 'digest', 'registry 用來識別 image 內容的 sha256 指紋。'],
+ ['**image ID**', 'image ID', '本機容器引擎用來識別 image 內容的 ID，與 registry 的 digest 不同。'],
+ ['**正式版**', 'release version', '不是預發行版本的發布版本。'],
+ ])
+Y = sec(p0, "p0_s4b", Y, "檔案與本機狀態")
+Y = mtbl(p0, "p0_t3b", Y, [("中文名", 190), ("英文", 190), ("定義", 1200)], [
+ ['**repo 檔**', 'repo file', '位於 repo 內、由使用者擁有及維護，且不屬於 `.vendor_kit/` 的檔。'],
+ ['**VK 檔**', 'VK file', '由 VK 建立及管理、位於 `.vendor_kit/` 的檔。'],
+ ['**進 git 的檔**', 'tracked file', '預期由 git 追蹤並隨 repo commit 的檔。'],
+ ['**`cache/`**', 'cache', 'VK 在 repo 本機保存已展開工具內容的目錄。'],
+ ['**`gen/`**', 'generated files', 'VK 在 repo 本機保存生成檔的目錄。'],
+ ['**印記**', 'stamp', '描述本機工具內容所對應版本與內容的 VK 檔。'],
+ ['**自描述標頭**', 'self-describing header', '薄殼檔內描述其介面版、引擎版與其餘內容 sha256 值的標頭。'],
+ ['**執行紀錄**', 'run log', '記錄一次 VK 執行以供事後追溯的 VK 檔。'],
+ ['**進度檔**', 'progress file', '記錄可寫動詞未完成狀態的 VK 檔。'],
+ ])
+Y = sec(p0, "p0_s4c", Y, "版本與來源")
+Y = mtbl(p0, "p0_t3c", Y, [("中文名", 190), ("英文", 190), ("定義", 1200)], [
+ ['**版本鎖定行**', 'lock version line', '`version.toml` 中的 TOML 項目。<br>• 內容：把引擎或工具名稱對應到確切 image 版本。<br>• 作用：決定引擎或工具使用的鎖定版本。'],
+ ['**本機覆寫**', 'local override', '讓引擎或工具暫時改用本機開發來源的 VK 項目。<br>• 內容：記錄本機開發來源。<br>• 作用：有本機覆寫時，優先於版本鎖定行。'],
+ ])
+Y = sec(p0, "p0_s4d", Y, "初始檔與合併")
+Y = mtbl(p0, "p0_t3d", Y, [("中文名", 190), ("英文", 190), ("定義", 1200)], [
+ ['**初始檔**', 'init file', '由工具提供、VK 接入 repo 後交由使用者維護的 repo 檔。'],
+ ['**納管**', 'managed', 'VK 已記錄某個初始檔的來源，並在後續升級中處理它的狀態。'],
+ ['**metadata**', 'metadata', '記錄初始檔來源與 VK 管理狀態的 VK 檔。'],
+ ['**基準版**', 'baseline', '上次套用的初始檔原版副本，作為與目前 repo 檔、新版初始檔合併時的共同祖先。'],
+ ['**基準版合併**', 'baseline merge', '以基準版、目前 repo 檔與新版初始檔為三份輸入所做的合併（git 的 three-way merge）。'],
+ ['**合併衝突**', 'merge conflict', '基準版合併無法自動決定合併內容的結果。'],
+ ])
+Y = sec(p0, "p0_s4e", Y, "互動、結果與版本號")
+Y = mtbl(p0, "p0_t3e", Y, [("中文名", 190), ("英文", 190), ("定義", 1200)], [
+ ['**CI 模式**', 'CI mode', 'VK 在 CI 環境中執行時採用的模式。'],
+ ['**詢問**', 'prompt', 'VK 在修改 repo 檔前，向使用者取得同意的互動。'],
+ ['**`-y`**', 'yes option', '讓使用者預先回答詢問的選項。'],
+ ['**可寫動詞**', 'writing verb', '會動進 git 的檔或進度檔的動詞。<br>• 包含 install、uninstall、add、remove、upgrade、dev、undev、prune。<br>• `prune` 雖清理本機資源，執行時仍會建立進度檔，因此屬於可寫動詞。'],
+ ['**唯讀動詞**', 'read-only verb', '不動進 git 的檔、也不動進度檔的動詞。<br>• 包含 update、sync、help。<br>• 仍可寫 `cache/`、`gen/`。'],
+ ['**需人處理**', 'needs human', 'VK 停下並要求使用者採取下一步的結果。'],
+ ['**失敗**', 'failure', 'VK 因無法繼續而結束的結果。'],
+ ['**警告**', 'warning', '指出非阻斷問題、不使該次執行成為失敗或需人處理的訊息。'],
+ ['**介面版**', 'interface version', '薄殼與引擎之間公開介面的整數版號。'],
+ ['**檔案版**', 'schema version', 'VK 寫入檔案時標示其資料格式的整數版號。'],
+ ['**最低介面版**', 'floor', '引擎仍支援的最低介面版。'],
+ ['**結束碼**', 'exit code', 'VK 程序向呼叫端回報結果的整數。'],
+ ])
+Y = sec(p0, "p0_s5", Y, "動詞")
+Y = mtbl(p0, "p0_t4", Y, [("動詞", 330), ("做什麼", 1250)], [
+ ['`install`', '將 VK 接入 repo，或修復既有接入。'],
+ ['`uninstall`', '從 repo 移除 VK 的接入。'],
+ ['`add`', '將一個工具接入 repo。'],
+ ['`remove`', '從 repo 解除一個工具的接入。'],
+ ['`update`', '查詢已接入的引擎或工具是否有可用新版。'],
+ ['`upgrade`', '將已接入的引擎或工具改為另一個版本。'],
+ ['`dev`', '暫時讓已接入的引擎或工具使用本機開發來源。'],
+ ['`undev`', '取消本機開發來源，恢復使用鎖定版本。'],
+ ['`sync`', '使 repo 本機的工具內容與版本鎖定行或本機覆寫一致。'],
+ ['`prune`', '清理由 VK 產生、但已不再被目前 repo 使用的本機資源。'],
+ ['`help`', '顯示 VK 指令的使用說明。'],
+ ], bold0=False)
+Y = para(p0, "p0_v1", Y, M('**升引擎**：執行 `upgrade vendor_kit` 更換引擎版本。'))
 pages_v1_a.append(("v1p0", "名詞與縮寫", p0))
 
 # ================= P1 v1p1：審閱頁 01 不變量與角色 =================
@@ -1366,7 +1335,7 @@ RUN_T = ("<b>docker run 參數</b>：docker run --rm [<uid 旗標>] -v \"<專案
  "[-v \"<TOKEN_FILE>:/run/vk-token:ro\" -e VENDOR_KIT_REGISTRY_TOKEN_FILE=/run/vk-token] -e TRACEPARENT=00-<trace_id>-<span_id>-<flags>（W3C；引擎只取 trace_id）-e VENDOR_KIT_LOG_FILE=/repo/.vendor_kit/log/<verb>/<檔> [-e CI] [-e VENDOR_KIT_NO_LOCK] [-e VENDOR_KIT_REGISTRY_TOKEN -e VENDOR_KIT_REGISTRY_USER] [-it] "
  "--label io.github.<org>.vendor_kit=1 --label io.github.<org>.vendor_kit.project=<專案根絕對路徑> <引擎 ref> --protocol P <子命令> [args]。"
  "--protocol P（介面版）一律在子命令之前；-w /repo 必給；-it 只在 apply 且互動（有 tty、無 -y、非 CI 模式），resolve 永不 -t；trap … EXIT INT TERM 清容器與 .tmp.dist.<id>/")
-UF_T = ("<b>uid 旗標（rootless 不加 -u／Podman keep-id）</b>：docker info --format '{{.SecurityOptions}}' 含 name=rootless → rootless，不加 -u；docker --version 含 podman → 加 --userns=keep-id、不加 -u；其餘（rootful docker）加 -u \"$(id -u):$(id -g)\"")
+UF_T = ("<b>uid 旗標（rootless 不加 -u；不支援 Podman）</b>：docker --version 含 podman → 以 1 結束並印不支援；docker info --format '{{.SecurityOptions}}' 含 name=rootless → rootless，不加 -u；其餘（rootful docker）加 -u \"$(id -u):$(id -g)\"")
 ENV_T = ("<b>環境變數與 -e 白名單（§5）</b>：轉發 CI（照原值；真值規則：非空且不為 0／false → CI 模式）、VENDOR_KIT_NO_LOCK（=1 跳過 flock）；VENDOR_KIT_REGISTRY_TOKEN／_USER 只在 update 單段及 upgrade 的 resolve 以 -e 傳（不寫 log／檔、不傳給工具、dry-run 不印）；"
  "VENDOR_KIT_REGISTRY_TOKEN_FILE 改為 -v <主機檔>:/run/vk-token:ro 並以 -e …_TOKEN_FILE=/run/vk-token 傳容器內路徑（與 _TOKEN 同設 → 1「只能擇一」）；啟動器自讀不轉發：VENDOR_KIT_PULL_TIMEOUT（預設 300，--timeout 優先）；"
  "啟動器自產必傳（v2.12）：TRACEPARENT（32 hex trace_id，同值 = 進度檔交易 id）與 VENDOR_KIT_LOG_FILE（容器內路徑；引擎 append 同一檔，不另開檔）；"
@@ -1406,7 +1375,7 @@ FAST_T = ("<b>sync 快路徑（Q22）與 sync --verify</b>：sync（無參數）
 COMPAT_T = ("<b>相容承諾（Q16／Q19／Q23）</b>：薄殼每次呼叫附 --protocol P（介面版；第一版就有），引擎依 P 回應。永久：任何 ≥ 最低介面版的舊薄殼可呼叫新引擎的救援路徑並得正確提示；舊資料永遠可讀可遷（讀任一舊檔案版 → 直接寫當前檔案版，不鏈式）。"
  "非永久：舊薄殼跑新 major 一般動詞只保證乾淨回 3 印 6-36 零寫入。最低介面版 = 固定 release 常數（v1.0.0、P=1、schema=1），只能經 ADR 提高；引擎 image LABEL …protocol=<floor_P>-<current_P> 讓啟動器不起容器即可判最低介面版。"
  "降版 upgrade vendor_kit@<舊版>：目標引擎（以介面版／檔案版比）能無損讀現有檔才做，否則改檔前拒絕 3 印 6-10；dev vendor_kit -i <舊 image> 禁止重產進 git 的薄殼")
-ENVR_T = ("<b>執行環境（19 條）與主機需求</b>：docker ≥ 19.03（或 Podman ≥ 4.9）、just ≥ 1.33.0、POSIX sh、git；Linux amd64／arm64、WSL2；armv7、SELinux 不支援；Docker Desktop、proxy、自簽 CA、引擎基底 EOL → issue v2。"
+ENVR_T = ("<b>執行環境（19 條）與主機需求</b>：docker ≥ 19.03（不支援 Podman）、just ≥ 1.33.0、POSIX sh、git；Linux amd64／arm64、WSL2；armv7、SELinux 不支援；Docker Desktop、proxy、自簽 CA、引擎基底 EOL → issue v2。"
  "時間戳 UTC ISO 8601；需詢問但無 tty／EOF → 1 印 6-4；所有 docker 資源帶 vendor_kit label；不建 network／volume；離線 upgrade 不支援；worktree 進驗收；submodule 以實測為生效條件")
 # ---- 規則框排版（兩欄 750）----
 tmp = []; y = r5y
@@ -1597,7 +1566,7 @@ ACC = [
  ["19", "append", "LF／CRLF／混合檔各跑 add → upgrade → remove；Markdown 尾端兩空格不得視為相同；install 的 .dockerignore 四行 append → uninstall 刪；故意改其中一行後 uninstall → 該行跳過並 warn、其餘原文相同的行仍刪"],
  ["20", "空白路徑", "專案根含空白與 $、dev -p \"含 空白/路徑\"；vk-resolve mount 八進位跳脫往返；just vendor_kit add --help 到引擎"],
  ["21", "worktree／submodule", "git worktree（.git 是檔）完整流程；submodule（已初始化、有工作樹）作專案根：實測後定（F3）"],
- ["22", "rootless docker／Podman", "setup-docker-action rootless: true（不加 -u、/repo 可寫）與 Podman（Ubuntu 24.04 runner 內建 4.9.3：--userns=keep-id）各跑完整流程；uid 12345 無 passwd 項"],
+ ["22", "rootless docker", "setup-docker-action rootless: true（不加 -u、/repo 可寫）跑完整流程；uid 12345 無 passwd 項；Podman 不支援、不進矩陣"],
  ["23", "prune", "完整流程前後 docker network ls／volume ls 差集為空；故意留一個帶 label 的 network／volume 與殘留容器，prune 後必須消失；未引用舊下游 image 刪、version.toml 引用的與本機覆寫 tag 保留；--dry-run 零刪除；未恢復的 .tmp.* 不刪"],
  ["24", "多工具彙總（Q27）", "兩工具 upgrade 一個衝突 2 一個成功 → 兩個都做完、回 2；一個失敗 1 一個有新版 → update 回 1"],
  ["25", "F1 fixture（just 1.33.0）", "cache 缺檔時 just vendor_kit sync 可進入（mod?）；just <ns> build 從子目錄執行自動 sync 且不觸發 6-9；--dist lint 擋缺 _sync 的模組"],
@@ -1684,7 +1653,7 @@ ACC_IDX = [
  ["相容承諾", "1–8", "已釋出版驅動候選；最低環境 × 世代；升級後 == 全新安裝；連續升級；降版；< 最低介面版；舊 bootstrap.sh 再跑；舊引擎讀新檔"],
  ["CI 模式與 Renovate", "9、27", "只改第一行後 CI=true sync；Renovate 實際 repo"],
  ["檔案與路徑", "10、11、13、19、20、21", "fresh clone 無 gen/；下游使用者改薄殼／未納管檔／append；異常 TOML；append 換行；空白路徑；worktree／submodule"],
- ["中斷與環境", "12、14、15、22", "中斷與重跑；just 矩陣；amd64／arm64 原生 runner；rootless docker／Podman"],
+ ["中斷與環境", "12、14、15、22", "中斷與重跑；just 矩陣；amd64／arm64 原生 runner；rootless docker（不支援 Podman）"],
  ["離線", "16、17", "離線包；離線可用（斷網 sync／build）"],
  ["私有 registry", "18", "token／TOKEN_FILE；敏感值不入輸出、metadata、執行紀錄、進度檔"],
  ["prune／多工具／F1／tty", "23、24、25、26", "prune 差集；多工具彙總；F1 fixture；無 tty／EOF"],

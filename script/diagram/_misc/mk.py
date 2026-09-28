@@ -1,7 +1,7 @@
 import os; D=os.path.dirname(os.path.abspath(__file__))   # 原本指向 scratchpad
 b=open(f"{D}/codex_r9/brief.md").read()
 head=b.split("# 附件：決策紀錄（interface_spec.md 全文）")[0]
-spec=open(f"{D}/decisions/interface_spec.md").read()
+spec=open(f"{D}/decisions/_legacy/interface_spec.md").read()
 cx=open(f"{D}/codex_r9/compact.xml").read()
 note='''# 附件：drawio XML（v2_only.drawio，精簡版）
 
