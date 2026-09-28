@@ -9,7 +9,7 @@ task = """你是 draw.io 產生器 `disc_v1_a.py`、`disc_v1_c.py` 的修改者�
 做法：先 `python3 run_v1_a.py && python3 run_v1_c.py` 確認能跑；改完再跑，並對 `v1_a.drawio`、`v1_c.drawio` 各跑 `check_overflow.py`、`check_overlap.py`、`check_cross_v1b.py`、`check_self_v1b.py`、`check_jog_r7.py`、`check_align_v1b.py`、`check_margin_label.py`（都要「共 0 筆」）與 `extract_pages.py <drawio> <out> && lint_pages.py <out>`（非 termcov warn 要 0）。最後輸出：改了哪些頁與每頁改了什麼、便條清單、檢查結果。
 注意：`disc_v1_b.py` 由別人同時修改，**不要碰**；`disc_v1_c.py` 第 10 行 exec 它的 helper 段，若 b 檔暫時語法壞導致 run_v1_c.py 跑不了，等 60 秒再試（最多 10 次）。不改 `gen_disc.py`、`drawio_common.py`、任何 check_*.py／lint_pages.py／extract_pages.py。附件 F／L／R 中屬別的檔的頁（v1p5*～v1p8*、v1p1b／v1p2b 等）忽略；跨頁 term-diff 兩條以**較長版本為準**、較長版本都在本檔頁（baseline/.gitkeep 的 v1 在 v1p2／v1p2c／v1p16i；6-33 的 v2 在 v1p10）：這些名詞文字**不要改**，b 檔那方會對齊過來（v1p2c 不可改，所以 v1p2／v1p16i 也不能動這條文字）。lint 的 write-fail-edge 條目屬 v1p9c／v1p16cb／v1p16ccc，要補失敗出邊或匯流；end-color-text 屬 v1p16 o3tx；term-count 屬 v1p3。
 """
-prop = S.joinpath('decisions/proposal_v2.md').read_text().splitlines()
+prop = S.joinpath('decisions/_legacy/proposal_v2.md').read_text().splitlines()
 def sect(lines, start_pat):
     out=[]; on=False
     for l in lines:
@@ -41,7 +41,7 @@ Hc = '\n'.join(S.joinpath('disc_v1_c.py').read_text().splitlines()[:120])
 K = S.joinpath('review_v2_README.md').read_text()
 brief = f"""{task}
 
-==================== 附件 R：decisions/proposal_v2.md 的 v2.16 與 v2.17 ====================
+==================== 附件 R：decisions/_legacy/proposal_v2.md 的 v2.16 與 v2.17 ====================
 {r16}
 
 {r17}

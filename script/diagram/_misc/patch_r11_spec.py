@@ -1,4 +1,4 @@
-P = "decisions/interface_spec.md"; s = open(P, encoding="utf-8").read()
+P = "decisions/_legacy/interface_spec.md"; s = open(P, encoding="utf-8").read()
 def rep(old, new, n=1):
     global s
     c = s.count(old); assert c == n, (c, old[:70])

@@ -1,10 +1,10 @@
 # Issue tracker：GitHub
 
-本 repo 的 issue 與 spec 都放在 GitHub `ycpss91255-research/vendor_kit`。所有操作一律用 `gh` CLI。對外契約與承諾見 `doc/decisions/review/01_purpose.md`、名詞見 `doc/decisions/review/02_terms.md`（定稿後併入根 `CONTEXT.md`）、不變量見 `doc/decisions/review/03_invariants.md`、ADR 見 `doc/adr/`。
+本 repo 的 issue 與 spec 都放在 GitHub `ycpss91255-research/vendor_kit`。所有操作一律用 `gh` CLI。對外契約與承諾見 `doc/decisions/review/01_purpose.md`、名詞見根 `CONTEXT.md`、不變量見 `doc/decisions/review/02_invariants.md`、ADR 見 `doc/adr/`。
 
-## 為什麼每個 `gh` 都要帶 `-R`
+## 為什麼每個 `gh` 都明寫 `-R`
 
-本目錄（`vendor-kit_ws/src`）是放 drawio 與 notes 的本機 git repo，**沒有設定 remote**。`gh` 平常靠 `git remote -v` 推出目標 repo，這裡推不出來，所以每個指令都必須明寫 `-R ycpss91255-research/vendor_kit`；漏掉會直接報錯或打到別的 repo。
+`gh` 不帶 `-R` 時會靠當下目錄的 remote 推出目標 repo：推得出來也是推測，換個目錄、worktree 或 submodule 就換了答案，有 fork 的 remote 時還會打到 fork。所以慣例是**每個指令都明寫 `-R ycpss91255-research/vendor_kit`**，讓指令自己說出目標，跟從哪裡執行無關。
 
 ## 慣例
 

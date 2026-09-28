@@ -1,6 +1,6 @@
 """提案 v2 流程頁（v1p5…v1p8b，拆格後超高的頁再拆成 …c 頁）。
-依據：decisions/proposal_v2.md（§2 表格、§5 初始檔規則、§6 啟動器、§7 CI）＋ v2.1 A–F ＋ v2.2 ＋ v2.3 ＋ v2.4 ＋ v2.5（最新優先），
-＋ v2.6（2026-09-19 規格審查 16 條必修 + Q22–Q27，最高優先；decisions/interface_spec.md v2 為動詞行為／選項／結束碼／訊息逐字來源），
+依據：decisions/_legacy/proposal_v2.md（§2 表格、§5 初始檔規則、§6 啟動器、§7 CI）＋ v2.1 A–F ＋ v2.2 ＋ v2.3 ＋ v2.4 ＋ v2.5（最新優先），
+＋ v2.6（2026-09-19 規格審查 16 條必修 + Q22–Q27，最高優先；decisions/_legacy/interface_spec.md v2 為動詞行為／選項／結束碼／訊息逐字來源），
 第十二輪（review_v2r11_findings.md 必修＋選修）：頁尾統一為「log_prune」→「launcher_exit」兩格 + 終點列（footer()/footer_edges()：所有終點的唯一前驅是 launcher_exit 格；各分支從左側匯流排 x=30 匯入，成功路徑直下）；每個 docker run 之後緊接 engine_start（EST_R／EST_A／EST_1）；啟動器 image 段統一 pullseg()（inspect／pull／image 同中心直下，本機有 → 頁面右側 bypass()，pull 失敗紅出口）；拆頁：bootstrap.sh（1′）v1p5i、install（1′）v1p5cw、D. 回退 v1p7bd、E(c)（1′）v1p7bcx；sync(1) 的 docker run 移到 sync(1′) 頁首；E(a) 的 (b) 段改成引用 sync(1)；C′ 出口改文字；內容：bootstrap 先驗 git／just 才建 log；install 的 git／巢狀檢查移到主機側；add 已接入且完成先於查 registry、--local 拆格；B(1) 6-3 橙出口；E(a) 新引擎 pull 移到 apply 前；E(c)(2) 建日誌＋config.toml 拆三格；remove(2) 逐行比對迴圈；undev u6x 措辭；名詞表逐頁裁剪（頁高 ≤ 2400）。備份：.v13（第十二輪前）。
 第十一輪（v2.13 + v2.14 + review_v2r10_findings.md）：主路徑補線（B(1) b1q→b2→b2c、uninstall(1) x2→x2b…x2e）；每頁 resolve／apply 段各一格 engine_start、頁尾一格 log_prune／launcher_exit；
 藍 = 引擎、白 = 啟動器全檔核對；gen/.stamp 只記引擎 ref、log.sh 帶自描述首行；sync(1′) 6-33 菱形；工具 image pull 失敗紅出口；uninstall(2) 不刪 log/、config.toml 依 v2.13 P6；
