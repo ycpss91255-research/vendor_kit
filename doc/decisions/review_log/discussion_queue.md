@@ -36,7 +36,8 @@
 ### Q3 總表排在介面頁之前的依賴方向
 
 - 總表的「下一步」欄會寫指令（例如 `upgrade --engine`），指令寫法定義在介面頁。總表排前面時，這算不算向後依賴？
-- 待 codex 討論。
+- 補充（r103 後）：02 本身也用編號引用總表的訊息（例如第 128～129 行的 6-5、6-13）。總表排在 03 時，02 → 03 一樣是引用後面的頁。r103 在[審閱頁說明](../review/README.md)「寫法規則」加了例外「訊息編號可由 02、03、ADR 回連」，跟「只能向前依賴」衝突，要一起定。
+- 待 codex 討論（已送 discuss，round `q20260930`，題 `dep-order`；02 → 總表的引用是後補的，下一輪再送）。
 
 ### Q4 介面頁與 README 的「出處」行
 
@@ -44,6 +45,18 @@
 - 事實：skill 沒有要求。02 在 commit `06397c4`（「出處與機制段移出」）拿掉出處；理由和機制由 ADR 記錄。介面頁與 README 的出處行是之後各輪加的，跟 02 的做法不一致。
 - `ADR-0007 §1` 的 `§1` 指 ADR-0007 自己的「### 1. 主機依賴的版本下限」小節；[ADR 規則](../../adr/README.md)只規定必要段落（Context／Decision／Consequences／Alternatives），沒有定義 `§` 寫法。
 - 提議：對外頁不留出處行，跟 02 一致。待 codex 討論。
+
+### Q5 本機沒有引擎 image 時，版本組合怎麼判定
+
+- r103 codex 必改指出：[ADR-0008](../../adr/0008-protocol-and-file-schema-versions.md) 說啟動器讀引擎 image 的 LABEL 就能判定版本組合、不必連 registry，但本機還沒有那個 image 時 LABEL 從哪裡來沒說，機制不閉合。
+- codex 提的修法（本機沒有 image 時延到拉 image 之後才判定、要連 registry）會削弱 [02](../review/02_invariants.md) 第 322 行「不必連上任何 registry 就判定得出來」，所以沒有套用，ADR-0008 維持原文。
+- 待 codex 討論：要補哪個離線可取得的資料來源（例如記在 VK 檔裡的介面版區間），還是修改不變量。
+
+### Q6 r103 總表草稿的兩處內容
+
+- 6-3（沒有 registry 憑證）也會在 `add` 時出現，但訊息的下一步只給 `upgrade <repo>@<tag>`；介面頁沒有 `add <repo>@<tag>`。
+- r103 套用必改時，6-39（偵測到 podman）的類別從「需人處理」改成「失敗」（沒有可複製的指令）；6-19 補了下一步 `just vendor_kit upgrade --engine`。
+- 待 codex 討論。
 
 ## 已回答的事實問題（不需定案）
 
