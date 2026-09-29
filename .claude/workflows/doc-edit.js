@@ -3,7 +3,7 @@ export const meta = {
   description: '改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → humanizer-zh-tw 潤稿；codex 的建議只回報，全程禁止 git 寫入',
   whenToUse: '改任何現行文件（README、doc/decisions/review/、CONTEXT.md、ADR）時；主對話不自己改',
   phases: [
-    { title: '改寫', detail: '一個子代理照 ask 改指定檔；沒給 ask 就跳過（檔已經改好，只跑後面三段）' },
+    { title: '改寫', detail: '先查 round 是不是 _backup 最大編號加一（不對就停）；一個子代理照 ask 改指定檔；沒給 ask 就跳過（檔已經改好，只跑後面三段）' },
     { title: 'lint', detail: '跑 check_terms 與 check_context，只修 lint 指出的地方，直到全部通過' },
     { title: 'codex 審查', detail: '子代理啟動 codex 只讀審查，對照 01、02、CONTEXT.md、ADR，整理成必改／建議' },
     { title: '套用必改', detail: 'codex 的必改直接改進檔裡並跑 lint；建議不改，只回報給維護者' },
@@ -13,7 +13,7 @@ export const meta = {
 
 // args 契約：
 //   repo?        string    預設 '/home/cyc/Desktop/vendor-kit_ws/src'
-//   round        string    必填，備份與 codex 輸出檔名用，例如 'r90'
+//   round        string    必填，格式 rNN，必須是 _backup 裡最大的 pre_rNN 加一；備份與 codex 輸出檔名用
 //   files        string[]  必填，這次只准動的檔（相對 repo 根目錄）
 //   ask?         string    要怎麼改；不給就跳過「改寫」
 //   background?  string    已定案的前提，codex 與子代理都不要質疑
@@ -30,8 +30,8 @@ const {
 } = args ?? {}
 
 // ───────────────── 參數檢查 ─────────────────
-if (typeof round !== 'string' || !round.trim()) {
-  throw new Error('args.round 必填：備份與 codex 輸出檔名用的輪次字串，例如 "r90"')
+if (typeof round !== 'string' || !/^r\d+$/.test(round)) {
+  throw new Error('args.round 必填，格式 rNN（例如 "r90"）：備份與 codex 輸出檔名用的輪次')
 }
 if (!Array.isArray(files) || files.length === 0 || files.some(f => typeof f !== 'string' || !f.trim())) {
   throw new Error('args.files 必填：至少一個相對 repo 根目錄的檔名，例如 ["README.md"]')
@@ -64,6 +64,18 @@ const RESULT = {
     error: { type: 'string', description: '失敗原因；成功留空' },
   },
   required: ['changed', 'backups', 'lint'],
+}
+
+// ───────────────── 輪次檢查 ─────────────────
+// round 必須是 _backup 裡最大的 pre_rNN 再加一：重用舊編號會蓋掉或混淆那一輪的基準版。
+// 子代理只負責讀出最大編號，比對在腳本裡做，不交給模型判斷。
+const seen = await agent(`在 ${repo} 跑這行，照原樣回報輸出的數字（沒有輸出就回 0）；不要做任何其他事：
+ls doc/decisions/_backup | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//' | sort -n | tail -1`,
+  { label: '輪次檢查', phase: '改寫', effort: 'low',
+    schema: { type: 'object', properties: { max: { type: 'integer' } }, required: ['max'] } })
+const expected = (seen?.max ?? NaN) + 1
+if (Number(round.slice(1)) !== expected) {
+  throw new Error(`round ${round} 不對：_backup 裡最大是 pre_r${seen?.max}，這一輪要用 r${expected}；round 不能重用也不能跳號`)
 }
 
 // ───────────────── 改寫 ─────────────────
