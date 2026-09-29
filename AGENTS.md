@@ -11,9 +11,9 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 
 ## 決議與文件流程
 
-- **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md`、`03_interface.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
+- **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md`、`03_interface.md`、`04_messages.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
 - 每個設計決議先在 issue 討論（中文）；定案後才寫 ADR。
-- **對外文件的審閱流程照[審閱頁說明](doc/decisions/review/README.md)「版本怎麼迭代」做。** 對外文件是根目錄 [README](README.md) 與審閱頁 01～03。重點：
+- **對外文件的審閱流程照[審閱頁說明](doc/decisions/review/README.md)「版本怎麼迭代」做。** 對外文件是根目錄 [README](README.md) 與審閱頁 01～04。重點：
   1. 草稿只改在討論分支並開 PR；`main` 上只放定案版，維護者針對那一頁明確回覆「定案」才 merge。
   2. 改動一律跑 doc-edit workflow；round 名稱是 `rNN`，取 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 的編號再加一，不能重用；workflow 開跑時會檢查 round 的格式是不是 `rNN`、是不是最大編號加一，重用或跳號就直接停。
   3. 改完跑 [標示版產生器](script/mark_changes.py)：正式檔檔頭寫入 `> 版本 vN`（N 取本機 `doc/decisions/_marked/.<鍵>.rev` 與正式檔檔頭現有版本號兩者較大的再加一，換電腦或新 clone 不會從 v1 重來），`doc/decisions/_marked/` 產出檔名帶版本號的標示版 `<鍵>.vN.marked.md` 與正文副本 `<鍵>.vN.md`；正式檔名不改。

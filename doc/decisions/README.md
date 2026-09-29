@@ -6,7 +6,7 @@
 
 ## 保留
 
-### 審閱頁（三頁）
+### 審閱頁（四頁）
 
 名詞不在這裡：名詞表是根 `CONTEXT.md`（skill 四樣之一）。
 
@@ -15,6 +15,7 @@
 | [01 專案目的與承諾](review/01_purpose.md) | 專案目的與承諾：痛點、VK 做什麼、對導入、出貨與相容性承諾什麼。已定案。 | 留在這裡：對外契約在 repo 內的權威文件。 |
 | [02 不變量](review/02_invariants.md) | 十一條不變量：只記性質。機制已在 2026-09-28 併進各自的 ADR（`doc/adr/` 裡各條列出的 ADR），本頁只留回連。審閱中。 | 性質留一份權威文件（ADR 的 `> Serves:` 要指得到它）。 |
 | [03 使用者介面](review/03_interface.md) | 全部 VK recipe、選項、結束碼。規則只標 02 的條號，不重述。審閱中。 | 留在這裡：對外契約在 repo 內的權威文件。 |
+| [04 訊息與錯誤碼總表](review/04_messages.md) | VK 印出、要使用者動手處理的訊息與固定編號，02、03 與 ADR 用編號引用。審閱中。 | 留在這裡：對外契約在 repo 內的權威文件。 |
 
 ### 從已移除的 PRD 拆出來的兩份
 
@@ -27,9 +28,9 @@
 
 | 目錄 | 是什麼 | 最終去向 |
 |---|---|---|
-| `review_log/` | 審閱頁（01–03）的審閱往返：codex brief／output、Claude 子代理審查紀錄。舊輪次的子目錄已搬進 `_legacy/review_log/`。 | 審閱頁定案後就沒有讀者。見「待處理」。 |
+| `review_log/` | 審閱頁（01–04）的審閱往返：codex brief／output、Claude 子代理審查紀錄。舊輪次的子目錄已搬進 `_legacy/review_log/`。 | 審閱頁定案後就沒有讀者。見「待處理」。 |
 | `_backup/` | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`），`script/mark_changes.py` 靠它產生改動標示。 | 定案後只有 `mark_changes.py` 還需要最近一輪。見「待處理」。 |
-| `_marked/` | `mark_changes.py` 的輸出：新增綠底、被取代的舊文字紅底，給維護者審閱用。只有對外文件（根目錄 README.md 與審閱頁 01～03）產標示版；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產。已在 `.gitignore`，是產生物。 | 每輪重新產生，不需要保留。 |
+| `_marked/` | `mark_changes.py` 的輸出：新增綠底、被取代的舊文字紅底，給維護者審閱用。只有對外文件（根目錄 README.md 與審閱頁 01～04）產標示版；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產。已在 `.gitignore`，是產生物。 | 每輪重新產生，不需要保留。 |
 | `_legacy/` | 見下一段。 | 確認清楚之後刪。 |
 
 ## 已歸檔（`_legacy/`）
@@ -42,7 +43,7 @@
 | 介面規格 | `interface*.md`（含 185 KB 的 `interface_spec.md`）、`proposal_v1/v2.md`、`remaining.md` | spec 改走 GitHub issue，不留本地規格檔。節次編號（`§4.5`）只在檔內有意義。 |
 | 定案流水帳 | `grilling.md` | 逐題追問與定案紀錄。Q 編號只在檔內有意義；要引用當初的定案，寫日期加定案內容。 |
 | agy／codex 原始輸出 | `agy/`、`log/`、`review/codex_*`、`review_log/`（舊輪次：`codex_r2`–`codex_r9`、`codex_review`、`r12_codex`、`r13_codex`、`r15_codex`、`review_v1`，共 152 檔 59 MB） | 9/17–9/21 的雙軌審查往返，對象是已作廢的圖頁與舊版名詞。 |
-| 舊審閱頁 | `review/01-03_名詞與縮寫.md`、`review/04-05_不變量與角色.md`、`review/terms_moved.md`、`review/invariants_roles.md`、`review/verbs.md`、`review/CONTEXT.draft.md`、`review/legend_page.md`、`review/02_terms.md` | 前七份當時被 01／02 兩頁取代（歷史；現在審閱頁是 01～03）；`02_terms.md`（名詞與縮寫）的內容已重寫進根 `CONTEXT.md`，本檔隨即退場。 |
+| 舊審閱頁 | `review/01-03_名詞與縮寫.md`、`review/04-05_不變量與角色.md`、`review/terms_moved.md`、`review/invariants_roles.md`、`review/verbs.md`、`review/CONTEXT.draft.md`、`review/legend_page.md`、`review/02_terms.md` | 前七份當時被 01／02 兩頁取代（歷史；當時取代後是 01～03，現為 01～04）；`02_terms.md`（名詞與縮寫）的內容已重寫進根 `CONTEXT.md`，本檔隨即退場。 |
 | 後來補歸檔 | `review/_changes_r63.md`（手寫對照表，已被 `script/mark_changes.py` 取代，內文用「導入根」舊名）、`review/_variants/`（承諾關係三種呈現草稿，已擇一定案）、`dist_distribution_notes.md`（主圖討論紀錄，用三方模型舊名詞） | 見括號。 |
 | issue 草稿 | `issues/`（`close_*.md`、`d11`–`d13`、`reframe_14.md`）、`issue_deploy_split*.md` | 已貼上 GitHub，本地副本不同步。 |
 | 外部參考 | `wf/`（20 個上游 repo 的 GitHub Actions workflow）、`verify/`（ADR 抓取與 issue JSON） | 一次性取樣，要用再抓。 |
@@ -86,11 +87,11 @@
 
 **為什麼卡住**：git 已經有完整歷史，這裡是重複的。但 `mark_changes.py` 的工作流程需要「上一輪的檔」而不是「某個 commit 的檔」，直接刪會讓現在正在用的審閱流程斷掉。
 
-**選項**：(a) 只留每個檔最新的一份快照，其餘刪；(b) 全部進 `_legacy/`，並改 `mark_changes.py` 從 `git show <ref>:<path>` 取舊版；(c) 審閱頁 01～03 都定案後整個刪，那時 `mark_changes.py` 也不再需要。
+**選項**：(a) 只留每個檔最新的一份快照，其餘刪；(b) 全部進 `_legacy/`，並改 `mark_changes.py` 從 `git show <ref>:<path>` 取舊版；(c) 審閱頁 01～04 都定案後整個刪，那時 `mark_changes.py` 也不再需要。
 
 ### 6. `review_log/`
 
-**是什麼**：審閱頁（01–03）的審閱往返。舊輪次的子目錄已搬走。
+**是什麼**：審閱頁（01–04）的審閱往返。舊輪次的子目錄已搬走。
 
 **為什麼卡住**：裡面有 codex 與 Claude 兩方的完整審查意見，但「哪幾條被採納、為什麼」只散在往返裡，沒有結論檔。直接歸檔會丟掉「這條當初討論過並否決了」這種資訊。
 

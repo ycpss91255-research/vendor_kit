@@ -9,12 +9,13 @@
 1. [01 目的與承諾](01_purpose.md)：為什麼做 VK、對<ins>使用者</ins>承諾什麼。
 2. [02 不變量](02_invariants.md)：任何版本都必須成立的性質。
 3. [03 使用者介面](03_interface.md)：全部 <ins>VK recipe</ins>、<ins>選項</ins>、<ins>結束碼</ins>。
+4. [04 訊息與錯誤碼總表](04_messages.md)：VK 印出、要使用者動手處理的訊息，每條有固定編號。
 
 契約放在這裡，不放 issue：issue 不好追蹤改動，也做不了逐頁審與標示版差異。出處：[工作約定](../../../AGENTS.md)「決議與文件流程」。
 
 ## 寫法規則
 
-- 每頁只用前面頁與[名詞表](../../../CONTEXT.md)的名詞，不引用後面頁才出現的名詞。
+- 每頁只用前面頁與[名詞表](../../../CONTEXT.md)的名詞，不引用後面頁才出現的名詞。例外：[04 訊息與錯誤碼總表](04_messages.md)的訊息編號可以由 02、03 與 ADR 回連；這條限制只管名詞。
 - 名詞第一次出現時用 `<ins>` 標底線。不要用 HTML 的 u 標籤：GitHub 會把它刪掉。出處：[issue #60](https://github.com/ycpss91255-research/vendor_kit/issues/60)。
 - 規則只寫一次。其他頁要用到，標明來源的條號或章節，不重述。
 - 連結用有名字的超連結，例如 `[不變量](02_invariants.md)`，不要把路徑當連結文字。
@@ -23,7 +24,7 @@
 
 這一節是對外文件審閱的固定流程，新接手的 agent 照這個順序做。出處：維護者 2026-09-30 定案；[issue #64](https://github.com/ycpss91255-research/vendor_kit/issues/64)。
 
-1. **草稿只改在討論分支。** 對外文件是根目錄 [README](../../../README.md) 與本目錄的審閱頁（目前 01～03）。草稿一律改在討論分支並開 PR，`main` 上只放定案版。定案之後才 merge 進 `main`，定案的條件見下一節。
+1. **草稿只改在討論分支。** 對外文件是根目錄 [README](../../../README.md) 與本目錄的審閱頁（目前 01～04）。草稿一律改在討論分支並開 PR，`main` 上只放定案版。定案之後才 merge 進 `main`，定案的條件見下一節。
 2. **改動一律跑 [doc-edit workflow](../../../.claude/workflows/doc-edit.js)**：改寫 → lint → codex 審查 → 套用必改 → 潤稿。workflow 在第一次修改前自行把原內容備份到 `doc/decisions/_backup/<鍵>.pre_<round>.md`，不用另外手動備份。round 名稱是 `rNN`：取 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 的編號再加一（例如最大是 `pre_r100`，round 就是 `r101`），用過的不能重用。doc-edit workflow 開跑時會檢查 round 的格式是不是 `rNN`、編號是不是最大編號加一，重用或跳號就直接停。目前最大的編號這樣查：
 
    ```sh
