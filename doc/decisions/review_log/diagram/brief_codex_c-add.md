@@ -1,6 +1,6 @@
 你是圖面審查者。**只讀、不要改任何檔**。我要的是你**不同的建議**，不是替圖背書。
 
-附圖是 vendor_kit（VK）「dev 流程」頁的匯出圖。原始檔是 `doc/decisions/research/diagram_proposals/proposal_claude_v3.drawio` 的頁 id `c-dev`。它畫的是：使用者 just vendor_kit dev 讓工具（dev <repo> -p <dir>）或引擎（dev vendor_kit -i <image>）改用本機開發來源的流程
+附圖是 vendor_kit（VK）「add 流程」頁的匯出圖。原始檔是 `doc/decisions/research/diagram_proposals/proposal_claude_v3.drawio` 的頁 id `c-add`。它畫的是：使用者 just vendor_kit add <工具> 導入一個工具的流程
 
 ## 先讀的東西（圖要對齊它們）
 - `doc/decisions/review/01_purpose.md`
@@ -15,8 +15,6 @@
 - 層級 = 使用者視角：執行紀錄、進度檔、預檢、退出碼 3、取件細節、要改先問的 -y／CI 規則另開共用頁，不要因為沒畫它們而列為缺漏
 - 黃菱形 = 判斷、綠橢圓 = 起點／終點、紅橢圓 = 錯誤終止、橘橢圓 = 需人接手、白色圓角 = 步驟；終點裡的數字 = 退出碼
 - 文字不壓線、不壓泳道邊界；版面要緊湊
-- 契約出處：CONTEXT.md「dev / undev」「本機覆寫」「本機開發來源」；不變量 2、8；ADR-0010
-- 這頁只畫 dev，不畫 undev
 - 內容與上一版相同，這次只改畫法（STYLE §7）
 
 ## 請回答
