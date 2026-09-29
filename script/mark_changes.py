@@ -7,6 +7,8 @@
     python3 script/mark_changes.py <舊版後綴> <檔名…>
 例：
     python3 script/mark_changes.py pre_r63 01_purpose 02_invariants
+    python3 script/mark_changes.py pre_r91 README.md          # 其他檔傳路徑
+    python3 script/mark_changes.py new doc/decisions/review/README.md   # 新建的檔：整份標新增
 
 舊版讀 doc/decisions/_backup/doc_decisions_review_<name>.<後綴>.md，
 新版讀 doc/decisions/review/<name>.md，
@@ -68,12 +70,31 @@ def next_rev(name: str) -> int:
     return n
 
 
+def target(name: str) -> tuple[pathlib.Path, str]:
+    """回傳（正式檔路徑, 標示版與備份用的鍵）。
+
+    - 審閱頁照舊傳頁名（不含 .md），例如 03_interface → doc/decisions/review/03_interface.md，鍵是頁名。
+    - 其他檔傳相對 repo 根目錄的路徑，例如 README.md、doc/decisions/review/README.md；
+      鍵是攤平後的路徑（/ 換成 _、去掉 .md），跟備份檔的攤平命名一致。
+    """
+    if "/" in name or name.endswith(".md"):
+        path = pathlib.Path(name)
+        return path, str(path.with_suffix("")).replace("/", "_")
+    return REVIEW / f"{name}.md", name
+
+
 def backup_path(name: str, suffix: str) -> pathlib.Path:
     """備份檔的兩種命名都認：攤平的（doc_decisions_review_<name>）與 review/ 子目錄的。
 
     攤平是主要慣例（doc-apply workflow 與各子代理都用它，因為它對任何路徑都成立）；
     review/ 子目錄是早期寫法，留著讀得到就好，不要再產生新的。
     """
+    path, key = target(name)
+    if key != name:  # 以路徑指定的檔：備份就是攤平後的路徑
+        flat = BACKUP / f"{key}.{suffix}.md"
+        if flat.exists():
+            return flat
+        raise SystemExit(f"找不到 {name} 的基準版：{flat}\n改檔之前要先備份，命名見 script/README.md。")
     flat = BACKUP / f"doc_decisions_review_{name}.{suffix}.md"
     nested = BACKUP / "review" / f"{name}.{suffix}.md"
     for candidate in (flat, nested):
@@ -86,8 +107,10 @@ def backup_path(name: str, suffix: str) -> pathlib.Path:
 
 
 def build(name: str, suffix: str) -> tuple[int, int]:
-    old = backup_path(name, suffix).read_text().splitlines()
-    new = (REVIEW / f"{name}.md").read_text().splitlines()
+    path, key = target(name)
+    # 基準後綴寫 new 表示這個檔是新建的：沒有舊版，整份都標成新增
+    old = [] if suffix == "new" else backup_path(name, suffix).read_text().splitlines()
+    new = path.read_text().splitlines()
     out = []
     ins = dele = 0
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
@@ -104,16 +127,16 @@ def build(name: str, suffix: str) -> tuple[int, int]:
             out.append(wrap(line, "ins"))
             if line.strip():
                 ins += 1
-    rev = next_rev(name)
+    rev = next_rev(key)
     header = [
         f"<!-- 標示版 v{rev}：綠底是新文字、紅底是被取代的舊文字；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
-        f"基準 {suffix}。正式內容看 ../{name}.md -->",
+        f"基準 {suffix}。正式內容看 /{path.as_posix()} -->",
         "",
     ]
     MARKED.mkdir(exist_ok=True)
-    for old_file in MARKED.glob(f"{name}.v*.marked.md"):
+    for old_file in MARKED.glob(f"{key}.v*.marked.md"):
         old_file.unlink()
-    (MARKED / f"{name}.v{rev}.marked.md").write_text("\n".join(header + out) + "\n")
+    (MARKED / f"{key}.v{rev}.marked.md").write_text("\n".join(header + out) + "\n")
     return ins, dele
 
 
