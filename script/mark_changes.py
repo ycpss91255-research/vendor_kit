@@ -108,6 +108,27 @@ def backup_path(name: str, suffix: str) -> pathlib.Path:
     )
 
 
+VERSION_LINE = re.compile(r"^> 版本 v\d+$")
+
+
+def stamp(path: pathlib.Path, rev: int) -> None:
+    """把「> 版本 v<N>」寫進正式檔：放在第一個 # 標題的下一段，已有就換掉。
+
+    討論中的草稿只改在討論分支，main 上是定案版；檔頭的版本號跟同編號的標示版對齊，
+    打開任何一份都知道它是哪一版。
+    """
+    lines = path.read_text().splitlines()
+    lines = [ln for ln in lines if not VERSION_LINE.match(ln)]
+    # 拿掉之前可能留下的空行重複
+    for i, ln in enumerate(lines):
+        if ln.startswith("# "):
+            while i + 1 < len(lines) and lines[i + 1] == "" and i + 2 < len(lines) and lines[i + 2] == "":
+                del lines[i + 1]
+            lines[i + 1:i + 1] = ["", f"> 版本 v{rev}"]
+            break
+    path.write_text("\n".join(lines) + "\n")
+
+
 def build(name: str, suffix: str) -> tuple[int, int]:
     path, key = target(name)
     # 基準後綴寫 new 表示這個檔是新建的：沒有舊版，整份都標成新增
@@ -130,6 +151,8 @@ def build(name: str, suffix: str) -> tuple[int, int]:
             if line.strip():
                 ins += 1
     rev = next_rev(key)
+    stamp(path, rev)
+    new = path.read_text().splitlines()
     header = [
         f"<!-- 標示版 v{rev}：綠底是新文字、紅底是被取代的舊文字；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
         f"基準 {suffix}。正式內容看 /{path.as_posix()} -->",
