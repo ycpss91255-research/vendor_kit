@@ -21,18 +21,29 @@
 
 ## 版本怎麼迭代
 
-照順序做：
+這一節是對外文件審閱的固定流程，新接手的 agent 照這個順序做。出處：維護者 2026-09-30 定案；[issue #64](https://github.com/ycpss91255-research/vendor_kit/issues/64)。
 
-1. **改動。** 一律跑 [doc-edit workflow](/.claude/workflows/doc-edit.js)：改寫 → lint → codex 審查 → 套用必改 → 潤稿。workflow 在第一次修改前自行把原內容備份到 `doc/decisions/_backup/doc_decisions_review_<頁>.pre_<輪次>.md`，不用另外手動備份。
-2. **產生標示版。** 在 repo 根目錄跑 `python3 script/mark_changes.py <舊版後綴> <頁>`（[標示版產生器](/script/mark_changes.py)），輸出 `doc/decisions/_marked/<頁>.v<N>.marked.md`：綠底是新增，紅底是刪除或被取代的舊文字。版本號 N 記在 `doc/decisions/_marked/.<頁>.rev`，每產一次加一。
-3. **送審。** 把標示版送給維護者審。
+1. **草稿只改在討論分支。** 對外文件是根目錄 [README](/README.md) 與本目錄的審閱頁（目前 01～03）。草稿一律改在討論分支並開 PR，`main` 上只放定案版。定案之後才 merge 進 `main`，定案的條件見下一節。
+2. **改動一律跑 [doc-edit workflow](/.claude/workflows/doc-edit.js)**：改寫 → lint → codex 審查 → 套用必改 → 潤稿。workflow 在第一次修改前自行把原內容備份到 `doc/decisions/_backup/<鍵>.pre_<round>.md`，不用另外手動備份。round 名稱是 `rNN`：取 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 的編號再加一（最大是 `pre_r100`，round 就是 `r101`），用過的不能重用。workflow 目前只檢查 round 有填，不檢查編號，也不擋重用（同名備份已存在時會另存成 `.pre_<round>.2.md`），所以開跑前要自己查目前最大的編號：
 
-審閱頁以外，只有根目錄 [README](/README.md) 是對外文件，也照同一套產生標示版與版本號：產生時傳相對 repo 根目錄的路徑，例如 `python3 script/mark_changes.py pre_r91 README.md`，輸出 `doc/decisions/_marked/README.v<N>.marked.md`，用法見[工具說明](/script/README.md)。
+   ```sh
+   ls doc/decisions/_backup | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//' | sort -n | tail -1
+   ```
 
-內部文件（本檔、[工作約定](/AGENTS.md)、[工具說明](/script/README.md)、[ADR 規則](/doc/adr/README.md) 等）改完照樣走步驟 1（doc-edit），但不產標示版、不送審；也不准留過時的資訊。
+3. **產生標示版與帶版本號的副本。** 改完在 repo 根目錄跑 `python3 script/mark_changes.py <基準後綴> <頁>`（[標示版產生器](/script/mark_changes.py)），基準後綴是這一輪的備份後綴，例如 `pre_r101`。審閱頁傳頁名，例如 `02_invariants`；根目錄 README 傳 `README.md`。版本號 N 的取號方式見下面最後一條。每跑一次：
+   - 正式檔的檔頭自動寫一行 `> 版本 vN`。
+   - 在 `doc/decisions/_marked/` 產出兩個檔名帶版本號的檔：`<鍵>.vN.marked.md` 是標示版，綠底是新增，紅底是刪除或被取代的舊文字；`<鍵>.vN.md` 是同一版的正文副本。同一個鍵的舊版會被刪掉，只留最新一版。
+   - 正式檔名不帶版本號，也不改名，其他文件的連結才不會斷。
+   - 標示版的正文是拿寫入版本號之前的正式檔去比的，所以標示版正文裡的 `> 版本` 行還是前一版（或沒有）；這一版的編號看檔名與標示版開頭的註解。
+   - 版本號 N 是 `doc/decisions/_marked/.<鍵>.rev` 記的數字加一，這個檔不存在就從 v1 起算，不讀正式檔檔頭現有的版本號。`.rev` 只在本機，換電腦、新 clone 或清掉 `_marked/` 之後會從 v1 重來，送審前要對照正式檔在 git 裡上一版的檔頭，確認編號沒有倒退。
 
-`doc/decisions/_marked/` 與 `doc/decisions/_backup/` 只在本機，不進 git（見[忽略清單](/.gitignore)），所以版本號與標示版要在本機看。正式的改動紀錄是 git 的 commit 歷史。
+   鍵對審閱頁是頁名，對其他檔是攤平後的路徑，規則見[工具說明](/script/README.md)。
+4. **送審。** 用 SendUserFile 把 `<鍵>.vN.md` 與 `<鍵>.vN.marked.md` 兩個檔一起傳給維護者。不傳沒帶版本號的正式檔：看檔名就要知道是哪一版，不用打開才知道。
+
+內部文件（本檔、[工作約定](/AGENTS.md)、[工具說明](/script/README.md)、[ADR 規則](/doc/adr/README.md) 等，也就是對外文件以外的所有文件）改完照樣走步驟 2（doc-edit），但不產標示版、不送審；也不准留過時的資訊。
+
+`doc/decisions/_marked/` 與 `doc/decisions/_backup/` 只在本機，不進 git（見[忽略清單](/.gitignore)），所以標示版與帶版本號的副本要在本機看。正式的改動紀錄是 git 的 commit 歷史。
 
 ## 怎樣才算定案
 
-只有維護者針對那一頁的明確回覆才算定案。對其他頁的回覆不算，「看起來沒意見」也不算。
+只有維護者針對那一頁明確回覆「定案」才算定案，定案之後才 merge 進 `main`。對其他頁的回覆不算，沒有意見也不算。
