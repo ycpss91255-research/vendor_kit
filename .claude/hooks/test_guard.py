@@ -55,11 +55,11 @@ CASES = [
     # (說明, tool_name, tool_input, 預期)
     ("Workflow 帶 name", "Workflow", {"name": "doc-apply", "args": {}}, None),
     ("Workflow 帶 scriptPath", "Workflow", {"scriptPath": "/tmp/x.js"}, None),
-    ("inline script、乾淨", "Workflow", {"script": SCRIPT_OK}, "ask"),
-    ("prompt 字串裡有禁用 API 與 TS 詞", "Workflow", {"script": SCRIPT_OK}, "ask"),
+    ("inline script、乾淨", "Workflow", {"script": SCRIPT_OK}, "allow"),
+    ("prompt 字串裡有禁用 API 與 TS 詞", "Workflow", {"script": SCRIPT_OK}, "allow"),
     ("程式碼真的呼叫 Math.random()", "Workflow", {"script": SCRIPT_REAL_RANDOM}, "deny"),
     ("meta 有模板插值", "Workflow", {"script": SCRIPT_META_INTERP}, "deny"),
-    ("開頭是區塊註解", "Workflow", {"script": SCRIPT_BLOCK_COMMENT}, "ask"),
+    ("開頭是區塊註解", "Workflow", {"script": SCRIPT_BLOCK_COMMENT}, "allow"),
     ("codex 帶 < /dev/null", "Bash",
      {"command": 'codex exec --skip-git-repo-check -C /x -o /y.md "b" < /dev/null'}, None),
     ("codex 無重導", "Bash",
@@ -125,6 +125,16 @@ def main():
         if not ok:
             failed.append(desc)
 
+    # inline 腳本放行時，提醒要真的注入給 Claude（additionalContext），而且列得出命名 workflow
+    payload = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Workflow",
+                          "tool_input": {"script": SCRIPT_OK}})
+    proc = subprocess.run([sys.executable, GUARD], input=payload, capture_output=True, text=True, timeout=20)
+    ctx = json.loads(proc.stdout).get("hookSpecificOutput", {}).get("additionalContext", "") if proc.stdout.strip() else ""
+    ok = "命名 workflow" in ctx and "doc-apply" in ctx
+    print(f"{'PASS' if ok else 'FAIL'}  inline 腳本的提醒有注入且列出 doc-apply")
+    if not ok:
+        failed.append("inline 提醒")
+
     # 裸 git push 推的是當前分支：在 main 上就等於推 main
     branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
                             capture_output=True, text=True).stdout.strip()
@@ -143,7 +153,7 @@ def main():
     if not ok:
         failed.append("壞 JSON")
 
-    print(f"\n{len(CASES) + 2 - len(failed)}/{len(CASES) + 2} 通過")
+    print(f"\n{len(CASES) + 3 - len(failed)}/{len(CASES) + 3} 通過")
     if failed:
         print("失敗：" + "、".join(failed))
     return 1 if failed else 0
