@@ -61,11 +61,22 @@ def wrap(line: str, tag: str) -> str:
     return f"{prefix}{mark(body, tag)}"
 
 
-def next_rev(name: str) -> int:
-    """每產一次標示版就把版本號加一，檔名帶 v<N> 方便分辨新舊。"""
+def next_rev(name: str, path: pathlib.Path) -> int:
+    """下一個版本號：取本機 .rev 與正式檔檔頭「> 版本 v<N>」兩者較大的再加一。
+
+    .rev 不進 git，換電腦或新 clone 會不見；檔頭的版本號跟著 git 走，所以兩邊都看，
+    編號才不會從 v1 重來。
+    """
     f = MARKED / f".{name}.rev"
-    n = int(f.read_text().strip()) + 1 if f.exists() else 1
-    MARKED.mkdir(exist_ok=True)
+    local = int(f.read_text().strip()) if f.exists() else 0
+    stamped = 0
+    if path.exists():
+        for ln in path.read_text().splitlines():
+            m = VERSION_LINE.match(ln)
+            if m:
+                stamped = max(stamped, int(m.group(1)))
+    n = max(local, stamped) + 1
+    MARKED.mkdir(parents=True, exist_ok=True)
     f.write_text(str(n))
     return n
 
@@ -108,7 +119,7 @@ def backup_path(name: str, suffix: str) -> pathlib.Path:
     )
 
 
-VERSION_LINE = re.compile(r"^> 版本 v\d+$")
+VERSION_LINE = re.compile(r"^> 版本 v(\d+)$")
 
 
 def stamp(path: pathlib.Path, rev: int) -> None:
@@ -133,6 +144,9 @@ def build(name: str, suffix: str) -> tuple[int, int]:
     path, key = target(name)
     # 基準後綴寫 new 表示這個檔是新建的：沒有舊版，整份都標成新增
     old = [] if suffix == "new" else backup_path(name, suffix).read_text().splitlines()
+    # 先寫入版本號再比對：標示版、正文副本、正式檔三份的檔頭才會是同一個 v<N>
+    rev = next_rev(key, path)
+    stamp(path, rev)
     new = path.read_text().splitlines()
     out = []
     ins = dele = 0
@@ -150,15 +164,11 @@ def build(name: str, suffix: str) -> tuple[int, int]:
             out.append(wrap(line, "ins"))
             if line.strip():
                 ins += 1
-    rev = next_rev(key)
-    stamp(path, rev)
-    new = path.read_text().splitlines()
     header = [
         f"<!-- 標示版 v{rev}：綠底是新文字、紅底是被取代的舊文字；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
         f"基準 {suffix}。正式內容看 /{path.as_posix()} -->",
         "",
     ]
-    MARKED.mkdir(exist_ok=True)
     for old_file in list(MARKED.glob(f"{key}.v*.marked.md")) + list(MARKED.glob(f"{key}.v*[0-9].md")):
         old_file.unlink()
     # 同一版的正文副本，檔名帶版本號：送審時跟標示版一起給，不用打開檔案才知道是哪一版。
