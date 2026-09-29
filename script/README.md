@@ -2,20 +2,15 @@
 
 ## 對外文件的改動標示（`mark_changes.py`）
 
-對外文件（審閱頁 `doc/decisions/review/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增文字用綠底 `<mark>`；刪除或被取代的舊文字用紅底 `<mark>`。標示版只在本機審閱用、不進 git（`doc/decisions/_marked/` 在 `.gitignore` 裡），所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；審完只留最終版。整套審閱流程（討論分支、定案才 merge、送審給哪兩個檔）見[審閱頁說明](/doc/decisions/review/README.md)「版本怎麼迭代」，這裡只講工具。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
+對外文件（審閱頁 `doc/decisions/review/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增文字用綠底 `<mark>`；刪除或被取代的舊文字用紅底 `<mark>`。標示版只在本機審閱用、不進 git（`doc/decisions/_marked/` 在 `.gitignore` 裡），所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；審完只留最終版。整套審閱流程（討論分支、定案才 merge、送審給哪兩個檔）見[審閱頁說明](../doc/decisions/review/README.md)「版本怎麼迭代」，這裡只講工具。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
 
 ### 一輪的流程
 
-1. **改之前先備份**。改動一律走 doc-edit workflow，由 workflow 自動備份，不繞過它手動改。下面的 `cp` 只用在救援（例如 workflow 中途失敗、要補一份基準）。每輪一個 round，寫成 `rNN`：取 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 的編號再加一，不能重用；workflow 不檢查編號也不擋重用，開跑前自己查。這一輪的基準後綴（也就是備份尾碼）是 `pre_<round>`，例如 round `r65` 的基準後綴是 `pre_r65`：
-
-   ```sh
-   cp doc/decisions/review/02_invariants.md \
-      doc/decisions/_backup/doc_decisions_review_02_invariants.pre_r65.md
-   ```
+1. **改之前先備份**。改動一律走 doc-edit workflow，由 workflow 在第一次修改前自動備份，不手動建 `*.pre_rNN.md`：手動建的檔會被當成已用掉的 round，也可能蓋掉 workflow 保證為「修改前原檔」的那份備份。workflow 中途失敗就換下一個 round 重跑，不手動補備份。每輪一個 round，寫成 `rNN`：取 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 的編號再加一，不能重用；doc-edit workflow 開跑時會檢查 round 的格式是不是 `rNN`、編號是不是最大編號加一，重用或跳號就直接停。這一輪的基準後綴（也就是備份尾碼）是 `pre_<round>`，例如 round `r65` 的基準後綴是 `pre_r65`。
 
    備份檔名是 `<鍵>.pre_<round>.md`，鍵是**把路徑攤平**（去掉 `.md`、`/` 換成 `_`、去掉開頭的點）。所有檔都用這套命名，不限審閱頁；`doc-apply` workflow 的護欄也照這個規則。
 
-2. **改**：由 [doc-edit workflow](/.claude/workflows/doc-edit.js) 的改寫階段派子代理修改（各 workflow 的說明見 [workflow 說明](/.claude/workflows/README.md)）；本工具不改內容，只在修改完成後產生標示版。
+2. **改**：由 [doc-edit workflow](../.claude/workflows/doc-edit.js) 的改寫階段派子代理修改（各 workflow 的說明見 [workflow 說明](../.claude/workflows/README.md)）；本工具不改內容，只在修改完成後產生標示版。
 
 3. **產標示版與帶版本號的副本**：
 
@@ -31,24 +26,21 @@
 
    新建的頁沒有舊版，基準後綴寫 `new`，整份標成新增。
 
-   版本號 `<N>` 是 `doc/decisions/_marked/.<鍵>.rev` 記的數字加一；這個檔不存在就從 1 起算，不讀正式檔檔頭現有的版本號。`.rev` 只在本機（`_marked/` 不進 git），換電腦、新 clone 或清掉 `_marked/` 之後會從 v1 重來，送審前要對照正式檔在 git 裡上一版的檔頭，確認編號沒有倒退。每跑一次做三件事：
+   版本號 `<N>` 取 `doc/decisions/_marked/.<鍵>.rev` 記的數字與正式檔檔頭現有的 `> 版本 v<N>` 兩者較大的再加一，兩者都沒有就從 1 起算。`.rev` 只在本機（`_marked/` 不進 git），但檔頭跟著 git 走，所以換電腦、新 clone 或清掉 `_marked/` 之後不會從 v1 重來。每跑一次依序做三件事：
 
    - 在正式檔第一個 `#` 標題的下一段寫入 `> 版本 v<N>`；已經有這一行就換成新的版本號。
-   - 輸出標示版 `doc/decisions/_marked/<鍵>.v<N>.marked.md`。標示版是拿寫入版本號之前的正式檔去比的，所以它正文裡的 `> 版本` 行還是前一版（或沒有）；這一版的編號看檔名與開頭的註解。
+   - 輸出標示版 `doc/decisions/_marked/<鍵>.v<N>.marked.md`。標示版是拿寫入版本號之後的正式檔去比的，所以標示版、正文副本、正式檔三份的檔頭是同一個 `v<N>`。
    - 輸出同一版的正文副本 `doc/decisions/_marked/<鍵>.v<N>.md`，內容跟寫入版本號之後的正式檔一樣。
 
    同一個鍵的舊版標示版與舊版副本會被刪掉，所以交出去的永遠是最新版，而且看檔名就知道是哪一版。正式檔名不帶版本號、不改名，其他文件的連結才不會斷。鍵對審閱頁是頁名（例如 `03_interface`），對其他檔是攤平後的路徑（`/` 換成 `_`、去掉 `.md` 與開頭的點，所以 `README.md` 的鍵是 `README`）。後綴就是步驟 1 用的那個，決定「跟哪一版比」。
+
+   取號、寫檔頭、三份檔頭一致這些行為由 [mark_changes 測試](../test/test_mark_changes.py) 涵蓋，在 repo 根目錄跑 `python3 -m unittest discover -s test`。
 
 4. **基準永遠是審閱者上次看過的那一版**，不是最舊的那一版。他看過並回饋之後，下一輪的後綴就換成他讀的那一版。已經討論完的段落不該再標成新改動，紅綠色只留給他還沒看過的。
 
 5. **把兩個帶版本號的檔一起交給審閱者**：`<鍵>.v<N>.md` 與 `<鍵>.v<N>.marked.md`。不交沒帶版本號的正式檔。
 
-6. **草稿 commit 在討論分支，定案才 merge 進 `main`**。定案之後，下一輪的比較基準可以直接從 `main` 取：
-
-   ```sh
-   git show main:doc/decisions/review/02_invariants.md \
-     > doc/decisions/_backup/doc_decisions_review_02_invariants.pre_r66.md
-   ```
+6. **草稿 commit 在討論分支，定案才 merge 進 `main`**。定案之後，下一輪從 `main` 開新的討論分支，再跑 doc-edit workflow，由它自動備份當時的正式檔當基準，不手動從 `main` 取檔建備份。
 
 ### 標示規則
 
