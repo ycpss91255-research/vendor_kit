@@ -1,3 +1,11 @@
+> **這份已作廢，不得當現況方案。** Gemini（agy）查來的原文，未經查證就寫下的部分很多。
+> r97-export 雙軌查證的結論：整份文件架在「主機不裝第三方 binary、用容器匯出」這個**錯誤前提**上
+> （那是 VK 對它的使用者的承諾，不是我們畫圖的限制）；`-p/--page-index` 說成 0-based（實際 1-based，
+> 傳 0 會 exit 1）；三段示範迴圈照抄一頁都匯不出來；justfile 範例有 SyntaxError 與 just 插值寫錯；
+> 引錯兩個 issue、三個出處連結 404。兩軌一致的判斷是**整份文件沒有一段被跑過**。
+> 它也漏掉本機唯一實際可用的那條路：已掛好的 drawio MCP。
+> 逐條查證見 `../review_log/codex/r97-export-claims.md` 與 `../review_log/r97_雙軌結論.md`。
+
 這份回答針對你的硬性限制（主機僅有 Docker / Git / just / POSIX 工具、不裝第三方 binary、單一 77 頁 `.drawio`、GitHub 網頁可視、CI/本機同一條指令、重現性），逐題提供具體指令、Docker image、參數與出處資料年份。
 
 ---
