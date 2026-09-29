@@ -17,3 +17,14 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 - 分工固定：ADR 記機制與理由；不變量頁只記「它必須永遠成立」。
 - 架構圖（`.drawio`）不是插圖，是測試的依據：圖上畫的模組邊界與泳道由 lint（import-linter、鏡射、黑箱）強制。沒有被測試強制的圖，幾次修改後就跟程式脫鉤，同樣是靜默的。
 - 決議改動架構圖時，同一個 PR 一起更新圖。
+
+## git 慣例
+
+- **一律 push 到分支，進 `main` 只能走 merge。** 不准直接 push main、更不准 force push main。遠端有 ruleset 擋（要求 PR、禁 non-fast-forward、禁刪分支），本機 `.claude/hooks/guard.py` 也擋一層。CI 還不存在，所以 ruleset 目前沒有 required status check；CI 建起來要補。
+- **一個 commit = 一個最小單元或一次完整修復。** 不要把不相干的東西包成一個 commit。依序討論出來的東西就依序 commit；一次討論定案的就一個 commit。
+- `commit` 與 `push` 本身不需要詢問。
+
+## 圖面
+
+- 架構圖與流程圖用 drawio MCP 編輯與匯出，**不要為此引入容器或要求主機裝第三方工具** —— 那會讓這個 repo 變複雜。注意「主機只需 Docker、Git、just」是 VK 對它的使用者的承諾（不變量 5），不是這個 repo 作者流程的限制，兩者不要混。
+- 圖的持久鍵是 `<diagram id>`，不是頁名也不是頁序。
