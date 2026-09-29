@@ -159,8 +159,11 @@ def build(name: str, suffix: str) -> tuple[int, int]:
         "",
     ]
     MARKED.mkdir(exist_ok=True)
-    for old_file in MARKED.glob(f"{key}.v*.marked.md"):
+    for old_file in list(MARKED.glob(f"{key}.v*.marked.md")) + list(MARKED.glob(f"{key}.v*[0-9].md")):
         old_file.unlink()
+    # 同一版的正文副本，檔名帶版本號：送審時跟標示版一起給，不用打開檔案才知道是哪一版。
+    # 正式檔名（沒有版本號）不動，其他文件的連結才不會斷。
+    (MARKED / f"{key}.v{rev}.md").write_text(path.read_text())
     (MARKED / f"{key}.v{rev}.marked.md").write_text("\n".join(header + out) + "\n")
     return ins, dele
 
