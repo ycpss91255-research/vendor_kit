@@ -118,6 +118,9 @@ def target_files() -> list[Path]:
     return sorted(files)
 
 
+U_TAG = re.compile(r"</?u>")
+
+
 def main() -> int:
     context = ROOT / "CONTEXT.md"
     if not context.is_file():
@@ -142,6 +145,9 @@ def main() -> int:
             for term, pat in patterns:
                 if pat.search(ln) and not whitelisted(rel, ln, pat):
                     hits.append((rel, no, term, ln.strip()))
+            # GitHub 轉換 markdown 時會刪掉 <u>，底線不會顯示；名詞底線一律用 <ins>（#60）
+            if U_TAG.search(ln):
+                hits.append((rel, no, "<u>（改用 <ins>）", ln.strip()))
 
     for rel, no, term, ln in hits:
         shown = ln if len(ln) <= 60 else ln[:60] + "…"
