@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse hook：擋三類反覆發生的問題
 
-檢查 A：Workflow 腳本必須走命名 workflow（避免 inline script 重複寫）
+檢查 A：Workflow inline 腳本放行但提醒改用命名 workflow；meta／resume 會壞的硬錯照擋
 檢查 B：`codex exec` 一定要接 stdin 重導（否則無限卡住）
 檢查 C：`git push` 的目標是 main 就擋掉（一律推分支，進 main 走 merge）
 """
@@ -309,6 +309,8 @@ def check_workflow(tool_input):
     workflows_dir = Path(os.environ.get('CLAUDE_PROJECT_DIR', '.')) / '.claude' / 'workflows'
     existing = list_workflows(str(workflows_dir))
     
+    # 使用者定案：inline 腳本不跳確認打擾人，改成放行、把提醒塞給 Claude 自己看。
+    # 硬錯（上面那幾條 deny）照擋，只有這個「是不是該用命名 workflow」的提醒改成不擋。
     reason = '這是 inline 腳本，如果這個形狀會重複，請改用命名 workflow。\n'
     if existing:
         reason += '現有命名 workflow：'
@@ -318,7 +320,7 @@ def check_workflow(tool_input):
                 reason += f' — {desc}'
     reason += '\n真的是新形狀就照原樣跑，跑完把腳本存進 `.claude/workflows/<name>.js` 並在 `.claude/workflows/README.md` 補一列。'
     
-    return ('ask', reason)
+    return ('remind', reason)
 
 
 def get_repo_dir():
@@ -516,13 +518,23 @@ def main():
         if decision is None:
             sys.exit(0)
         
-        output = {
-            'hookSpecificOutput': {
-                'hookEventName': 'PreToolUse',
-                'permissionDecision': decision,
-                'permissionDecisionReason': reason,
+        if decision == 'remind':
+            # 放行，但把提醒注入 Claude 的 context，不顯示成確認提示
+            output = {
+                'hookSpecificOutput': {
+                    'hookEventName': 'PreToolUse',
+                    'permissionDecision': 'allow',
+                    'additionalContext': reason,
+                }
             }
-        }
+        else:
+            output = {
+                'hookSpecificOutput': {
+                    'hookEventName': 'PreToolUse',
+                    'permissionDecision': decision,
+                    'permissionDecisionReason': reason,
+                }
+            }
         print(json.dumps(output, ensure_ascii=False, indent=2))
         sys.exit(0)
     
