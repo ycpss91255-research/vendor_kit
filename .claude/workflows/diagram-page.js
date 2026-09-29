@@ -57,13 +57,14 @@ const GUARDRAILS = `硬性規則（違反就算這輪失敗）：
 const DRAW_RULES = `圖面規則（照 ${repo}/script/diagram/STYLE.md。流程頁以第 7 節為準，它優先於前面各節講流程頁的部分；架構頁看第 6 節）：
 - 標題寫在頁名，頁面上不放標題格；格子只寫名字或動作，不寫括號說明、不粗體。
 - 流程頁不分泳道、不上顏色、不用紅框：判斷是白底菱形（rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=2;fontSize=14），起點／終點是白底橢圓（ellipse，同樣 strokeWidth=2），步驟是白底圓角方塊（rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=14）。
+- 誰做的用底色分，不用泳道，流程排法不因此改變：使用者做的步驟 fillColor=#FFF4C3、主機做的步驟 fillColor=#f5f5f5、引擎做的步驟白色；判斷、起點、終點一律白色。
 - 要標區塊就畫有名字的虛線框（rounded=1;dashed=1;fillColor=none;strokeColor=#666666;verticalAlign=top;align=left;spacingLeft=8;fontSize=14;），parent="1"，先 add 虛線框再 add 格子，讓框在下層。框的標題不得壓到框內格子或線。
 - 使用者視角：只畫使用者看得到的判斷與結果，不展開執行紀錄、進度檔、預檢、取件細節。
 - 線：edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;fontSize=14。水平線的是／否標籤 verticalAlign=bottom，垂直線的標籤 align=left;spacingLeft=6。
 - 文字不得壓線、不得壓虛線框邊；標籤太靠近邊時用 mxGeometry x（-0.5～-0.9）往起點移。
 - 線交叉不可避免時用 jumpStyle=arc;jumpSize=12。
 - 版面緊湊，不留大片空白。
-- 圖例放在最下方：菱形「判斷」、橢圓「起點／終點」、圓角方塊「步驟」、虛線框「區塊」（有出現才放），外加文字「數字 = 退出碼；實線 = 執行順序」。
+- 圖例放在最下方：菱形「判斷」、橢圓「起點／終點」、圓角方塊「步驟」、虛線框「區塊」、淡黃步驟「使用者做的」、淺灰步驟「主機做的」（有出現才放），外加文字「數字 = 退出碼；實線 = 執行順序」。
 - HTML 值要雙重跳脫，例如 &amp;lt;ns&amp;gt;。`
 
 // ───────────────── 繪製 ─────────────────
@@ -122,7 +123,7 @@ ${read_first.map(f => `- \`${f}\``).join('\n')}
 
 ## 已經定下的規則（不要再建議推翻它們）
 - 標題寫在頁名，頁面上不放標題
-- 流程頁不分泳道、不上顏色、不用紅框（STYLE §7）：菱形 = 判斷、橢圓 = 起點／終點、圓角方塊 = 步驟、虛線框 = 區塊；終點裡的數字 = 退出碼。不要建議加泳道或配色
+- 流程頁不分泳道、不用紅框（STYLE §7）：菱形 = 判斷、橢圓 = 起點／終點、圓角方塊 = 步驟、虛線框 = 區塊；終點裡的數字 = 退出碼。唯一的顏色是誰做的：淡黃 = 使用者、淺灰 = 主機、白 = 引擎。不要建議加泳道或別的配色
 - 層級 = 使用者視角：執行紀錄、進度檔、預檢、退出碼 3、取件細節、要改先問的 -y／CI 規則另開共用頁，不要因為沒畫它們而列為缺漏
 - 文字不壓線、不壓框邊；版面要緊湊
 ${settled.trim() ? settled.trim() : ''}
