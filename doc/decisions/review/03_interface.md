@@ -2,15 +2,23 @@
 
 <ins>使用者</ins>只透過指令跟 <ins>VK</ins> 打交道。這一頁列出全部指令、<ins>選項</ins>（共同選項與各指令專用的選項）與<ins>結束碼</ins>。每一項必須永遠成立的規則寫在[不變量](/doc/decisions/review/02_invariants.md)，這裡只標條號，不重述；名詞見[名詞表](/CONTEXT.md)。
 
+## 主機需求
+
+- Docker 19.03 以上；不支援 Podman
+- Git
+- just 1.33.0 以上，用 GitHub release 下載的版本
+
+版本不足時，在任何寫入之前以 `1` 結束，並印出安裝指令。出處：[ADR-0007](/doc/adr/0007-host-thin-layer-and-shell-integrity.md) §1；02 第 5 條。
+
 ## 入口
 
 VK 對外只有三個入口：
 
 - `just vendor_kit …`：日常使用的全部指令，都收在 `vendor_kit` 這個<ins>命名空間</ins>底下，不佔用 <ins>repo</ins> 自己的頂層指令名。
-- `bootstrap.sh`：第一次<ins>導入</ins>時用。這時 repo 裡還沒有 VK，所以由它下載<ins>引擎</ins>，再呼叫 `install`。再跑一次就是修復。
+- `bootstrap.sh`：第一次<ins>導入</ins>時用。先[下載 bootstrap.sh](https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh)，再到要裝 VK 的那個目錄執行；這個目錄必須在某個 git repo 裡。這時 repo 裡還沒有 VK，所以由它下載<ins>引擎</ins>，再呼叫 `install`。再跑一次就是修復。
 - `.vendor_kit/ci/check.sh`：給 CI 呼叫，回報版本、快取、<ins>初始檔</ins>是否一致。
 
-出處：02 第 8、9 條；[目的與承諾](/doc/decisions/review/01_purpose.md)「VK 做的事」。
+出處：02 第 3、8、9 條；[目的與承諾](/doc/decisions/review/01_purpose.md)「VK 做的事」；下載網址見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
 
 ## 指令
 
@@ -48,14 +56,14 @@ VK 對外只有三個入口：
 ## 共同選項
 
 - <ins>`-y`</ins>：免問，照樣印出改了什麼。它只省略<ins>詢問</ins>：不授權覆蓋使用者既有的檔，也不解除 <ins>CI 模式</ins>。
-- `--dry-run`：只預覽會做什麼，不寫 <ins>repo 檔</ins>與 VK 狀態檔，也不建<ins>進度檔</ins>；<ins>執行紀錄</ins>照寫。
+- `--dry-run`：只預覽會做什麼，不寫 <ins>repo 檔</ins>與 <ins>VK 檔</ins>，也不建<ins>進度檔</ins>；<ins>執行紀錄</ins>照寫。
 
 沒帶 `-y`、又不能互動時（例如在腳本裡），需要詢問的操作一律不改，以 `1` 結束，並印出該打的指令。出處：02 第 1、4 條。
 
 ## 各指令專用選項
 
 - `update --exit-code`：查到新版時以 `2` 結束，給 CI 或腳本判斷有沒有新版。出處：02 第 4 條。
-- `add --local`：離線導入，從本機取得工具的 image，寫進的版本鎖定行與線上導入相同；少了記錄 <ins>digest</ins> 的旁檔就以 `1` 結束，不退化成只寫 tag。出處：[ADR-0009](/doc/adr/0009-release-assets-and-offline-import.md) §2。
+- `add --local`：離線導入，從本機取得工具的 image，寫進的版本鎖定行與線上導入相同；缺少必要的 <ins>digest</ins> 資訊時以 `1` 結束，不退化成只寫 tag。出處：[ADR-0009](/doc/adr/0009-release-assets-and-offline-import.md) §2。
 - `--timeout`：限制等待的時間；由<ins>啟動器</ins>在主機這一側處理，不交給引擎。出處：[ADR-0007](/doc/adr/0007-host-thin-layer-and-shell-integrity.md) §6。
 - `.vendor_kit/ci/check.sh --dist`：`check.sh` 的另一種入口形式，給提供工具的 repo 在自己的 CI 檢查交付的工具內容是否合規。出處：02 第 8 條。
 
@@ -74,9 +82,9 @@ VK 對外只有三個入口：
 
 | 結束碼 | 意思 |
 |---|---|
-| `0` | 成功，可能帶 warn |
+| `0` | 成功，可能帶<ins>警告</ins> |
 | `1` | <ins>失敗</ins>，或需要人處理。一定印出原因與下一步 |
 | `2` | 做完了，但要人接手：有<ins>合併衝突</ins>要解，或 `update --exit-code` 查到新版 |
-| `3` | 現有<ins>薄殼</ins>、檔案、引擎的版本組合不合，要先升級或退回才能繼續。這種情況不動 repo 檔與 VK 狀態檔，執行紀錄除外 |
+| `3` | 現有<ins>薄殼</ins>、檔案、引擎的版本組合不合，要先升級或退回才能繼續。這種情況不動 repo 檔與 VK 檔，執行紀錄除外 |
 
 一次處理多個工具時只回一個碼，回最需要處理的那個：`1` 優先於 `2`，`2` 優先於 `0`。出處：02 第 4 條。

@@ -2,6 +2,27 @@
 
 vendor_kit（VK）把一套工具送進很多個 repo，例如開發環境設定、共用腳本、初始檔。它記住每個安裝目錄用哪一版，可以升版，也可以退版；升版時不會蓋掉你改過的初始檔。主機只需要 [Docker](https://www.docker.com/)、[Git](https://git-scm.com/)、[just](https://github.com/casey/just)。
 
+## 開始之前
+
+### 主機需求
+
+- Docker 19.03 以上；不支援 Podman
+- Git
+- just 1.33.0 以上，用 GitHub release 下載的版本
+
+版本不足時，在任何寫入之前以 `1` 結束，並印出安裝指令。出處：[ADR-0007](doc/adr/0007-host-thin-layer-and-shell-integrity.md) §1；[不變量](doc/decisions/review/02_invariants.md)第 5 條。
+
+### 第一次導入
+
+在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡（[不變量](doc/decisions/review/02_invariants.md)第 3 條）。
+
+```sh
+curl -fsSLO https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh
+sh bootstrap.sh
+```
+
+沒有 `curl` 也可以用瀏覽器下載同一個網址。`bootstrap.sh` 會下載引擎，再呼叫 `install`；之後就用下面 `just vendor_kit` 的指令。下載網址出處：[issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
+
 ## 使用方式
 
 ```
@@ -15,7 +36,7 @@ vendor_kit（VK）把一套工具送進很多個 repo，例如開發環境設定
   dev vendor_kit -i <image>   讓引擎改用本機 image
 ```
 
-進階指令、選項與結束碼見[使用者介面](doc/decisions/review/03_interface.md)。第一次導入時 repo 裡還沒有 VK，先跑 `bootstrap.sh`。
+進階指令、選項與結束碼見[使用者介面](doc/decisions/review/03_interface.md)。
 
 ## 文件
 
