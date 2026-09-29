@@ -27,7 +27,7 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 |---|---|---|---|
 | `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
 | `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
-| `doc-edit` | 改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → `humanizer-zh-tw` 潤稿；codex 意見只回報不套用 | 改任何現行文件（README、`doc/decisions/review/`、`CONTEXT.md`、ADR） | `round`、`files` |
+| `doc-edit` | 改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → `humanizer-zh-tw` 潤稿；codex 的建議只回報 | 改任何現行文件（README、`doc/decisions/review/`、`CONTEXT.md`、ADR） | `round`、`files` |
 
 兩個都有選填的 `repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`（共用背景／已定案前提）與 `effort`。
 
@@ -37,8 +37,9 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 
 1. **改寫**：一個子代理照 `ask` 改 `files`；沒給 `ask` 就跳過（檔已經改好，只跑後面三段）。
 2. **lint**：跑 `check_terms`、`check_context`，只修 lint 指出的地方，直到全部通過。
-3. **codex 審查**：只讀，對照 01、02、`CONTEXT.md`、ADR，分必改與建議。意見只回報，不自動套用。
-4. **潤稿**：用 `humanizer-zh-tw` 局部潤稿，不改意思、不動程式碼與連結；改完再跑一次 lint。
+3. **codex 審查**：只讀，對照 01、02、`CONTEXT.md`、ADR，分必改與建議。
+4. **套用必改**：必改直接改進檔裡，不問維護者；先對照出處確認 codex 沒看錯，看錯的那條不改並寫明理由。建議不改，只回報。
+5. **潤稿**：用 `humanizer-zh-tw` 局部潤稿，不改意思、不動程式碼與連結；改完再跑一次 lint。
 
 args 欄位：
 
@@ -51,7 +52,7 @@ args 欄位：
 | `codex_focus` | 否 | codex 額外要看的重點 |
 | `effort` | 否 | `{ edit, polish, review }` |
 
-codex 輸出寫到 `doc/decisions/review_log/codex/<round>-doc-edit.md`。回傳 `{ round, edited, linted, review, polished }`。args 範例在腳本檔尾。
+codex 輸出寫到 `doc/decisions/review_log/codex/<round>-doc-edit.md`。回傳 `{ round, edited, linted, review, applied, polished }`。args 範例在腳本檔尾。
 
 ## doc-apply
 

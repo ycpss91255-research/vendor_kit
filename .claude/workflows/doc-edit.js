@@ -1,11 +1,12 @@
 export const meta = {
   name: 'doc-edit',
-  description: '改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → humanizer-zh-tw 潤稿；codex 意見只回報不套用，全程禁止 git 寫入',
+  description: '改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → humanizer-zh-tw 潤稿；codex 的建議只回報，全程禁止 git 寫入',
   whenToUse: '改任何現行文件（README、doc/decisions/review/、CONTEXT.md、ADR）時；主對話不自己改',
   phases: [
     { title: '改寫', detail: '一個子代理照 ask 改指定檔；沒給 ask 就跳過（檔已經改好，只跑後面三段）' },
     { title: 'lint', detail: '跑 check_terms 與 check_context，只修 lint 指出的地方，直到全部通過' },
     { title: 'codex 審查', detail: '子代理啟動 codex 只讀審查，對照 01、02、CONTEXT.md、ADR，整理成必改／建議' },
+    { title: '套用必改', detail: 'codex 的必改直接改進檔裡並跑 lint；建議不改，只回報給維護者' },
     { title: '潤稿', detail: '子代理用 humanizer-zh-tw 做局部潤稿，不改意思、不動程式碼與連結，改完再跑一次 lint' },
   ],
 }
@@ -164,6 +165,31 @@ brief：
 ${brief}`,
   { label: 'codex 審查', phase: 'codex 審查', schema: REVIEW, agentType: 'general-purpose', ...(effort.review ? { effort: effort.review } : {}) })
 
+// ───────────────── 套用必改 ─────────────────
+// 必改一律直接套用，不問維護者；建議才回報。
+let applied = null
+if (review && !review.error && review.must_fix.length) {
+  phase('套用必改')
+  applied = await agent(`你負責把 codex 的「必改」全部改進檔裡。建議不要改。
+
+${GUARDRAILS}
+
+${BACKGROUND}
+
+必改清單（JSON）：
+${JSON.stringify(review.must_fix, null, 2)}
+
+規則：
+- 每一條都要處理；做法照 fix 欄，但要先對照 source 欄的出處確認 codex 沒看錯。確認 codex 看錯的那條不要改，寫進 changed 並註明「未改：理由」。
+- 只改必改指到的地方，不要順手改別的。
+- 改完跑 \`${LINT}\`，要全部 OK。`,
+    { label: '套用必改', phase: '套用必改', schema: RESULT, agentType: 'general-purpose', ...(effort.edit ? { effort: effort.edit } : {}) })
+  if (!applied || applied.error) {
+    log(`套用必改失敗：${applied?.error ?? '子代理沒有回傳'}；停在這裡`)
+    return { round, edited, linted, review, applied, polished: null }
+  }
+}
+
 // ───────────────── 潤稿 ─────────────────
 phase('潤稿')
 const polished = await agent(`你負責潤稿。先用 Skill 工具呼叫 "humanizer-zh-tw"，照它的規則對下面的檔做**局部**潤稿。
@@ -183,14 +209,14 @@ ${BACKGROUND}
   { label: '潤稿', phase: '潤稿', schema: RESULT, agentType: 'general-purpose', ...(effort.polish ? { effort: effort.polish } : {}) })
 if (!polished || polished.error) {
   log(`潤稿失敗：${polished?.error ?? '子代理沒有回傳'}；停在這裡`)
-  return { round, edited, linted, review, polished }
+  return { round, edited, linted, review, applied, polished }
 }
 
 
 log(review && !review.error
-  ? `codex：必改 ${review.must_fix.length}、建議 ${review.suggest.length}（只回報，未套用）`
+  ? `codex：必改 ${review.must_fix.length}（已套用）、建議 ${review.suggest.length}（只回報）`
   : `codex 審查失敗：${review?.error ?? '子代理沒有回傳'}`)
-return { round, edited, linted, review, polished }
+return { round, edited, linted, review, applied, polished }
 
 // ───────────────── args 範例（可直接貼進 Workflow 的 args） ─────────────────
 // {
