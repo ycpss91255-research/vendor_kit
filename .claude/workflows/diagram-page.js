@@ -54,17 +54,16 @@ const GUARDRAILS = `硬性規則（違反就算這輪失敗）：
 3. 只動頁 id「${page_id}」。其他頁一格都不要碰。
 4. 驗證用匯出的 PNG 實際看、或用 get_diagram 算座標，不要憑印象說「應該沒壓線」。`
 
-const DRAW_RULES = `圖面規則（照 ${repo}/script/diagram/STYLE.md，先讀 §4.4 與 §6）：
+const DRAW_RULES = `圖面規則（照 ${repo}/script/diagram/STYLE.md。流程頁以第 7 節為準，它優先於前面各節講流程頁的部分；架構頁看第 6 節）：
 - 標題寫在頁名，頁面上不放標題格；格子只寫名字或動作，不寫括號說明、不粗體。
-- 泳道 = 誰做；引擎寫進 repo 的動作放引擎欄，不放 repo 欄。
-- 流程頁是使用者視角：只畫使用者看得到的判斷與結果，不展開執行紀錄、進度檔、預檢、取件細節。
-- 樣式：判斷 rhombus #FFF4C3 邊 #000000 strokeWidth=2 fontSize=14；起點／終點 ellipse #d5e8d4；錯誤終止 ellipse #f8cecc；需人接手 ellipse #ffe6cc；步驟 rounded=1 白底 strokeColor=light-dark(#000000,#9577A3) fontSize=14。
-- 泳道：swimlane startSize=38 fontSize=18 fontStyle=1 rounded=1 strokeWidth=2；使用者 #FFF4C3、主機 #f5f5f5、引擎 #c9b8e8 且 strokeColor=#b85450（紅框 = VK 開發的）。
+- 流程頁不分泳道、不上顏色、不用紅框：判斷是白底菱形（rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=2;fontSize=14），起點／終點是白底橢圓（ellipse，同樣 strokeWidth=2），步驟是白底圓角方塊（rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=14）。
+- 要標區塊就畫有名字的虛線框（rounded=1;dashed=1;fillColor=none;strokeColor=#666666;verticalAlign=top;align=left;spacingLeft=8;fontSize=14;），parent="1"，先 add 虛線框再 add 格子，讓框在下層。框的標題不得壓到框內格子或線。
+- 使用者視角：只畫使用者看得到的判斷與結果，不展開執行紀錄、進度檔、預檢、取件細節。
 - 線：edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeWidth=2;fontSize=14。水平線的是／否標籤 verticalAlign=bottom，垂直線的標籤 align=left;spacingLeft=6。
-- 文字不得壓線、不得壓泳道邊界；標籤靠近泳道邊界時用 mxGeometry x（-0.5～-0.9）往起點移。
+- 文字不得壓線、不得壓虛線框邊；標籤太靠近邊時用 mxGeometry x（-0.5～-0.9）往起點移。
 - 線交叉不可避免時用 jumpStyle=arc;jumpSize=12。
 - 版面緊湊，不留大片空白。
-- 圖例放在泳道下方：出現過的形狀各一格，外加文字「數字 = 退出碼；實線 = 執行順序」。
+- 圖例放在最下方：菱形「判斷」、橢圓「起點／終點」、圓角方塊「步驟」、虛線框「區塊」（有出現才放），外加文字「數字 = 退出碼；實線 = 執行順序」。
 - HTML 值要雙重跳脫，例如 &amp;lt;ns&amp;gt;。`
 
 // ───────────────── 繪製 ─────────────────
@@ -123,10 +122,9 @@ ${read_first.map(f => `- \`${f}\``).join('\n')}
 
 ## 已經定下的規則（不要再建議推翻它們）
 - 標題寫在頁名，頁面上不放標題
-- 泳道 = 誰做（STYLE §4.4）；引擎寫進 repo 的動作放引擎欄
+- 流程頁不分泳道、不上顏色、不用紅框（STYLE §7）：菱形 = 判斷、橢圓 = 起點／終點、圓角方塊 = 步驟、虛線框 = 區塊；終點裡的數字 = 退出碼。不要建議加泳道或配色
 - 層級 = 使用者視角：執行紀錄、進度檔、預檢、退出碼 3、取件細節、要改先問的 -y／CI 規則另開共用頁，不要因為沒畫它們而列為缺漏
-- 黃菱形 = 判斷、綠橢圓 = 起點／終點、紅橢圓 = 錯誤終止、橘橢圓 = 需人接手、白色圓角 = 步驟；終點裡的數字 = 退出碼
-- 文字不壓線、不壓泳道邊界；版面要緊湊
+- 文字不壓線、不壓框邊；版面要緊湊
 ${settled.trim() ? settled.trim() : ''}
 
 ## 請回答
