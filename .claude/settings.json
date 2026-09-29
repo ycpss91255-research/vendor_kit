@@ -12,6 +12,15 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/monitor_guard.py\""
+          }
+        ]
+      },
+      {
         "matcher": "Workflow|Bash",
         "hooks": [
           {
