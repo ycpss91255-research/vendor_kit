@@ -53,7 +53,7 @@ const codexOut = key => `${repo}/doc/decisions/review_log/codex/${round}-${key}.
 const GUARDRAILS = `硬性規則（違反就算這輪失敗）：
 1. 不 commit、不 push、不跑任何 git 寫入指令（含 add、checkout、reset、stash、tag）。
 2. 會改檔的話，改前先備份到 ${repo}/doc/decisions/_backup/，命名 <路徑攤平>.pre_${round}.<ext>（例如 agents_domain.pre_${round}.md）；同名已存在就在副檔名前加序號。
-3. 不准動 ${repo}/doc/decisions/_legacy/、doc/decisions/_backup/、doc/decisions/review_log/、doc/decisions/review/_marked/（歷史快照與本地產物），除非這個 task 明說。
+3. 不准動 ${repo}/doc/decisions/_legacy/、doc/decisions/_backup/、doc/decisions/review_log/、doc/decisions/_marked/（歷史快照與本地產物），除非這個 task 明說。
 4. 驗證一律用腳本／grep／wc 算出來，不要目視判斷「看起來對」。`
 
 const BACKGROUND = background && background.trim()

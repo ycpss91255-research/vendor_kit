@@ -1,7 +1,7 @@
 files.zip
 .drawio-audit-*/
 __pycache__/
-doc/decisions/review/_marked/
+doc/decisions/_marked/
 
 # 改前快照：本地審閱用的工作檔。進 git 之後，改動標示的基準改從 git 取
 # （git show HEAD:<path> > doc/decisions/_backup/<路徑攤平>.pre_rNN.md），見 script/README.md

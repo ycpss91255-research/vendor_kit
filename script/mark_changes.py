@@ -12,7 +12,7 @@
 
 舊版讀 doc/decisions/_backup/doc_decisions_review_<name>.<後綴>.md，
 新版讀 doc/decisions/review/<name>.md，
-輸出 doc/decisions/review/_marked/<name>.marked.md。
+輸出 doc/decisions/_marked/<鍵>.v<N>.marked.md（審閱頁的鍵是頁名，其他檔是攤平後的路徑）。
 
 表格列（以 | 開頭）在儲存格內標記，不把整列包起來——整列包住會讓那一列
 不再是合法的表格列，GitHub 與 VS Code 都會把表格切斷。
@@ -24,7 +24,7 @@ import sys
 
 REVIEW = pathlib.Path("doc/decisions/review")
 BACKUP = pathlib.Path("doc/decisions/_backup")
-MARKED = REVIEW / "_marked"
+MARKED = pathlib.Path("doc/decisions/_marked")
 
 
 def mark(body: str, tag: str) -> str:

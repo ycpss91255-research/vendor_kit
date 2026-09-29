@@ -47,7 +47,7 @@ const applyEffort = effort?.apply          // 不給就繼承 session
 const verifyEffort = effort?.verify ?? 'low'   // 驗證是機械活，預設便宜跑
 
 // ───────────────── 共用護欄：組進每個子代理的 prompt，不是只寫在註解 ─────────────────
-const NO_TOUCH = 'doc/decisions/_legacy/、doc/decisions/_backup/、doc/decisions/review_log/、doc/decisions/review/_marked/'
+const NO_TOUCH = 'doc/decisions/_legacy/、doc/decisions/_backup/、doc/decisions/review_log/、doc/decisions/_marked/'
 
 const GUARD_WRITE = `Repo ${repo}。以下是硬性護欄，違反就算這個 task 失敗：
 

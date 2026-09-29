@@ -23,7 +23,7 @@ EXCLUDE_PREFIXES = (
     "doc/decisions/review_log/",
     "doc/decisions/review/research/",
     "doc/decisions/research/",
-    "doc/decisions/review/_marked/",
+    "doc/decisions/_marked/",
     ".claude/skills/",
     ".agents/skills/",  # skill 的實體目錄；.claude/skills 是指過來的 symlink，git 追蹤的是這條路徑
     "script/diagram/",
