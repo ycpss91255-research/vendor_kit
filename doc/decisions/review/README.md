@@ -8,7 +8,7 @@
 
 1. [01 目的與承諾](01_purpose.md)：為什麼做 VK、對<ins>使用者</ins>承諾什麼。
 2. [02 不變量](02_invariants.md)：任何版本都必須成立的性質。
-3. [03 使用者介面](03_interface.md)：全部指令、<ins>選項</ins>、<ins>結束碼</ins>。
+3. [03 使用者介面](03_interface.md)：全部 <ins>VK recipe</ins>、<ins>選項</ins>、<ins>結束碼</ins>。
 
 契約放在這裡，不放 issue：issue 不好追蹤改動，也做不了逐頁審與標示版差異。出處：[工作約定](/AGENTS.md)「決議與文件流程」。
 
@@ -25,10 +25,12 @@
 
 1. **備份。** doc-edit workflow 要求執行者改檔前，先把原內容備份到 `doc/decisions/_backup/doc_decisions_review_<頁>.pre_<輪次>.md`。
 2. **改動。** 一律跑 [doc-edit workflow](/.claude/workflows/doc-edit.js)：改寫 → lint → codex 審查 → 套用必改 → 潤稿。
-3. **產生標示版。** 跑 `python3 script/mark_changes.py <舊版後綴> <頁>`（[標示版產生器](/script/mark_changes.py)），輸出 `_marked/<頁>.v<N>.marked.md`：綠底是新增，紅底是刪除或被取代的舊文字。版本號 N 記在 `_marked/.<頁>.rev`，每產一次加一。
+3. **產生標示版。** 在 repo 根目錄跑 `python3 script/mark_changes.py <舊版後綴> <頁>`（[標示版產生器](/script/mark_changes.py)），輸出 `doc/decisions/_marked/<頁>.v<N>.marked.md`：綠底是新增，紅底是刪除或被取代的舊文字。版本號 N 記在 `doc/decisions/_marked/.<頁>.rev`，每產一次加一。
 4. **送審。** 把標示版送給維護者審。
 
-`_marked/` 與 `_backup/` 只在本機，不進 git（見[忽略清單](/.gitignore)），所以版本號與標示版要在本機看。正式的改動紀錄是 git 的 commit 歷史。
+README 這類說明文件也照同一套產生標示版與版本號：備份檔名用攤平後的路徑，產生時傳相對 repo 根目錄的路徑，例如 `python3 script/mark_changes.py pre_r91 doc/decisions/review/README.md`；新建的檔基準後綴寫 `new`，整份標成新增。標示版與版本號的鍵是攤平後的路徑，例如 `doc/decisions/_marked/doc_decisions_review_README.v<N>.marked.md`，用法見[工具說明](/script/README.md)。
+
+`doc/decisions/_marked/` 與 `doc/decisions/_backup/` 只在本機，不進 git（見[忽略清單](/.gitignore)），所以版本號與標示版要在本機看。正式的改動紀錄是 git 的 commit 歷史。
 
 ## 怎樣才算定案
 

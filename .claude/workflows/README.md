@@ -6,8 +6,8 @@
 
 看起來「任務流程」應該可以寫成一份 JSON 或 YAML，然後每次換內容就好。做不到，因為 Workflow 工具吃的是 JS 腳本，而腳本裡有兩種東西：
 
-- **不可參數化的部分**：控制流本身。哪幾組並行、誰的輸出餵給誰、哪些條件才進下一階段、結果怎麼彙整成回傳值——這是程式，寫成資料就得再發明一套迷你語言。`meta` 雖然必須是純字面值（不可以有變數、函式呼叫、展開、模板字串插值），但它只是註冊資訊，不是流程。
-- **可參數化的部分**：`args`。要改哪些檔、每組子代理的任務描述、備份後綴、跑幾軌、effort 高低——這些每次都不一樣，而 `args` **就是 JSON**。
+- **不可參數化的部分**：控制流本身。哪幾組並行、誰的輸出餵給誰、哪些條件才進下一階段、結果怎麼彙整成回傳值。這些是程式，寫成資料就得再發明一套迷你語言。`meta` 雖然必須是純字面值（不可以有變數、函式呼叫、展開、模板字串插值），但它只是註冊資訊，不是流程。
+- **可參數化的部分**：`args`。要改哪些檔、每組子代理的任務描述、備份後綴、跑幾軌、effort 高低。這些每次都不一樣，而 `args` **就是 JSON**。
 
 所以慣例是：**腳本寫一次進 git 當模板，之後每次任務只準備一份 args JSON**。要換的是 args，不是腳本。腳本要改的時機只有一個：流程形狀真的變了。
 
@@ -27,8 +27,13 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 |---|---|---|---|
 | `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
 | `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
+| `doc-edit` | 改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → humanizer-zh-tw 潤稿；codex 的建議只回報 | 改任何現行文件（README、`doc/decisions/review/`、`CONTEXT.md`、ADR）時；主對話不自己改 | `round`、`files` |
 
-兩個都有選填的 `repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`（共用背景／已定案前提）與 `effort`。
+選填欄位：
+
+- `doc-apply`：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`、`verify`、`effort`（`{ apply, verify }`）。
+- `doc-review`：`repo`（同上預設）、`background`、`tracks`、`cross_check`、`effort`（`{ review, cross }`）。
+- `doc-edit`：`repo`（同上預設）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（codex 額外要看的重點）、`effort`（`{ edit, polish, review }`）。
 
 ## doc-apply
 
@@ -123,22 +128,30 @@ args 範例：
 
 - **不 commit、不 push、不跑任何 git 寫入指令**。唯讀的 `git status`／`git diff` 可以。
 - **改前先備份**到 `doc/decisions/_backup/`，命名 `<路徑攤平>.pre_<round>.<ext>`（例如 `agents_domain.pre_r86.md`），同名已存在就加序號。
-- **不准動** `doc/decisions/_legacy/`、`doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/decisions/review/_marked/`——歷史快照與本地產物，除非該 task 明說。
+- **不准動** `doc/decisions/_legacy/`、`doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/decisions/_marked/`：這些是歷史快照與本機產物，除非該 task 明說。
 - **驗證一律用腳本／grep 算，不要目視**。
-- codex 一律帶 `< /dev/null`：省了 codex 會停在等 stdin，整條 workflow 卡死。指令形狀固定：
+- codex 一律帶 `< /dev/null`：少了它，codex 會停在等 stdin，整條 workflow 卡死。固定的部分是 `codex exec --skip-git-repo-check -C <repo> -o <輸出檔>`、不加沙箱旗標、stdin 接 `/dev/null`。prompt 的傳法兩個 workflow 不同：
 
-  ```
-  codex exec --skip-git-repo-check -C <repo> -o <輸出檔> "<brief>" < /dev/null
-  ```
+  - `doc-review`：brief 直接當引號參數傳。
 
-  不要自己加沙箱旗標——repo 的 `.codex/config.toml` 已設 `danger-full-access`，加了 bubblewrap 會失敗、codex 零修改。
+    ```
+    codex exec --skip-git-repo-check -C <repo> -o <輸出檔> "<brief>" < /dev/null
+    ```
+
+  - `doc-edit`：brief 先用 heredoc 寫進暫存檔，再用命令替換傳進去。
+
+    ```
+    codex exec --skip-git-repo-check -C <repo> -o <輸出檔> "$(cat <暫存檔>)" < /dev/null
+    ```
+
+  不要自己加沙箱旗標：repo 的 `.codex/config.toml` 已設 `danger-full-access`，加了 bubblewrap 會失敗、codex 零修改。
 - 成果進 repo，不留 `/tmp`。
 
 ## 新增 workflow 的規則
 
 1. 檔案的**第一個語句**是 `export const meta = {...}`，且 meta 是**純字面值**：不可以有變數、函式呼叫、展開運算子、模板字串插值。必填 `name`、`description`；選填 `whenToUse`、`phases`。
 2. **純 JavaScript**，不是 TypeScript：沒有型別註記、`interface`、generics。
-3. **禁止** `Date.now()`、`Math.random()`、無參數 `new Date()`——會讓 resume 壞掉。腳本裡沒有檔案系統與 Node API（要跑指令是叫子代理用 Bash）。
+3. **禁止** `Date.now()`、`Math.random()`、無參數 `new Date()`，這些會讓 resume 壞掉。腳本裡沒有檔案系統與 Node API（要跑指令是叫子代理用 Bash）。
 4. `meta.phases` 的每個 `title` 要和腳本裡 `phase()` 或 `opts.phase` 傳的字串**一字不差**。phase 標題用中文，註解也用繁體中文。
 5. `args` 用解構取值並補預設；**缺必填欄位就 throw**，訊息講清楚缺什麼。
 6. **檔尾放一份可以直接貼進 `args` 的 JSON 範例**，並同步更新這份 README 的表與範例。
@@ -148,7 +161,7 @@ args 範例：
 
 ## 已歸檔
 
-以下四個移到 [`../../doc/decisions/_legacy/workflows/`](../../doc/decisions/_legacy/workflows/)：
+以下四個移到[已歸檔 workflows](../../doc/decisions/_legacy/workflows/)：
 
 | 名字 | 為什麼不用了 |
 |---|---|
