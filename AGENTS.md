@@ -11,6 +11,7 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 
 ## 決議與文件流程
 
+- **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
 - 每個設計決議先在 issue 討論（中文）；定案後才寫 ADR。
 - ADR 放 `doc/adr/NNNN-<slug>.md`，檔案系統即登錄，不另立索引；必要段落由 lint 管，規則見 `doc/adr/README.md`。
 - 每份 ADR 檔頭一行 `> Serves:` 回連它建立或服務的東西：`doc/decisions/review/02_invariants.md` 的不變量、`doc/decisions/design_principles.md` 的設計原則，或 `doc/decisions/scope_roadmap.md` 的範圍項目。沒有回連的 ADR 幾次修改後就跟產品目標脫鉤，而且是靜默的。
