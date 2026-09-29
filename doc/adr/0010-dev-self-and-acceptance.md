@@ -51,6 +51,13 @@ install → add → upgrade → dev/undev → remove → uninstall
 
 `-i` 的語意、覆寫的寫入位置、以及舊引擎不得重產薄殼這條禁令，都由引擎判斷並回報；啟動器只把 `-i` 的值轉給引擎，自己不比版本。驗收矩陣與流程順序由測試層擁有，不進引擎程式。
 
+### 修訂（2026-09-29）
+
+- **Amendment status:** Accepted
+- 本檔所有 `dev vendor_kit -i …` 舊寫法，包括檔頭 Serves、第 1、5 節與 Consequences，一律讀作 `dev --engine -i …`。讓引擎改用本機 image 的指令改成 `dev --engine -i <image>`，反向是 `undev --engine`；工具的 `dev <repo> -p <dir>`、`undev <repo>` 不變。
+- 理由：原寫法在工具名稱的位置放保留名 `vendor_kit` 代表引擎，同一個位置有時是工具、有時是引擎。新寫法把對象（`--engine` 或 `<repo>`）與本機開發來源（`-i <image>` 或 `-p <dir>`）分開，這個位置不再兼指工具與引擎。出處：[issue #65](https://github.com/ycpss91255-research/vendor_kit/issues/65)。
+- 機制不變：`dev --engine -i <image>` 寫的仍是 `version.local.toml` 的引擎覆寫 `vendor_kit = "<本機 image tag>"`；第 5 節「指到舊引擎時允許跑、禁止重產薄殼」與第 6 節的擁有者分工，新寫法照舊適用。原文保留，不改寫歷史。
+
 ## Consequences
 
 - 開發者手上那條路就是出貨閘門走的那條路。`dev vendor_kit -i` 壞了，驗收會一起壞，不會只壞在使用者那邊。

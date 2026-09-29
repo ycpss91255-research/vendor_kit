@@ -14,7 +14,9 @@ vendor_kit（VK）把一套工具送進很多個 repo，例如開發環境設定
 
 ### 第一次導入
 
-在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡（[不變量](doc/decisions/review/02_invariants.md)第 3 條）。
+> 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，下面的網址目前找不到檔案，照做會失敗。進度見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
+
+發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡（[不變量](doc/decisions/review/02_invariants.md)第 3 條）。
 
 ```sh
 curl -fsSLO https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh
@@ -33,7 +35,7 @@ sh bootstrap.sh
   upgrade <repo>              把鎖定版本換成新版
   upgrade <repo>@<tag>        換成指定版本；指定舊 tag 就是退版
   dev <repo> -p <dir>         讓工具改用本機目錄
-  dev vendor_kit -i <image>   讓引擎改用本機 image
+  dev --engine -i <image>     讓引擎改用本機 image
 ```
 
 進階指令、選項與結束碼見[使用者介面](doc/decisions/review/03_interface.md)。

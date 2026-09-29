@@ -1,6 +1,6 @@
 # 03 使用者介面
 
-<ins>使用者</ins>只透過指令跟 <ins>VK</ins> 打交道。這一頁列出全部指令、<ins>選項</ins>（共同選項與各指令專用的選項）與<ins>結束碼</ins>。每一項必須永遠成立的規則寫在[不變量](/doc/decisions/review/02_invariants.md)，這裡只標條號，不重述；名詞見[名詞表](/CONTEXT.md)。
+<ins>使用者</ins>只透過指令跟 <ins>VK</ins> 打交道。這一頁列出全部指令、<ins>選項</ins>（共同選項與各指令專用的選項）與<ins>結束碼</ins>。每一項必須永遠成立的規則寫在[不變量](02_invariants.md)，這裡只標條號，不重述；名詞見[名詞表](../../../CONTEXT.md)。
 
 ## 主機需求
 
@@ -8,17 +8,17 @@
 - Git
 - just 1.33.0 以上，用 GitHub release 下載的版本
 
-版本不足時，在任何寫入之前以 `1` 結束，並印出安裝指令。出處：[ADR-0007](/doc/adr/0007-host-thin-layer-and-shell-integrity.md) §1；02 第 5 條。
+版本不足時，在任何寫入之前以 `1` 結束，並印出安裝指令。出處：[ADR-0007](../../adr/0007-host-thin-layer-and-shell-integrity.md) §1；02 第 5 條。
 
 ## 入口
 
 VK 對外只有三個入口：
 
 - `just vendor_kit …`：日常使用的全部指令，都收在 `vendor_kit` 這個<ins>命名空間</ins>底下，不佔用 <ins>repo</ins> 自己的頂層指令名。
-- `bootstrap.sh`：第一次<ins>導入</ins>時用。先[下載 bootstrap.sh](https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh)，再到要裝 VK 的那個目錄執行；這個目錄必須在某個 git repo 裡。這時 repo 裡還沒有 VK，所以由它下載<ins>引擎</ins>，再呼叫 `install`。再跑一次就是修復。
+- `bootstrap.sh`：第一次<ins>導入</ins>時用。先[下載 bootstrap.sh](https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh)，再到要裝 VK 的那個目錄執行（尚未可用：含 `bootstrap.sh` 的 release 還沒發布，這個網址目前找不到檔案）；這個目錄必須在某個 git repo 裡。這時 repo 裡還沒有 VK，所以由它下載<ins>引擎</ins>，再呼叫 `install`。再跑一次就是修復。
 - `.vendor_kit/ci/check.sh`：給 CI 呼叫，回報版本、快取、<ins>初始檔</ins>是否一致。
 
-出處：02 第 3、8、9 條；[目的與承諾](/doc/decisions/review/01_purpose.md)「VK 做的事」；下載網址見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
+出處：02 第 3、8、9 條；[目的與承諾](01_purpose.md)「VK 做的事」；下載網址見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
 
 ## 指令
 
@@ -30,11 +30,12 @@ VK 對外只有三個入口：
   upgrade <repo>              把鎖定版本換成新版
   upgrade <repo>@<tag>        換成指定版本；指定舊 tag 就是退版
   dev <repo> -p <dir>         讓工具改用本機目錄
-  dev vendor_kit -i <image>   讓引擎改用本機 image
+  dev --engine -i <image>     讓引擎改用本機 image
 
 進階指令：
   remove <repo>               把一個工具解除。初始檔不刪，只收回當初插入的行
   undev <repo>                回到鎖定版本
+  undev --engine              回到鎖定的引擎版本
   update                      只查有沒有新版，不改任何檔
   sync                        使本機的工具內容與版本鎖定行一致；每次跑工具 recipe 都會自動先跑它
   install                     把 VK 裝進 repo 的一個目錄，使它成為安裝目錄
@@ -63,8 +64,8 @@ VK 對外只有三個入口：
 ## 各指令專用選項
 
 - `update --exit-code`：查到新版時以 `2` 結束，給 CI 或腳本判斷有沒有新版。出處：02 第 4 條。
-- `add --local`：離線導入，從本機取得工具的 image，寫進的版本鎖定行與線上導入相同；缺少必要的 <ins>digest</ins> 資訊時以 `1` 結束，不退化成只寫 tag。出處：[ADR-0009](/doc/adr/0009-release-assets-and-offline-import.md) §2。
-- `--timeout`：限制等待的時間；由<ins>啟動器</ins>在主機這一側處理，不交給引擎。出處：[ADR-0007](/doc/adr/0007-host-thin-layer-and-shell-integrity.md) §6。
+- `add --local`：離線導入，從本機取得工具 image，寫進的版本鎖定行與線上導入相同；缺少必要的 <ins>digest</ins> 資訊時以 `1` 結束，不退化成只寫 tag。出處：[ADR-0009](../../adr/0009-release-assets-and-offline-import.md) §2。
+- `--timeout`：限制等待的時間；由<ins>啟動器</ins>在主機這一側處理，不交給引擎。出處：[ADR-0007](../../adr/0007-host-thin-layer-and-shell-integrity.md) §6。
 - `.vendor_kit/ci/check.sh --dist`：`check.sh` 的另一種入口形式，給提供工具的 repo 在自己的 CI 檢查交付的工具內容是否合規。出處：02 第 8 條。
 
 ## CI 模式
@@ -74,7 +75,7 @@ VK 對外只有三個入口：
 - 進 git 的檔一律不寫；遇到非寫不可的情況，以 `1` 結束並印出清單。
 - 有任何<ins>本機覆寫</ins>（`dev` 造成的）也以 `1` 結束。
 
-出處：02 第 2、3 條；判定方式見 [ADR-0004](/doc/adr/0004-vk-recipe-interface-and-write-boundary.md) §2。
+出處：02 第 2、3 條；判定方式見 [ADR-0004](../../adr/0004-vk-recipe-interface-and-write-boundary.md) §2。
 
 ## 結束碼
 
