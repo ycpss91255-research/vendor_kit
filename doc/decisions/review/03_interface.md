@@ -18,7 +18,7 @@ VK 對外只有三個入口：
 
 | 指令 | 做什麼 | 反向 |
 |---|---|---|
-| `just vendor_kit add <repo>` | 把一個工具納入這個<u>安裝目錄</u> | `remove` |
+| `just vendor_kit add <repo>` | 把一個工具納入這個<ins>安裝目錄</ins> | `remove` |
 | `just vendor_kit upgrade <repo>` | 把鎖定版本換成新版 | — |
 | `just vendor_kit upgrade <repo>@<tag>` | 換成指定版本；指定舊 tag 就是退版 | — |
 | `just vendor_kit dev <repo> -p <dir>` | 讓工具改用本機目錄 | `undev` |
@@ -56,7 +56,7 @@ VK 對外只有三個入口：
 
 ## CI 模式
 
-環境變數 `CI` 有值、而且不是 `0` 或 `false` 時，就是 <u>CI 模式</u>。CI 模式下：
+環境變數 `CI` 有值、而且不是 `0` 或 `false` 時，就是 <ins>CI 模式</ins>。CI 模式下：
 
 - 進 git 的檔一律不寫；遇到非寫不可的情況，以 `1` 結束並印出清單。
 - 有任何本機覆寫（`dev` 造成的）也以 `1` 結束。
