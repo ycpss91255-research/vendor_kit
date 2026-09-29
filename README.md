@@ -1,6 +1,6 @@
 # vendor_kit
 
-vendor_kit（VK）把一套工具送進很多個 repo，例如開發環境設定、共用腳本、初始檔。它記住每個 repo 用哪一版，可以升版，也可以退版；升版時不會蓋掉你改過的初始檔。主機只需要 [Docker](https://www.docker.com/)、[Git](https://git-scm.com/)、[just](https://github.com/casey/just)。
+vendor_kit（VK）把一套工具送進很多個 repo，例如開發環境設定、共用腳本、初始檔。它記住每個安裝目錄用哪一版，可以升版，也可以退版；升版時不會蓋掉你改過的初始檔。主機只需要 [Docker](https://www.docker.com/)、[Git](https://git-scm.com/)、[just](https://github.com/casey/just)。
 
 ## 使用方式
 
@@ -9,7 +9,8 @@ vendor_kit（VK）把一套工具送進很多個 repo，例如開發環境設定
 
 常用指令：
   add <repo>                  把一個工具納入這個安裝目錄
-  upgrade <repo>[@<tag>]      換成新版；指定 tag 就換成那一版，指定舊 tag 就是退版
+  upgrade <repo>              把鎖定版本換成新版
+  upgrade <repo>@<tag>        換成指定版本；指定舊 tag 就是退版
   dev <repo> -p <dir>         讓工具改用本機目錄
   dev vendor_kit -i <image>   讓引擎改用本機 image
 ```
