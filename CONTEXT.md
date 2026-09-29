@@ -1,8 +1,8 @@
 # vendor_kit
 
-vendor_kit（VK）把工具從一個 repo 送進其他 repo：出貨端把工具打包成容器 image，導入端用一行版本鎖定行決定裝哪一版。這裡定義的是這件事裡的專有名詞，一般技術詞不收。
+vendor_kit（VK）把工具從一個 repo 送進其他 repo：出貨端把工具打包成容器 image，導入端用一行版本鎖定行決定裝哪一版。這裡只定義這件事用到的專有名詞，一般技術詞不收。
 
-對外承諾見 `doc/decisions/review/01_purpose.md`，不變量見 `doc/decisions/review/02_invariants.md`，難逆轉的取捨見 `doc/adr/`。
+對外承諾見[目的與承諾](doc/decisions/review/01_purpose.md)，不變量見[不變量](doc/decisions/review/02_invariants.md)，難逆轉的取捨見 [ADR](doc/adr/)。
 
 ## 目錄
 
@@ -91,7 +91,6 @@ vendor_kit（VK）把工具從一個 repo 送進其他 repo：出貨端把工具
 - [`sync`](#term-recipe-sync)
 - [`prune`](#term-recipe-prune)
 - [`install` / `uninstall`](#term-recipe-install-uninstall)
-- [`help`](#term-recipe-help)
 
 **介面版與契約**
 
@@ -193,7 +192,7 @@ _Avoid_: 下游 image
 
 <a id="term-image-reference"></a>
 **image 引用**（image reference）：
-唯一指定某個 image 版本與內容的字串 `<名稱>:<tag>@sha256:<digest>`；tag 與 digest 一起寫，所以同一行同時說得出版本與內容。
+唯一指定某個 image 版本與內容的字串 `<registry>/<路徑>:<tag>@sha256:<digest>`；`<registry>` 是存放它的 registry 主機，`<路徑>` 是 image 在那個 registry 裡的路徑。tag 與 digest 一起寫，所以同一行同時說得出版本與內容。
 
 <a id="term-tag"></a>
 **tag**：
@@ -348,7 +347,7 @@ VK 因無法繼續而結束的結果。
 
 <a id="term-warning"></a>
 **警告**（warning）：
-指出非阻斷問題、不使該次執行成為失敗或需人處理的訊息。
+指出非阻斷問題的訊息；它不會讓該次執行變成失敗或需人處理。
 
 <a id="term-exit-code"></a>
 **結束碼**（exit code）：
@@ -370,7 +369,7 @@ VK recipe 結束時回給呼叫方的整數。
 
 <a id="term-recipe-sync"></a>
 **`sync`**：
-使本機的工具內容與版本鎖定行或本機覆寫一致。
+讓本機的工具內容與版本鎖定行或本機覆寫一致。
 
 <a id="term-recipe-prune"></a>
 **`prune`**：
@@ -379,10 +378,6 @@ VK recipe 結束時回給呼叫方的整數。
 <a id="term-recipe-install-uninstall"></a>
 **`install` / `uninstall`**：
 `install` 把 VK 裝進 repo 的一個目錄，使它成為安裝目錄；`uninstall` 是它的反向，把 VK 從那裡移除。
-
-<a id="term-recipe-help"></a>
-**`help`**：
-印出 VK recipe 的使用說明。
 
 ### 介面版與契約
 
@@ -396,11 +391,11 @@ VK recipe 結束時回給呼叫方的整數。
 
 <a id="term-schema-version"></a>
 **檔案版**（schema version）：
-VK 寫入檔案時標示其資料格式的整數版號。
+VK 寫入檔案時用來標示該檔資料格式的整數版號。
 
 <a id="term-rescue-path"></a>
 **救援路徑**（rescue path）：
-不論薄殼、VK 檔與引擎的版本組合是否相符，都必須能用的那幾個 VK recipe。
+不論薄殼、VK 檔與引擎的版本組合是否相符，都必須能用的呼叫，只有這些：`install`、`upgrade --engine`、`sync` 的版本不符判定，以及四種印用法呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）。其他 recipe 的 `-h`／`--help` 不屬救援路徑。
 
 <a id="term-contract"></a>
 **契約**（contract）：
