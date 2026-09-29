@@ -65,6 +65,13 @@ VK 在主機上只留一層很薄的東西：啟動器把事情叫起來，規�
 
 這兩條的擁有者是薄殼與救援 recipe 本身：不合的組合由薄殼在起引擎之前擋下，救援 recipe 不隨介面版一起失效。判定「合不合」的規則本身不在本檔，在 ADR-0008（介面版與檔案版）。
 
+### 修訂（2026-09-29）
+
+- **Amendment status:** Accepted
+- 本檔的舊寫法一律讀作新寫法：第 4 節兩處與第 7 節、Consequences 的 `upgrade vendor_kit` 都讀作 `upgrade --engine`。
+- 理由：統一 just 指令的寫法，對象是引擎時一律用 `--engine`。出處：[issue #65](https://github.com/ycpss91255-research/vendor_kit/issues/65)。
+- 機制不變：薄殼重產的唯一觸發、救援路徑永久可用，新寫法照舊適用。原文保留，不改寫歷史。
+
 ## Consequences
 
 - 主機只要備 Docker、Git、just；版本不足或裝的是 Podman，在第一次寫入之前就停下，錯誤訊息裡有可以照做的指令。

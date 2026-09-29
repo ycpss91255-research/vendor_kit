@@ -36,6 +36,8 @@ VK 對外只有三個入口：
   remove <repo>               把一個工具解除。初始檔不刪，只收回當初插入的行
   undev <repo>                回到鎖定版本
   undev --engine              回到鎖定的引擎版本
+  upgrade --engine            升引擎
+  upgrade --engine@<tag>      換成指定版本的引擎
   update                      只查有沒有新版，不改任何檔
   sync                        使本機的工具內容與版本鎖定行一致；每次跑工具 recipe 都會自動先跑它
   install                     把 VK 裝進 repo 的一個目錄，使它成為安裝目錄
@@ -44,7 +46,9 @@ VK 對外只有三個入口：
   help                        印出使用說明
 ```
 
-清單裡的<ins>工具</ins>以 <ins>`<repo>`</ins> 為名；<ins>安裝目錄</ins>是裝了 VK 的那個目錄；<ins>鎖定版本</ins>是 VK 替這個安裝目錄記住的那一版，記在<ins>版本鎖定行</ins>；<ins>tag</ins> 是給人看的版本標籤；<ins>工具內容</ins>是工具交付、展開到本機的那些檔；<ins>工具 recipe</ins> 是工具自己提供、以 `just <ns> …` 執行的指令。目前常用三個、進階八個；同一個 X 之內，既有指令的名稱與語意不變。出處：02 第 8、10 條。
+清單裡的<ins>工具</ins>以 <ins>`<repo>`</ins> 為名；<ins>安裝目錄</ins>是裝了 VK 的那個目錄；<ins>鎖定版本</ins>是 VK 替這個安裝目錄記住的那一版，記在<ins>版本鎖定行</ins>；<ins>tag</ins> 是給人看的版本標籤；<ins>工具內容</ins>是工具交付、展開到本機的那些檔；<ins>工具 recipe</ins> 是工具自己提供、以 `just <ns> …` 執行的指令。
+
+目前常用三個、進階八個；同一個 X 之內，既有指令的名稱與語意不變。出處：02 第 8、10 條。
 
 ### 成對與無害
 
@@ -64,7 +68,9 @@ VK 對外只有三個入口：
 ## 各指令專用選項
 
 - `update --exit-code`：查到新版時以 `2` 結束，給 CI 或腳本判斷有沒有新版。出處：02 第 4 條。
-- `add --local`：離線導入，從本機取得工具 image，寫進的版本鎖定行與線上導入相同；缺少必要的 <ins>digest</ins> 資訊時以 `1` 結束，不退化成只寫 tag。出處：[ADR-0009](../../adr/0009-release-assets-and-offline-import.md) §2。
+- `add <repo> -i <image>`：離線導入，用本機 image 當工具來源；`<image>` 可以是已載入的本機 image，或 image tar 檔。寫進的版本鎖定行與線上導入相同；缺少必要的 <ins>digest</ins> 資訊時以 `1` 結束，不退化成只寫 tag。出處：[ADR-0009](../../adr/0009-release-assets-and-offline-import.md) §2。
+- `bootstrap.sh -t <repo>[@<tag>]`（長選項 `--tool`）：導入時一併把工具納入；可重複，一次一個工具；不寫 `@<tag>` 就取最新版。出處：[issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
+- `bootstrap.sh -i <image>`：離線導入，用本機 image 當引擎來源；`<image>` 可以是已載入的本機 image，或 image tar 檔。出處：[issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)、[issue #65](https://github.com/ycpss91255-research/vendor_kit/issues/65)。
 - `--timeout`：限制等待的時間；由<ins>啟動器</ins>在主機這一側處理，不交給引擎。出處：[ADR-0007](../../adr/0007-host-thin-layer-and-shell-integrity.md) §6。
 - `.vendor_kit/ci/check.sh --dist`：`check.sh` 的另一種入口形式，給提供工具的 repo 在自己的 CI 檢查交付的工具內容是否合規。出處：02 第 8 條。
 

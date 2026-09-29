@@ -35,6 +35,13 @@
 
 保存承諾與資產形狀是同一個決定的兩面：形狀決定使用者的鎖定行指到哪些東西，保存決定那些東西還在不在。
 
+### 修訂（2026-09-29）
+
+- **Amendment status:** Accepted
+- 本檔的舊寫法一律讀作新寫法：第 2 節與 Consequences 的 `add --local` 都讀作 `add <repo> -i <image>`。`<image>` 可以是已載入的本機 image，或 image tar 檔。
+- 理由：統一 just 指令的寫法，用本機 image 當來源時一律用 `-i <image>`。出處：[issue #65](https://github.com/ycpss91255-research/vendor_kit/issues/65)。
+- 機制不變：離線導入讀 tar 同名的旁檔取得 digest，旁檔缺就以 `1` 結束、不退化成只寫 tag。原文保留，不改寫歷史。
+
 ## Consequences
 
 離線與線上寫進版本鎖定行的是同一個 digest，所以同一行在兩條路徑上重建出同樣的內容；旁檔缺的情況被 `1` 擋在寫入之前，不會留下一行只有 tag 的鎖定行。退版不需要額外機制，還原鎖定行就夠，因為指到的資產還在。

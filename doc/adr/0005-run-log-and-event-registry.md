@@ -32,6 +32,13 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
 
 擁有者只有一個：引擎 image 裡的 `log-events.txt`。`log.sh` 內嵌的那份是啟動器側的子集副本，不是第二份真相——它只准少，不准多，這條由 release CI 的子集檢查擋。啟動器要內嵌是因為它在容器起來之前就開始寫紀錄，那時讀不到真本。
 
+### 修訂（2026-09-29）
+
+- **Amendment status:** Accepted
+- 本檔的舊寫法一律讀作新寫法：Consequences 的 `upgrade vendor_kit` 讀作 `upgrade --engine`。
+- 理由：統一 just 指令的寫法，對象是引擎時一律用 `--engine`。出處：[issue #65](https://github.com/ycpss91255-research/vendor_kit/issues/65)。
+- 機制不變，原文保留，不改寫歷史。
+
 ## Consequences
 
 - 讀 VK 執行結果只有兩個介面：執行紀錄與 `vk-resolve/<P>`。人讀的訊息改措辭不會弄壞任何讀取端。

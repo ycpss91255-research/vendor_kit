@@ -69,6 +69,13 @@ P 的升版觸發條件是明列的，任一項 → P+1：
 
 判斷在改檔之前，所以被拒絕的降版不留下半套狀態。
 
+### 修訂（2026-09-29）
+
+- **Amendment status:** Accepted
+- 本檔的舊寫法一律讀作新寫法：第 7 節的 `upgrade vendor_kit@<舊 tag>` 讀作 `upgrade --engine@<舊 tag>`；工具的 `upgrade <repo>@<舊 tag>` 不變。
+- 理由：統一 just 指令的寫法，對象是引擎時一律用 `--engine`。出處：[issue #65](https://github.com/ycpss91255-research/vendor_kit/issues/65)。
+- 機制不變：降版要先證明讀得回來，新寫法照舊適用。原文保留，不改寫歷史。
+
 ## Consequences
 
 - 版本組合不合在起容器之前就判得出來，也不必連上任何 registry：啟動器讀引擎 image 的 LABEL 就夠。

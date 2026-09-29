@@ -15,10 +15,10 @@
 
 ### 第一版
 
-- VK recipe 十一個 + `bootstrap.sh`；結束狀態 0/1/2；`--dry-run`、`-y`、`--porcelain`。
+- VK recipe 十一個 + `bootstrap.sh`；結束狀態 0/1/2/3；`--dry-run`、`-y`。
 - 初始檔逐檔狀態機（純文字基準版合併；二進位只比對不合併；symlink 第一版禁止）；基準版 + metadata。
 - `.vendor_kit/` 佈局、自有 `.gitignore`、根 `justfile` 一行。
-- `dev -p <dir>` 與 `dev vendor_kit -i <image>`；驗收 fixture repo 走完整流程；amd64 + arm64 原生 runner。
+- `dev <repo> -p <dir>` 與 `dev --engine -i <image>`；驗收 fixture repo 走完整流程；amd64 + arm64 原生 runner。
 - Renovate regex preset；`check.sh` 給 repo 的 CI 與工具 repo CI（`--dist`）。
 - 決議紀錄：proto 的 ADR-0001／0002 不搬回（內容綁原型實作與已作廢的詞，核心決定已改寫成 `doc/adr/` 的 0002–0012）；[`doc/decisions/review/02_invariants.md`](review/02_invariants.md) 列的「待寫 ADR」已全部落地。
 
@@ -38,6 +38,6 @@
 ### v2
 
 - `upgrade --adopt <file>`：把 `add` 時已存在、未納管的檔納入合併。
-- tracked 的 `.vendor_kit/files/<repo>/`，讓 compose／GitLab CI 這類「快取不進 git 就讀不到」的引用場景可行。
+- 進 git 的 `.vendor_kit/files/<repo>/`，讓 compose／GitLab CI 這類「快取不進 git 就讀不到」的引用場景可行。
 - 數位簽章／驗簽；多 registry；範本變數渲染——各自先有使用者需求證據（P6）再進範圍。
 - vendir 類下載後端：不採用（見 `../adr/0001-why-not-existing-tools.md`）；只在通過該檔 §5 的十項門檻後重評。

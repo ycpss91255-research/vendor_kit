@@ -56,7 +56,8 @@ install → add → upgrade → dev/undev → remove → uninstall
 - **Amendment status:** Accepted
 - 本檔所有 `dev vendor_kit -i …` 舊寫法，包括檔頭 Serves、第 1、5 節與 Consequences，一律讀作 `dev --engine -i …`。讓引擎改用本機 image 的指令改成 `dev --engine -i <image>`，反向是 `undev --engine`；工具的 `dev <repo> -p <dir>`、`undev <repo>` 不變。
 - 理由：原寫法在工具名稱的位置放保留名 `vendor_kit` 代表引擎，同一個位置有時是工具、有時是引擎。新寫法把對象（`--engine` 或 `<repo>`）與本機開發來源（`-i <image>` 或 `-p <dir>`）分開，這個位置不再兼指工具與引擎。出處：[issue #65](https://github.com/ycpss91255-research/vendor_kit/issues/65)。
-- 機制不變：`dev --engine -i <image>` 寫的仍是 `version.local.toml` 的引擎覆寫 `vendor_kit = "<本機 image tag>"`；第 5 節「指到舊引擎時允許跑、禁止重產薄殼」與第 6 節的擁有者分工，新寫法照舊適用。原文保留，不改寫歷史。
+- 本檔的 `<本機 image tag>`、`<本機 image>` 一律讀作 `<image>`；出處同上。
+- 機制不變：`dev --engine -i <image>` 寫的仍是 `version.local.toml` 的引擎覆寫 `vendor_kit = "<image>"`；第 5 節「指到舊引擎時允許跑、禁止重產薄殼」與第 6 節的擁有者分工，新寫法照舊適用。原文保留，不改寫歷史。
 
 ## Consequences
 
