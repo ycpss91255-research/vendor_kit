@@ -29,4 +29,5 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 
 - 架構圖與流程圖用 drawio MCP 編輯與匯出，**不要為此引入容器或要求主機裝第三方工具** —— 那會讓這個 repo 變複雜。注意「主機只需 Docker、Git、just」是 VK 對它的使用者的承諾（不變量 5），不是這個 repo 作者流程的限制，兩者不要混。
 - 圖的持久鍵是 `<diagram id>`，不是頁名也不是頁序。
+- drawio 只放架構圖與流程圖。指令表、介面表、選項表這類表格屬於文字檔，寫在 `README.md` 與對應的 issue，不畫進 drawio。
 - **畫或重畫一頁，一律跑 `diagram-page` workflow**（`.claude/workflows/diagram-page.js`）：子代理照規格逐格畫、自查版面，再交給 codex 只讀審查。主對話只寫規格、轉述結果，不自己動手畫。codex 的意見先給維護者看，不自動套用。
