@@ -1,10 +1,10 @@
-# 命名 workflow — 任務執行一律走這裡
+# 命名 workflow：任務執行一律走這裡
 
 多步驟、會派子代理的任務不要臨時寫一次性腳本，改用這個目錄下的**命名 workflow**：腳本固定當模板，每次只換一份 `args`。
 
 ## 為什麼不是 JSON
 
-看起來「任務流程」應該可以寫成一份 JSON 或 YAML，然後每次換內容就好。做不到，因為 Workflow 工具吃的是 JS 腳本，而腳本裡有兩種東西：
+「任務流程」看似可以寫成一份 JSON 或 YAML、每次只換內容。做不到，因為 Workflow 工具吃的是 JS 腳本，而腳本裡有兩種東西：
 
 - **不可參數化的部分**：控制流本身。哪幾組並行、誰的輸出餵給誰、哪些條件才進下一階段、結果怎麼彙整成回傳值。這些是程式，寫成資料就得再發明一套迷你語言。`meta` 雖然必須是純字面值（不可以有變數、函式呼叫、展開、模板字串插值），但它只是註冊資訊，不是流程。
 - **可參數化的部分**：`args`。要改哪些檔、每組子代理的任務描述、備份後綴、跑幾軌、effort 高低。這些每次都不一樣，而 `args` **就是 JSON**。
@@ -57,7 +57,7 @@ args 範例：
 ```json
 {
   "round": "r87",
-  "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 CONTEXT.md，審閱頁只剩 review/01_purpose.md 與 review/02_invariants.md。",
+  "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 CONTEXT.md，審閱頁是 review/01_purpose.md、review/02_invariants.md、review/03_interface.md。",
   "tasks": [
     {
       "key": "purpose",
@@ -85,7 +85,7 @@ args 範例：
 
 ## doc-review
 
-Claude 軌（多面向並行）與 codex 軌**同時**跑同一批 angle，最後一個代理交叉比對，只有兩邊都指出的才算結論。
+Claude 軌（多面向並行）與 codex 軌**同時**跑同一批 angle，最後一個代理交叉比對：雙軌共同指出的進 `agreed`；單軌提出但查證成立的分別進 `claude_only`／`codex_only`。
 
 args 欄位：
 
@@ -99,14 +99,14 @@ args 欄位：
 | `cross_check` | 否 | 預設 `true`。只跑一軌時沒有交叉比對 |
 | `effort` | 否 | `{ review, cross }` |
 
-codex 每個 angle 的原始輸出寫到 `doc/decisions/review_log/codex/<round>-<key>.md`（這是「不動 `review_log/`」的明示例外）。回傳 `{ round, tracks, claude, codex, cross }`；`cross.agreed` 才是結論，`claude_only`／`codex_only` 是單軌提出但查證成立的，`rejected` 附駁回理由。
+codex 每個 angle 的原始輸出寫到 `doc/decisions/review_log/codex/<round>-<key>.md`（這是「不動 `review_log/`」的明示例外）。回傳 `{ round, tracks, claude, codex, cross }`；雙軌共同指出的進 `cross.agreed`；單軌提出但查證成立的分別進 `cross.claude_only`／`cross.codex_only`；`rejected` 附駁回理由。
 
 args 範例：
 
 ```json
 {
   "round": "r87",
-  "background": "審閱頁只有兩頁：01_purpose.md（目的與承諾）、02_invariants.md（不變量）；名詞全在根 CONTEXT.md。",
+  "background": "審閱頁有三頁：01_purpose.md（目的與承諾）、02_invariants.md（不變量）、03_interface.md（使用者介面）；名詞全在根 CONTEXT.md。",
   "angles": [
     {
       "key": "terms",
@@ -154,7 +154,7 @@ args 範例：
 3. **禁止** `Date.now()`、`Math.random()`、無參數 `new Date()`，這些會讓 resume 壞掉。腳本裡沒有檔案系統與 Node API（要跑指令是叫子代理用 Bash）。
 4. `meta.phases` 的每個 `title` 要和腳本裡 `phase()` 或 `opts.phase` 傳的字串**一字不差**。phase 標題用中文，註解也用繁體中文。
 5. `args` 用解構取值並補預設；**缺必填欄位就 throw**，訊息講清楚缺什麼。
-6. **檔尾放一份可以直接貼進 `args` 的 JSON 範例**，並同步更新這份 README 的表與範例。
+6. **檔尾放一份可以直接貼進 `args` 的 JSON 範例**，並同步更新這份 README 的表與範例。這條沒有腳本檢查，改檔的人要自己對。
 7. 共用護欄要**組進 prompt**，不是只寫在註解裡。
 
 驗語法用 `node --check`，但要先把檔複製成 `.mjs`（直接對 `.js` 跑會被當 CJS，遇到 `export` 就誤報）。

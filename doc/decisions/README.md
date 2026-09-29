@@ -29,7 +29,7 @@
 |---|---|---|
 | `review_log/` | 審閱頁（01–03）的審閱往返：codex brief／output、Claude 子代理審查紀錄。舊輪次的子目錄已搬進 `_legacy/review_log/`。 | 審閱頁定案後就沒有讀者。見「待處理」。 |
 | `_backup/` | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`），`script/mark_changes.py` 靠它產生改動標示。 | 定案後只有 `mark_changes.py` 還需要最近一輪。見「待處理」。 |
-| `_marked/` | `mark_changes.py` 的輸出：新增綠底、被取代的舊文字紅底，給使用者審閱用。審閱頁與其他檔（例如 README）的標示版都收在這裡。已在 `.gitignore`，是產生物。 | 每輪重新產生，不需要保留。 |
+| `_marked/` | `mark_changes.py` 的輸出：新增綠底、被取代的舊文字紅底，給維護者審閱用。只有對外文件（根目錄 README.md 與審閱頁 01～03）產標示版；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產。已在 `.gitignore`，是產生物。 | 每輪重新產生，不需要保留。 |
 | `_legacy/` | 見下一段。 | 確認清楚之後刪。 |
 
 ## 已歸檔（`_legacy/`）
@@ -42,8 +42,8 @@
 | 介面規格 | `interface*.md`（含 185 KB 的 `interface_spec.md`）、`proposal_v1/v2.md`、`remaining.md` | spec 改走 GitHub issue，不留本地規格檔。節次編號（`§4.5`）只在檔內有意義。 |
 | 定案流水帳 | `grilling.md` | 逐題追問與定案紀錄。Q 編號只在檔內有意義；要引用當初的定案，寫日期加定案內容。 |
 | agy／codex 原始輸出 | `agy/`、`log/`、`review/codex_*`、`review_log/`（舊輪次：`codex_r2`–`codex_r9`、`codex_review`、`r12_codex`、`r13_codex`、`r15_codex`、`review_v1`，共 152 檔 59 MB） | 9/17–9/21 的雙軌審查往返，對象是已作廢的圖頁與舊版名詞。 |
-| 舊審閱頁 | `review/01-03_名詞與縮寫.md`、`review/04-05_不變量與角色.md`、`review/terms_moved.md`、`review/invariants_roles.md`、`review/verbs.md`、`review/CONTEXT.draft.md`、`review/legend_page.md`、`review/02_terms.md` | 前七份被現在的 01／02 兩頁取代；`02_terms.md`（名詞與縮寫）的內容已重寫進根 `CONTEXT.md`，本檔隨即退場。 |
-| 本輪剛歸檔 | `review/_changes_r63.md`（手寫對照表，已被 `script/mark_changes.py` 取代，內文用「導入根」舊名）、`review/_variants/`（承諾關係三種呈現草稿，已擇一定案）、`dist_distribution_notes.md`（主圖討論紀錄，用三方模型舊名詞） | 見括號。 |
+| 舊審閱頁 | `review/01-03_名詞與縮寫.md`、`review/04-05_不變量與角色.md`、`review/terms_moved.md`、`review/invariants_roles.md`、`review/verbs.md`、`review/CONTEXT.draft.md`、`review/legend_page.md`、`review/02_terms.md` | 前七份當時被 01／02 兩頁取代（歷史；現在審閱頁是 01～03）；`02_terms.md`（名詞與縮寫）的內容已重寫進根 `CONTEXT.md`，本檔隨即退場。 |
+| 後來補歸檔 | `review/_changes_r63.md`（手寫對照表，已被 `script/mark_changes.py` 取代，內文用「導入根」舊名）、`review/_variants/`（承諾關係三種呈現草稿，已擇一定案）、`dist_distribution_notes.md`（主圖討論紀錄，用三方模型舊名詞） | 見括號。 |
 | issue 草稿 | `issues/`（`close_*.md`、`d11`–`d13`、`reframe_14.md`）、`issue_deploy_split*.md` | 已貼上 GitHub，本地副本不同步。 |
 | 外部參考 | `wf/`（20 個上游 repo 的 GitHub Actions workflow）、`verify/`（ADR 抓取與 issue JSON） | 一次性取樣，要用再抓。 |
 | 圖檔審查產物 | `drawio_audit/`（9 個 `.drawio-audit-*` 目錄 + `files.zip`，35 MB） | draw.io 編輯期間的自動快照。**注意：`.gitignore` 的 `.drawio-audit-*/` 與 `files.zip` 兩條在新位置仍然生效，所以它們沒進 git，只留在工作區。** |
@@ -54,7 +54,7 @@
 
 **是什麼**：`dist_distribution.drawio`（主圖 12 頁，457 KB）與 `discussion.drawio`（77 頁，3.4 MB）。
 
-**為什麼卡住**：畫的是舊模型（舊名「三方角色」、「專案根」、「動詞」）。01／02 兩頁與根 `CONTEXT.md` 已改用新名詞，圖沒跟上。`AGENTS.md` 寫「架構圖不是插圖，是測試的依據……模組邊界與泳道由 lint 強制」，但那個 lint 還沒寫，所以現在圖與文字沒有任何機制擋住脫鉤。
+**為什麼卡住**：畫的是舊模型（舊名「三方角色」、「專案根」、「動詞」）。審閱頁 01～03 與根 `CONTEXT.md` 已改用新名詞，圖沒跟上。`AGENTS.md` 寫「架構圖不是插圖，是測試的依據……模組邊界與泳道由 lint 強制」，但那個 lint 還沒寫，所以現在圖與文字沒有任何機制擋住脫鉤。
 
 **選項**：(a) 依新名詞重畫（成本高：77 頁討論圖是產生器輸出，得先改產生器）；(b) 廢掉兩個檔，等實作階段需要時重畫需要的那幾頁；(c) 留在原位當歷史，檔頭標「舊模型，不要引用」，並把 `AGENTS.md` 那條「圖是測試依據」降級為「待重畫後生效」。
 
@@ -64,11 +64,11 @@
 
 **為什麼卡住**：依賴的圖頁已作廢（跟第 1 項綁在一起）。`verify_r15.py`、`verify_r16.py` 指向 `decisions/review/terms.md`，但這個檔早就不存在（名詞表現在是根 `CONTEXT.md`，而且不是逐字上圖了），兩支腳本現在跑起來必定失敗。
 
-**選項**：(a) 整個 `script/diagram/` 進 `_legacy/`；(b) 只留通用的四支（`extract_pages.py`、`lint_pages.py`、`shrink_png.py`、`drawio_common.py`）加 `review_v2_README.md`，其餘歸檔。注意 `diagram-review-v2` skill 的前置步驟就是跑前三支，留著它們才不會把 skill 弄壞；(c) 全留，只刪 `verify_r15/16.py` 這類明確壞掉的。
+**選項**：(a) 整個 `script/diagram/` 進 `_legacy/`；(b) 只留通用的四支（`extract_pages.py`、`lint_pages.py`、`shrink_png.py`、`drawio_common.py`）加 `review_v2_README.md`，其餘歸檔。已歸檔的 `diagram-review-v2` workflow 當時的前置步驟就是跑前三支；(c) 全留，只刪 `verify_r15/16.py` 這類明確壞掉的。
 
 `script/mark_changes.py` 不在此列，它是現在每輪都在用的工具，留。
 
-### 3. `doc/decisions/` 這個目錄本身 —— 已定
+### 3. `doc/decisions/` 這個目錄本身（已定）
 
 這個目錄刻意用來放對外契約、不變量、設計原則和範圍文件，不是過渡產物。對外契約放這裡、不放 issue：issue 不好追蹤改動，也做不了逐頁審與標示版差異。出處：`AGENTS.md`「決議與文件流程」。
 
@@ -86,7 +86,7 @@
 
 **為什麼卡住**：git 已經有完整歷史，這裡是重複的。但 `mark_changes.py` 的工作流程需要「上一輪的檔」而不是「某個 commit 的檔」，直接刪會讓現在正在用的審閱流程斷掉。
 
-**選項**：(a) 只留每個檔最新的一份快照，其餘刪；(b) 全部進 `_legacy/`，並改 `mark_changes.py` 從 `git show <ref>:<path>` 取舊版；(c) 兩頁定案後整個刪，那時 `mark_changes.py` 也不再需要。
+**選項**：(a) 只留每個檔最新的一份快照，其餘刪；(b) 全部進 `_legacy/`，並改 `mark_changes.py` 從 `git show <ref>:<path>` 取舊版；(c) 審閱頁 01～03 都定案後整個刪，那時 `mark_changes.py` 也不再需要。
 
 ### 6. `review_log/`
 
@@ -96,9 +96,9 @@
 
 **選項**：(a) 每輪寫一段結論摘要（採納／否決＋一句理由），原始往返進 `_legacy/`；(b) 全部進 `_legacy/`，接受「要查就去翻」；(c) 留在原位直到審閱頁定案。
 
-另外：`review_log/` 裡還留著 9/17–9/22 的舊輪次單檔（`codex_policy_*`、`r2_findings.txt`、`review_v2r2`–`review_v2r15_*`、`codex_brief_r16`–`r19`、`claude_r17_terms.md`，其中 `codex_out_r16.md` 一個檔 440 KB）。這輪只搬了子目錄，這些單檔沒動。要不要一起歸檔，一併決定。
+另外：`review_log/` 裡還留著 9/17–9/22 的舊輪次單檔（`codex_policy_*`、`r2_findings.txt`、`review_v2r2`–`review_v2r15_*`、`codex_brief_r16`–`r19`、`claude_r17_terms.md`，其中 `codex_out_r16.md` 一個檔 440 KB）。當時只搬了子目錄，這些單檔沒動；要不要一起歸檔，跟本項一起決定。
 
-### 7. proto 的 ADR-0001、0002 —— 已完成
+### 7. proto 的 ADR-0001、0002（已完成）
 
 **是什麼**：`doc/adr/README.md` 索引表原本註明兩份 ADR「在 `../proto/vendor_kit/doc/adr/`，待搬回」。
 
@@ -106,7 +106,7 @@
 
 **隨之改掉的**：索引表重建（只有本 repo 的 0001–0012，沒有 proto 的列）、`doc/agents/domain.md` 的「先去 proto 讀」整段刪除、`doc/decisions/scope_roadmap.md` 的「ADR-0001／0002 搬回」改成「不搬回」。
 
-### 8. `doc/agents/domain.md` 的檔案結構區塊 —— 已完成
+### 8. `doc/agents/domain.md` 的檔案結構區塊（已完成）
 
 `domain.md` 原本有一個 `## 檔案結構` 區塊，用樹狀圖列出 agent 該讀的檔，每次搬檔都會過時。已採選項 (b)：樹狀圖整段移除，只留「動手之前先讀這些」那四個檔。原先記的三處不對也隨之消失：`dist_distribution_notes.md` 那一行連同樹一起沒了；`CONTEXT.md` 現在不提 `discussion.drawio` 的頁數，`script/diagram/README.md` 的「77 頁」跟檔案實際頁數一致。
 

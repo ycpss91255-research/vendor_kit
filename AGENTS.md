@@ -11,12 +11,13 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 
 ## 決議與文件流程
 
-- **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
+- **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md`、`03_interface.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
 - 每個設計決議先在 issue 討論（中文）；定案後才寫 ADR。
-- ADR 放 `doc/adr/NNNN-<slug>.md`，檔案系統即登錄，不另立索引；必要段落由 lint 管，規則見 `doc/adr/README.md`。
+- **只有對外文件產標示版、送維護者審。** 對外文件是根目錄 [README](README.md) 與[審閱頁](doc/decisions/review/README.md) 01～03。其他都是內部文件（本檔、[工具說明](script/README.md)、[決議目錄說明](doc/decisions/README.md)、[workflow 說明](.claude/workflows/README.md)、[審閱頁說明](doc/decisions/review/README.md)、[ADR 規則](doc/adr/README.md) 等）：改完照樣走 doc-edit workflow，但不產標示版、不送審，而且不准留過時的資訊（已不用的做法、已不存在的檔）。只記錄歷史的句子可以留，但要寫明是歷史。
+- ADR 放 `doc/adr/NNNN-<slug>.md`，檔案系統是正式登錄；[ADR 規則](doc/adr/README.md)裡的表只是彙整檢視，不是另一份登錄。必要段落規則見 [ADR 規則](doc/adr/README.md)；lint 待寫。
 - 每份 ADR 檔頭一行 `> Serves:` 回連它建立或服務的東西：`doc/decisions/review/02_invariants.md` 的不變量、`doc/decisions/design_principles.md` 的設計原則，或 `doc/decisions/scope_roadmap.md` 的範圍項目。沒有回連的 ADR 幾次修改後就跟產品目標脫鉤，而且是靜默的。
 - 分工固定：ADR 記機制與理由；不變量頁只記「它必須永遠成立」。
-- 架構圖（`.drawio`）不是插圖，是測試的依據：圖上畫的模組邊界與泳道由 lint（import-linter、鏡射、黑箱）強制。沒有被測試強制的圖，幾次修改後就跟程式脫鉤，同樣是靜默的。
+- 架構圖（`.drawio`）不是插圖，是測試的依據：圖上畫的模組邊界與泳道預定由 lint（import-linter、鏡射、黑箱）強制，目前尚未實作。沒有被測試強制的圖，幾次修改後就跟程式脫鉤，同樣是靜默的。
 - 決議改動架構圖時，同一個 PR 一起更新圖。
 
 ## git 慣例
@@ -27,5 +28,5 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 
 ## 圖面
 
-- 架構圖與流程圖用 drawio MCP 編輯與匯出，**不要為此引入容器或要求主機裝第三方工具** —— 那會讓這個 repo 變複雜。注意「主機只需 Docker、Git、just」是 VK 對它的使用者的承諾（不變量 5），不是這個 repo 作者流程的限制，兩者不要混。
+- 架構圖與流程圖用 drawio MCP 編輯與匯出，**不要為此引入容器或要求主機裝第三方工具**：那會讓這個 repo 變複雜。注意「主機只需 Docker、Git、just」是 VK 對它的使用者的承諾（不變量 5），不是這個 repo 作者流程的限制，兩者不要混。
 - 圖的持久鍵是 `<diagram id>`，不是頁名也不是頁序。

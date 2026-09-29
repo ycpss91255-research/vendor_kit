@@ -23,12 +23,13 @@
 
 照順序做：
 
-1. **備份。** doc-edit workflow 要求執行者改檔前，先把原內容備份到 `doc/decisions/_backup/doc_decisions_review_<頁>.pre_<輪次>.md`。
-2. **改動。** 一律跑 [doc-edit workflow](/.claude/workflows/doc-edit.js)：改寫 → lint → codex 審查 → 套用必改 → 潤稿。
-3. **產生標示版。** 在 repo 根目錄跑 `python3 script/mark_changes.py <舊版後綴> <頁>`（[標示版產生器](/script/mark_changes.py)），輸出 `doc/decisions/_marked/<頁>.v<N>.marked.md`：綠底是新增，紅底是刪除或被取代的舊文字。版本號 N 記在 `doc/decisions/_marked/.<頁>.rev`，每產一次加一。
-4. **送審。** 把標示版送給維護者審。
+1. **改動。** 一律跑 [doc-edit workflow](/.claude/workflows/doc-edit.js)：改寫 → lint → codex 審查 → 套用必改 → 潤稿。workflow 在第一次修改前自行把原內容備份到 `doc/decisions/_backup/doc_decisions_review_<頁>.pre_<輪次>.md`，不用另外手動備份。
+2. **產生標示版。** 在 repo 根目錄跑 `python3 script/mark_changes.py <舊版後綴> <頁>`（[標示版產生器](/script/mark_changes.py)），輸出 `doc/decisions/_marked/<頁>.v<N>.marked.md`：綠底是新增，紅底是刪除或被取代的舊文字。版本號 N 記在 `doc/decisions/_marked/.<頁>.rev`，每產一次加一。
+3. **送審。** 把標示版送給維護者審。
 
-README 這類說明文件也照同一套產生標示版與版本號：備份檔名用攤平後的路徑，產生時傳相對 repo 根目錄的路徑，例如 `python3 script/mark_changes.py pre_r91 doc/decisions/review/README.md`；新建的檔基準後綴寫 `new`，整份標成新增。標示版與版本號的鍵是攤平後的路徑，例如 `doc/decisions/_marked/doc_decisions_review_README.v<N>.marked.md`，用法見[工具說明](/script/README.md)。
+審閱頁以外，只有根目錄 [README](/README.md) 是對外文件，也照同一套產生標示版與版本號：產生時傳相對 repo 根目錄的路徑，例如 `python3 script/mark_changes.py pre_r91 README.md`，輸出 `doc/decisions/_marked/README.v<N>.marked.md`，用法見[工具說明](/script/README.md)。
+
+內部文件（本檔、[工作約定](/AGENTS.md)、[工具說明](/script/README.md)、[ADR 規則](/doc/adr/README.md) 等）改完照樣走步驟 1（doc-edit），但不產標示版、不送審；也不准留過時的資訊。
 
 `doc/decisions/_marked/` 與 `doc/decisions/_backup/` 只在本機，不進 git（見[忽略清單](/.gitignore)），所以版本號與標示版要在本機看。正式的改動紀錄是 git 的 commit 歷史。
 

@@ -1,8 +1,8 @@
 # script — 審閱與圖面工具
 
-## 審閱頁的改動標示（`mark_changes.py`）
+## 對外文件的改動標示（`mark_changes.py`）
 
-審閱頁（`doc/decisions/review/0N_*.md`）每改一輪，就產一份標示版讓人只看差異：新增文字用綠底 `<mark>`；刪除或被取代的舊文字用紅底 `<mark>`。標示版只在本機審閱用、不進 git（`doc/decisions/_marked/` 在 `.gitignore` 裡），所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；審完只留最終版。
+對外文件（審閱頁 `doc/decisions/review/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增文字用綠底 `<mark>`；刪除或被取代的舊文字用紅底 `<mark>`。標示版只在本機審閱用、不進 git（`doc/decisions/_marked/` 在 `.gitignore` 裡），所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；審完只留最終版。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
 
 ### 一輪的流程
 
@@ -13,7 +13,7 @@
       doc/decisions/_backup/doc_decisions_review_02_invariants.pre_r65.md
    ```
 
-   備份檔名是**把路徑攤平**（`/` 換成 `_`）加上 `.pre_<後綴>`。所有檔都用這套命名，不限審閱頁；`doc-apply` workflow 的護欄也照這個規則。
+   備份檔名是**把路徑攤平**（`/` 換成 `_`、去掉開頭的點）加上 `.pre_<後綴>`。所有檔都用這套命名，不限審閱頁；`doc-apply` workflow 的護欄也照這個規則。
 
 2. **改**（派子代理做，主對話只協調）。
 
@@ -23,14 +23,15 @@
    python3 script/mark_changes.py pre_r65 01_purpose 02_invariants
    ```
 
-   要在 repo 根目錄執行。審閱頁傳頁名（不含 `.md`）；其他檔傳相對 repo 根目錄的路徑，例如 `README.md`、`doc/decisions/review/README.md`；新建的檔沒有舊版，基準後綴寫 `new`，整份標成新增：
+   要在 repo 根目錄執行。審閱頁傳頁名（不含 `.md`）；根目錄 README 傳相對 repo 根目錄的路徑 `README.md`：
 
    ```sh
    python3 script/mark_changes.py pre_r91 README.md
-   python3 script/mark_changes.py new doc/decisions/review/README.md
    ```
 
-   所有檔的標示版都輸出到 `doc/decisions/_marked/<鍵>.v<N>.marked.md`。鍵對審閱頁是頁名（例如 `03_interface`），對其他檔是攤平後的路徑（`/` 換成 `_`、去掉 `.md`，例如 `doc/decisions/review/README.md` 的鍵是 `doc_decisions_review_README`）。`<N>` 每跑一次加一（版本號記在 `doc/decisions/_marked/.<鍵>.rev`），舊的那份會被刪掉，所以交出去的永遠是最新版、而且看檔名就分得出新舊。後綴就是步驟 1 用的那個，決定「跟哪一版比」。
+   新建的頁沒有舊版，基準後綴寫 `new`，整份標成新增。
+
+   所有對外文件的標示版都輸出到 `doc/decisions/_marked/<鍵>.v<N>.marked.md`。鍵對審閱頁是頁名（例如 `03_interface`），對其他檔是攤平後的路徑（`/` 換成 `_`、去掉 `.md` 與開頭的點，所以 `README.md` 的鍵是 `README`）。`<N>` 每跑一次加一（版本號記在 `doc/decisions/_marked/.<鍵>.rev`），舊的那份會被刪掉，所以交出去的永遠是最新版、而且看檔名就分得出新舊。後綴就是步驟 1 用的那個，決定「跟哪一版比」。
 
 4. **基準永遠是審閱者上次看過的那一版**，不是最舊的那一版。他看過並回饋之後，下一輪的後綴就換成他讀的那一版。已經討論完的段落不該再標成新改動，紅綠色只留給他還沒看過的。
 
