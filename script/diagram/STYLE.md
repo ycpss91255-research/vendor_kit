@@ -23,10 +23,10 @@ style 字串都是完整的，直接貼進 `<mxCell style="...">`。
 
 模組、repo、外部角色這一層用泳道。標題列高 38、字 18 粗體、黑框 2。
 
-紅：VK 要開發的模組
+深紫加紅框：VK 的容器（例如引擎）。紅框表示 VK 開發的，填色表示類型
 
 ```
-swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#f8cecc;swimlaneFillColor=#ffffff;strokeColor=#000000;strokeWidth=2;
+swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#c9b8e8;swimlaneFillColor=#ffffff;strokeColor=#b85450;strokeWidth=2;
 ```
 
 綠：使用 VK 的 repo
@@ -41,10 +41,16 @@ swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;colla
 swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#FFF4C3;swimlaneFillColor=#ffffff;strokeColor=#000000;strokeWidth=2;
 ```
 
-紫：image／container（框線用紫，不用黑）
+淡紫：image（框線用紫，不用黑）
 
 ```
 swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#e1d5e7;swimlaneFillColor=#ffffff;strokeColor=#9673a6;strokeWidth=2;
+```
+
+深紫：不是 VK 開發的容器（框線用紫）
+
+```
+swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#c9b8e8;swimlaneFillColor=#ffffff;strokeColor=#7e57c2;strokeWidth=2;
 ```
 
 淺灰：分組（無狀態意義；流程頁的情境分組也用它）
