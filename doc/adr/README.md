@@ -53,4 +53,4 @@ vendor_kit 的架構決議紀錄（Architecture Decision Record）索引，以�
 
 ## 待拍板（不寫 ADR，直到定案）
 
-`doc/decisions/review/02_invariants.md` 與 `doc/decisions/scope_roadmap.md` 內標「> ⚠ 待拍板」的項目：宣告檔名（`version.toml` vs `lock.toml`）、`just` 最低版本、dist image 單架構 amd64、衝突時 baseline 是否推到新版、Renovate 路徑由 PR 作者本機補合併、多命名空間工具、image 公開／私有、`.gitignore` 類初始檔。每項定案後併入上表對應主題的 ADR，或獨立成一份。
+`doc/decisions/review/02_invariants.md` 與 `doc/decisions/scope_roadmap.md` 內標「> ⚠ 待拍板」的項目：宣告檔名（`version.toml` vs `lock.toml`）、`just` 最低版本、dist image 單架構 amd64、Renovate 路徑由 PR 作者本機補合併、多命名空間工具、image 公開／私有、`.gitignore` 類初始檔。每項定案後併入上表對應主題的 ADR，或獨立成一份。
