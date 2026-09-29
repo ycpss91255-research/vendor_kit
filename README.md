@@ -6,11 +6,23 @@ vendor_kit（VK）把一套工具送進很多個 repo，例如開發環境設定
 
 ### 主機需求
 
-- Docker 19.03 以上；不支援 Podman
-- Git
-- just 1.33.0 以上，用 GitHub release 下載的版本
+- [Docker](https://www.docker.com/)
+  - 19.03 以上
+  - 不支援 Podman
+- [Git](https://git-scm.com/)
+  - 不設最低版本
+  - VK 不呼叫 git
+  - 「安裝目錄在 git repo 裡」由啟動器用 sh 往上找 `.git` 判斷
+- [just](https://github.com/casey/just)
+  - 1.33.0 以上
+  - 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest)
 
-版本不足時，在任何寫入之前以 `1` 結束，並印出安裝指令。出處：[ADR-0007](doc/adr/0007-host-thin-layer-and-shell-integrity.md) §1；[不變量](doc/decisions/review/02_invariants.md)第 5 條。
+版本不足時：
+
+- 在任何寫入之前以 `1` 結束
+- 印出安裝指令
+
+出處：[ADR-0007](doc/adr/0007-host-thin-layer-and-shell-integrity.md) §1；[不變量](doc/decisions/review/02_invariants.md)第 5 條；Git 見 [issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。
 
 ### 第一次導入
 
@@ -38,7 +50,8 @@ sh bootstrap.sh
   dev --engine -i <image>     讓引擎改用本機 image
 ```
 
-進階指令、選項與結束碼見[使用者介面](doc/decisions/review/03_interface.md)。
+- 每個指令都支援 `-h`／`--help`，印出該指令的用法
+- 進階指令、選項與結束碼見[使用者介面](doc/decisions/review/03_interface.md)
 
 ## 文件
 

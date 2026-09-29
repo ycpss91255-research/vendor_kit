@@ -72,6 +72,17 @@ VK 在主機上只留一層很薄的東西：啟動器把事情叫起來，規�
 - 理由：統一 just 指令的寫法，對象是引擎時一律用 `--engine`。出處：[issue #65](https://github.com/ycpss91255-research/vendor_kit/issues/65)。
 - 機制不變：薄殼重產的唯一觸發、救援路徑永久可用，新寫法照舊適用。原文保留，不改寫歷史。
 
+### 修訂（2026-09-30）
+
+- **Amendment status:** Accepted
+- 「安裝目錄在 git repo 裡」由啟動器以 POSIX sh 從安裝目錄往上找 `.git` 判斷。`.git` 是目錄或檔案都算，所以 worktree 與 submodule 也涵蓋。
+- 第 2 節的命令白名單不變。主機不呼叫 git，所以主機需求的 Git 不設最低版本。
+- 第 7 節救援路徑裡的 `help` 改成「印用法」，`help` recipe 已拿掉（見 [ADR-0004](0004-vk-recipe-interface-and-write-boundary.md) 的修訂（2026-09-30））。永久可用的印用法只限下面這幾種確切形狀：
+  - `just vendor_kit`（不帶指令）：印出用法，以 1 結束
+  - 其他三條救援路徑自己的 `-h`／`--help`：`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）
+  - 其他 recipe 的 `-h`／`--help` 不在救援路徑內：版本組合不合時照一般 recipe 處理，乾淨回 3 + 6-36、零寫入
+- 出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。原文保留，不改寫歷史。
+
 ## Consequences
 
 - 主機只要備 Docker、Git、just；版本不足或裝的是 Podman，在第一次寫入之前就停下，錯誤訊息裡有可以照做的指令。

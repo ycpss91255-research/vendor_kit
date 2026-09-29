@@ -1,6 +1,6 @@
 # ADR-0004：VK recipe 一行轉發、寫入邊界，與 CI 模式的封閉紅燈清單
 
-> Serves: 機制（服務不變量 8、3、4），不建立不變量——本檔記錄 VK recipe 的轉發形狀與分組、每個 recipe 能寫什麼（CI 模式判定與五項封閉紅燈清單）、進度檔與入口檔的原子替換順序，以及 `sync` 三種情境的處置，是[不變量 8「使用者介面極少；recipe 語意固定」](../decisions/review/02_invariants.md#8-使用者介面極少recipe-語意固定)、[不變量 3「自動化只碰不進 git 的東西」](../decisions/review/02_invariants.md#3-自動化只碰不進-git-的東西)與[不變量 4「永不靜默失敗」](../decisions/review/02_invariants.md#4-永不靜默失敗)的共同機制。
+> Serves: 機制（服務不變量 8、3、4），不建立不變量——本檔記錄 VK recipe 的轉發形狀與分組、每個 recipe 能寫什麼（CI 模式判定與五項封閉紅燈清單）、進度檔與入口檔的原子替換順序，以及 `sync` 三種情境的處置，是[不變量 8「使用者介面極少、寫法一致；recipe 語意固定」](../decisions/review/02_invariants.md#8-使用者介面極少寫法一致recipe-語意固定)、[不變量 3「自動化只碰不進 git 的東西」](../decisions/review/02_invariants.md#3-自動化只碰不進-git-的東西)與[不變量 4「永不靜默失敗」](../decisions/review/02_invariants.md#4-永不靜默失敗)的共同機制。
 
 - **Status:** Accepted
 
@@ -16,7 +16,7 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
 
 ### 1. 轉發形狀與分組
 
-- 每個 recipe 一行 `<recipe> *args` 轉發、放進 git 的 `vendor.just`（進了 git 才有 fresh clone 的入口，見第 6 條）
+- 每個 recipe 一行 `<recipe> *args` 轉發、放進 git 的 `vendor.just`（進了 git 才有 fresh clone 的入口；`vendor.just` 屬於進 git 的薄殼五檔，見[不變量 6「引擎版本由安裝目錄鎖定；啟動器不判斷 repo 內容的意義」](../decisions/review/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)）
 - `[group('常用')]` 與 `[group('進階')]` 分段
 - `help` recipe 補命名空間層說明
 
@@ -53,6 +53,16 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
   - 「快取逐檔指紋驗不過」→ 重裝並 warn
 
 第三種完全落在 `cache/` 內，那是 VK 自己的本機資源，所以 `sync` 重裝它不違反寫入邊界。
+
+### 修訂（2026-09-30）
+
+- **Amendment status:** Accepted
+- 拿掉 `help` recipe。第 1 節「`help` recipe 補命名空間層說明」與 Consequences 裡的「加上 `help`」不再適用。
+- 說明改由兩件事處理：
+  - 每個 recipe 都支援 `-h`／`--help`
+  - 不帶指令（只輸入 `just vendor_kit`）與缺必要參數都算錯誤，印出用法並以 1 結束
+- 理由：說明只留一種寫法，不另開一個指令（不變量 8 的 U5）。出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。
+- 原文保留，不改寫歷史。
 
 ## Consequences
 
