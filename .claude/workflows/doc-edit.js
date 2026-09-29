@@ -48,7 +48,7 @@ const GUARDRAILS = `硬性規則（違反就算這輪失敗）：
 1. 不 commit、不 push、不跑任何 git 寫入指令（含 add、checkout、reset、stash）。唯讀的 git status／diff 可以。
 2. 只准動這幾個檔：
 ${FILES}
-3. 改前先備份到 ${repo}/doc/decisions/_backup/，命名 <路徑攤平>.pre_${round}.<ext>；同名已存在就在副檔名前加序號。
+3. 改前先備份到 ${repo}/doc/decisions/_backup/，命名 <鍵>.pre_${round}.md。<鍵>：相對 repo 根目錄的路徑，去掉 .md、/ 換成 _、去掉開頭的點（例如 .claude/workflows/README.md → claude_workflows_README；跟 script/mark_changes.py 同一套）。同名已存在就在 .md 前加序號（.pre_${round}.2.md）；不帶序號的那份一定是這一輪改之前的原檔。
 4. 驗證一律用腳本算，不要目視判斷「看起來對」。
 5. 名詞照 ${repo}/CONTEXT.md；_Avoid_ 詞不准出現。名詞底線用 <ins>，不用 <u>（GitHub 會刪掉 <u>）。
 6. 連結要是有名字的超連結（[名字](路徑)），不要把路徑當連結文字；路徑要實際存在。`
