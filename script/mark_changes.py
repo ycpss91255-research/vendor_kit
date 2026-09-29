@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """產生審閱頁的標示版：新增綠底、被取代的舊文字紅底。
 
-底線 <u> 是名詞標記，所以改動不用底線，避免兩種意思混在一起。
+底線 <ins> 是名詞標記，所以改動不用底線，避免兩種意思混在一起。
 
 用法：
     python3 script/mark_changes.py <舊版後綴> <檔名…>
@@ -106,7 +106,7 @@ def build(name: str, suffix: str) -> tuple[int, int]:
                 ins += 1
     rev = next_rev(name)
     header = [
-        f"<!-- 標示版 v{rev}：綠底是新文字、紅底是被取代的舊文字；底線 <u> 是名詞標記；本檔只供本地 review，不進 git；"
+        f"<!-- 標示版 v{rev}：綠底是新文字、紅底是被取代的舊文字；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
         f"基準 {suffix}。正式內容看 ../{name}.md -->",
         "",
     ]
