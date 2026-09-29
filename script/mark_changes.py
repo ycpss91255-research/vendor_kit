@@ -79,7 +79,8 @@ def target(name: str) -> tuple[pathlib.Path, str]:
     """
     if "/" in name or name.endswith(".md"):
         path = pathlib.Path(name)
-        return path, str(path.with_suffix("")).replace("/", "_")
+        # 開頭的點要去掉，否則 .claude/… 會攤平成隱藏檔
+        return path, str(path.with_suffix("")).replace("/", "_").lstrip(".")
     return REVIEW / f"{name}.md", name
 
 
@@ -91,9 +92,10 @@ def backup_path(name: str, suffix: str) -> pathlib.Path:
     """
     path, key = target(name)
     if key != name:  # 以路徑指定的檔：備份就是攤平後的路徑
-        flat = BACKUP / f"{key}.{suffix}.md"
-        if flat.exists():
-            return flat
+        # 備份檔也可能照原路徑攤平、保留開頭的點（例如 .claude_workflows_README），兩種都認
+        for flat in (BACKUP / f"{key}.{suffix}.md", BACKUP / f".{key}.{suffix}.md"):
+            if flat.exists():
+                return flat
         raise SystemExit(f"找不到 {name} 的基準版：{flat}\n改檔之前要先備份，命名見 script/README.md。")
     flat = BACKUP / f"doc_decisions_review_{name}.{suffix}.md"
     nested = BACKUP / "review" / f"{name}.{suffix}.md"
