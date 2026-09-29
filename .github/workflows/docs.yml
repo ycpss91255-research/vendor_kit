@@ -1,6 +1,7 @@
-name: doc-lint
+name: docs
 
-# 文件 lint：名詞（_Avoid_ 詞、<u> 標籤）與 CONTEXT.md 格式。任何一支失敗，PR 就不過。
+# 文件類的檢查都放這支，一種檢查一個 job。程式碼 lint 之後放 lint.yml，測試放 test.yml。
+# 不加 paths 過濾：這些 job 會設成 ruleset 的必過檢查，被過濾跳過的必過檢查會一直停在 Pending，PR 就 merge 不了。
 on:
   pull_request:
   push:
@@ -10,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  lint:
+  docs-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
