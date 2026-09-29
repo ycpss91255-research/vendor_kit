@@ -18,6 +18,7 @@
 不再是合法的表格列，GitHub 與 VS Code 都會把表格切斷。
 """
 import difflib
+import json
 import re
 import pathlib
 import sys
@@ -25,6 +26,8 @@ import sys
 REVIEW = pathlib.Path("doc/decisions/review")
 BACKUP = pathlib.Path("doc/decisions/_backup")
 MARKED = pathlib.Path("doc/decisions/_marked")
+# 各鍵最後產出的版本號；進 git（_marked/ 不進 git）
+VERSIONS = pathlib.Path("doc/decisions/review_log/versions.json")
 
 
 def mark(body: str, tag: str) -> str:
@@ -61,23 +64,17 @@ def wrap(line: str, tag: str) -> str:
     return f"{prefix}{mark(body, tag)}"
 
 
-def next_rev(name: str, path: pathlib.Path) -> int:
-    """下一個版本號：取本機 .rev 與正式檔檔頭「> 版本 v<N>」兩者較大的再加一。
+def next_rev(name: str) -> int:
+    """下一個版本號：取 VERSIONS 裡這個鍵的號碼加一，並寫回。
 
-    .rev 不進 git，換電腦或新 clone 會不見；檔頭的版本號跟著 git 走，所以兩邊都看，
-    編號才不會從 v1 重來。
+    VERSIONS 進 git，換電腦或新 clone 也接得上；版本號只放在 _marked/ 的檔名，
+    正式檔裡不寫（檔名已經說了是哪一版）。
     """
-    f = MARKED / f".{name}.rev"
-    local = int(f.read_text().strip()) if f.exists() else 0
-    stamped = 0
-    if path.exists():
-        for ln in path.read_text().splitlines():
-            m = VERSION_LINE.match(ln)
-            if m:
-                stamped = max(stamped, int(m.group(1)))
-    n = max(local, stamped) + 1
-    MARKED.mkdir(parents=True, exist_ok=True)
-    f.write_text(str(n))
+    table = json.loads(VERSIONS.read_text()) if VERSIONS.exists() else {}
+    n = int(table.get(name, 0)) + 1
+    table[name] = n
+    VERSIONS.parent.mkdir(parents=True, exist_ok=True)
+    VERSIONS.write_text(json.dumps(table, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return n
 
 
@@ -119,34 +116,10 @@ def backup_path(name: str, suffix: str) -> pathlib.Path:
     )
 
 
-VERSION_LINE = re.compile(r"^> 版本 v(\d+)$")
-
-
-def stamp(path: pathlib.Path, rev: int) -> None:
-    """把「> 版本 v<N>」寫進正式檔：放在第一個 # 標題的下一段，已有就換掉。
-
-    討論中的草稿只改在討論分支，main 上是定案版；檔頭的版本號跟同編號的標示版對齊，
-    打開任何一份都知道它是哪一版。
-    """
-    lines = path.read_text().splitlines()
-    lines = [ln for ln in lines if not VERSION_LINE.match(ln)]
-    # 拿掉之前可能留下的空行重複
-    for i, ln in enumerate(lines):
-        if ln.startswith("# "):
-            while i + 1 < len(lines) and lines[i + 1] == "" and i + 2 < len(lines) and lines[i + 2] == "":
-                del lines[i + 1]
-            lines[i + 1:i + 1] = ["", f"> 版本 v{rev}"]
-            break
-    path.write_text("\n".join(lines) + "\n")
-
-
 def build(name: str, suffix: str) -> tuple[int, int]:
     path, key = target(name)
     # 基準後綴寫 new 表示這個檔是新建的：沒有舊版，整份都標成新增
     old = [] if suffix == "new" else backup_path(name, suffix).read_text().splitlines()
-    # 先寫入版本號再比對：標示版、正文副本、正式檔三份的檔頭才會是同一個 v<N>
-    rev = next_rev(key, path)
-    stamp(path, rev)
     new = path.read_text().splitlines()
     out = []
     ins = dele = 0
@@ -164,6 +137,8 @@ def build(name: str, suffix: str) -> tuple[int, int]:
             out.append(wrap(line, "ins"))
             if line.strip():
                 ins += 1
+    rev = next_rev(key)
+    MARKED.mkdir(parents=True, exist_ok=True)
     header = [
         f"<!-- 標示版 v{rev}：綠底是新文字、紅底是被取代的舊文字；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
         f"基準 {suffix}。正式內容看 /{path.as_posix()} -->",
