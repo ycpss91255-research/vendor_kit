@@ -39,7 +39,7 @@
    - 版本號 N 取 [版本號紀錄](../decisions/review_log/versions.json)（`doc/decisions/review_log/versions.json`，進 git）裡這個鍵的數字加一並寫回，沒有記錄就是 v1。它跟著 git 走，所以換電腦、新 clone 或清掉 `_marked/` 之後不會從 v1 重來。
 
    鍵對審閱頁是頁名，對其他檔是攤平後的路徑，規則見[工具說明](../../script/README.md)。
-4. **送審。** 用 SendUserFile 把 `<鍵>.vN.md` 與 `<鍵>.vN.marked.md` 兩個檔一起傳給維護者。不傳沒帶版本號的正式檔：看檔名就要知道是哪一版，不用打開才知道。
+4. **送審。** 用 SendUserFile 把 `<鍵>.vN.md` 與 `<鍵>.vN.marked.md` 兩個檔一起傳給維護者。打包用 [`script/pack_review.py`](../../script/pack_review.py)，檔名 `review_vN.zip`。不傳沒帶版本號的正式檔：看檔名就要知道是哪一版，不用打開才知道。
 
 內部文件（本檔、[工作約定](../../AGENTS.md)、[工具說明](../../script/README.md)、[ADR 規則](../adr/README.md) 等，也就是對外文件以外的所有文件）改完照樣走步驟 2 (doc-edit)，但不產標示版、不送審；也不准留過時的資訊。
 

@@ -62,6 +62,18 @@ CSV 的逐碼差異：新舊兩版依 `code` 對齊、逐欄比較，每個有�
 
 CSV 的基準版是 `doc/decisions/_backup/doc_contract_03_messages.<後綴>.csv`，攤平規則跟 `.md` 相同，只差副檔名。兩個檔只有一個有基準版時，另一個視為這一輪沒改；CSV 沒有基準版、也不在 git 的 `HEAD` 裡時，視為新建、整份標新增。這兩種情況都會印在輸出，也寫在標示版開頭。兩個都沒有基準版就停下。基準後綴寫 `new` 時，兩個檔都整份標新增。
 
+## 送審打包（`pack_review.py`）
+
+把要送審的標示版打包成一個 zip，檔名一律是 `review_v<N>.zip`：
+
+```sh
+python3 script/pack_review.py --note <審閱說明.md> --out <目錄> 03_messages 04_interface GLOSSARY.md
+```
+
+在 repo 根目錄執行，頁鍵的寫法跟 `mark_changes.py` 相同。每個鍵取 `doc/decisions/_marked/` 裡 `versions.json` 記的那一版：`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.md`，有 `<鍵>.v<N>.csv` 也一起放。缺檔或 `versions.json` 沒有這個鍵就停下報錯，不取號。zip 的 N 是 `versions.json` 的 `review_zip` 加一並寫回；zip 內檔名不帶目錄，有 `--note` 時審閱說明排第一個。沒給 `--out` 就放在系統暫存目錄，不寫進 repo。跑完印出 zip 路徑與內容清單。本工具只打包，標示版照舊由 `mark_changes.py` 產生。
+
+版號遞增、內容與缺檔報錯由 [pack_review 測試](test/test_pack_review.py) 涵蓋。
+
 ## 訊息表自檢（`check_messages.py`）
 
 `doc/contract/03_messages.csv` 是每個原因代碼的唯一出處（#122）。改了 CSV、03 頁的長說明節，或其他頁引用代碼的地方就跑：
