@@ -7,20 +7,16 @@
 1. 格式：每列欄數相同、用 csv 模組以 strict 解析；欄位頭尾不准空白；
    不准以 =、+、-、@、Tab、CR 開頭（Excel 公式注入）。
 2. 代碼：VK 加四位數字；從 VK0001 起逐列加一（唯一、遞增、不缺列；停用的留列）。
-3. status 只准 active、retired；retired 列除 code、status、situation、note 外都要空白。
+3. status 只准 active、retired；retired 列除 code、status、situation 外都要空白。
 4. active 列：level 只准 warn、error、fatal；situation、message 必填。
 5. disposition 只准「需人處理」「失敗」或空白；warn 一律空白；需人處理必有 next_step；失敗的 next_step 必須空白。
 6. next_step 有值時必須逐字出現在 message 裡。
 7. 欄位不准 HTML 與 Markdown；不帶屬性的 <…> 算占位符；< 與 > 要成對。
-8. invariant：空白，或 02 的條號（`## N.` 標題），多個用 ; 分隔、遞增。
-9. details：空白，或 `03_messages.md#vknnnn`（只准等於本列代碼）；跟 03_messages.md 的
-   `### VKnnnn` 節一一對應。
-10. 引用：README.md、doc/contract/*.md、GLOSSARY.md 裡的每個 VKnnnn 都要在 CSV 且是 active；
-    doc/adr/*.md 只要求存在。連結文字是代碼時：目標是 03_messages.csv 不准帶 #；
-    目標是 03_messages.md 時錨點要是 #vknnnn、跟連結文字同一個代碼、該列 details 指同一個目標。
-    01、02 不准連 CSV。
+8. 引用：README.md、doc/contract/*.md、GLOSSARY.md 裡的每個 VKnnnn 都要在 CSV 且是 active；
+   doc/adr/*.md 只要求存在。連 03_messages.csv 不准帶 #；連結文字是代碼時不准連 03_messages.md
+   （03_messages.md 不放逐碼內容，一律連 CSV）。01、02 不准連 CSV。
 
-指令寫法（CSV 的 message、next_step、note 裡的 `just vendor_kit …`）由 check_review_pages.py 檢查。
+指令寫法（CSV 的 message、next_step 裡的 `just vendor_kit …`）由 check_review_pages.py 檢查。
 錯誤位置報 `<檔>:<代碼>:<欄名>`，不報實體行號。CSV 還不存在時跳過並印 OK。
 
 用法：python3 script/check_messages.py（在 repo 根目錄跑；有問題以 1 結束）
@@ -35,11 +31,11 @@ ROOT = pathlib.Path(".")
 REVIEW = ROOT / "doc/contract"
 CSV_PATH = REVIEW / "03_messages.csv"
 MD_PATH = REVIEW / "03_messages.md"
-FIELDS = ["code", "status", "level", "disposition", "situation", "message", "next_step", "note", "invariant", "details"]
+FIELDS = ["code", "status", "level", "disposition", "situation", "message", "next_step"]
 STATUS = {"active", "retired"}
 LEVELS = {"warn", "error", "fatal"}
 DISPOSITIONS = {"需人處理", "失敗", ""}
-RETIRED_KEEP = {"code", "status", "situation", "note"}
+RETIRED_KEEP = {"code", "status", "situation"}
 CODE = re.compile(r"^VK\d{4}$")
 CODE_ANY = re.compile(r"(?<![A-Za-z0-9])VK\d{4}(?!\d)")
 BOM = "﻿"
@@ -59,7 +55,6 @@ MARKDOWN = (
     (re.compile(r"(?m)^(#{1,6}\s|[-*+]\s|>\s|\d+\.\s)"), "行首的標題、清單或引言記號"),
 )
 LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
-FENCE = re.compile(r"^\s*(```|~~~)")
 
 
 def rel(path: pathlib.Path) -> str:
@@ -131,42 +126,8 @@ def html_in(value: str) -> list[str]:
     return found
 
 
-def invariant_numbers(errors: list[str]) -> set[int]:
-    pages = sorted(REVIEW.glob("02_*.md"))
-    if not pages:
-        errors.append(f"{rel(REVIEW)}: 找不到 02 不變量頁，無法檢查 invariant")
-        return set()
-    return {int(m.group(1)) for m in re.finditer(r"(?m)^##\s+(\d+)\.", pages[0].read_text())}
-
-
-def detail_sections(errors: list[str]) -> dict[str, int]:
-    """03_messages.md 的 `### VKnnnn` 節：代碼 → 行號。標題只准寫代碼，錨點才會是 #vknnnn。"""
-    out: dict[str, int] = {}
-    if not MD_PATH.exists():
-        return out
-    fenced = False
-    for i, line in enumerate(MD_PATH.read_text().splitlines(), 1):
-        if FENCE.match(line):
-            fenced = not fenced
-            continue
-        if fenced:
-            continue
-        m = re.match(r"^###\s+(.*?)\s*$", line)
-        if not m or not re.match(r"VK\d{4}", m.group(1)):
-            continue
-        code = m.group(1)
-        if not CODE.match(code):
-            errors.append(f"{rel(MD_PATH)}:{i}: 長說明節的標題只寫代碼（`### VKnnnn`），錨點才會是 #vknnnn")
-            continue
-        if code in out:
-            errors.append(f"{rel(MD_PATH)}:{i}: {code} 的長說明節重複")
-        out[code] = i
-    return out
-
-
 def check_rows(rows: list[dict[str, str]], errors: list[str]) -> dict[str, dict[str, str]]:
     where = rel(CSV_PATH)
-    invariants = invariant_numbers(errors)
     by_code: dict[str, dict[str, str]] = {}
     for n, row in enumerate(rows, 1):
         code = row["code"]
@@ -203,7 +164,7 @@ def check_rows(rows: list[dict[str, str]], errors: list[str]) -> dict[str, dict[
         if status == "retired":
             for f in FIELDS:
                 if f not in RETIRED_KEEP and row[f]:
-                    errors.append(f"{at}:{f}: retired 列只留 code、status、situation、note，這欄要清空")
+                    errors.append(f"{at}:{f}: retired 列只留 code、status、situation，這欄要清空")
             continue
         if status == "active":
             if level not in LEVELS:
@@ -220,28 +181,6 @@ def check_rows(rows: list[dict[str, str]], errors: list[str]) -> dict[str, dict[
             errors.append(f"{at}:next_step: 失敗的 next_step 必須空白")
         if row["next_step"] and row["next_step"] not in row["message"]:
             errors.append(f"{at}:next_step: 要逐字出現在 message 裡")
-        inv = row["invariant"]
-        if inv:
-            parts = inv.split(";")
-            if not all(re.fullmatch(r"[1-9]\d*", p) for p in parts):
-                errors.append(f"{at}:invariant: 要是 02 的條號（整數），多個用 ; 分隔")
-            else:
-                nums = [int(p) for p in parts]
-                if nums != sorted(set(nums)):
-                    errors.append(f"{at}:invariant: 條號要遞增、不重複")
-                missing = [x for x in nums if invariants and x not in invariants]
-                if missing:
-                    errors.append(f"{at}:invariant: 02 沒有第 {missing} 條（`## N.` 標題）")
-        det = row["details"]
-        if det and CODE.match(code) and det != f"03_messages.md#{code.lower()}":
-            errors.append(f"{at}:details: 只准空白或 03_messages.md#{code.lower()}（純文字、等於本列代碼）")
-    sections = detail_sections(errors)
-    for code, row in by_code.items():
-        if row["details"] and code not in sections:
-            errors.append(f"{where}:{code}:details: {rel(MD_PATH)} 沒有 `### {code}` 節")
-    for code, line in sections.items():
-        if code not in by_code or not by_code[code]["details"]:
-            errors.append(f"{rel(MD_PATH)}:{line}: `### {code}` 節在 CSV 裡沒有對應的 details")
     return by_code
 
 
@@ -271,7 +210,7 @@ def check_refs(by_code: dict[str, dict[str, str]], errors: list[str]) -> None:
             for text, target in LINK.findall(line):
                 if re.match(r"^[a-z]+:", target):
                     continue
-                file_part, sep, frag = target.partition("#")
+                file_part, sep, _ = target.partition("#")
                 if not file_part:
                     continue
                 dest = path.parent / file_part
@@ -282,17 +221,8 @@ def check_refs(by_code: dict[str, dict[str, str]], errors: list[str]) -> None:
                     if sep:
                         errors.append(f"{where}: 連 CSV 不帶 #（行號會隨排序與增刪變動）：{target}")
                     continue
-                if not same(dest, MD_PATH) or not CODE.match(label):
-                    continue
-                if not re.fullmatch(r"vk\d{4}", frag):
-                    errors.append(f"{where}: [{text}]({target}) 改連 03_messages.csv；只有 details 有值的代碼才連 03_messages.md#vknnnn")
-                    continue
-                if frag != label.lower():
-                    errors.append(f"{where}: 連結文字 {label} 跟錨點 #{frag} 不是同一個代碼")
-                    continue
-                row = by_code.get(label)
-                if row is not None and row["details"] != f"03_messages.md#{frag}":
-                    errors.append(f"{where}: {label} 的 details 是空的或不同，要連 03_messages.csv：{target}")
+                if same(dest, MD_PATH) and CODE.match(label):
+                    errors.append(f"{where}: [{text}]({target}) 改連 03_messages.csv；03_messages.md 不放逐碼內容")
 
 
 def check(errors: list[str]) -> bool:

@@ -32,11 +32,11 @@
 |---|---|---|---|
 | [Docker](https://www.docker.com/) | 19.03 以上 | 不支援 Podman；偵測到 Podman 時由<ins>啟動器</ins>以[結束碼](03_messages.md#結束碼) `2`結束，訊息見 [訊息](03_messages.csv) `VK0011` | 由<ins>啟動器</ins>檢查，首次導入與已有安裝目錄都一樣：在任何寫入之前以[結束碼](03_messages.md#結束碼) `2`結束，訊息見 [訊息](03_messages.csv) `VK0012` |
 | [Git](https://git-scm.com/) | 不設最低版本 | VK 不在主機上呼叫 git；「安裝目錄在 git repo 裡」由啟動器用 sh 往上找 `.git` 判斷；`.git` 是目錄或檔都算，所以 worktree 與 submodule 也適用 | — |
-| [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 首次導入：`bootstrap.sh` 以[結束碼](03_messages.md#結束碼) `2`結束，訊息見 [訊息](03_messages.md#vk0005) `VK0005`。已有安裝目錄：由 just 自己報錯，見下方的註 |
+| [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 首次導入：`bootstrap.sh` 以[結束碼](03_messages.md#結束碼) `2`結束，訊息見 [訊息](03_messages.csv) `VK0005`。已有安裝目錄：由 just 自己報錯，見下方的註 |
 
 註：just 版本不足時
 
-- 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼](03_messages.md#結束碼) `2`結束，另印下載與安裝指令，訊息見 [訊息](03_messages.md#vk0005) `VK0005`
+- 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼](03_messages.md#結束碼) `2`結束，另印下載與安裝指令，訊息見 [訊息](03_messages.csv) `VK0005`
 - 已有安裝目錄：justfile 用了 just 1.33.0 才支援的寫法，just 太舊時讀 justfile 就會出錯，輪不到 VK 執行，也就沒機會檢查版本；這時看到的是 just 自己的錯誤訊息與結束碼，VK 不留執行紀錄
 
 ## registry 與認證
@@ -178,7 +178,7 @@ VK 對外只有兩個入口：
 
 - 一律不改
 - 以[結束碼](03_messages.md#結束碼) `2`結束
-- 印出該打的指令，訊息見 [訊息](03_messages.md#vk0002) `VK0002`
+- 印出該打的指令，訊息見 [訊息](03_messages.csv) `VK0002`
 - 讀到輸入結束 (EOF) 不算同意
 
 能互動時，詢問文字印到 stderr，不帶 <ins>[level](03_messages.md#結束碼)</ins> 前綴。使用者明確回答「否」是正常取消：不修改，並在 stdout 說明未變更，以[結束碼](03_messages.md#結束碼) `0`結束。

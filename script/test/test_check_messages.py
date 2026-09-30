@@ -21,13 +21,12 @@ def row(**kw):
 def good_rows():
     return [
         row(code="VK0001", status="active", level="error", disposition="需人處理", situation="要確認但不能互動",
-            message="請加上 -y 重新執行：<加上 -y 的原指令>", next_step="<加上 -y 的原指令>", invariant="1;3",
-            details="03_messages.md#vk0001"),
+            message="請加上 -y 重新執行：<加上 -y 的原指令>", next_step="<加上 -y 的原指令>"),
         row(code="VK0002", status="active", level="error", disposition="失敗", situation="建不出執行紀錄",
-            message="無法寫入 <path>。請重試。", note="在任何副作用之前結束"),
+            message="無法寫入 <path>。請重試。"),
         row(code="VK0003", status="active", level="warn", situation="合併衝突",
             message="<file> 留下合併衝突，請檢視後解決：git status", next_step="git status"),
-        row(code="VK0004", status="retired", situation="舊的情況", note="改用 VK0003"),
+        row(code="VK0004", status="retired", situation="舊的情況"),
     ]
 
 
@@ -48,8 +47,7 @@ class Base(unittest.TestCase):
         pathlib.Path("doc/adr").mkdir(parents=True)
         pathlib.Path("README.md").write_text("# VK\n")
         pathlib.Path("GLOSSARY.md").write_text("# 名詞\n")
-        self.write("02_invariants.md", "# 02\n\n## 1. 甲\n\n## 2. 乙\n\n## 3. 丙\n")
-        self.write("03_messages.md", "# 03\n\n## 目錄\n\n## 長說明\n\n### VK0001\n\n說明。\n")
+        self.write("03_messages.md", "# 03\n\n## 訊息表怎麼讀\n")
         self.write_csv(good_rows())
 
     def tearDown(self):
@@ -124,11 +122,11 @@ class FormatTest(Base):
         rows = good_rows()
         rows[1] = rows[1][:-1]
         self.write_csv(rows)
-        self.assert_fail("有 9 欄")
+        self.assert_fail("有 6 欄")
 
     def test_strict_parse(self):
         p = pathlib.Path("doc/contract/03_messages.csv")
-        p.write_bytes(encode(good_rows()) + 'VK0005,active,warn,,"a"b,x,,,,\n'.encode())
+        p.write_bytes(encode(good_rows()) + 'VK0005,active,warn,,"a"b,x,\n'.encode())
         self.assert_fail("CSV 解析失敗")
 
     def test_quoted_newline_parses(self):
@@ -136,14 +134,14 @@ class FormatTest(Base):
         self.assert_ok()
 
     def test_surrounding_space(self):
-        self.edit(1, note="前後有空白 ")
-        self.assert_fail("VK0002:note: 頭尾不准有空白")
+        self.edit(1, situation="前後有空白 ")
+        self.assert_fail("VK0002:situation: 頭尾不准有空白")
 
     def test_formula_start(self):
         for bad in ("=1+1", "+x", "-x", "@x"):
             with self.subTest(bad=bad):
-                self.edit(1, note=bad)
-                self.assert_fail("VK0002:note: 不准以 =")
+                self.edit(1, situation=bad)
+                self.assert_fail("VK0002:situation: 不准以 =")
 
 
 class CodeTest(Base):
@@ -166,9 +164,9 @@ class CodeTest(Base):
     def test_retired_must_be_empty(self):
         rows = good_rows()
         rows[3][HEADER.index("message")] = "還留著"
-        rows[3][HEADER.index("details")] = "03_messages.md#vk0004"
+        rows[3][HEADER.index("next_step")] = "git status"
         self.write_csv(rows)
-        self.assert_fail("VK0004:message: retired 列只留", "VK0004:details: retired 列只留")
+        self.assert_fail("VK0004:message: retired 列只留", "VK0004:next_step: retired 列只留")
 
     def test_situation_required(self):
         self.edit(3, situation="")
@@ -213,56 +211,29 @@ class FieldTest(Base):
     def test_html(self):
         for bad in ("<ins>導入</ins>", "第一行<br>", '<a href="x">', "<!-- x -->"):
             with self.subTest(bad=bad):
-                self.edit(1, note=bad)
-                self.assert_fail("VK0002:note: 不准 HTML")
+                self.edit(1, situation=bad)
+                self.assert_fail("VK0002:situation: 不准 HTML")
 
     def test_placeholder_is_not_html(self):
-        self.edit(1, note="<P> 與 <repo> 與 <加上 -y 的原指令> 是占位符")
+        self.edit(1, situation="<P> 與 <repo> 與 <加上 -y 的原指令> 是占位符")
         self.assert_ok()
 
     def test_markdown(self):
         for bad in ("`x`", "**x**", "[x](y)", "~~x~~"):
             with self.subTest(bad=bad):
-                self.edit(1, note=bad)
-                self.assert_fail("VK0002:note: 不准 Markdown")
+                self.edit(1, situation=bad)
+                self.assert_fail("VK0002:situation: 不准 Markdown")
 
     def test_angle_pairs(self):
         for bad in ("<repo", "repo>", "<a<b>>"):
             with self.subTest(bad=bad):
-                self.edit(1, note=bad)
-                self.assert_fail("VK0002:note:")
-
-    def test_invariant(self):
-        self.edit(1, invariant="2")
-        self.assert_ok()
-        for bad, want in (("x", "要是 02 的條號"), ("3;1", "條號要遞增"), ("1;1", "條號要遞增"), ("13", "02 沒有第 [13] 條"),
-                          ("1,2", "要是 02 的條號")):
-            with self.subTest(bad=bad):
-                self.edit(1, invariant=bad)
-                self.assert_fail(f"VK0002:invariant: {want}")
-
-
-class DetailsTest(Base):
-    def test_details_must_equal_own_code(self):
-        self.edit(0, details="03_messages.md#vk0002")
-        self.assert_fail("VK0001:details: 只准空白或 03_messages.md#vk0001")
-
-    def test_details_needs_section(self):
-        self.write("03_messages.md", "# 03\n\n## 目錄\n")
-        self.assert_fail("沒有 `### VK0001` 節")
-
-    def test_section_needs_details(self):
-        self.write("03_messages.md", "# 03\n\n## 目錄\n\n### VK0001\n\n### VK0002\n")
-        self.assert_fail("`### VK0002` 節在 CSV 裡沒有對應的 details")
-
-    def test_section_heading_only_code(self):
-        self.write("03_messages.md", "# 03\n\n## 目錄\n\n### VK0001 參數重組\n")
-        self.assert_fail("標題只寫代碼")
+                self.edit(1, situation=bad)
+                self.assert_fail("VK0002:situation:")
 
 
 class RefTest(Base):
     def test_good_links(self):
-        self.write("04_interface.md", "# 04\n\n見 [`VK0002`](03_messages.csv)、[`VK0001`](03_messages.md#vk0001)。\n")
+        self.write("04_interface.md", "# 04\n\n見[訊息](03_messages.csv) `VK0002`、[`VK0001`](03_messages.csv)。\n")
         pathlib.Path("doc/adr/0001-x.md").write_text("歷史：曾用 [`VK0004`](../contract/03_messages.csv)。\n")
         self.assert_ok()
 
@@ -281,17 +252,11 @@ class RefTest(Base):
         self.write("04_interface.md", "# 04\n\n[`VK0002`](03_messages.csv#L3)\n")
         self.assert_fail("連 CSV 不帶 #")
 
-    def test_md_link_needs_code_anchor(self):
-        self.write("04_interface.md", "# 04\n\n[`VK0002`](03_messages.md#訊息)\n")
-        self.assert_fail("改連 03_messages.csv")
-
-    def test_md_link_anchor_matches_text(self):
-        self.write("04_interface.md", "# 04\n\n[`VK0002`](03_messages.md#vk0001)\n")
-        self.assert_fail("不是同一個代碼")
-
-    def test_md_link_needs_details(self):
-        self.write("04_interface.md", "# 04\n\n[`VK0002`](03_messages.md#vk0002)\n")
-        self.assert_fail("VK0002 的 details 是空的或不同")
+    def test_code_link_to_md_goes_to_csv(self):
+        for target in ("03_messages.md#vk0002", "03_messages.md#訊息", "03_messages.md"):
+            with self.subTest(target=target):
+                self.write("04_interface.md", f"# 04\n\n[`VK0002`]({target})\n")
+                self.assert_fail("改連 03_messages.csv")
 
     def test_01_02_must_not_link_csv(self):
         self.write("01_purpose.md", "# 01\n\n[訊息表](03_messages.csv)\n")
