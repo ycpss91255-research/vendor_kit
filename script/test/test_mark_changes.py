@@ -14,16 +14,16 @@ class VersionTest(unittest.TestCase):
         self._cwd = os.getcwd()
         self._tmp = tempfile.TemporaryDirectory()
         os.chdir(self._tmp.name)
-        pathlib.Path("docs/contract").mkdir(parents=True)
+        pathlib.Path("doc/contract").mkdir(parents=True)
         pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
 
     def tearDown(self):
         os.chdir(self._cwd)
         self._tmp.cleanup()
 
-    def write_page(self, body, backup):
-        pathlib.Path("docs/contract/09_x.md").write_text(body)
-        pathlib.Path("doc/decisions/_backup/docs_contract_09_x.pre_r1.md").write_text(backup)
+    def write_page(self, body, backup, key="doc_contract_09_x"):
+        pathlib.Path("doc/contract/09_x.md").write_text(body)
+        pathlib.Path(f"doc/decisions/_backup/{key}.pre_r1.md").write_text(backup)
 
     def test_rev_continues_from_tracked_table(self):
         # 新 clone：_marked/ 是空的，版本號照進 git 的表接下去，不從 v1 重來
@@ -40,9 +40,46 @@ class VersionTest(unittest.TestCase):
         body = "# 標題\n\n新內容\n"
         self.write_page(body, "# 標題\n\n舊內容\n")
         mark_changes.build("09_x", "pre_r1")
-        self.assertEqual(pathlib.Path("docs/contract/09_x.md").read_text(), body)
+        self.assertEqual(pathlib.Path("doc/contract/09_x.md").read_text(), body)
         self.assertEqual(pathlib.Path("doc/decisions/_marked/09_x.v1.md").read_text(), body)
         self.assertTrue(pathlib.Path("doc/decisions/_marked/09_x.v1.marked.md").exists())
+
+
+
+class BackupKeyTest(unittest.TestCase):
+    """docs/ 併進 doc/ 之後，新備份用 doc_contract_<name>；之前的 docs_contract_<name> 照樣讀得到。"""
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.TemporaryDirectory()
+        os.chdir(self._tmp.name)
+        pathlib.Path("doc/contract").mkdir(parents=True)
+        pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        self._tmp.cleanup()
+
+    def backup(self, key, suffix="pre_r1"):
+        path = pathlib.Path(f"doc/decisions/_backup/{key}.{suffix}.md")
+        path.write_text("舊\n")
+        return path
+
+    def test_old_page_key_still_found(self):
+        old = self.backup("docs_contract_09_x")
+        self.assertEqual(mark_changes.backup_path("09_x", "pre_r1"), old)
+
+    def test_new_page_key_preferred(self):
+        self.backup("docs_contract_09_x")
+        new = self.backup("doc_contract_09_x")
+        self.assertEqual(mark_changes.backup_path("09_x", "pre_r1"), new)
+
+    def test_path_key_falls_back_to_old_prefix(self):
+        # 以路徑指定的檔：doc/contract/README.md 的鍵是 doc_contract_README，也認 docs_contract_README
+        old = self.backup("docs_contract_README")
+        self.assertEqual(mark_changes.backup_path("doc/contract/README.md", "pre_r1"), old)
+        new = self.backup("doc_contract_README")
+        self.assertEqual(mark_changes.backup_path("doc/contract/README.md", "pre_r1"), new)
 
 
 if __name__ == "__main__":

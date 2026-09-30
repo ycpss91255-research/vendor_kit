@@ -52,7 +52,7 @@ const NO_TOUCH = 'doc/decisions/_backup/、doc/decisions/review_log/、doc/decis
 const GUARD_WRITE = `Repo ${repo}。以下是硬性護欄，違反就算這個 task 失敗：
 
 1. **不 commit、不 push、不跑任何 git 寫入指令**（commit／push／add／reset／checkout／stash／rebase／tag 一概不准）。只讀的 git status／git diff 可以。
-2. 會改檔的話，**改前先備份**到 ${repo}/doc/decisions/_backup/，命名 <路徑攤平>.pre_${round}.<ext>（把路徑的 / 換成 _，例如 docs/agents/domain.md → agents_domain.pre_${round}.md）；同名已存在就在後綴加序號（…pre_${round}.2.md）。回報實際的備份檔路徑。
+2. 會改檔的話，**改前先備份**到 ${repo}/doc/decisions/_backup/，命名 <路徑攤平>.pre_${round}.<ext>（把路徑的 / 換成 _，例如 doc/agents/domain.md → doc_agents_domain.pre_${round}.md）；同名已存在就在後綴加序號（…pre_${round}.2.md）。回報實際的備份檔路徑。
 3. **不准動** ${NO_TOUCH}（歷史快照與本地產物），除非這個 task 的指示明說可以動哪個檔。
 4. **驗證一律用腳本／grep 算，不要目視**：改完自己 grep 一次確認，回報的數字要是跑出來的。`
 
@@ -245,19 +245,19 @@ return { round, applied, verified, unresolved }
 // ───────────────── args 範例（可直接貼進 Workflow 的 args） ─────────────────
 // {
 //   "round": "r87",
-//   "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 GLOSSARY.md，審閱頁只剩 docs/contract/01_purpose.md 與 docs/contract/02_invariants.md。",
+//   "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 GLOSSARY.md，審閱頁只剩 doc/contract/01_purpose.md 與 doc/contract/02_invariants.md。",
 //   "tasks": [
 //     {
 //       "key": "purpose",
 //       "label": "01_purpose.md",
-//       "ask": "改 docs/contract/01_purpose.md：1. 全檔掃 _Avoid_ 詞，有殘留就改。2. 第 3 行指向名詞表的相對路徑改指根 GLOSSARY.md（驗證過可解再寫）。回報改了哪幾行與掃描結果。",
-//       "files": ["docs/contract/01_purpose.md"]
+//       "ask": "改 doc/contract/01_purpose.md：1. 全檔掃 _Avoid_ 詞，有殘留就改。2. 第 3 行指向名詞表的相對路徑改指根 GLOSSARY.md（驗證過可解再寫）。回報改了哪幾行與掃描結果。",
+//       "files": ["doc/contract/01_purpose.md"]
 //     },
 //     {
 //       "key": "adr",
-//       "label": "docs/adr/（README、TEMPLATE）",
-//       "ask": "改 docs/adr/README.md 與 TEMPLATE.md：「介面動詞」→「介面 recipe」，並把兩檔的相對路徑連結驗證一次，壞的修掉。回報每檔改了哪幾行。",
-//       "files": ["docs/adr/README.md", "docs/adr/TEMPLATE.md"]
+//       "label": "doc/adr/（README、TEMPLATE）",
+//       "ask": "改 doc/adr/README.md 與 TEMPLATE.md：「介面動詞」→「介面 recipe」，並把兩檔的相對路徑連結驗證一次，壞的修掉。回報每檔改了哪幾行。",
+//       "files": ["doc/adr/README.md", "doc/adr/TEMPLATE.md"]
 //     }
 //   ],
 //   "verify": [

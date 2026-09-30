@@ -306,8 +306,8 @@ def head(pid, title, w=960):
 # ---------- 名詞總表（每頁只挑自己用到的）----------
 TERMS = {
  "repo": ("<repo>", "下游 repo 名（占位符）；.vendor_kit/cache/<repo>/ = 專案裡展開的工具檔；ghcr.io/<org>/<repo>-dist = 它的 image；<ns> = 工具 just 模組的命名空間"),
- "inv": ("不變量（ADR）", "整個專案最高優先的四句：可以建、要改先問、永不刪、永不覆蓋；記在 docs/adr/（短格式 ADR），每個決議都對照它；不另建 PRD.md"),
- "adr": ("ADR", "Architecture Decision Record：一份記錄「為什麼這樣決定」的短文件（docs/adr/）；破壞性變更、提高最低介面版都要記一筆"),
+ "inv": ("不變量（ADR）", "整個專案最高優先的四句：可以建、要改先問、永不刪、永不覆蓋；記在 doc/adr/（短格式 ADR），每個決議都對照它；不另建 PRD.md"),
+ "adr": ("ADR", "Architecture Decision Record：一份記錄「為什麼這樣決定」的短文件（doc/adr/）；破壞性變更、提高最低介面版都要記一筆"),
  "group": ("組（常用／進階／一次性）", "常用 = 每天會打的（add／upgrade／dev）；進階 = 偶爾才用；一次性 = 只在第一次接入跑的 bootstrap.sh（release 附的腳本，不是 just 動詞）"),
  "reverse": ("反向", "把該動詞做的事收回的動詞（install↔uninstall、add↔remove、dev↔undev）；upgrade 沒有動詞反向，靠 git revert（把整組升級 commit 反做一次的 git 指令）"),
  "apt": ("apt 語意", "跟 Debian 的 apt 一樣分兩步：update 只查有沒有新版、不動檔；upgrade 才真的套用"),

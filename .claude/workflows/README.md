@@ -27,7 +27,7 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 |---|---|---|---|
 | `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
 | `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
-| `doc-edit` | 改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → humanizer-zh-tw 潤稿；codex 的建議只回報 | 改任何現行文件（README、`docs/contract/`、`GLOSSARY.md`、ADR）時；主對話不自己改 | `round`、`files` |
+| `doc-edit` | 改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → humanizer-zh-tw 潤稿；codex 的建議只回報 | 改任何現行文件（README、`doc/contract/`、`GLOSSARY.md`、ADR）時；主對話不自己改 | `round`、`files` |
 
 選填欄位：
 
@@ -57,19 +57,19 @@ args 範例：
 ```json
 {
   "round": "r87",
-  "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 GLOSSARY.md，審閱頁是 docs/contract/01_purpose.md、docs/contract/02_invariants.md、docs/contract/03_messages.md、docs/contract/04_interface.md。",
+  "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 GLOSSARY.md，審閱頁是 doc/contract/01_purpose.md、doc/contract/02_invariants.md、doc/contract/03_messages.md、doc/contract/04_interface.md。",
   "tasks": [
     {
       "key": "purpose",
       "label": "01_purpose.md",
-      "ask": "改 docs/contract/01_purpose.md：1. 全檔掃 _Avoid_ 詞，有殘留就改。2. 第 3 行指向名詞表的相對路徑改指根 GLOSSARY.md（驗證過可解再寫）。回報改了哪幾行與掃描結果。",
-      "files": ["docs/contract/01_purpose.md"]
+      "ask": "改 doc/contract/01_purpose.md：1. 全檔掃 _Avoid_ 詞，有殘留就改。2. 第 3 行指向名詞表的相對路徑改指根 GLOSSARY.md（驗證過可解再寫）。回報改了哪幾行與掃描結果。",
+      "files": ["doc/contract/01_purpose.md"]
     },
     {
       "key": "adr",
-      "label": "docs/adr/（README、TEMPLATE）",
-      "ask": "改 docs/adr/README.md 與 TEMPLATE.md：把已改名的舊說法換成 recipe，並把兩檔的相對路徑連結驗證一次，壞的修掉。回報每檔改了哪幾行。",
-      "files": ["docs/adr/README.md", "docs/adr/TEMPLATE.md"]
+      "label": "doc/adr/（README、TEMPLATE）",
+      "ask": "改 doc/adr/README.md 與 TEMPLATE.md：把已改名的舊說法換成 recipe，並把兩檔的相對路徑連結驗證一次，壞的修掉。回報每檔改了哪幾行。",
+      "files": ["doc/adr/README.md", "doc/adr/TEMPLATE.md"]
     }
   ],
   "verify": [
@@ -116,7 +116,7 @@ args 範例：
     {
       "key": "consistency",
       "label": "01 與 02 的一致性",
-      "ask": "審 docs/contract/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 GLOSSARY.md 沒定義的詞。"
+      "ask": "審 doc/contract/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 GLOSSARY.md 沒定義的詞。"
     }
   ]
 }

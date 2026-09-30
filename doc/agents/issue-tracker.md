@@ -1,6 +1,6 @@
 # Issue tracker：GitHub
 
-本 repo 的 issue 與實作 ticket（issue 層級的 spec）放在 GitHub `ycpss91255-research/vendor_kit`；對外契約只放 `docs/contract/`，不發成 issue，見[工作約定](../../AGENTS.md#決議與文件流程)。所有操作一律用 `gh` CLI。對外契約與承諾見 `docs/contract/01_purpose.md`、名詞見根 `GLOSSARY.md`、不變量見 `docs/contract/02_invariants.md`、ADR 見 `docs/adr/`。
+本 repo 的 issue 與實作 ticket（issue 層級的 spec）放在 GitHub `ycpss91255-research/vendor_kit`；對外契約只放 `doc/contract/`，不發成 issue，見[工作約定](../../AGENTS.md#決議與文件流程)。所有操作一律用 `gh` CLI。對外契約與承諾見 `doc/contract/01_purpose.md`、名詞見根 `GLOSSARY.md`、不變量見 `doc/contract/02_invariants.md`、ADR 見 `doc/adr/`。
 
 ## 為什麼每個 `gh` 都明寫 `-R`
 

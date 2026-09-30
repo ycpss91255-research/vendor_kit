@@ -1,6 +1,6 @@
 # doc/decisions — 現況與去向
 
-這個目錄**不在 skill 結構裡**。skill 只要求四樣東西：根 `GLOSSARY.md`（名詞）、`docs/adr/`（難逆轉的取捨）、`docs/agents/`（三個設定檔）、`AGENTS.md`（工作約定與 Agent skills 段）；spec 與需求走 GitHub issue。這個目錄現在放設計原則、範圍文件與審閱用的工作目錄；對外契約與不變量（審閱頁 01～04）已搬到 `docs/contract/`，研究紀錄搬到 `docs/research/`（理由見 `AGENTS.md`「決議與文件流程」）。本檔是這個目錄的地圖，審閱頁也一併列在這裡。
+這個目錄**不在 skill 結構裡**。skill 只要求四樣東西：根 `GLOSSARY.md`（名詞）、`doc/adr/`（難逆轉的取捨）、`doc/agents/`（三個設定檔）、`AGENTS.md`（工作約定與 Agent skills 段）；spec 與需求走 GitHub issue。這個目錄現在放設計原則、範圍文件與審閱用的工作目錄；對外契約與不變量（審閱頁 01～04）已搬到 `doc/contract/`，研究紀錄搬到 `doc/research/`（理由見 `AGENTS.md`「決議與文件流程」）。本檔是這個目錄的地圖，審閱頁也一併列在這裡。
 
 三段：**保留** = 現在還在用；**已歸檔** = 原本的 `_legacy` 目錄，已搬出 repo、只留在維護者本機（相對 repo 根目錄是 `../reference/_legacy`），只作參考；**待處理** = 等使用者拍板存廢。
 
@@ -8,14 +8,14 @@
 
 ### 審閱頁（四頁）
 
-四頁都在 `docs/contract/`。名詞不在這裡：名詞表是根 `GLOSSARY.md`（skill 四樣之一）。
+四頁都在 `doc/contract/`。名詞不在這裡：名詞表是根 `GLOSSARY.md`（skill 四樣之一）。
 
 | 檔 | 是什麼 | 最終去向 |
 |---|---|---|
-| [01 目的與承諾](../../docs/contract/01_purpose.md) | 目的與承諾：痛點、VK 做什麼、對導入、出貨與相容性承諾什麼。已定案。 | 留在 `docs/contract/`：對外契約在 repo 內的權威文件。 |
-| [02 不變量](../../docs/contract/02_invariants.md) | 十一條不變量：只記性質。機制已在 2026-09-28 併進各自的 ADR（`docs/adr/` 裡各條列出的 ADR），本頁只留回連。審閱中。 | 留在 `docs/contract/`：性質留一份權威文件，ADR 直接連到它。 |
-| [03 訊息與錯誤碼總表](../../docs/contract/03_messages.md) | 結束碼的意思，與 VK 印出、要使用者動手處理的訊息與固定編號；沿用 02 的規則時寫「依第 N 條」。審閱中。 | 留在 `docs/contract/`：對外契約在 repo 內的權威文件。 |
-| [04 使用者介面](../../docs/contract/04_interface.md) | 全部 VK recipe 與選項。沿用 01、02 的規則時寫「依第 N 條」，結束碼與訊息連到 03，不重述。審閱中。 | 留在 `docs/contract/`：對外契約在 repo 內的權威文件。 |
+| [01 目的與承諾](../contract/01_purpose.md) | 目的與承諾：痛點、VK 做什麼、對導入、出貨與相容性承諾什麼。已定案。 | 留在 `doc/contract/`：對外契約在 repo 內的權威文件。 |
+| [02 不變量](../contract/02_invariants.md) | 十一條不變量：只記性質。機制已在 2026-09-28 併進各自的 ADR（`doc/adr/` 裡各條列出的 ADR），本頁只留回連。審閱中。 | 留在 `doc/contract/`：性質留一份權威文件，ADR 直接連到它。 |
+| [03 訊息與錯誤碼總表](../contract/03_messages.md) | 結束碼的意思，與 VK 印出、要使用者動手處理的訊息與固定編號；沿用 02 的規則時寫「依第 N 條」。審閱中。 | 留在 `doc/contract/`：對外契約在 repo 內的權威文件。 |
+| [04 使用者介面](../contract/04_interface.md) | 全部 VK recipe 與選項。沿用 01、02 的規則時寫「依第 N 條」，結束碼與訊息連到 03，不重述。審閱中。 | 留在 `doc/contract/`：對外契約在 repo 內的權威文件。 |
 
 ### 從已移除的 PRD 拆出來的兩份
 
@@ -71,19 +71,19 @@
 
 ### 3. `doc/decisions/` 這個目錄本身（已定）
 
-這個目錄刻意用來放設計原則和範圍文件，不是過渡產物。對外契約原本也放這裡，現在搬到 `docs/contract/`；它放 repo、不放 issue：issue 不好追蹤改動，也做不了逐頁審與標示版差異。出處：`AGENTS.md`「決議與文件流程」。
+這個目錄刻意用來放設計原則和範圍文件，不是過渡產物。對外契約原本也放這裡，現在搬到 `doc/contract/`；它放 repo、不放 issue：issue 不好追蹤改動，也做不了逐頁審與標示版差異。出處：`AGENTS.md`「決議與文件流程」。
 
 ### 4. `design_principles.md` 與 `scope_roadmap.md` 的落點
 
 **是什麼**：從已移除的 `doc/PRD.md` 拆出來的兩份。
 
-**為什麼卡住**：兩份都在等「併進相關 ADR」。相關 ADR 已於 2026-09-28 全部落地（`docs/adr/` 0001–0012），ADR 也已改成 skill 的 ADR 格式、不再有 `> Serves:` 回連，所以前置條件都消失了；剩下的只是決定怎麼併。[ADR-0001](../../docs/adr/0001-why-not-existing-tools.md) 的重評門檻現在寫在它的 Consequences，`design_principles.md` 與 `scope_roadmap.md` 仍以「§5」稱呼那份清單。
+**為什麼卡住**：兩份都在等「併進相關 ADR」。相關 ADR 已於 2026-09-28 全部落地（`doc/adr/` 0001–0012），ADR 也已改成 skill 的 ADR 格式、不再有 `> Serves:` 回連，所以前置條件都消失了；剩下的只是決定怎麼併。[ADR-0001](../adr/0001-why-not-existing-tools.md) 的重評門檻現在寫在它的 Consequences，`design_principles.md` 與 `scope_roadmap.md` 仍以「§5」稱呼那份清單。
 
 **選項**：(a) 留在原位；(b) 現在就把設計原則搬成一份 ADR（原則本身就是難逆轉的取捨），`scope_roadmap.md` 的路線圖進 milestone、待拍板項目各開一個 issue；(c) `scope_roadmap.md` 先動（純轉成 issue，沒有依賴），`design_principles.md` 等 ADR。
 
 ### 5. `_backup/`
 
-**是什麼**：每輪改動前的快照。`script/mark_changes.py` 讀 `_backup/docs_contract_<頁名>.<後綴>.md`（路徑攤平的命名；搬目錄前的 `doc_decisions_review_<頁名>` 也認）產生改動標示。
+**是什麼**：每輪改動前的快照。`script/mark_changes.py` 讀 `_backup/doc_contract_<頁名>.<後綴>.md`（路徑攤平的命名；`docs/` 併進 `doc/` 之前的 `docs_contract_<頁名>`、更早搬目錄前的 `doc_decisions_review_<頁名>` 也認）產生改動標示。
 
 **為什麼卡住**：git 已經有完整歷史，這裡是重複的。但 `mark_changes.py` 的工作流程需要「上一輪的檔」而不是「某個 commit 的檔」，直接刪會讓現在正在用的審閱流程斷掉。
 
@@ -101,14 +101,14 @@
 
 ### 7. proto 的 ADR-0001、0002（已完成）
 
-**是什麼**：`docs/adr/README.md` 當時的索引表（歷史；索引表已拿掉）原本註明兩份 ADR「在 `../proto/vendor_kit/docs/adr/`，待搬回」。
+**是什麼**：`doc/adr/README.md` 當時的索引表（歷史；索引表已拿掉）原本註明兩份 ADR「在 `../proto/vendor_kit/docs/adr/`，待搬回」。
 
-**結論（2026-09-28）**：不搬回、不引用。兩份綁原型的 Python 實作與已作廢的詞（舊宣告檔名、舊的工具目錄寫法、乙版、`ensure`／`verify` 這兩個已不存在的 recipe、只畫四條 recipe 的泳道），核心決定已改寫進本 repo 的 `docs/adr/`：測試分層進 ADR-0011，引擎與工具 image 分離進 ADR-0006 與 ADR-0007。原本的 ADR-0003（為什麼不用現成工具）因此改編號為 ADR-0001，機制 ADR 從 0002 連號到 0012。
+**結論（2026-09-28）**：不搬回、不引用。兩份綁原型的 Python 實作與已作廢的詞（舊宣告檔名、舊的工具目錄寫法、乙版、`ensure`／`verify` 這兩個已不存在的 recipe、只畫四條 recipe 的泳道），核心決定已改寫進本 repo 的 `doc/adr/`：測試分層進 ADR-0011，引擎與工具 image 分離進 ADR-0006 與 ADR-0007。原本的 ADR-0003（為什麼不用現成工具）因此改編號為 ADR-0001，機制 ADR 從 0002 連號到 0012。
 
-**隨之改掉的**：索引表重建（歷史；索引表後來隨 ADR 改成 skill 格式一起拿掉）、`docs/agents/domain.md` 的「先去 proto 讀」整段刪除、`doc/decisions/scope_roadmap.md` 的「ADR-0001／0002 搬回」改成「不搬回」。
+**隨之改掉的**：索引表重建（歷史；索引表後來隨 ADR 改成 skill 格式一起拿掉）、`doc/agents/domain.md` 的「先去 proto 讀」整段刪除、`doc/decisions/scope_roadmap.md` 的「ADR-0001／0002 搬回」改成「不搬回」。
 
-### 8. `docs/agents/domain.md` 的檔案結構區塊（已完成）
+### 8. `doc/agents/domain.md` 的檔案結構區塊（已完成）
 
 `domain.md` 原本有一個 `## 檔案結構` 區塊，用樹狀圖列出 agent 該讀的檔，每次搬檔都會過時。已採選項 (b)：樹狀圖整段移除，只留「動手之前先讀這些」那四個檔。原先記的三處不對也隨之消失：`dist_distribution_notes.md` 那一行連同樹一起沒了；`GLOSSARY.md` 現在不提 `discussion.drawio` 的頁數，`script/diagram/README.md` 的「77 頁」跟檔案實際頁數一致。
 
-編號保留，不重排 1–7。剩下的只有一個沒拍板的餘項：要不要寫一支 lint 檢查文件裡的路徑都存在（原選項 (c)），掛進 `just test`。目前 `AGENTS.md`、`issue-tracker.md`、`triage-labels.md`、`docs/adr/*` 的路徑引用都對得上。
+編號保留，不重排 1–7。剩下的只有一個沒拍板的餘項：要不要寫一支 lint 檢查文件裡的路徑都存在（原選項 (c)），掛進 `just test`。目前 `AGENTS.md`、`issue-tracker.md`、`triage-labels.md`、`doc/adr/*` 的路徑引用都對得上。

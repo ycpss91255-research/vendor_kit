@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""檢查對外文件（根目錄 README.md 與 docs/contract/0N_*.md）的寫法規則。
+"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫法規則。
 
-規則見 docs/contract/README.md「寫法規則」與「版本怎麼迭代」：
+規則見 doc/contract/README.md「寫法規則」與「版本怎麼迭代」：
 1. 不寫「出處：」行：沿用規則時在正文寫「依 [頁名](連結#錨點) 第 N 條」。
 2. 不寫「> 版本 vN」：版本只在 doc/decisions/_marked/ 的檔名。
 3. 每頁有「## 目錄」。
@@ -18,7 +18,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(".")
-REVIEW = ROOT / "docs/contract"
+REVIEW = ROOT / "doc/contract"
 PAGE = re.compile(r"^(\d\d)_.+\.md$")
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")

@@ -1,25 +1,25 @@
 # 任務：修正你自己的草圖規格 v2 中與契約衝突的地方，輸出完整的 v3（純文字，不要 XML）
 
-你上一輪的產出是 `docs/research/diagram_proposals/codex_draw_spec_v2.md`。先讀它。這一輪要你把它跟契約衝突的地方改掉，輸出完整的 v3。
+你上一輪的產出是 `doc/research/diagram_proposals/codex_draw_spec_v2.md`。先讀它。這一輪要你把它跟契約衝突的地方改掉，輸出完整的 v3。
 
 ## 硬性限制
 
 - **不要輸出任何 XML、mxGraph、drawio 標籤、程式碼或座標。** 只輸出下面指定格式的純文字。
 - 不要修改 repo 裡任何檔，不要跑 git 指令。你的產出就是最後的回覆。
 - 全程繁體中文。
-- 不要讀 `discussion.drawio`，也不要讀 `docs/research/` 底下除了 `codex_draw_spec_v2.md` 以外的舊提案或舊規格。
+- 不要讀 `discussion.drawio`，也不要讀 `doc/research/` 底下除了 `codex_draw_spec_v2.md` 以外的舊提案或舊規格。
 
 ## 最重要的一條：讀原文，不要信轉述
 
 上一輪的規格一次都沒有引用 02 的條號，是照 brief 的摘要畫的，而那份摘要本身有缺漏。這一輪：
 
 1. **先打開下列原檔讀原文**，再動手改。下面對衝突的描述只是指路，有出入時以原文為準；如果你讀完原文認為某處描述錯了，照原文改，並在「本版改了什麼」寫明你依據哪一句。
-   - `docs/contract/02_invariants.md`（至少第 1、3、4、6、10 條全文）
-   - `docs/adr/0003-baseline-merge-and-line-records.md`
-   - `docs/adr/0004-vk-recipe-interface-and-write-boundary.md`（§2–§5）
-   - `docs/adr/0007-host-thin-layer-and-shell-integrity.md`（§3、§4、§5、§7）
-   - `docs/adr/0008-protocol-and-file-schema-versions.md`
-   - `docs/contract/01_purpose.md`、`GLOSSARY.md`（名詞）
+   - `doc/contract/02_invariants.md`（至少第 1、3、4、6、10 條全文）
+   - `doc/adr/0003-baseline-merge-and-line-records.md`
+   - `doc/adr/0004-vk-recipe-interface-and-write-boundary.md`（§2–§5）
+   - `doc/adr/0007-host-thin-layer-and-shell-integrity.md`（§3、§4、§5、§7）
+   - `doc/adr/0008-protocol-and-file-schema-versions.md`
+   - `doc/contract/01_purpose.md`、`GLOSSARY.md`（名詞）
 2. **規格裡每一個碰到契約的分支都要標出處**：結束碼、寫不寫檔、進度檔、鎖定行寫入時機、薄殼判定、救援路徑、CI 模式。標在該條連線標籤或方塊文字的後面，格式固定為「（02 第 N 條）」或「（ADR-000N §M）」，例如：
    - `- B7 -> B9 | 是：只預覽（02 第 4 條）`
    - `- B13 [結束] 引擎 | 1：列差異不動任何檔（ADR-0007 §3）`

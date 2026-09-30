@@ -12,12 +12,12 @@
 
 **1. 素材只能用契約。** 唯一真本是：
 
-- `docs/contract/01_purpose.md`
-- `docs/contract/02_invariants.md`
+- `doc/contract/01_purpose.md`
+- `doc/contract/02_invariants.md`
 - `GLOSSARY.md`
-- `docs/adr/0001`–`0012`（`docs/adr/00*.md`）
+- `doc/adr/0001`–`0012`（`doc/adr/00*.md`）
 
-你可以、也應該自己讀這些檔。**不要讀 `discussion.drawio`，也不要讀 `docs/research/` 底下任何舊提案或舊規格**（那些是過時的）。契約裡沒寫的分支不要自己發明規則；照最接近契約的解讀畫，不要把「契約沒寫」寫成待決問題或矛盾。
+你可以、也應該自己讀這些檔。**不要讀 `discussion.drawio`，也不要讀 `doc/research/` 底下任何舊提案或舊規格**（那些是過時的）。契約裡沒寫的分支不要自己發明規則；照最接近契約的解讀畫，不要把「契約沒寫」寫成待決問題或矛盾。
 
 上一輪的教訓：升引擎在 ADR-0007 §5 已定案是**兩段式**——換上新引擎就停下、以 1 結束要求重跑，第二次才由新引擎做事。「一次跑完」是那份 ADR 的 Alternatives 明列否決的方案，畫成一次跑完就是錯的。
 

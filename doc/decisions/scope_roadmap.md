@@ -1,7 +1,7 @@
 # 產品形狀與路線圖
 
-> 每條將來各自併入相關 ADR。範圍已併入 [`docs/contract/01_purpose.md`](../../docs/contract/01_purpose.md)。
-> 本檔提到的「不變量 N」指 [`docs/contract/02_invariants.md`](../../docs/contract/02_invariants.md) 的第 N 條，「Pn」指 [`doc/decisions/design_principles.md`](design_principles.md) 的設計原則。
+> 每條將來各自併入相關 ADR。範圍已併入 [`doc/contract/01_purpose.md`](../contract/01_purpose.md)。
+> 本檔提到的「不變量 N」指 [`doc/contract/02_invariants.md`](../contract/02_invariants.md) 的第 N 條，「Pn」指 [`doc/decisions/design_principles.md`](design_principles.md) 的設計原則。
 
 ## 產品形狀
 
@@ -20,9 +20,9 @@
 - `.vendor_kit/` 佈局、自有 `.gitignore`、根 `justfile` 一行。
 - `dev <repo> -p <dir>` 與 `dev --engine -i <image>`；驗收 fixture repo 走完整流程；amd64 + arm64 原生 runner。
 - Renovate regex preset；`check.sh` 給 repo 的 CI 與工具 repo CI（`--dist`）。
-- 決議紀錄：proto 的 ADR-0001／0002 不搬回（內容綁原型實作與已作廢的詞，核心決定已改寫成 `docs/adr/` 的 0002–0012）；[`docs/contract/02_invariants.md`](../../docs/contract/02_invariants.md) 列的「待寫 ADR」已全部落地。
+- 決議紀錄：proto 的 ADR-0001／0002 不搬回（內容綁原型實作與已作廢的詞，核心決定已改寫成 `doc/adr/` 的 0002–0012）；[`doc/contract/02_invariants.md`](../contract/02_invariants.md) 列的「待寫 ADR」已全部落地。
 
-以下是待拍板清單與現況對照。正式內容以 [`docs/contract/01_purpose.md`](../../docs/contract/01_purpose.md)、[`docs/contract/02_invariants.md`](../../docs/contract/02_invariants.md) 與根 [`GLOSSARY.md`](../../GLOSSARY.md)（名詞）為準。
+以下是待拍板清單與現況對照。正式內容以 [`doc/contract/01_purpose.md`](../contract/01_purpose.md)、[`doc/contract/02_invariants.md`](../contract/02_invariants.md) 與根 [`GLOSSARY.md`](../../GLOSSARY.md)（名詞）為準。
 
 | 項目 | 狀態 | 結論 |
 |---|---|---|
@@ -32,7 +32,7 @@
 | 衝突時基準版是否推到新版 | 已定案 | 推：留 `<<<<<<< vendor_kit:baseline` 標記、印檔名、基準版仍推到新版；唯一例外是合併結果為 TOML／just 而解析不過 —— 留原檔、該檔基準版不推、記入 metadata `conflicts`。 |
 | Renovate 的初始檔合併由誰做 | 已定案 | VK 無 bot、不 commit、不開 PR；PR 只改一行版本鎖定行，初始檔合併由人在 PR 分支本機 `upgrade <repo> -y` → commit → push，CI 全部再跑一次才 merge。 |
 | 多命名空間工具 | 已定案 | 一個工具可出多個 `<ns>`：`dist/just/<ns>.just` 每檔一個頂層命名空間、數量工具自決、`<repo>.just` 必須存在；`gen/tools.just` 每個 `<ns>` 一行 `mod?`（一工具可多行）；`add` 時 `<ns>` 與其他已接工具、根 `justfile` 既有 recipe／module、保留名 `vendor_kit` 撞名 → 2 拒絕（在任何寫入之前）。 |
-| image 公開／私有 | 已定案 | 引擎 image 公開（不可逆要提醒），工具 image 由各工具 repo 自決；認證是主機／CI 各自的事，VK 只承諾「主機 docker 拉得到就能用」。未給憑證時不支援需認證的版本列舉，以[結束碼 `2`](../../docs/contract/03_messages.md#結束碼)結束，訊息見[訊息總表](../../docs/contract/03_messages.md#訊息)，提示設 `VENDOR_KIT_REGISTRY_TOKEN`（或 `_TOKEN_FILE`）或直接指定 `@<tag>`。 |
+| image 公開／私有 | 已定案 | 引擎 image 公開（不可逆要提醒），工具 image 由各工具 repo 自決；認證是主機／CI 各自的事，VK 只承諾「主機 docker 拉得到就能用」。未給憑證時不支援需認證的版本列舉，以[結束碼 `2`](../contract/03_messages.md#結束碼)結束，訊息見[訊息總表](../contract/03_messages.md#訊息)，提示設 `VENDOR_KIT_REGISTRY_TOKEN`（或 `_TOKEN_FILE`）或直接指定 `@<tag>`。 |
 | `.gitignore` 類初始檔的處理 | 已定案 | 用 append 型：根 `.gitignore`／`.dockerignore`／`.editorconfig` 這類必須 `strategy = "append"`，用 copy 指向它們 → `check.sh --dist` 報錯；無檔則建、已有則問後 append，刪也只刪原文相同的行（CRLF/LF 等價，零命中或多處只 warn）。VK 自己不碰使用者的 `.gitignore`：`.vendor_kit/.gitignore` 是 VK 擁有的薄殼檔，VK 自己寫的 repo 檔只有根 `justfile` 一行與根 `.dockerignore` 四行。 |
 
 ### v2

@@ -250,7 +250,7 @@ return { round, tracks: useTracks, claude: claudeResults, codex: codexResults, c
 //     {
 //       "key": "consistency",
 //       "label": "01 與 02 的一致性",
-//       "ask": "審 docs/contract/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 GLOSSARY.md 沒定義的詞。"
+//       "ask": "審 doc/contract/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 GLOSSARY.md 沒定義的詞。"
 //     }
 //   ]
 // }

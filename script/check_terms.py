@@ -6,6 +6,7 @@
 
 用法：python3 script/check_terms.py
 已定案要保留舊詞的個別行寫在 WHITELIST（逐行、逐字串登記）。
+另外擋目錄規則：repo 根目錄有 docs/ 就失敗（文件一律放 doc/）。
 全乾淨印 OK 回 0；有殘留逐筆印出回 1。
 """
 import re
@@ -20,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EXCLUDE_PREFIXES = (
     "doc/decisions/_backup/",
     "doc/decisions/review_log/",
-    "docs/research/",
+    "doc/research/",
     "doc/decisions/_marked/",
     ".claude/skills/",
     ".agents/skills/",  # skill 的實體目錄；.claude/skills 是指過來的 symlink，git 追蹤的是這條路徑
@@ -108,6 +109,16 @@ def target_files() -> list[Path]:
 U_TAG = re.compile(r"</?u>")
 
 
+def layout_errors(root: Path) -> list[str]:
+    """repo 的目錄規則：文件一律放 doc/，根目錄不准有 docs/。
+
+    兩個目錄並存時，新檔放哪邊全看當下誰寫，連結與腳本裡寫死的路徑會跟著分岔。
+    """
+    if (root / "docs").is_dir():
+        return ["repo 根目錄有 docs/：一律用 doc/，不用 docs/"]
+    return []
+
+
 def main() -> int:
     context = ROOT / "GLOSSARY.md"
     if not context.is_file():
@@ -136,12 +147,18 @@ def main() -> int:
             if U_TAG.search(ln):
                 hits.append((rel, no, "<u>（改用 <ins>）", ln.strip()))
 
+    layout = layout_errors(ROOT)
+    for e in layout:
+        print(e)
+
     for rel, no, term, ln in hits:
         shown = ln if len(ln) <= 60 else ln[:60] + "…"
         print(f"{rel}:{no}  {term}  {shown}")
     tail = f"掃 {len(files)} 個 .md 檔、{len(terms)} 個 _Avoid_ 詞、白名單 {len(WHITELIST)} 筆"
-    print(f"{'OK' if not hits else 'FAIL'}: {tail}" + ("" if not hits else f"、殘留 {len(hits)} 處"))
-    return 1 if hits else 0
+    bad = bool(hits or layout)
+    print(f"{'OK' if not bad else 'FAIL'}: {tail}" + ("" if not hits else f"、殘留 {len(hits)} 處")
+          + ("" if not layout else "、根目錄有 docs/"))
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 vendor_kit（VK）把工具從一個 repo 送進其他 repo：出貨端把工具打包成容器 image，導入端用一行版本鎖定行決定裝哪一版。這裡只定義這件事用到的專有名詞，一般技術詞不收。
 
-對外承諾見[目的與承諾](docs/contract/01_purpose.md)，不變量見[不變量](docs/contract/02_invariants.md)，難逆轉的取捨見 [ADR](docs/adr/)。
+對外承諾見[目的與承諾](doc/contract/01_purpose.md)，不變量見[不變量](doc/contract/02_invariants.md)，難逆轉的取捨見 [ADR](doc/adr/)。
 
 ## Language
 
