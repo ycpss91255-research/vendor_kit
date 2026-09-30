@@ -82,12 +82,16 @@ const RESULT = {
 
 // codex 指令形狀固定：`< /dev/null` 不可省（省了 codex 會停在等 stdin）；
 // 不帶 --sandbox（repo 的 .codex/config.toml 已設 danger-full-access）。
-const codexRun = out => `前景執行（Bash timeout 600000，不要 run_in_background），形狀一字不差：
+// 外面一律用 bash -c 包起來並印出 codex_exit=：呼叫端的 shell 可能是 fish，
+// 用 $status 或 $? 讀結束碼會因 shell 不同拿到空值。
+const codexRun = out => `前景執行（Bash timeout 600000，不要 run_in_background），形狀一字不差（<暫存檔> 換成你的暫存檔路徑）：
 
-codex exec --skip-git-repo-check -C ${repo} -o ${out} "$(cat <暫存檔>)" < /dev/null
+bash -c 'codex exec --skip-git-repo-check -C ${repo} -o ${out} "$(cat <暫存檔>)" < /dev/null; echo "codex_exit=$?"'
 
    - \`< /dev/null\` 不可省略，省了 codex 會停在等 stdin。
-   - 不要帶 --sandbox：repo 的 .codex/config.toml 已設 danger-full-access。`
+   - 不要帶 --sandbox：repo 的 .codex/config.toml 已設 danger-full-access。
+   - 外層的 \`bash -c '…'\` 與最後的 \`echo "codex_exit=$?"\` 不可省略，也不要另外用 \`$status\` 或 \`$?\` 讀結束碼：結束碼一律從輸出裡 \`codex_exit=\` 那一行抓。
+   - 輸出沒有 \`codex_exit=\` 那一行、或值不是 0，就是 codex 失敗：error 寫原因（附 codex_exit 的值與 codex 的錯誤輸出）。`
 
 // ───────────────── 改稿方：依 editor 叫 codex（包裝子代理）或 Claude 子代理 ─────────────────
 // task 裡已含 guard(scope)；scope 是這一步准動的檔；out 是 codex 輸出檔名（只在 editor=codex 時用）。
@@ -113,7 +117,7 @@ ${scope.map(f => `- ${repo}/${f}`).join('\n')}
 3. 把下面的 brief 原文用 heredoc（'EOF'）寫進你的 scratchpad 暫存檔。
 4. ${codexRun(out)}
 5. 驗證（一律用指令算，不要目視）：
-   a. codex 結束碼不是 0、或 ${out} 不存在或是空的：error 寫原因（附 codex 的錯誤輸出）。
+   a. 輸出裡沒有 \`codex_exit=\` 那一行、codex_exit 不是 0、或 ${out} 不存在或是空的：error 寫原因（附 codex_exit 的值與 codex 的錯誤輸出）。
    b. 備份：准動的檔裡，md5 跟改前快照不同的，每一個都要在 _backup 多出一份 <鍵>.pre_${round}*.md（<鍵>：相對 repo 根目錄的路徑去掉 .md、/ 換成 _、去掉開頭的點）。少了就寫進 error。
    c. 範圍外：重做一次 git status 與 md5sum 快照，找出新出現或 md5 變了的路徑。不在「同一輪一起改的檔」清單、也不在 doc/decisions/ 底下的，就是 codex 碰到範圍外的檔：列出路徑寫進 error（不要還原，留給主對話處理）。在清單裡但不在這一步准動範圍的變動，是別的並行子代理造成的，不算。
    d. 跑 \`${LINT}\`，輸出原文放進 lint。${lintMustPass ? '有任何 FAIL 就寫進 error。' : '准動的檔造成的 FAIL 寫進 changed 並註明「lint 未過」；別的檔造成的只回報。'}
@@ -238,7 +242,7 @@ ${briefFor(f)}
 2. 把下面的 brief 原文用 heredoc（'EOF'）寫進你的 scratchpad 暫存檔。
 3. ${codexRun(out)}
 4. 讀 ${out}，「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、證據（放 source 欄）。output_file 填 ${out}。
-5. codex 失敗或輸出是空的：兩個陣列都回空，error 寫原因。**不要假裝有結果。**
+5. 輸出裡沒有 \`codex_exit=\` 那一行、codex_exit 不是 0、或 ${out} 不存在或是空的：兩個陣列都回空，error 寫原因（附 codex_exit 的值與 codex 的錯誤輸出）。**不要假裝有結果。**
 
 brief：
 ${briefFor(f)}`,
