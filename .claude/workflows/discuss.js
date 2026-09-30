@@ -1,10 +1,10 @@
 export const meta = {
   name: 'discuss',
   description: '維護者還沒回覆的問題先跟 codex 討論：codex 與 Claude 各自獨立回答，再比對出共識與分歧，整理成要問維護者的一句話',
-  whenToUse: '有問題要問維護者之前；結果寫進 doc/decisions/review_log/discussion_queue.md 再依序問',
+  whenToUse: '有問題要問維護者之前；結果整理成一段回報給主對話，由主對話貼到 wayfinder map #78 對應的 child issue 再依序問',
   phases: [
     { title: '各自回答', detail: '每題 codex（只讀）與 Claude 子代理各答一次，互不知道對方的答案' },
-    { title: '比對', detail: '比對兩份答案：一致就給結論與證據；不一致列出分歧，整理成要問維護者的問題' },
+    { title: '比對', detail: '比對兩份答案：一致就給結論與證據；不一致列出分歧，整理成要問維護者的問題；另把雙方結論與證據整理成一段 issue_note 給主對話貼到 issue（workflow 不直接發 issue）' },
   ],
 }
 
@@ -18,7 +18,7 @@ if (!Array.isArray(questions) || questions.length === 0) throw new Error('args.q
 
 const repo = '/home/cyc/Desktop/vendor-kit_ws/src'
 const BG = background.trim() ? `已定案前提（不要質疑）：\n${background.trim()}` : ''
-const READ = '先讀 GLOSSARY.md、doc/contract/01_purpose.md、doc/contract/02_invariants.md，以及題目提到的檔；結論要附證據（檔名＋行號、外部文件網址或 repo 內實例），沒有證據的主張標明是推論。'
+const READ = '先讀 GLOSSARY.md、doc/contract/01_purpose.md、doc/contract/02_invariants.md，以及題目提到的檔。已定案的決定記在 wayfinder map issue：跑 `gh issue view 78 -R ycpss91255-research/vendor_kit` 讀本文的「Decisions so far」；要某條決定的細節，跑 `gh issue view <child> -R ycpss91255-research/vendor_kit --comments` 讀該 child issue 的留言（結論在留言裡）。只讀，不要發 issue 或留言。結論跟任何一條定案衝突時要明講是哪一條（#<child>）。結論要附證據（檔名＋行號、外部文件網址或 repo 內實例），沒有證據的主張標明是推論。'
 
 const ANSWER = {
   type: 'object',
@@ -39,8 +39,9 @@ const VERDICT = {
     evidence: { type: 'array', items: { type: 'string' } },
     disagreements: { type: 'array', items: { type: 'string' } },
     ask_user: { type: 'string', description: '要問維護者的一句話（附建議選項）；兩邊一致而且不改對外承諾時可留空' },
+    issue_note: { type: 'string', description: '給主對話貼到對應 issue 的一段 markdown：題目、雙方結論、共同結論或分歧、證據' },
   },
-  required: ['id', 'agree', 'conclusion', 'evidence', 'disagreements', 'ask_user'],
+  required: ['id', 'agree', 'conclusion', 'evidence', 'disagreements', 'ask_user', 'issue_note'],
 }
 
 const codexAsk = q => agent(`你的工作是啟動 codex 回答一個設計問題，再把輸出整理成結構化回報。不要自己回答、不要改任何檔。
@@ -95,7 +96,9 @@ ${JSON.stringify(c)}
 Claude：
 ${JSON.stringify(a)}
 
-id 填 ${q.id}。ask_user：兩份一致而且不改對外承諾時留空；否則寫成一句要問維護者的話，附建議選項（建議的放第一個）。codex 那份有 error 時 agree 填 false，並在 disagreements 寫 codex 沒有結果。`,
+id 填 ${q.id}。ask_user：兩份一致而且不改對外承諾時留空；否則寫成一句要問維護者的話，附建議選項（建議的放第一個）。codex 那份有 error 時 agree 填 false，並在 disagreements 寫 codex 沒有結果。
+
+issue_note：把題目、codex 與 Claude 各自的結論、共同結論或分歧、證據整理成一段 markdown，由主對話貼到 wayfinder map #78 對應的 child issue。你只回報，不要跑 gh 發 issue 或留言。`,
     { label: `比對:${q.id}`, phase: '比對', schema: VERDICT }),
 )
 return results.filter(Boolean)
