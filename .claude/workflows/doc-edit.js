@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: '改任何現行文件（README、doc/contract/、GLOSSARY.md、ADR）時；主對話不自己改',
   phases: [
     { title: '改寫', detail: '先查 round 是不是 _backup 最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過；mode=light 一律由 Claude 子代理改，機械式改動用腳本做並用腳本驗證' },
-    { title: 'lint', detail: '全部改完後一個 Claude 子代理跑 check_terms、check_context、check_review_pages，只修 lint 指出的地方；mode=light 最後再跑一次當收尾' },
+    { title: 'lint', detail: '全部改完後一個 Claude 子代理跑 check_terms、check_context、check_review_pages、check_messages，只修 lint 指出的地方；mode=light 最後再跑一次當收尾' },
     { title: '審查', detail: '每個檔一條並行，由審查方（改稿方的另一方：預設 Claude，editor=claude 時是 codex）只讀審查；先核對 wayfinder map #78 列的已定案決定；審完的檔立刻進入套用必改；mode=light 一律由另一個 Claude 子代理只看這一輪的 diff 審查' },
     { title: '套用必改', detail: '每個檔由改稿方套用自己的必改，逐條寫已改或未改的理由；建議不改，只回報；mode=light 由 Claude 子代理套用，沒有必改就跳過' },
     { title: '跨檔一致性', detail: 'mode=light 不跑。全部套用完後比對各檔之間的結束碼、編號、名詞、連結；預設 Claude 只讀檢查、清單非空再交 codex 修；editor=claude 時一個 Claude 子代理檢查並修' },
@@ -63,7 +63,12 @@ const reviewer = LIGHT ? 'claude' : (editor === 'codex' ? 'claude' : 'codex')
 const editEffort = effort.edit ?? (LIGHT ? 'low' : undefined)
 const reviewEffort = effort.review ?? (LIGHT ? 'low' : undefined)
 
-const key = f => f.replace(/\.md$/, '').replace(/\//g, '_').replace(/^\./, '')
+// 鍵：去掉 .md 或 .csv、/ 換成 _、去掉開頭的點（跟 script/mark_changes.py 同一套）
+const key = f => f.replace(/\.(md|csv)$/, '').replace(/\//g, '_').replace(/^\./, '')
+// 備份的副檔名：.csv 檔（例如 doc/contract/03_messages.csv，#122）備份成 .csv，其他一律 .md
+const ext = f => (/\.csv$/.test(f) ? '.csv' : '.md')
+// 這一輪的基準：不帶序號的 <鍵>.pre_<round><副檔名>，一定是這一輪改之前的原檔
+const baseOf = f => `${repo}/doc/decisions/_backup/${key(f)}.pre_${round}${ext(f)}`
 // 輸出檔依產生者放 review_log/codex/ 或 review_log/claude/
 const logFile = (who, name) => `${repo}/doc/decisions/review_log/${who}/${round}-doc-edit-${name}.md`
 const BACKGROUND = background.trim()
@@ -77,14 +82,15 @@ const guard = scope => `硬性規則（違反就算這輪失敗）：
 1. 不 commit、不 push、不跑任何 git 寫入指令（含 add、checkout、reset、stash）。唯讀的 git status／diff 可以。
 2. 只准動這幾個檔：
 ${scope.map(f => `- ${repo}/${f}`).join('\n')}
-3. 改前先備份到 ${repo}/doc/decisions/_backup/，命名 <鍵>.pre_${round}.md。<鍵>：相對 repo 根目錄的路徑，去掉 .md、/ 換成 _、去掉開頭的點（例如 doc/contract/01_purpose.md → doc_contract_01_purpose、.claude/workflows/README.md → claude_workflows_README；跟 script/mark_changes.py 同一套）。同名已存在就在 .md 前加序號（.pre_${round}.2.md）；不帶序號的那份一定是這一輪改之前的原檔。
+3. 改前先備份到 ${repo}/doc/decisions/_backup/，命名 <鍵>.pre_${round}<副檔名>。<鍵>：相對 repo 根目錄的路徑，去掉 .md 或 .csv、/ 換成 _、去掉開頭的點（例如 doc/contract/01_purpose.md → doc_contract_01_purpose、.claude/workflows/README.md → claude_workflows_README、doc/contract/03_messages.csv → doc_contract_03_messages；跟 script/mark_changes.py 同一套）。<副檔名>：.csv 檔是 .csv（doc_contract_03_messages.pre_${round}.csv），其他一律 .md。同名已存在就在副檔名前加序號（.pre_${round}.2.md、.pre_${round}.2.csv）；不帶序號的那份一定是這一輪改之前的原檔。
 4. 驗證一律用腳本算，不要目視判斷「看起來對」。
-5. 名詞照 ${repo}/GLOSSARY.md；_Avoid_ 詞不准出現。名詞底線用 <ins>，不用 <u>（GitHub 會刪掉 <u>）。
+5. 名詞照 ${repo}/GLOSSARY.md；_Avoid_ 詞不准出現。名詞底線用 <ins>，不用 <u>（GitHub 會刪掉 <u>）。CSV 檔（doc/contract/*.csv）不准 HTML 與 Markdown，名詞底線不適用；欄位結構（表頭、欄數、引號跳脫、BOM、LF）照 script/check_messages.py。
 6. 連結要是有名字的超連結（[名字](路徑)），不要把路徑當連結文字；路徑要實際存在。
 7. 同一輪還有別的子代理在並行改這些檔：${files.map(f => f).join('、')}。你只改上面第 2 條列的檔；讀其他檔只為了對照。`
 const GUARDRAILS = guard(files)
 
-const LINT = `cd ${repo} && python3 script/check_terms.py && python3 script/check_context.py && python3 script/check_review_pages.py`
+// check_messages.py 在 doc/contract/03_messages.csv 還不存在時自己跳過
+const LINT = `cd ${repo} && python3 script/check_terms.py && python3 script/check_context.py && python3 script/check_review_pages.py && python3 script/check_messages.py`
 
 const RESULT = {
   type: 'object',
@@ -135,7 +141,7 @@ ${scope.map(f => `- ${repo}/${f}`).join('\n')}
 4. ${codexRun(out)}
 5. 驗證（一律用指令算，不要目視）：
    a. 輸出裡沒有 \`codex_exit=\` 那一行、codex_exit 不是 0、或 ${out} 不存在或是空的：error 寫原因（附 codex_exit 的值與 codex 的錯誤輸出）。
-   b. 備份：准動的檔裡，md5 跟改前快照不同的，每一個都要在 _backup 多出一份 <鍵>.pre_${round}*.md（<鍵>：相對 repo 根目錄的路徑去掉 .md、/ 換成 _、去掉開頭的點）。少了就寫進 error。
+   b. 備份：准動的檔裡，md5 跟改前快照不同的，每一個都要在 _backup 多出一份 <鍵>.pre_${round}*<副檔名>（<鍵>：相對 repo 根目錄的路徑去掉 .md 或 .csv、/ 換成 _、去掉開頭的點；<副檔名>：.csv 檔是 .csv，其他是 .md）。少了就寫進 error。
    c. 範圍外：重做一次 git status 與 md5sum 快照，找出新出現或 md5 變了的路徑。不在「同一輪一起改的檔」清單、也不在 doc/decisions/ 底下的，就是 codex 碰到範圍外的檔：列出路徑寫進 error（不要還原，留給主對話處理）。在清單裡但不在這一步准動範圍的變動，是別的並行子代理造成的，不算。
    d. 跑 \`${LINT}\`，輸出原文放進 lint。${lintMustPass ? '有任何 FAIL 就寫進 error。' : '准動的檔造成的 FAIL 寫進 changed 並註明「lint 未過」；別的檔造成的只回報。'}
 6. 回報：changed 取自 ${out} 裡 codex 的改動摘要（有「已改／未改：理由」就逐條照原文保留），最後加一行 \`git -C ${repo} diff --stat -- ${scope.join(' ')}\` 的結果；backups 填新增的備份檔路徑。codex 失敗就 error 寫原因，**不要假裝成功**。
@@ -209,7 +215,7 @@ ${BACKGROUND}
 
 先讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md、${f} 引用到的 ADR，以及${DECIDED}。
 
-這一輪的改動：用 \`diff -u ${repo}/doc/decisions/_backup/${key(f)}.pre_${round}.md ${repo}/${f}\` 看（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。
+這一輪的改動：用 \`diff -u ${baseOf(f)} ${repo}/${f}\` 看（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。
 ${ask.trim() ? `這一輪的改動需求（ask）：\n${ask.trim()}\n` : '這一輪沒有 ask（檔已先改好）。\n'}
 請回答（只列 ${f} 裡的問題；跨檔不一致也算在 ${f} 身上，寫明對不上的是哪個檔哪一行）：
 0. 已定案（最重要）：逐條對照 map #78 的「Decisions so far」，檢查這一輪的改動有沒有違反任何一條定案；有沒有改變 01 的承諾、削弱 02 的不變量、或改動 03／04 的對外介面而 ask 沒有要求。有就列為必改，fix 寫「還原成…」（附原文），source 寫定案的 child issue（#<child>）或頁名＋行號。
@@ -229,7 +235,7 @@ ${BACKGROUND}
 
 這一輪你只審一個檔：${f}（repo 根目錄 ${repo}）。同一輪一起改的其他檔：${files.filter(x => x !== f).join('、') || '（無）'}。
 
-只看這一輪的改動：\`diff -u ${repo}/doc/decisions/_backup/${key(f)}.pre_${round}.md ${repo}/${f}\`（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。diff 以外的舊內容不審。
+只看這一輪的改動：\`diff -u ${baseOf(f)} ${repo}/${f}\`（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。diff 以外的舊內容不審。
 ${ask.trim() ? `這一輪的改動需求（ask）：\n${ask.trim()}\n` : '這一輪沒有 ask（檔已先改好）。\n'}
 對照讀${DECIDED}，需要時再讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md。只查這幾項（有就列必改，fix 寫「還原成…」或具體改法，source 寫定案的 child issue（#<child>）或檔名＋行號）：
 1. 已定案：diff 裡的改動有沒有違反 map #78「Decisions so far」任何一條。
@@ -452,7 +458,7 @@ const POLISH_RESULT = {
 }
 phase('潤稿')
 const polished = await parallel(files.map(f => {
-  const base = `${repo}/doc/decisions/_backup/${key(f)}.pre_${round}.md`
+  const base = baseOf(f)
   return () => agent(`你負責潤稿，只負責 ${f}。
 
 ${guard([f])}
@@ -466,9 +472,9 @@ ${BACKGROUND}
 
 步驟：
 1. 取得上面的 diff；空的就照上面跳過並回報。
-2. 照第 3 條護欄備份 ${f}：不帶序號的那份已經是基準，所以你的備份會帶序號（.pre_${round}.N.md，N 取目前最大的加一）。這份是「潤稿前」，記下它的路徑。
+2. 照第 3 條護欄備份 ${f}：不帶序號的那份已經是基準，所以你的備份會帶序號（.pre_${round}.N${ext(f)}，N 取目前最大的加一）。這份是「潤稿前」，記下它的路徑。
 3. 用 Skill 工具呼叫 "humanizer-zh-tw"。只修它列出的 AI 寫作模式，而且只在第 1 步的範圍內修；沒有明確對上某個模式就不改。不做同義替換、語序微調、連接詞增刪這類不改善可讀性的改動（例如「所以 VK 要…」不要改成「VK 因此要…」）。
-4. 另外：不改意思、不加新事實、不刪承諾或「依 [頁名](連結) 第 N 條」的引用；不動程式碼區塊、行內程式碼、路徑、連結目標、數字、條號、表格結構；語氣直接，用「你」或省略主詞，不用「我認為」「建議」「也許」這類軟化詞。這一輪不做文字浮水印檢查，skill 最後的浮水印詢問略過。
+4. 另外：不改意思、不加新事實、不刪承諾或「依 [頁名](連結) 第 N 條」的引用；不動程式碼區塊、行內程式碼、路徑、連結目標、數字、條號、表格結構；CSV 只改欄位裡的文字，不動表頭、逗號、引號與欄數；語氣直接，用「你」或省略主詞，不用「我認為」「建議」「也許」這類軟化詞。這一輪不做文字浮水印檢查，skill 最後的浮水印詢問略過。
 5. 跑 \`${LINT}\`；${f} 造成的 FAIL 要修掉，修的時候也只准動第 1 步範圍內的行。
 6. 越界驗證（一律用腳本算）：用 Write 工具把下面的腳本原文存成你 scratchpad 的 polish_check.py，然後跑
    \`python3 <scratchpad>/polish_check.py <基準> <潤稿前的備份> ${repo}/${f} --fix\`
