@@ -7,3 +7,4 @@ doc/decisions/_marked/
 # （git show HEAD:<path> > doc/decisions/_backup/<路徑攤平>.pre_rNN.md），見 script/README.md
 doc/decisions/_backup/
 script/diagram/_backup/
+.claude/settings.local.json
