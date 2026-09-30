@@ -23,8 +23,15 @@ RULE = (
 )
 
 
+TERM = re.compile(r"^\*\*(.+?)\*\*(（[^）]*）| \([^)]*\))?[:：]\s*$")
+
+
 def terms(context: Path) -> list[str]:
-    """抓 `## Language` 底下每一行「**名詞**（英文）：」（domain-modeling skill 的格式，不靠 HTML 錨點）。"""
+    """抓 `## Language` 底下每一行名詞（domain-modeling skill 的格式，不靠 HTML 錨點）。
+
+    英文注名兩種寫法都認：半形「**名詞** (english)：」（括號內全 ASCII）與全形「**名詞**（注名）：」；
+    沒有注名的「**名詞**：」也算。
+    """
     lines = context.read_text(encoding="utf-8").splitlines()
     try:
         start = next(i for i, ln in enumerate(lines) if ln.strip() == "## Language")
@@ -32,7 +39,7 @@ def terms(context: Path) -> list[str]:
         return []
     out = []
     for ln in lines[start + 1:]:
-        m = re.match(r"^\*\*(.+?)\*\*(（[^）]*）)?[:：]\s*$", ln)
+        m = TERM.match(ln)
         if m:
             out.append(m.group(1) + (m.group(2) or ""))
     return out
