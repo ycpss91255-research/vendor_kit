@@ -131,7 +131,8 @@ ${files.map(f => `- ${f}`).join('\n')}
 2. 連結：每個連結都是有名字的超連結嗎？目標路徑存在嗎？
 3. 名詞：有沒有用了 CONTEXT.md 沒定義的詞、或 _Avoid_ 詞？
 4. 易讀性：第一次看的人哪裡看不懂？哪句太長、太繞？
-${codex_focus.trim() ? `5. 額外重點：${codex_focus.trim()}` : ''}
+${files.some(f => /0[34]_|README\.md$/.test(f)) ? '5. 慣例：檔案涉及使用者介面（結束碼與優先序、選項寫法、說明與用法錯誤、訊息格式）時，逐條對照主流 CLI 慣例（GNU／POSIX、diff、grep、git、Python argparse 等），不一致又沒有理由的列為必改，附慣例來源。' : ''}
+${codex_focus.trim() ? `6. 額外重點：${codex_focus.trim()}` : ''}
 
 輸出 markdown，分「必改」「建議」兩區；每條寫位置（檔名＋行號或標題）、問題、建議、證據（檔名＋行號）。不要客套話。`
 
