@@ -1,0 +1,67 @@
+"""check_review_pages.py 的規則：跑法 `python3 -m unittest discover -s test`。"""
+import contextlib
+import io
+import os
+import pathlib
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "script"))
+import check_review_pages as c  # noqa: E402
+
+
+class SlugTest(unittest.TestCase):
+    def test_github_style(self):
+        self.assertEqual(c.slug("1. 使用者寫的內容歸使用者：可以建、要改先問"), "1-使用者寫的內容歸使用者可以建要改先問")
+        self.assertEqual(c.slug("CI 檢查腳本"), "ci-檢查腳本")
+        self.assertEqual(c.slug("<ins>引擎</ins> 版本"), "引擎-版本")
+
+
+class RulesTest(unittest.TestCase):
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.TemporaryDirectory()
+        os.chdir(self._tmp.name)
+        pathlib.Path("doc/decisions/review").mkdir(parents=True)
+        pathlib.Path("CONTEXT.md").write_text("# 名詞\n\n`--engine`\n")
+        pathlib.Path("README.md").write_text("# VK\n\n## 目錄\n")
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        self._tmp.cleanup()
+
+    def run_main(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = c.main()
+        return code, out.getvalue()
+
+    def write(self, name, body):
+        pathlib.Path("doc/decisions/review", name).write_text(body)
+
+    def test_clean_pages_pass(self):
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n")
+        self.write("02_b.md", "# 02\n\n## 目錄\n\n依 [01](01_a.md#第一節)。\n")
+        self.assertEqual(self.run_main()[0], 0)
+
+    def test_backward_link_provenance_version_and_anchor_fail(self):
+        self.write("01_a.md", "# 01\n\n> 版本 v3\n\n## 目錄\n\n見 [02](02_b.md)。\n\n出處：ADR-0001\n")
+        self.write("02_b.md", "# 02\n\n## 目錄\n\n[壞錨點](01_a.md#沒有這節)\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        for want in ("只能向前依賴", "不寫「出處」", "不寫版本號", "錨點不存在"):
+            self.assertIn(want, out)
+
+    def test_messages_page_commands_must_be_defined_earlier(self):
+        self.write("01_a.md", "# 01\n\n## 目錄\n")
+        self.write("02_b.md", "# 02\n\n## 目錄\n")
+        self.write("03_m.md", "# 03\n\n## 目錄\n\n`just vendor_kit upgrade --engine` `just vendor_kit add <repo> -z`\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("-z", out)
+        self.assertNotIn("用了 --engine", out)
+
+
+if __name__ == "__main__":
+    unittest.main()
