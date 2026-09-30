@@ -32,8 +32,8 @@
 | 衝突時基準版是否推到新版 | 已定案 | 推：留 `<<<<<<< vendor_kit:baseline` 標記、印檔名、基準版仍推到新版；唯一例外是合併結果為 TOML／just 而解析不過 —— 留原檔、該檔基準版不推、記入 metadata `conflicts`。 |
 | Renovate 的初始檔合併由誰做 | 已定案 | VK 無 bot、不 commit、不開 PR；PR 只改一行版本鎖定行，初始檔合併由人在 PR 分支本機 `upgrade <repo> -y` → commit → push，CI 全部再跑一次才 merge。 |
 | 多命名空間工具 | 已定案 | 一個工具可出多個 `<ns>`：`dist/just/<ns>.just` 每檔一個頂層命名空間、數量工具自決、`<repo>.just` 必須存在；`gen/tools.just` 每個 `<ns>` 一行 `mod?`（一工具可多行）；`add` 時 `<ns>` 與其他已接工具、根 `justfile` 既有 recipe／module、保留名 `vendor_kit` 撞名 → 1 拒絕。 |
-| image 公開／私有 | 已定案 | 引擎 image 公開（不可逆要提醒），工具 image 由各工具 repo 自決；認證是主機／CI 各自的事，VK 只承諾「主機 docker 拉得到就能用」。未給憑證時不支援需認證的版本列舉，回 1 印 6-3 提示設 `VENDOR_KIT_REGISTRY_TOKEN`（或 `_TOKEN_FILE`）或直接指定 `@<tag>`。 |
-| `.gitignore` 類初始檔的處理 | 已定案 | 用 append 型：根 `.gitignore`／`.dockerignore`／`.editorconfig` 這類必須 `strategy = "append"`，用 copy 指向它們 → `check.sh --dist` 報錯；無檔則建、已有則問後 append，刪也只刪原文相同的行（6-21，CRLF/LF 等價，零命中或多處只 warn）。VK 自己不碰使用者的 `.gitignore`：`.vendor_kit/.gitignore` 是 VK 擁有的薄殼檔，VK 自己寫的 repo 檔只有根 `justfile` 一行與根 `.dockerignore` 四行。 |
+| image 公開／私有 | 已定案 | 引擎 image 公開（不可逆要提醒），工具 image 由各工具 repo 自決；認證是主機／CI 各自的事，VK 只承諾「主機 docker 拉得到就能用」。未給憑證時不支援需認證的版本列舉，回 1 印 M1 提示設 `VENDOR_KIT_REGISTRY_TOKEN`（或 `_TOKEN_FILE`）或直接指定 `@<tag>`。 |
+| `.gitignore` 類初始檔的處理 | 已定案 | 用 append 型：根 `.gitignore`／`.dockerignore`／`.editorconfig` 這類必須 `strategy = "append"`，用 copy 指向它們 → `check.sh --dist` 報錯；無檔則建、已有則問後 append，刪也只刪原文相同的行（CRLF/LF 等價，零命中或多處只 warn）。VK 自己不碰使用者的 `.gitignore`：`.vendor_kit/.gitignore` 是 VK 擁有的薄殼檔，VK 自己寫的 repo 檔只有根 `justfile` 一行與根 `.dockerignore` 四行。 |
 
 ### v2
 

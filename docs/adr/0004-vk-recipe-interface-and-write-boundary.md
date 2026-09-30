@@ -16,14 +16,14 @@
 - `vendor.just` 進 git，fresh clone 直接有入口；代價是改轉發行等於改進 git 的檔，要走 `upgrade --engine` 重產薄殼。
 - CI 模式附加的紅燈規則只有兩條，底下的具名情境可以逐項寫成測試；版本組合不合與一般失敗照結束碼總表，不在這份清單裡。清單外的警告不擋別人的 pipeline，也就不會被 `|| true` 整批關掉。
 - `CI` 由 CI 服務自己設，使用者不必額外配置；本機把 `CI` 留在環境裡的人會拿到 CI 行為。
-- 需要寫進 git 的情境各有固定訊息編號，改號等於改介面。[03 訊息與錯誤碼總表](../contract/03_messages.md)列了未完成導入（[訊息 6-13](../contract/03_messages.md#訊息)）、基準版落後（[訊息 6-5](../contract/03_messages.md#訊息)）與薄殼不符（[訊息 6-28](../contract/03_messages.md#訊息)）。
+- 需要寫進 git 的情境各有固定訊息編號，改號等於改介面。[03 訊息與錯誤碼總表](../contract/03_messages.md)列了未完成導入（[訊息 M5](../contract/03_messages.md#訊息)）、基準版落後（[訊息 M3](../contract/03_messages.md#訊息)）與薄殼不符（[訊息 M8](../contract/03_messages.md#訊息)）。
 - 內部機制（之後搬到實作 issue）：
   - 轉發形狀：每個 recipe 一行 `<recipe> *args`，以 `[group('常用')]` 與 `[group('進階')]` 分段；轉發行不解讀參數、不判斷狀態。`vendor.just` 屬於進 git 的薄殼五檔（[不變量 6](../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)）。
   - `check.sh` 自己設 `CI=1`。`update` 在 CI 模式下仍然查 registry：它是唯讀 recipe，查詢就是它的用途。
   - CI 模式附加的紅燈規則是封閉清單，只有兩條，都以[結束碼 `2`](../contract/03_messages.md#結束碼)結束：需要改進 git 的檔（一律不寫），以及有任何本機覆寫。需要改進 git 的檔有三個具名情境：基準版落後（本機只警告）、未完成導入、薄殼不符（後兩者本機也回 `2`）。清單以外的結果照[結束碼](../contract/03_messages.md#結束碼)：版本組合不合回 `3`，一般失敗回 `2`，多個結果取最大值。「這個檔沒納管」「這個版本你拒絕過」只提醒、不紅燈。
-  - `sync` 的三種情境：未完成導入回 `2`（[訊息 6-13](../contract/03_messages.md#訊息)）；基準版落後版本鎖定行在本機只警告、CI 下回 `2`（[訊息 6-5](../contract/03_messages.md#訊息)）；快取逐檔指紋驗不過就重裝並警告；重裝只動 VK 自己的 `cache/`，不違反寫入邊界。
+  - `sync` 的三種情境：未完成導入回 `2`（[訊息 M5](../contract/03_messages.md#訊息)）；基準版落後版本鎖定行在本機只警告、CI 下回 `2`（[訊息 M3](../contract/03_messages.md#訊息)）；快取逐檔指紋驗不過就重裝並警告；重裝只動 VK 自己的 `cache/`，不違反寫入邊界。
   - 可寫 recipe 的時序：
-    1. 主機前置檢查依 [ADR-0007 主機薄層決議](0007-host-thin-layer-and-shell-integrity.md)與 [04 使用者介面的主機需求](../contract/04_interface.md#主機需求)執行。Docker 版本不足與偵測到 Podman，首次導入與已有安裝目錄都由啟動器檢查；檢查沒有副作用，排在建執行紀錄之前，失敗時不留執行紀錄、不動任何 VK 檔，只在 stderr 印[訊息 6-39、6-40](../contract/03_messages.md#訊息)、以 `2` 結束。just 版本不足只有首次導入由 `bootstrap.sh` 檢查，失敗時同樣不留執行紀錄、不動任何 VK 檔，只在 stderr 印[訊息 6-23](../contract/03_messages.md#訊息)、以 `2` 結束；已有安裝目錄時由 just 解析 justfile 時自己拒絕，不承諾 VK 的訊息與結束碼，也不留執行紀錄。
+    1. 主機前置檢查依 [ADR-0007 主機薄層決議](0007-host-thin-layer-and-shell-integrity.md)與 [04 使用者介面的主機需求](../contract/04_interface.md#主機需求)執行。Docker 版本不足與偵測到 Podman，首次導入與已有安裝目錄都由啟動器檢查；檢查沒有副作用，排在建執行紀錄之前，失敗時不留執行紀錄、不動任何 VK 檔，只在 stderr 印[訊息 M11、M12](../contract/03_messages.md#訊息)、以 `2` 結束。just 版本不足只有首次導入由 `bootstrap.sh` 檢查，失敗時同樣不留執行紀錄、不動任何 VK 檔，只在 stderr 印[訊息 M7](../contract/03_messages.md#訊息)、以 `2` 結束；已有安裝目錄時由 just 解析 justfile 時自己拒絕，不承諾 VK 的訊息與結束碼，也不留執行紀錄。
     2. 建執行紀錄，早於任何寫入、拉 image、起引擎。
     3. 建進度檔（`.tmp.<verb>.<id>.toml`、metadata 的 `[progress]`），早於第一個 repo 檔或 VK 狀態檔的寫入。
     4. 一次處理多個工具時，先對全部工具做完整預檢；任一項不過就整體不動，列出每一個原因，結束碼依各原因的結束碼取最大值。
