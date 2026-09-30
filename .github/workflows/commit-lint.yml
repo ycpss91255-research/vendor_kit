@@ -1,0 +1,29 @@
+name: commit-lint
+
+# commit 訊息格式檢查（#110）：PR 標題與 PR 裡每個 commit 都用 script/check_commit_msg.py 檢查。
+# PR 用 merge commit 進 main，標題會變成 merge commit 的標題，所以 PR 標題也要合格。
+# 不加 paths 過濾：之後要設成 ruleset 的必過檢查，被過濾跳過的必過檢查會一直停在 Pending。
+# 生效點：PR #59 merge 之後才設成必過；#59 之前的 commit 不追溯、不改寫。
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  commit-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: PR 標題
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | python3 script/check_commit_msg.py --title -
+      - name: PR 裡的每個 commit（merge commit 豁免；把 main 併進分支的 merge commit 會擋，請改用 rebase）
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 script/check_commit_msg.py --range "$BASE_SHA..$HEAD_SHA"
