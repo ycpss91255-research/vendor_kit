@@ -5,7 +5,7 @@ export const meta = {
   phases: [
     { title: '改寫', detail: '先查 round 是不是 _backup 最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過；mode=light 一律由 Claude 子代理改，機械式改動用腳本做並用腳本驗證' },
     { title: 'lint', detail: '全部改完後一個 Claude 子代理跑 check_terms、check_context、check_review_pages，只修 lint 指出的地方；mode=light 最後再跑一次當收尾' },
-    { title: '審查', detail: '每個檔一條並行，由審查方（改稿方的另一方：預設 Claude，editor=claude 時是 codex）只讀審查；先核對 discussion_queue.md 已定案區；審完的檔立刻進入套用必改；mode=light 一律由另一個 Claude 子代理只看這一輪的 diff 審查' },
+    { title: '審查', detail: '每個檔一條並行，由審查方（改稿方的另一方：預設 Claude，editor=claude 時是 codex）只讀審查；先核對 wayfinder map #78 列的已定案決定；審完的檔立刻進入套用必改；mode=light 一律由另一個 Claude 子代理只看這一輪的 diff 審查' },
     { title: '套用必改', detail: '每個檔由改稿方套用自己的必改，逐條寫已改或未改的理由；建議不改，只回報；mode=light 由 Claude 子代理套用，沒有必改就跳過' },
     { title: '跨檔一致性', detail: 'mode=light 不跑。全部套用完後比對各檔之間的結束碼、編號、名詞、連結；預設 Claude 只讀檢查、清單非空再交 codex 修；editor=claude 時一個 Claude 子代理檢查並修' },
     { title: '潤稿', detail: 'mode=light 不跑。每個檔一個 Claude 子代理並行用 humanizer-zh-tw 潤稿，只准改這一輪改過的行、只修 AI 寫作模式；改完用腳本比對，越界的行還原，這一輪沒改的檔跳過；最後再跑一次 lint' },
@@ -69,7 +69,8 @@ const logFile = (who, name) => `${repo}/doc/decisions/review_log/${who}/${round}
 const BACKGROUND = background.trim()
   ? `背景（已定案，不要質疑、不要重新設計）：\n${background.trim()}`
   : '（沒有額外背景前提。）'
-const DECIDED = `${repo}/doc/decisions/review_log/discussion_queue.md`
+// 已定案的決定記在 GitHub 的 wayfinder map issue #78，每條連到各自的 child issue，結論在 child issue 的留言
+const DECIDED = 'wayfinder map issue 的已定案決定（跑 `gh issue view 78 -R ycpss91255-research/vendor_kit` 讀本文的「Decisions so far」，每條連到一個 child issue；要某條的細節跑 `gh issue view <child> -R ycpss91255-research/vendor_kit --comments`，結論在留言裡；只讀，不要發 issue 或留言）'
 
 // ───────────────── 共用護欄（組進每個子代理與 codex 的 prompt） ─────────────────
 const guard = scope => `硬性規則（違反就算這輪失敗）：
@@ -206,12 +207,12 @@ ${BACKGROUND}
 
 這一輪你只審一個檔：${f}（repo 根目錄 ${repo}）。同一輪一起改的其他檔：${files.filter(x => x !== f).join('、') || '（無）'}；讀它們只為了檢查 ${f} 跟它們一致。
 
-先讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md、${DECIDED} 的「已定案」區，以及 ${f} 引用到的 ADR。
+先讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md、${f} 引用到的 ADR，以及${DECIDED}。
 
 這一輪的改動：用 \`diff -u ${repo}/doc/decisions/_backup/${key(f)}.pre_${round}.md ${repo}/${f}\` 看（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。
 ${ask.trim() ? `這一輪的改動需求（ask）：\n${ask.trim()}\n` : '這一輪沒有 ask（檔已先改好）。\n'}
 請回答（只列 ${f} 裡的問題；跨檔不一致也算在 ${f} 身上，寫明對不上的是哪個檔哪一行）：
-0. 已定案（最重要）：逐條對照「已定案」區，檢查這一輪的改動有沒有違反任何一條定案；有沒有改變 01 的承諾、削弱 02 的不變量、或改動 03／04 的對外介面而 ask 沒有要求。有就列為必改，fix 寫「還原成…」（附原文），source 寫定案條號或頁名＋行號。
+0. 已定案（最重要）：逐條對照 map #78 的「Decisions so far」，檢查這一輪的改動有沒有違反任何一條定案；有沒有改變 01 的承諾、削弱 02 的不變量、或改動 03／04 的對外介面而 ask 沒有要求。有就列為必改，fix 寫「還原成…」（附原文），source 寫定案的 child issue（#<child>）或頁名＋行號。
 1. 正確性：每一句跟 01、02、GLOSSARY.md、ADR 有沒有對不上的地方？「依 [頁名](連結#錨點) 第 N 條」引用的條號與錨點對不對？對外頁（README、doc/contract/0N）不准有「出處：」行。
 2. 連結：每個連結都是有名字的超連結嗎？目標路徑存在嗎？
 3. 名詞：有沒有用了 GLOSSARY.md 沒定義的詞、或 _Avoid_ 詞？
@@ -230,8 +231,8 @@ ${BACKGROUND}
 
 只看這一輪的改動：\`diff -u ${repo}/doc/decisions/_backup/${key(f)}.pre_${round}.md ${repo}/${f}\`（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。diff 以外的舊內容不審。
 ${ask.trim() ? `這一輪的改動需求（ask）：\n${ask.trim()}\n` : '這一輪沒有 ask（檔已先改好）。\n'}
-對照讀 ${DECIDED} 的「已定案」區，需要時再讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md。只查這幾項（有就列必改，fix 寫「還原成…」或具體改法，source 寫定案條號或檔名＋行號）：
-1. 已定案：diff 裡的改動有沒有違反「已定案」區任何一條。
+對照讀${DECIDED}，需要時再讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md。只查這幾項（有就列必改，fix 寫「還原成…」或具體改法，source 寫定案的 child issue（#<child>）或檔名＋行號）：
+1. 已定案：diff 裡的改動有沒有違反 map #78「Decisions so far」任何一條。
 2. 對外承諾：有沒有改變 01 的承諾、削弱 02 的不變量、或改動 03／04 的對外介面，而 ask 沒有要求。
 3. 做完沒：ask 要求的每一項在 ${f} 該做的部分都做了嗎？漏的列必改。
 4. 連結：diff 裡新增或改動的連結，目標路徑與 #錨點 是不是實際存在（用腳本算 slug 比對，不要目視）。
@@ -296,7 +297,7 @@ ${BACKGROUND}
 ${JSON.stringify(rev.must_fix, null, 2)}
 
 規則：
-- 每一條都要處理；做法照 fix 欄，但要先對照 source 欄的證據確認審查沒看錯。改法若會削弱 02 的不變量、改變 01 的承諾或 03／04 的對外介面，不要改，註明「未改：改到對外承諾，要維護者決定」。動手前先讀 ${DECIDED} 的「已定案」區：改法跟任何一條定案衝突，不要改，註明「未改：跟定案第 N 條衝突」。確認審查看錯的那條不要改，註明「未改：理由」。
+- 每一條都要處理；做法照 fix 欄，但要先對照 source 欄的證據確認審查沒看錯。改法若會削弱 02 的不變量、改變 01 的承諾或 03／04 的對外介面，不要改，註明「未改：改到對外承諾，要維護者決定」。動手前先讀${DECIDED}：改法跟任何一條定案衝突，不要改，註明「未改：跟定案 #<child> 衝突」。確認審查看錯的那條不要改，註明「未改：理由」。
 - 必改指到 ${f} 以外的檔：不要改，註明${LIGHT ? '「未改：屬於別的檔，只回報」（這一輪不跑跨檔一致性）' : '「未改：屬於別的檔，交給跨檔一致性」'}。
 - 只改必改指到的地方，不要順手改別的。
 - 改完跑 \`${LINT}\`；${f} 造成的 FAIL 要修掉，別的檔造成的只回報。
@@ -333,7 +334,7 @@ if (LIGHT) {
 phase('跨檔一致性')
 const otherFile = JSON.stringify(applied.flatMap(a => (a?.changed ?? []).filter(c => /屬於別的檔/.test(c)).map(c => ({ from: a.file, item: c }))), null, 2)
 const CHECK_STEPS = `1. 讀這一輪的全部檔。用腳本比對跨檔會一起出現的東西：結束碼與其意思、訊息編號、指令與選項寫法、名詞、互相引用的連結與錨點、同一條規則在兩處的說法。
-2. 對不上的地方，照 doc/contract/01～02 與 GLOSSARY.md、${DECIDED} 已定案區判斷哪邊對、錯的是哪邊；判斷不了的註明「無法判斷，要維護者決定」。
+2. 對不上的地方，照 doc/contract/01～02 與 GLOSSARY.md、${DECIDED}判斷哪邊對、錯的是哪邊；判斷不了的註明「無法判斷，要維護者決定」。
 3. 上面那些「屬於別的檔」的必改也要處理。`
 let consistency
 if (editor === 'claude') {
@@ -395,7 +396,7 @@ ${JSON.stringify(check.issues, null, 2)}
 
 規則：
 - 每一條先對照 source 欄的證據確認沒看錯；做法照 fix 欄，改 file 欄指的檔。
-- 改法跟 ${DECIDED} 已定案區任何一條衝突、或會改變 01 的承諾、削弱 02 的不變量、改動 03／04 的對外介面：不要改，註明「未改：理由」。
+- 改法跟${DECIDED}任何一條衝突（註明「未改：跟定案 #<child> 衝突」）、或會改變 01 的承諾、削弱 02 的不變量、改動 03／04 的對外介面：不要改，註明「未改：理由」。
 - 只改清單指到的地方，不要順手改別的。
 - 改完跑 \`${LINT}\`，要全部 OK。
 - 最後逐條列出處理結果，一行一條：「已改：檔名＋位置＋改了什麼」或「未改：理由」。`,
