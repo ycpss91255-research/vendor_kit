@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""檢查現行 .md 檔與 doc/contract/*.csv 的文字欄沒有殘留根 GLOSSARY.md 的 _Avoid_ 詞。
+"""檢查現行文件遵守 GLOSSARY.md 的名詞規則。
 
 `check_context.py` 只管 GLOSSARY.md 自己；這支管其他所有文件。改名改到一半、
 舊詞留在某一頁，靠人逐輪目視一定會漏，所以寫成腳本擋掉。
 
 用法：python3 script/check_terms.py
 已定案要保留舊詞的個別行寫在 WHITELIST（逐行、逐字串登記）。
-另外擋目錄規則：repo 根目錄有 docs/ 就失敗（文件一律放 doc/）。
+另外檢查對外頁的名詞首次出現連結，並擋目錄規則：repo 根目錄有 docs/ 就失敗。
 CSV 的殘留位置報 `<檔>:<代碼>:<欄名>`，不報實體行號。
 全乾淨印 OK 回 0；有殘留逐筆印出回 1。
 """
@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,6 +110,13 @@ def target_files() -> list[Path]:
 
 
 U_TAG = re.compile(r"</?u>")
+INS_TAG = re.compile(r"</?ins>")
+HEADING = re.compile(r"^#{1,6}\s+")
+FENCE = re.compile(r"^\s*(```|~~~)")
+LINK = re.compile(r"\[([^\[\]]*)\]\(([^)\s]+)\)")
+GLOSSARY_ENTRY = re.compile(r"^\*\*(.+?)\*\*(?:\s+\([^)]*\))?：")
+GLOSSARY_GROUP = re.compile(r"^###\s+(.+?)\s*#*\s*$")
+REVIEW_PAGE = re.compile(r"^0[1-4]_.+\.md$")
 # CSV 裡會寫出文字的欄；code、status、level、exit_code、disposition 是固定值域，由 check_messages.py 管
 CSV_TEXT_FIELDS = ("situation", "message", "description", "next_step")
 
@@ -135,10 +143,161 @@ def line_hits(rel: str, ln: str, patterns) -> list[str]:
     if ln.startswith("_Avoid_:") or any(mark in ln for mark in QUOTE_MARKERS):
         return []
     found = [term for term, pat in patterns if pat.search(ln) and not whitelisted(rel, ln, pat)]
-    # GitHub 轉換 markdown 時會刪掉 <u>，底線不會顯示；名詞底線一律用 <ins>（#60）
-    if U_TAG.search(ln):
-        found.append("<u>（改用 <ins>）")
+    # GitHub 轉換 markdown 時會刪掉 <u>；名詞改用連結，不再用 HTML 標記。
+    spans = code_spans(ln) if rel.endswith(".md") else []
+    if any(not any(start <= match.start() < end for start, end in spans) for match in U_TAG.finditer(ln)):
+        found.append("<u>（名詞改用連結）")
     return found
+
+
+def github_slug(text: str) -> str:
+    """產生本 repo 標題所用的 GitHub 錨點。"""
+    text = re.sub(r"\[([^]]*)\]\([^)]*\)", r"\1", text)
+    text = text.replace("`", "").lower()
+    text = re.sub(r"[^\w\- ]", "", text)
+    return text.replace(" ", "-")
+
+
+def glossary_terms(context: Path) -> dict[str, str]:
+    """依粗體詞條抽出「名詞 -> 所在 ### 分群錨點」；`A` / `B` 拆成兩詞。"""
+    terms: dict[str, str] = {}
+    group = ""
+    for line in context.read_text(encoding="utf-8").splitlines():
+        heading = GLOSSARY_GROUP.match(line)
+        if heading:
+            group = github_slug(heading.group(1))
+            continue
+        entry = GLOSSARY_ENTRY.match(line)
+        if not entry or not group:
+            continue
+        for name in re.split(r"\s+/\s+", entry.group(1)):
+            name = name.strip().strip("`")
+            if name:
+                terms[name] = group
+    return terms
+
+
+def review_pages(root: Path) -> list[Path]:
+    """需要名詞首次出現連結的對外文件。"""
+    paths = [root / "README.md"]
+    paths.extend(sorted(p for p in (root / "doc/contract").glob("*.md") if REVIEW_PAGE.match(p.name)))
+    return [p for p in paths if p.is_file()]
+
+
+def code_spans(line: str) -> list[tuple[int, int]]:
+    """回傳 CommonMark 行內 code span 的近似範圍（相同長度反引號成對）。"""
+    runs = [(m.start(), m.end()) for m in re.finditer(r"`+", line)]
+    spans = []
+    used = set()
+    for i, (start, end) in enumerate(runs):
+        if i in used:
+            continue
+        for j in range(i + 1, len(runs)):
+            if j not in used and runs[j][1] - runs[j][0] == end - start:
+                spans.append((start, runs[j][1]))
+                used.update((i, j))
+                break
+    return spans
+
+
+def body_segments(line: str):
+    """依原文順序產生正文片段；行內碼略過，連結則附上目的地。"""
+    excluded = code_spans(line)
+    links = list(LINK.finditer(line))
+    pos = 0
+    while pos < len(line):
+        code = next((span for span in excluded if span[0] == pos), None)
+        if code:
+            pos = code[1]
+            continue
+        link = next((match for match in links if match.start() == pos), None)
+        if link:
+            yield link.group(1), link.group(2)
+            pos = link.end()
+            continue
+        stops = [len(line)]
+        stops.extend(start for start, _ in excluded if start > pos)
+        stops.extend(match.start() for match in links if match.start() > pos)
+        end = min(stops)
+        yield line[pos:end], None
+        pos = end
+
+
+def mentioned_terms(text: str, names: list[str]) -> list[str]:
+    """由左至右找名詞；同位置取最長者，避免把「VK recipe」再算成「VK」。"""
+    text = text.replace(r"\<", "<").replace(r"\>", ">")
+    found = []
+    pos = 0
+    while pos < len(text):
+        candidates = []
+        for name in names:
+            start = text.find(name, pos)
+            while start >= 0:
+                end = start + len(name)
+                left_bad = name[0].isalnum() and start and (text[start - 1].isalnum() or text[start - 1] == "_")
+                right_bad = name[-1].isalnum() and end < len(text) and (text[end].isalnum() or text[end] == "_")
+                if not left_bad and not right_bad:
+                    candidates.append((start, -len(name), name))
+                    break
+                start = text.find(name, start + 1)
+        if not candidates:
+            break
+        start, neg_len, name = min(candidates)
+        found.append(name)
+        pos = start - neg_len
+    return found
+
+
+def glossary_link_matches(page: Path, destination: str, term: str, groups: dict[str, str], context: Path) -> bool:
+    """連結是否指到 GLOSSARY.md 中實際收錄 term 的分群。"""
+    raw_path, separator, fragment = destination.partition("#")
+    raw_path = raw_path.strip("<>")
+    try:
+        target = (page.parent / unquote(raw_path)).resolve()
+    except (OSError, ValueError):
+        return False
+    return separator == "#" and target == context.resolve() and unquote(fragment) == groups[term]
+
+
+def links_to_glossary(page: Path, destination: str, context: Path) -> bool:
+    """目的地檔案是否為 GLOSSARY.md（錨點可錯，留給 matches 報錯）。"""
+    raw_path = destination.partition("#")[0].strip("<>")
+    try:
+        return (page.parent / unquote(raw_path)).resolve() == context.resolve()
+    except (OSError, ValueError):
+        return False
+
+
+def glossary_link_errors(root: Path, context: Path, groups: dict[str, str]) -> list[tuple[str, int, str, str]]:
+    """檢查對外頁的 <ins>，以及每個名詞第一次正文出現時的連結。"""
+    errors = []
+    names = sorted(groups, key=len, reverse=True)
+    for page in review_pages(root):
+        rel = page.relative_to(root).as_posix()
+        seen = set()
+        fenced = False
+        for no, line in enumerate(page.read_text(encoding="utf-8").splitlines(), 1):
+            if FENCE.match(line):
+                fenced = not fenced
+                continue
+            if fenced or HEADING.match(line):
+                continue
+            if INS_TAG.search(line):
+                errors.append((rel, no, "<ins>", "名詞不再用底線，改用 GLOSSARY.md 連結"))
+            for text, destination in body_segments(line):
+                # 一般連結文字不是正文（目錄等頁內連結尤其不能搶走第一次出現）；
+                # 指向名詞表的連結則是本規則要驗證的標記。
+                if destination is not None and not links_to_glossary(page, destination, context):
+                    continue
+                for term in mentioned_terms(text, names):
+                    if destination is not None and not glossary_link_matches(page, destination, term, groups, context):
+                        errors.append((rel, no, term, f"名詞連結分群錯誤：{destination}"))
+                    if term in seen:
+                        continue
+                    seen.add(term)
+                    if destination is None:
+                        errors.append((rel, no, term, "第一次出現於正文時沒有連到 GLOSSARY.md"))
+    return errors
 
 
 def layout_errors(root: Path) -> list[str]:
@@ -162,6 +321,10 @@ def main() -> int:
         print("GLOSSARY.md 抽不到任何 _Avoid_ 詞，格式可能壞了")
         return 1
     patterns = [(t, re.compile(SPECIAL_PATTERNS.get(t, re.escape(t)))) for t in terms]
+    groups = glossary_terms(context)
+    if not groups:
+        print("GLOSSARY.md 抽不到任何粗體名詞，格式可能壞了")
+        return 1
 
     files = target_files()
     hits = []
@@ -175,6 +338,8 @@ def main() -> int:
         for term in line_hits(rel, value, patterns):
             hits.append((rel, where, term, value.replace("\n", " ").strip()))
 
+    term_link_hits = glossary_link_errors(ROOT, context, groups)
+
     layout = layout_errors(ROOT)
     for e in layout:
         print(e)
@@ -182,9 +347,12 @@ def main() -> int:
     for rel, no, term, ln in hits:
         shown = ln if len(ln) <= 60 else ln[:60] + "…"
         print(f"{rel}:{no}  {term}  {shown}")
-    tail = f"掃 {len(files)} 個 .md 檔、{len(list((ROOT / "doc/contract").glob("*.csv")))} 個 CSV、{len(terms)} 個 _Avoid_ 詞、白名單 {len(WHITELIST)} 筆"
-    bad = bool(hits or layout)
+    for rel, no, term, reason in term_link_hits:
+        print(f"{rel}:{no}  {term}  {reason}")
+    tail = f"掃 {len(files)} 個 .md 檔、{len(list((ROOT / 'doc/contract').glob('*.csv')))} 個 CSV、{len(terms)} 個 _Avoid_ 詞、{len(groups)} 個名詞、白名單 {len(WHITELIST)} 筆"
+    bad = bool(hits or term_link_hits or layout)
     print(f"{'OK' if not bad else 'FAIL'}: {tail}" + ("" if not hits else f"、殘留 {len(hits)} 處")
+          + ("" if not term_link_hits else f"、名詞連結 {len(term_link_hits)} 處")
           + ("" if not layout else "、根目錄有 docs/"))
     return 1 if bad else 0
 
