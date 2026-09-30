@@ -206,7 +206,7 @@ VK recipe 結束時回給呼叫方的整數。
 
 **`add` / `remove`**：
 `add` 把一個工具納入這個安裝目錄；`remove` 是它的反向，把那個工具解除。
-寫法：`just vendor_kit add <repo>`、`just vendor_kit remove <repo>`。
+寫法：`just vendor_kit add <repo>`，指定版本寫 `just vendor_kit add <repo>@<tag>`；`just vendor_kit remove <repo>`。
 
 **`update`、`upgrade`**：
 `update` 只查有沒有新版；`upgrade` 把鎖定版本換成新版或指定版本。

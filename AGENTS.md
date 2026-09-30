@@ -11,7 +11,7 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 
 ## 決議與文件流程
 
-- **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md`、`03_messages.md`、`04_interface.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
+- **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-spec` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md`、`03_messages.md`、`04_interface.md` 留在 repo，跑 `to-spec` 之類的 skill 時不要把它們搬進 issue。
 - 每個設計決議先在 issue 討論（中文）；定案後才寫 ADR。
 - **對外文件的審閱流程照[審閱頁說明](doc/decisions/review/README.md)「版本怎麼迭代」做。** 對外文件是根目錄 [README](README.md) 與審閱頁 01～04。重點：
   1. 草稿只改在討論分支並開 PR；`main` 上只放定案版，維護者針對那一頁明確回覆「定案」才 merge。
@@ -27,7 +27,7 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 
 ## git 慣例
 
-- **一律 push 到分支，進 `main` 只能走 merge。** 不准直接 push main、更不准 force push main。遠端有 ruleset 擋（要求 PR、禁 non-fast-forward、禁刪分支），本機 `.claude/hooks/guard.py` 也擋一層。CI 按種類分 workflow：文件類在 `.github/workflows/docs.yml`（job `docs-lint`，ruleset 設為必過檢查）；之後的程式碼 lint 放 `lint.yml`、測試放 `test.yml`，一種檢查一個 job。必過的 workflow 不加 paths 過濾，否則被跳過時會一直停在 Pending。
+- **一律 push 到分支，進 `main` 只能走 merge。** 不准直接 push main、更不准 force push main。遠端有 ruleset 擋（要求 PR、禁 non-fast-forward、禁刪分支），本機 `.claude/hooks/guard.py` 也擋一層。CI 按種類分 workflow：文件類在 `.github/workflows/docs.yml`（job `docs-lint`，ruleset 設為必過檢查）；之後的程式碼 lint 放 `lint.yml`、測試放 `test.yml`，一種檢查一個 job。文件工具的測試放 `script/test/`，由 `docs.yml` 的 job `docs-tool-test` 跑；根目錄 `test/` 只放 VK 程式碼的測試，由 `test.yml` 跑。必過的 workflow 不加 paths 過濾，否則被跳過時會一直停在 Pending。
 - **一個 commit = 一個最小單元或一次完整修復。** 不要把不相干的東西包成一個 commit。依序討論出來的東西就依序 commit；一次討論定案的就一個 commit。
 - `commit` 與 `push` 本身不需要詢問。
 
