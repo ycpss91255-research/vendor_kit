@@ -1,7 +1,7 @@
 {
   "01_purpose": 9,
   "02_invariants": 10,
-  "03_interface": 6,
+  "04_interface": 6,
   "README": 5,
   "claude_workflows_README": 1,
   "doc_decisions_README": 1,

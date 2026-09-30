@@ -81,7 +81,7 @@ def next_rev(name: str) -> int:
 def target(name: str) -> tuple[pathlib.Path, str]:
     """回傳（正式檔路徑, 標示版與備份用的鍵）。
 
-    - 審閱頁照舊傳頁名（不含 .md），例如 03_interface → doc/decisions/review/03_interface.md，鍵是頁名。
+    - 審閱頁照舊傳頁名（不含 .md），例如 04_interface → doc/decisions/review/04_interface.md，鍵是頁名。
     - 其他檔傳相對 repo 根目錄的路徑，例如 README.md、doc/decisions/review/README.md；
       鍵是攤平後的路徑（/ 換成 _、去掉 .md），跟備份檔的攤平命名一致。
     """

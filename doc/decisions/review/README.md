@@ -8,16 +8,17 @@
 
 1. [01 目的與承諾](01_purpose.md)：為什麼做 VK、對<ins>使用者</ins>承諾什麼。
 2. [02 不變量](02_invariants.md)：任何版本都必須成立的性質。
-3. [03 使用者介面](03_interface.md)：全部 <ins>VK recipe</ins>、<ins>選項</ins>、<ins>結束碼</ins>。
-4. [04 訊息與錯誤碼總表](04_messages.md)：VK 印出、要使用者動手處理的訊息，每條有固定編號。
+3. [03 訊息與錯誤碼總表](03_messages.md)：每個<ins>結束碼</ins>的意思，與 VK 印出、要使用者動手處理的訊息，每條有固定編號。
+4. [04 使用者介面](04_interface.md)：全部 <ins>VK recipe</ins> 與<ins>選項</ins>。
 
 契約放在這裡，不放 issue：issue 不好追蹤改動，也做不了逐頁審與標示版差異。出處：[工作約定](../../../AGENTS.md)「決議與文件流程」。
 
 ## 寫法規則
 
-- 每頁只用前面頁與[名詞表](../../../CONTEXT.md)的名詞，不引用後面頁才出現的名詞。例外：[04 訊息與錯誤碼總表](04_messages.md)的訊息編號可以由 02、03 與 ADR 回連；這條限制只管名詞。
+- 只能向前依賴：頁 N 只能引用前面的頁與[名詞表](../../../CONTEXT.md)，不引用後面的頁，也不用後面頁才出現的名詞。
+- 對外頁不寫「出處」。沿用前面頁的規則時，在正文寫「`依 [頁名](連結#錨點) 第 N 條`」，連到那一條的標題錨點；不引用 ADR 或 issue。
 - 名詞第一次出現時用 `<ins>` 標底線。不要用 HTML 的 u 標籤：GitHub 會把它刪掉。出處：[issue #60](https://github.com/ycpss91255-research/vendor_kit/issues/60)。
-- 規則只寫一次。其他頁要用到，標明來源的條號或章節，不重述。
+- 規則只寫一次。其他頁要用到，照上一條寫「依 … 第 N 條」或連到章節，不重述。
 - 連結用有名字的超連結，例如 `[不變量](02_invariants.md)`，不要把路徑當連結文字。
 
 ## 版本怎麼迭代
@@ -31,11 +32,10 @@
    ls doc/decisions/_backup | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//' | sort -n | tail -1
    ```
 
-3. **產生標示版與帶版本號的副本。** 改完在 repo 根目錄跑 `python3 script/mark_changes.py <基準後綴> <頁>`（[標示版產生器](../../../script/mark_changes.py)），基準後綴是這一輪的備份後綴，例如 `pre_r101`。審閱頁傳頁名，例如 `02_invariants`；根目錄 README 傳 `README.md`。版本號 N 的取號方式見下面最後一條。每跑一次：
-   - 先在正式檔的檔頭寫一行 `> 版本 vN`，再拿它去比對，所以標示版、正文副本、正式檔三份的檔頭是同一個 vN。
+3. **產生標示版與帶版本號的副本。** 改完在 repo 根目錄跑 `python3 script/mark_changes.py <基準後綴> <頁>`（[標示版產生器](../../../script/mark_changes.py)），基準後綴是這一輪的備份後綴，例如 `pre_r101`。審閱頁傳頁名，例如 `02_invariants`；根目錄 README 傳 `README.md`。每跑一次：
    - 在 `doc/decisions/_marked/` 產出兩個檔名帶版本號的檔：`<鍵>.vN.marked.md` 是標示版，綠底是新增，紅底是刪除或被取代的舊文字；`<鍵>.vN.md` 是同一版的正文副本。同一個鍵的舊版會被刪掉，只留最新一版。
-   - 正式檔名不帶版本號，也不改名，其他文件的連結才不會斷。
-   - 版本號 N 取 `doc/decisions/_marked/.<鍵>.rev` 記的數字與正式檔檔頭現有的 `> 版本 vN` 兩者較大的再加一，兩者都沒有就是 v1。`.rev` 只在本機，但檔頭跟著 git 走，所以換電腦、新 clone 或清掉 `_marked/` 之後不會從 v1 重來。
+   - 版本號只在 `_marked/` 的檔名：正式檔與正文副本內都不寫版本號。正式檔名不帶版本號，也不改名，其他文件的連結才不會斷。
+   - 版本號 N 取 [版本號紀錄](../review_log/versions.json)（`doc/decisions/review_log/versions.json`，進 git）裡這個鍵的數字加一並寫回，沒有記錄就是 v1。它跟著 git 走，所以換電腦、新 clone 或清掉 `_marked/` 之後不會從 v1 重來。
 
    鍵對審閱頁是頁名，對其他檔是攤平後的路徑，規則見[工具說明](../../../script/README.md)。
 4. **送審。** 用 SendUserFile 把 `<鍵>.vN.md` 與 `<鍵>.vN.marked.md` 兩個檔一起傳給維護者。不傳沒帶版本號的正式檔：看檔名就要知道是哪一版，不用打開才知道。

@@ -48,7 +48,7 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
 ### 5. `sync` 的三種情境
 
 - `sync` 有三種情境：
-  - 「未完成導入」→ 1 + [訊息 6-13](../decisions/review/04_messages.md)，提示 `add`
+  - 「未完成導入」→ 1 + [訊息 6-13](../decisions/review/03_messages.md#msg-6-13)，提示 `add`
   - 「基準版落後版本鎖定行」→ 本機 warn 提示 `upgrade`，CI 下 1
   - 「快取逐檔指紋驗不過」→ 重裝並 warn
 
@@ -61,7 +61,7 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
 - 說明改由兩件事處理：
   - 每個 recipe 都支援 `-h`／`--help`
   - 不帶指令（只輸入 `just vendor_kit`）與缺必要參數都算錯誤，印出用法並以 1 結束
-- 理由：說明只留一種寫法，不另開一個指令（不變量 8 的 U5）。出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。
+- 理由：說明只留一種寫法，不另開一個指令（[不變量 8](../decisions/review/02_invariants.md#8-使用者介面極少寫法一致recipe-語意固定)「說明只用 `-h`／`--help`」）。出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。
 - 原文保留，不改寫歷史。
 
 ## Consequences

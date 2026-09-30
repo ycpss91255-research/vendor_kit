@@ -20,8 +20,8 @@ VK 在主機上只留一層很薄的東西：啟動器把事情叫起來，規�
 
 ### 1. 主機依賴的版本下限
 
-- `docker >= 19.03`；只支援 docker，不支援 Podman（`docker --version` 含 `podman` → 1 + [訊息 6-39](../decisions/review/04_messages.md)、零寫入）。
-- `just >= 1.33.0`（來源：`[group]` 放 `mod` 上需 1.33），一律 GitHub release 下載版；低於下限由 `bootstrap.sh` 以 1 結束並印下載與安裝指令（[訊息 6-23](../decisions/review/04_messages.md)）。
+- `docker >= 19.03`；只支援 docker，不支援 Podman（`docker --version` 含 `podman` → 1 + [訊息 6-39](../decisions/review/03_messages.md#msg-6-39)、零寫入）。
+- `just >= 1.33.0`（來源：`[group]` 放 `mod` 上需 1.33），一律 GitHub release 下載版；低於下限由 `bootstrap.sh` 以 1 結束並印下載與安裝指令（[訊息 6-23](../decisions/review/03_messages.md#msg-6-23)）。
 
 兩條下限都由主機側檢出，都在任何寫入之前。下限的數字會隨時間提高，提高不動不變量 5 的性質。
 
@@ -60,7 +60,7 @@ VK 在主機上只留一層很薄的東西：啟動器把事情叫起來，規�
 
 ### 7. 版本組合不合時的停止與救援路徑
 
-- 舊薄殼跑新 major 的一般 recipe 乾淨回 3 + [6-36](../decisions/review/04_messages.md)、零寫入。
+- 舊薄殼跑新 major 的一般 recipe 乾淨回 3 + [6-36](../decisions/review/03_messages.md#msg-6-36)、零寫入。
 - 救援路徑（`install`、`upgrade vendor_kit`、`sync` 的不符判定、`help`）永久可用。
 
 這兩條的擁有者是薄殼與救援 recipe 本身：不合的組合由薄殼在起引擎之前擋下，救援 recipe 不隨介面版一起失效。判定「合不合」的規則本身不在本檔，在 ADR-0008（介面版與檔案版）。
@@ -80,7 +80,7 @@ VK 在主機上只留一層很薄的東西：啟動器把事情叫起來，規�
 - 第 7 節救援路徑裡的 `help` 改成「印用法」，`help` recipe 已拿掉（見 [ADR-0004](0004-vk-recipe-interface-and-write-boundary.md) 的修訂（2026-09-30））。永久可用的印用法只限下面這幾種確切形狀：
   - `just vendor_kit`（不帶指令）：印出用法，以 1 結束
   - 其他三條救援路徑自己的 `-h`／`--help`：`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）
-  - 其他 recipe 的 `-h`／`--help` 不在救援路徑內：版本組合不合時照一般 recipe 處理，乾淨回 3 + [6-36](../decisions/review/04_messages.md)、零寫入
+  - 其他 recipe 的 `-h`／`--help` 不在救援路徑內：版本組合不合時照一般 recipe 處理，乾淨回 3 + [6-36](../decisions/review/03_messages.md#msg-6-36)、零寫入
 - 出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。原文保留，不改寫歷史。
 
 ## Consequences

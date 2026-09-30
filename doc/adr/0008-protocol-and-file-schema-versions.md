@@ -59,13 +59,13 @@ P 的升版觸發條件是明列的，任一項 → P+1：
 ### 6. 遷移與檔案版過高
 
 - 跨檔案版直接遷移、不鏈式。
-- 檔案版高於本引擎 → 任何寫入前 3 + [訊息 6-19](../decisions/review/04_messages.md)。
+- 檔案版高於本引擎 → 任何寫入前 3 + [訊息 6-19](../decisions/review/03_messages.md#msg-6-19)。
 
 從任何一個舊檔案版到現在這一版，都是一條直接的遷移路徑，不把中間版本串起來套用。
 
 ### 7. 降版要先證明讀得回來
 
-- 降版（`upgrade <repo>@<舊 tag>`、`upgrade vendor_kit@<舊 tag>`）只在目標引擎能無損讀現有檔時才做，否則改檔前拒絕 3 + [訊息 6-10](../decisions/review/04_messages.md)、零寫入。
+- 降版（`upgrade <repo>@<舊 tag>`、`upgrade vendor_kit@<舊 tag>`）只在目標引擎能無損讀現有檔時才做，否則改檔前拒絕 3 + [訊息 6-10](../decisions/review/03_messages.md#msg-6-10)、零寫入。
 
 判斷在改檔之前，所以被拒絕的降版不留下半套狀態。
 

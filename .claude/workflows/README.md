@@ -57,7 +57,7 @@ args 範例：
 ```json
 {
   "round": "r87",
-  "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 CONTEXT.md，審閱頁是 review/01_purpose.md、review/02_invariants.md、review/03_interface.md。",
+  "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 CONTEXT.md，審閱頁是 review/01_purpose.md、review/02_invariants.md、review/03_messages.md、review/04_interface.md。",
   "tasks": [
     {
       "key": "purpose",
@@ -106,7 +106,7 @@ args 範例：
 ```json
 {
   "round": "r87",
-  "background": "審閱頁有三頁：01_purpose.md（目的與承諾）、02_invariants.md（不變量）、03_interface.md（使用者介面）；名詞全在根 CONTEXT.md。",
+  "background": "審閱頁有四頁：01_purpose.md（目的與承諾）、02_invariants.md（不變量）、03_messages.md（訊息與錯誤碼總表）、04_interface.md（使用者介面）；名詞全在根 CONTEXT.md。",
   "angles": [
     {
       "key": "terms",
