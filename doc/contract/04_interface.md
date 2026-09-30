@@ -1,6 +1,6 @@
 # 04 使用者介面
 
-<ins>使用者</ins>只透過指令跟 <ins>VK</ins> 打交道。這一頁列出全部指令與必要的參數、<ins>選項</ins>：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。
+<ins>使用者</ins>日常只透過 `just vendor_kit` 指令跟 <ins>VK</ins> 打交道；首次導入用 `bootstrap.sh`，CI 用 `.vendor_kit/ci/check.sh`。這一頁列出全部指令與必要的參數、<ins>選項</ins>：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。
 
 - 必須永遠成立的規則以 [02 不變量](02_invariants.md) 為準，這一頁只補使用者看得到的介面行為
 - <ins>結束碼</ins>的意思與每條訊息見 [03 訊息與錯誤碼總表](03_messages.md)
@@ -28,23 +28,16 @@
 
 除此之外，主機只需要這三個：
 
-- [Docker](https://www.docker.com/)
-  - 19.03 以上
-  - 不支援 Podman
-- [Git](https://git-scm.com/)
-  - 不設最低版本
-  - VK 不在主機上呼叫 git
-  - 「安裝目錄在 git repo 裡」由<ins>啟動器</ins>用 sh 往上找 `.git` 判斷；`.git` 是目錄或檔都算，所以 worktree 與 submodule 也適用
-- [just](https://github.com/casey/just)
-  - 1.33.0 以上
-  - 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest)
+| 工具 | 最低版本 | 說明 | 版本不足時 |
+|---|---|---|---|
+| [Docker](https://www.docker.com/) | 19.03 以上 | 不支援 Podman | 由<ins>啟動器</ins>檢查，首次導入與已有安裝目錄都一樣：在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見[訊息總表](03_messages.md#訊息) |
+| [Git](https://git-scm.com/) | 不設最低版本 | VK 不在主機上呼叫 git；「安裝目錄在 git repo 裡」由啟動器用 sh 往上找 `.git` 判斷；`.git` 是目錄或檔都算，所以 worktree 與 submodule 也適用 | — |
+| [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 分首次導入與已有安裝目錄兩種，見下方的註 |
 
-版本不足時：
+註：just 版本不足時
 
-- Docker 版本不足：首次導入與已有安裝目錄都由啟動器檢查，在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見[訊息總表](03_messages.md#訊息)
-- just 版本不足，分兩種情況：
-  - 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，另印下載與安裝指令，訊息見[訊息總表](03_messages.md#訊息)
-  - 已有安裝目錄：just 解析 justfile 時就先拒絕，啟動器沒機會執行，所以不承諾 VK 的訊息與結束碼，也不留執行紀錄
+- 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，另印下載與安裝指令，訊息見[訊息總表](03_messages.md#訊息)
+- 已有安裝目錄：just 太舊時，讀 justfile 就會出錯，VK 還沒開始執行；這時看到的是 just 自己的錯誤訊息與結束碼，VK 不留執行紀錄
 
 ## registry 與認證
 
