@@ -21,7 +21,7 @@ repo 上一層的 `vendor-kit_ws/` 是工作區：`src/` 是這個 repo；`workt
 - **對外文件的審閱流程照[審閱頁說明](doc/contract/README.md)「版本怎麼迭代」做。** 對外文件是根目錄 [README](README.md) 與審閱頁 01～04。重點：
   1. 草稿只改在討論分支並開 PR；`main` 上只放定案版，維護者針對那一頁明確回覆「定案」才 merge。
   2. 改動一律跑 doc-edit workflow；round 名稱是 `rNN`，取 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 的編號再加一，不能重用；workflow 開跑時會檢查 round 的格式是不是 `rNN`、是不是最大編號加一，重用或跳號就直接停。
-  3. 改完跑 [標示版產生器](script/mark_changes.py)：`doc/decisions/_marked/` 產出檔名帶版本號的標示版 `<鍵>.vN.marked.md` 與正文副本 `<鍵>.vN.md`。版本號只在這兩個檔名，正式檔與正文副本內都不寫；N 取進 git 的 `doc/decisions/review_log/versions.json` 裡這個鍵的數字加一，換電腦或新 clone 不會從 v1 重來。正式檔名不改。
+  3. 改完跑 [標示版產生器](script/mark_changes.py)：`doc/decisions/_marked/` 產出檔名帶版本號的標示版 `<鍵>.vN.marked.md` 與正文副本 `<鍵>.vN.md`，這個目錄進 git，每一輪都把標示版與正文副本 commit。版本號只在這兩個檔名，正式檔與正文副本內都不寫；N 取進 git 的 `doc/decisions/review_log/versions.json` 裡這個鍵的數字加一，換電腦或新 clone 不會從 v1 重來。正式檔名不改。定稿那一輪產生最終版時，產生器會刪掉同鍵舊版再產生最終版，這次刪除與新檔放在同一個 commit。
   4. 這兩個帶版本號的檔一起傳給維護者審，不傳正式檔。
 - 其他都是內部文件（本檔、[工具說明](script/README.md)、[決議目錄說明](doc/decisions/README.md)、[workflow 說明](.claude/workflows/README.md)、[審閱頁說明](doc/contract/README.md)、[ADR 說明](doc/adr/README.md) 等）：改完照樣走 doc-edit workflow，但不產標示版、不送審，而且不准留過時的資訊（已不用的做法、已不存在的檔）。只記錄歷史的句子可以留，但要寫明是歷史。
 - ADR 放 `doc/adr/NNNN-<slug>.md`，格式照 domain-modeling skill 的 [ADR 格式](.agents/skills/domain-modeling/ADR-FORMAT.md)（見 [ADR 說明](doc/adr/README.md)）。只有三項都成立才寫 ADR：難逆轉、沒背景會令人意外、確實取捨過。

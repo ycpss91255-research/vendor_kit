@@ -79,8 +79,7 @@ _Avoid_: 下游 image
 唯一指定某個 image 版本與內容的字串 `<registry>/<路徑>:<tag>@sha256:<digest>`；`<registry>` 是存放它的 registry 主機，`<路徑>` 是 image 在那個 registry 裡的路徑。tag 與 digest 一起寫，所以同一行同時說得出版本與內容。
 
 **tag**：
-image 引用裡給人與外部版本追蹤工具看的版本標籤；它可以被重新指到別的內容，所以不鎖內容。
-工具與引擎的 tag 只接受 `vX.Y.Z`（不帶 pre-release、build 後綴，不收前導零）；最新版是把 X、Y、Z 當非負整數逐欄比數值取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版。寫出格式不合的 tag 是用法錯誤，以結束碼 `2` 結束。
+image 引用裡供人與外部版本追蹤工具辨識版本的標籤；格式與版本比較規則見[指定版本](doc/contract/04_interface.md#指定版本)。
 
 **digest**：
 image 引用裡那個 image 內容的 sha256；內容相同才會相同，所以它鎖的是內容，不是版本。
@@ -120,11 +119,7 @@ _Avoid_: 簽章、信任來源
 `cache/` 內每個檔的 sha256，記在印記裡。
 
 **自描述標頭** (self-describing header)：
-薄殼檔開頭描述它自己的介面版、引擎版與其餘內容指紋的那段。
-
-**`test`**：
-跑全部檢查的 VK recipe，本機與 CI 用同一個；`test dist` 只檢查工具在 `dist/` 交付的內容，給出貨的 repo 接進自己的 CI 用。
-寫法：`just vendor_kit test`；只檢查交付內容寫 `just vendor_kit test dist`。
+薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼一致性檢查，見[檢查](doc/contract/04_interface.md#檢查-test)。
 
 **執行紀錄** (run log)：
 記錄一次 VK 執行以供事後追溯的 VK 檔。
@@ -138,10 +133,10 @@ _Avoid_: 簽章、信任來源
 `version.toml` 裡把一個引擎或工具對應到一個鎖定版本的 TOML 項目。
 
 **鎖定版本** (locked version)：
-image 引用指定的那個版本與內容；沒有本機覆寫時，導入的就是它。
+版本鎖定行以 image 引用指定的版本與內容；相關指令見[指令](doc/contract/04_interface.md#指令)。
 
 **本機覆寫** (local override)：
-讓引擎或工具暫時改用本機開發來源的 VK 項目，優先於版本鎖定行。
+讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見[成對與無害](doc/contract/04_interface.md#成對與無害)。
 
 **本機開發來源** (local source)：
 本機覆寫指到的來源：工具是一個本機目錄，引擎是一個本機 image；不進 git。
@@ -165,7 +160,7 @@ VK 已記錄某個初始檔的來源、並會在後續升級中處理它的狀�
 _Avoid_: 三方合併
 
 **合併衝突** (merge conflict)：
-基準版合併無法自動決定合併內容的結果。
+基準版合併無法自動決定合併內容的結果；處理方式見[使用者的檔與 VK 的檔](doc/contract/04_interface.md#使用者的檔與-vk-的檔)。
 
 ### 執行與結果
 
@@ -182,15 +177,9 @@ _Avoid_: 動詞、子命令
 **詢問** (prompt)：
 VK 在修改 repo 檔前，向使用者取得同意的互動。
 
-**選項** (option)：
-recipe 後面帶的 `-x` 或 `--long` 參數。
-
 **`-y`** (yes option)：
 讓使用者預先回答詢問的選項。
 寫法：`-y`，長選項 `--yes`。
-
-**CI 模式** (CI mode)：
-VK 在 CI 環境中執行時採用的模式。
 
 **診斷** (diagnostic)：
 VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。
@@ -208,35 +197,37 @@ VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊�
 診斷的處置屬性，表示這次執行沒有做完；不承諾可執行的修法，但可以附一般建議。
 
 **警告** (warning)：
-level 為 `warn`、指出可能有問題、需要人確認的診斷；只要印出警告就不算成功，以結束碼 `1` 結束。要人接手的事項（例如合併衝突、查到新版）也用 warn level 印、同樣回 `1`，但不算警告。
+指出可能有問題、需要人確認的 warn 診斷；與其他 warn 結果的區分見[結束碼](doc/contract/03_messages.md#結束碼)。
 
 **原因代碼** (reason code)：
-每條診斷的固定識別碼，寫成 `VK` 加四位數字 (`VKnnnn`)；代碼發出後永不改給其他原因，刪除診斷時留下空號、不重用。
+每條診斷的固定識別碼；格式與生命週期見[訊息](doc/contract/03_messages.md#訊息)。
 
 **結束碼** (exit code)：
-VK recipe 結束時回給呼叫方的整數，由診斷的 level 決定，與處置無關：`0` (info) 只表示成功，沒有任何警告或要人接手的事項；`1` (warn) 表示有警告，或做完但要人接手；`2` (error) 表示沒做完，包括用法錯誤，以及處置為需人處理或失敗的 error 診斷；`3` (fatal) 只表示版本組合不合，這類診斷也可能是需人處理。有診斷時取最高 level 對應的碼，沒有診斷為 `0`；一次處理多個工具時同樣取最高的碼。
+VK recipe 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見[結束碼](doc/contract/03_messages.md#結束碼)。
 
 ### VK recipe 與用途
 
 **`add` / `remove`**：
-`add` 把一個工具納入這個安裝目錄；`remove` 是它的反向，把那個工具解除。
-寫法：`just vendor_kit add <repo>`，指定版本寫 `just vendor_kit add <repo>@<tag>`；`just vendor_kit remove <repo>`。
+`add` 把工具納入安裝目錄，`remove` 將它解除；兩者的介面與保留使用者檔規則見[指令](doc/contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](doc/contract/04_interface.md#使用者的檔與-vk-的檔)。
 
 **`update`、`upgrade`**：
 `update` 只查有沒有新版；`upgrade` 把鎖定版本換成新版或指定版本。
 寫法：`just vendor_kit update`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。
 
 **`dev` / `undev`**：
-`dev` 讓引擎或工具改用本機開發來源；`undev` 是它的反向，回到鎖定版本。
+`dev` 讓引擎或工具改用本機開發來源，`undev` 使它回到鎖定版本；兩者的關係見[成對與無害](doc/contract/04_interface.md#成對與無害)。
 
 **`sync`**：
-讓本機的工具內容與版本鎖定行或本機覆寫一致。
+使本機工具內容與版本鎖定行或本機覆寫一致的 VK recipe；介面見[指令](doc/contract/04_interface.md#指令)。
 
 **`prune`**：
-清掉 VK 產生、但目前 repo 已不再使用的本機資源。
+清除 VK 產生但目前 repo 已不再使用之本機資源的 VK recipe；無害性承諾見[成對與無害](doc/contract/04_interface.md#成對與無害)。
 
 **`install` / `uninstall`**：
-`install` 把 VK 裝進 repo 的一個目錄，讓它成為安裝目錄；`uninstall` 是它的反向，把 VK 從那裡移除。
+`install` 使 repo 裡的一個目錄成為安裝目錄，`uninstall` 將 VK 從該處移除；兩者的介面與保留使用者檔規則見[指令](doc/contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](doc/contract/04_interface.md#使用者的檔與-vk-的檔)。
+
+**`test`**：
+檢查安裝目錄狀態或工具交付內容、且不寫進 git 之檔案的 VK recipe；範圍與用法見[檢查](doc/contract/04_interface.md#檢查-test)。
 
 ### 介面版與契約
 
@@ -250,7 +241,7 @@ VK recipe 結束時回給呼叫方的整數，由診斷的 level 決定，與處
 VK 寫入檔案時用來標示該檔資料格式的整數版號。
 
 **救援路徑** (rescue path)：
-不論薄殼、VK 檔與引擎的版本組合是否相符，都一定能用的幾種呼叫，用來升級或修復，讓版本組合回到相符。
+版本組合不相符時仍可用來升級或修復的幾種呼叫；完整清單見[說明與用法錯誤](doc/contract/04_interface.md#說明與用法錯誤)。
 
 **契約** (contract)：
 VK 對使用者承諾不會隨意改變的那組介面；引擎內部實作不屬契約。

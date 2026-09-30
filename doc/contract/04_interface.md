@@ -1,6 +1,6 @@
 # 04 使用者介面
 
-<ins>使用者</ins>與 CI 都透過 `just vendor_kit` 指令跟 <ins>VK</ins> 打交道；只有首次導入用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、<ins>選項</ins>：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。
+<ins>使用者</ins>與自動化都透過 `just vendor_kit` 指令跟 <ins>VK</ins> 打交道；只有首次導入用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、選項：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。VK 不讀取環境變數 `CI`；同一個 recipe 不論在哪裡執行，行為都一樣。
 
 - 必須永遠成立的規則以 [02 不變量](02_invariants.md) 為準，這一頁只補使用者看得到的介面行為
 - <ins>結束碼</ins>的意思與每條訊息見 [03 訊息與錯誤碼總表](03_messages.md)
@@ -17,7 +17,7 @@
 - [輸出](#輸出)
 - [使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
 - [檢查 (test)](#檢查-test)
-- [CI 模式](#ci-模式)
+- [追蹤新版](#追蹤新版)
 
 ## 主機需求
 
@@ -197,20 +197,18 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
   - 不改任何<ins>進 git 的檔</ins>
   - `prune` 只清本機資源與自己的暫存
 
+### 本機覆寫
+
+`dev` 是使用者明確選擇的具名行為。開著<ins>本機覆寫</ins>時，除 `test` 外的一般 recipe 照常執行；若沒有其他警告或錯誤，就以[結束碼](03_messages.md#結束碼) `0` 結束。每次執行都要在 stdout 印出用了哪一個本機覆寫，不加診斷前綴。`test` 對本機覆寫的處置見下方的[檢查](#檢查-test)。
+
 ## 共同選項
 
-`-y` 只適用於<ins>可寫 recipe</ins>。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合：
-
-- `upgrade <repo> -y`：以[結束碼](03_messages.md#結束碼) `2` 結束時，訊息會要求使用者照打；訊息見 [訊息](03_messages.csv) `VK0003`
-
-其餘哪個指令接受 `-y`，實作時再定。
+`-y` 只適用於<ins>可寫 recipe</ins>。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合是 `upgrade <repo> -y`；其餘哪個指令接受 `-y`，實作時再定。
 
 - <ins>`-y`</ins>：可代替原本允許的<ins>詢問</ins>
   - 照樣把改了什麼印到 stdout，不加前綴
   - 只省略詢問，不授權覆蓋使用者既有的檔，依 [02 不變量第 1 條](02_invariants.md#1-使用者寫的內容歸使用者可以建要改先問永不刪永不覆蓋)
   - 不能把已存在、尚未<ins>納管</ins>的檔改成 append 納管，見下面的[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
-  - 不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼](03_messages.md#結束碼) `2` 結束，例如基準版落後時印出 [訊息](03_messages.csv) `VK0003`，與有沒有 `-y` 無關
-  - 不隱含 CI 模式
 
 沒帶 `-y`、又不能互動時（例如在腳本裡），需要詢問的操作：
 
@@ -241,6 +239,14 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
   - 缺少必要的 <ins>digest</ins> 資訊時印出 [訊息](03_messages.csv) `VK0031` 診斷，以[結束碼](03_messages.md#結束碼) `2` 結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替
 
 VK 沒有限時的選項。要限時就在外層包 `timeout(1)`，或用 CI 的逾時設定。
+
+## 追蹤新版
+
+工具與引擎的新版由 Renovate regex preset 追蹤。Renovate 開的 PR 只改一行<ins>版本鎖定行</ins>；VK 沒有 bot，不 commit，也不開 PR。
+
+PR 上跑 `just vendor_kit test`。版本鎖定行已更新、<ins>基準版</ins>尚未更新時，`test` 在 stderr 印出 [訊息](03_messages.csv) `VK0014` 的 `warn` 診斷，以[結束碼](03_messages.md#結束碼) `1` 結束，CI 因而不通過。使用者要在該 PR 分支的本機執行 `just vendor_kit upgrade <repo> -y`，再自行 commit、push；CI 重跑通過後才 merge。
+
+`update --exit-code` 是給腳本判斷有沒有新版的另一條路，不取代 Renovate；它的行為見[各指令專用選項](#各指令專用選項)。
 
 ## 輸出
 
@@ -290,7 +296,7 @@ append 型的初始檔：
 
 ## 檢查 (test)
 
-<ins>`test`</ins> 是 VK 的檢查指令，本機與 CI 用同一個。`test` 一律以 CI 模式執行，不寫進 git 的檔。檢查的範圍照這個原則：
+<ins>`test`</ins> 是 VK 的檢查指令，本機與 CI 用同一個。`test` 不寫<ins>進 git 的檔</ins>。檢查的範圍照這個原則：
 
 - [01 目的與承諾](01_purpose.md)的對外契約中，CI 驗得到的項目百分之百覆蓋
 - CI 驗不到的項目由 VK 的驗收測試覆蓋，依 [02 不變量第 9 條](02_invariants.md#9-對外承諾必須黑箱可驗本機開發與正式啟動走同一個入口)
@@ -300,14 +306,9 @@ append 型的初始檔：
 - `just vendor_kit test`：跑全部檢查
 - `just vendor_kit test dist`：只檢查工具交付的內容，給提供工具的 repo 在自己的 CI 用。幾乎一定已經存在的那類初始檔若不用 append 型、改用整份複製，會被它擋下
 
-結束碼是 `0`～`3`，意思見 [03 訊息與錯誤碼總表](03_messages.md#結束碼)。
+`test` 的嚴格規則不因執行環境改變：
 
-## CI 模式
+- 基準版落後版本鎖定行時，在 stderr 印出 [訊息](03_messages.csv) `VK0014` 的 `warn` 診斷，以[結束碼](03_messages.md#結束碼) `1` 結束，並指出該執行的 `upgrade` 指令。
+- 發現任何本機覆寫時，在 stderr 印出 [訊息](03_messages.csv) `VK0032` 的 `error` 診斷，以[結束碼](03_messages.md#結束碼) `2` 結束，並指出該執行的 `undev` 指令。
 
-環境變數 `CI` 有值、而且不是 `0` 或 `false`（不分大小寫）時，就是 CI 模式。`just vendor_kit test` 不看環境變數，一律是 CI 模式。CI 模式下：
-
-- 進 git 的檔一律不寫，依 [02 不變量第 3 條](02_invariants.md#3-自動化只碰不進-git-的東西)。
-- 遇到非寫不可的情況，以[結束碼](03_messages.md#結束碼) `2` 結束並印出清單，例如基準版落後版本鎖定行時印出 [訊息](03_messages.csv) `VK0003` 診斷。
-- 有任何<ins>本機覆寫</ins>（`dev` 造成的）就印出 [訊息](03_messages.csv) `VK0032` 診斷，也以[結束碼](03_messages.md#結束碼) `2` 結束，依 [02 不變量第 2 條](02_invariants.md#2-一個來源版本鎖定行只有一份進-git)。
-
-不在 CI 模式時，基準版落後版本鎖定行會印出 [訊息](03_messages.csv) `VK0014` 警告，以[結束碼](03_messages.md#結束碼) `1` 結束。
+其他結束碼也是 `0`～`3`，意思見 [03 訊息與錯誤碼總表](03_messages.md#結束碼)。
