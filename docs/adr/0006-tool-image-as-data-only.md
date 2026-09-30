@@ -1,67 +1,23 @@
-# ADR-0006：工具 image 只搬不跑——取件走 `docker create`／`cp`，位元組相同靠三層
+# 工具 image 只搬不跑
 
-> Serves: 機制（服務不變量 7、5、6），不建立不變量——本檔記錄工具 image 的三行 `Dockerfile.dist` 形狀、從主機取件到唯讀掛進引擎容器的路徑、位元組相同的三層驗證，以及引擎只有一個實作、不因工具分身，是[不變量 7「工具 image 只承載交付資料；引擎與工具不互相綁發版」](../contract/02_invariants.md#7-工具-image-只承載交付資料引擎與工具不互相綁發版)的實現機制；取件只借主機已有的 docker，服務[不變量 5](../contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)，引擎單一實作服務[不變量 6](../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)。
+工具 image 裡是別人寫的內容；VK 一旦執行它，就是在使用者主機上跑不可信輸入，而使用者沒同意過這件事。工具 image 若 `FROM vendor_kit`，升級程式又綁回工具本身，引擎每升一版所有工具都得跟著動（[不變量 7](../contract/02_invariants.md#7-工具-image-只承載交付資料引擎與工具不互相綁發版)）。所以工具 image 只是 `FROM scratch` 的純資料 image，主機用已有的 docker（`docker create` → `docker cp`）把檔讀出來、唯讀掛進引擎容器；引擎只有一個實作，不因工具分身（[不變量 6](../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)），取件也不多要主機裝任何東西（[不變量 5](../contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)）。
 
-- **Status:** Accepted
+## Considered Options
 
-## Context
-
-工具 image 裡的內容是別人寫的，vendor_kit 只負責搬。這件事決定了取件端的形狀：VK 一旦執行工具 image，就等於在使用者的主機上執行不可信輸入，而使用者裝 VK 時完全沒同意這件事。所以取件不能靠 image 自己跑起來把檔吐出來，只能從外面把層裡的檔案讀出來。
-
-另一個壓力來自發版。工具 image 若 `FROM vendor_kit`，升級工具的程式就綁回工具本身，需要一整套協定號與相容矩陣才撐得住；引擎每升一次版，所有工具 repo 都得跟著動一次，散播速度停在最慢的那個工具身上。反過來，引擎若為了配合某個工具而出分身，「用哪一版引擎」就不再由安裝目錄自己說了算。
-
-取件路徑還受主機依賴的限制。使用者手上有 Jetson、WSL2、共用工作站，主機能假設的只有 Docker、Git、just 三個；多一個下載用的第三方 binary，就會在其中一台上失敗，而且依賴集合一旦能隨版本長大，「主機只需三個」會在某次升級後靜默變成四個。
-
-最後是導入端的保證：使用者拿到的每個檔，必須與出貨 image 裡對應的那個檔位元組相同。這個保證要能在取件與寫入兩個時間點各自被否證，不能只靠「拉對了 image」。
-
-## Decision
-
-### 1. `Dockerfile.dist` 的形狀
-
-`Dockerfile.dist` 逐字三行 = `FROM scratch` + LABEL + `COPY dist/`，純資料、不承諾可執行。
-
-三行以外的內容不接受。image 裡沒有 entrypoint、沒有 shell、沒有可執行層，因此「它能不能跑」這個問題在契約上不存在，也不會被驗證。
-
-### 2. 取件路徑
-
-主機 `docker create` → `docker cp` → 唯讀掛進引擎容器。
-
-主機薄啟動器用 `docker create` 與 `docker cp` 抓 image 內容，享 daemon 快取與同一條認證路徑；不 `docker run` 工具 image，那受不變量 7 約束。
-
-`docker cp` 之所以夠用，是因為 §1 的 image 只有檔案。取到的內容以唯讀掛進引擎容器，讀取與判斷都在引擎那一份實作裡做。
-
-### 3. 位元組相同靠三層
-
-位元組相同靠三層：
-
-- digest 鎖住 image 內容
-- 取件時逐檔算 sha256 記進印記
-- 寫入前再重驗一次
-
-三層各擋不同的失手：digest 管「拉到的是不是同一個 image」，逐檔 sha256 管「從 image 拿出來的是不是同一份檔」，寫入前重驗管「掛進來之後到落地之前有沒有被動過」。少任何一層，對應的那類差異就不會有人發現。
-
-出貨端另由 CI 驗兩平台位元組一致（[不變量 11](../contract/02_invariants.md#11-正確性不綁單一平台)）。這一層在出貨那一端，不在導入端；導入端的三層驗的是同一個 manifest 內的內容，驗不出兩個平台各自打包出不同東西。
-
-### 4. 引擎不因工具分身
-
-引擎只有一個實作、以 `vendor_kit:vN` 發布，不因工具而分身（每個安裝目錄用哪一版由它自己的版本鎖定行決定，見[不變量 6](../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)）。
-
-工具端不出現任何引擎程式，引擎端也不出現任何工具專屬分支。兩邊因此可以各自發版。
+- **工具 image `FROM vendor_kit`，自帶升級程式**：要一整套協定號與相容矩陣才撐得住，引擎每升一版就要所有工具 repo 跟著動。
+- **`docker run` 工具 image，讓它自己把檔吐出來**：取件程式很短，但那是在使用者主機上執行不可信輸入。
+- **每個工具配一個內含引擎的專屬 image**：版本組合由出貨端固定，但「這個安裝目錄用哪一版引擎」就不再由它自己的版本鎖定行決定。
+- **只鎖 digest，不做逐檔 sha256 與寫入前重驗**：digest 只證明拉到的是同一個 image，證不到取出來、寫進 repo 的那一份還是同一份。
+- **用第三方 registry client（vendir、crane）取代 `docker create`／`cp`**：見 [ADR-0001](0001-why-not-existing-tools.md)。
 
 ## Consequences
 
-- 使用者（出貨那一端）要交的東西只有 `dist/` 與那三行 `Dockerfile.dist`；不必知道引擎怎麼運作，也不必因為引擎升級重發版。
-- 主機不必為取件多裝任何東西。認證與快取都沿用使用者本來就在用的那條 docker 路徑，`docker pull` 成功的機器上取件就會成功。
-- 代價一：取件要建一個暫存 container 再刪掉，比直接讀 registry 多一次來回，也需要 docker daemon 在。
-- 代價二：同一份檔要算兩次 sha256（取件時與寫入前）。檔多的工具會付出可觀察的時間。
-- 代價三：工具 image 不能放安裝腳本。工具想在導入時做事，只能透過 `dist/` 裡的 recipe 由使用者自己呼叫。
-- 出貨契約多一條 CI 義務：兩平台位元組一致要在出貨端驗，不能推給導入端。
-- 驗收會抓到的違反：取件後逐檔比對出貨 image 與導入結果、以 `FROM scratch` 純資料 fixture image 走完整流程。
-
-## Alternatives
-
-- **甲版：工具 image `FROM vendor_kit`。** 工具自帶升級自己的程式，導入端只要跑起來就好。不採：升級程式綁回工具本身，要一整套協定號與相容矩陣才撐得住，而且引擎每升一版就要所有工具 repo 跟著動一次。
-- **`docker run` 工具 image，讓它自己把檔案吐出來。** 取件程式會變得很短，工具也能自訂展開邏輯。不採：那是在使用者主機上執行不可信輸入，使用者沒同意過這件事。
-- **每個工具配一個內含引擎的專屬 image。** 版本組合由出貨端固定，導入端不會拿到不相容的搭配。不採：引擎出現分身之後，「這個安裝目錄用哪一版引擎」就不再由它自己的版本鎖定行決定（不變量 6）。
-- **只鎖 digest，不做逐檔 sha256 與寫入前重驗。** 省掉兩次雜湊計算。不採：digest 只證明拉到的 image 是同一個，證不到從它取出來、再寫到 repo 裡的那一份還是同一份；差異會靜默留在使用者的檔案裡。
-- **用第三方 registry client（vendir、crane）取代 `docker create`／`cp`。** 可以不經 daemon 取件。不採理由已記在 [ADR-0001](0001-why-not-existing-tools.md) §2 與 §5 的重評門檻：主機或引擎要多養一個 binary、多一條認證路徑，換掉的只有那幾行 docker 指令。
+- 出貨那一端只要交 `dist/` 與三行 `Dockerfile.dist`，不必知道引擎怎麼運作，也不必因引擎升級重發版；工具想在導入時做事，只能透過 `dist/` 裡的 recipe 由使用者自己呼叫。
+- 認證與快取沿用使用者本來就在用的 docker 路徑：在支援的 registry 上，`docker pull` 成功的機器上取件就會成功；支援哪些 registry 由驗收決定。代價是要建一個暫存 container 再刪掉，也需要 docker daemon 在。
+- 驗收：取件後逐檔比對出貨 image 與導入結果，以 `FROM scratch` 純資料 fixture image 走完整流程。
+- 內部機制（之後搬到實作 issue）：
+  - `Dockerfile.dist` 逐字三行：`FROM scratch` + LABEL + `COPY dist/`。沒有 entrypoint、shell 或可執行層，「能不能跑」在契約上不存在。
+  - 取件：主機啟動器 `docker create` → `docker cp` → 唯讀掛進引擎容器，讀取與判斷都在引擎那一份實作裡做；不 `docker run` 工具 image。
+  - 位元組相同靠三層：digest 鎖住 image 內容；取件時逐檔算 sha256 記進印記；寫入前再重驗一次。三層各擋一類失手：拉到的是不是同一個 image、取出來的是不是同一份檔、掛進來到落地之間有沒有被動過。同一份檔因此算兩次 sha256，檔多的工具會付出可觀察的時間。
+  - 出貨端另由 CI 驗兩平台位元組一致（[ADR-0011](0011-test-layers-and-ci-matrix.md)）；導入端的三層驗不出兩個平台各自打包出不同東西。
+  - 引擎以 `vendor_kit:vN` 發布；工具端不出現引擎程式，引擎端不出現工具專屬分支。

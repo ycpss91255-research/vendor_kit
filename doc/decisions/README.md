@@ -13,7 +13,7 @@
 | 檔 | 是什麼 | 最終去向 |
 |---|---|---|
 | [01 目的與承諾](../../docs/contract/01_purpose.md) | 目的與承諾：痛點、VK 做什麼、對導入、出貨與相容性承諾什麼。已定案。 | 留在 `docs/contract/`：對外契約在 repo 內的權威文件。 |
-| [02 不變量](../../docs/contract/02_invariants.md) | 十一條不變量：只記性質。機制已在 2026-09-28 併進各自的 ADR（`docs/adr/` 裡各條列出的 ADR），本頁只留回連。審閱中。 | 性質留一份權威文件（ADR 的 `> Serves:` 要指得到它）。 |
+| [02 不變量](../../docs/contract/02_invariants.md) | 十一條不變量：只記性質。機制已在 2026-09-28 併進各自的 ADR（`docs/adr/` 裡各條列出的 ADR），本頁只留回連。審閱中。 | 留在 `docs/contract/`：性質留一份權威文件，ADR 直接連到它。 |
 | [03 訊息與錯誤碼總表](../../docs/contract/03_messages.md) | 結束碼的意思，與 VK 印出、要使用者動手處理的訊息與固定編號；沿用 02 的規則時寫「依第 N 條」。審閱中。 | 留在 `docs/contract/`：對外契約在 repo 內的權威文件。 |
 | [04 使用者介面](../../docs/contract/04_interface.md) | 全部 VK recipe 與選項。沿用 01、02 的規則時寫「依第 N 條」，結束碼與訊息連到 03，不重述。審閱中。 | 留在 `docs/contract/`：對外契約在 repo 內的權威文件。 |
 
@@ -21,8 +21,8 @@
 
 | 檔 | 是什麼 | 最終去向 |
 |---|---|---|
-| [設計原則](design_principles.md) | 設計原則 P1–P6 與衝突優先序。在不變量之下、個別決議之上的判準。 | 每條併進相關 ADR 的 `## Decision`／`## Alternatives`；`docs/adr/README.md` 的 `> Serves:` 規則現在指向本檔，併完要一起改。 |
-| [範圍與路線圖](scope_roadmap.md) | 產品形狀五條 + 路線圖 + 待拍板清單。 | 路線圖進 GitHub milestone + issue；產品形狀已由 01 頁涵蓋；待拍板項目各開一個 `needs-decision` issue。 |
+| [設計原則](design_principles.md) | 設計原則 P1–P6 與衝突優先序。在不變量之下、個別決議之上的判準。 | 每條併進相關 ADR 的決定與理由或 `## Considered Options`。 |
+| [範圍與路線圖](scope_roadmap.md) | 產品形狀五條 + 路線圖 + 待拍板清單。 | 路線圖進 GitHub milestone + issue；產品形狀已由 01 頁涵蓋；待拍板項目各開一個 `needs-triage` issue。 |
 
 ### 工作用的目錄
 
@@ -77,9 +77,9 @@
 
 **是什麼**：從已移除的 `doc/PRD.md` 拆出來的兩份。
 
-**為什麼卡住**：兩份都在等「併進相關 ADR」。相關 ADR 已於 2026-09-28 全部落地（`docs/adr/` 0001–0012），所以這個前置條件消失了；但 `docs/adr/README.md` 的必要段落規則規定每份 ADR 的 `> Serves:` 要能指向這兩份，併掉它們就得同時改那條規則。
+**為什麼卡住**：兩份都在等「併進相關 ADR」。相關 ADR 已於 2026-09-28 全部落地（`docs/adr/` 0001–0012），ADR 也已改成 skill 的 ADR 格式、不再有 `> Serves:` 回連，所以前置條件都消失了；剩下的只是決定怎麼併。[ADR-0001](../../docs/adr/0001-why-not-existing-tools.md) 的重評門檻現在寫在它的 Consequences，`design_principles.md` 與 `scope_roadmap.md` 仍以「§5」稱呼那份清單。
 
-**選項**：(a) 留在原位，等改 `> Serves:` 規則時一併處理；(b) 現在就把設計原則搬成一份 ADR（原則本身就是難逆轉的取捨），`scope_roadmap.md` 的路線圖進 milestone、待拍板項目各開一個 issue；(c) `scope_roadmap.md` 先動（純轉成 issue，沒有依賴），`design_principles.md` 等 ADR。
+**選項**：(a) 留在原位；(b) 現在就把設計原則搬成一份 ADR（原則本身就是難逆轉的取捨），`scope_roadmap.md` 的路線圖進 milestone、待拍板項目各開一個 issue；(c) `scope_roadmap.md` 先動（純轉成 issue，沒有依賴），`design_principles.md` 等 ADR。
 
 ### 5. `_backup/`
 
@@ -101,11 +101,11 @@
 
 ### 7. proto 的 ADR-0001、0002（已完成）
 
-**是什麼**：`docs/adr/README.md` 索引表原本註明兩份 ADR「在 `../proto/vendor_kit/docs/adr/`，待搬回」。
+**是什麼**：`docs/adr/README.md` 當時的索引表（歷史；索引表已拿掉）原本註明兩份 ADR「在 `../proto/vendor_kit/docs/adr/`，待搬回」。
 
 **結論（2026-09-28）**：不搬回、不引用。兩份綁原型的 Python 實作與已作廢的詞（舊宣告檔名、舊的工具目錄寫法、乙版、`ensure`／`verify` 這兩個已不存在的 recipe、只畫四條 recipe 的泳道），核心決定已改寫進本 repo 的 `docs/adr/`：測試分層進 ADR-0011，引擎與工具 image 分離進 ADR-0006 與 ADR-0007。原本的 ADR-0003（為什麼不用現成工具）因此改編號為 ADR-0001，機制 ADR 從 0002 連號到 0012。
 
-**隨之改掉的**：索引表重建（只有本 repo 的 0001–0012，沒有 proto 的列）、`docs/agents/domain.md` 的「先去 proto 讀」整段刪除、`doc/decisions/scope_roadmap.md` 的「ADR-0001／0002 搬回」改成「不搬回」。
+**隨之改掉的**：索引表重建（歷史；索引表後來隨 ADR 改成 skill 格式一起拿掉）、`docs/agents/domain.md` 的「先去 proto 讀」整段刪除、`doc/decisions/scope_roadmap.md` 的「ADR-0001／0002 搬回」改成「不搬回」。
 
 ### 8. `docs/agents/domain.md` 的檔案結構區塊（已完成）
 
