@@ -18,6 +18,10 @@
 標示版與正文副本裡的相對連結會改寫成從 _marked/ 出發（錨點照留；指到其他審閱頁的
 連結指正式檔，不指版本副本），放到 _marked/ 後才不會因為深度不同而指錯；原檔不動。
 
+標題行（# 開頭）保持原樣、不加標籤，否則檢視器產生的錨點會含標籤文字，目錄連結
+跳不過去：新增的標題在下一行註記「（本節新增）」，改過的標題在下一行標紅舊標題並註記
+「（標題已修改）」，刪掉的標題去掉 # 以紅底呈現在普通文字行。
+
 表格列（以 | 開頭）在儲存格內標記，不把整列包起來——整列包住會讓那一列
 不再是合法的表格列，GitHub 與 VS Code 都會把表格切斷。
 """
@@ -49,8 +53,8 @@ def mark(body: str, tag: str) -> str:
 def wrap(line: str, tag: str) -> str:
     """把一行包成新增或刪除的 <mark>（tag 是 "ins" 或 "del"）。
 
-    標題、清單、引言的行首記號留在標籤外，否則 `<mark>## 目錄</mark>` 會讓標題
-    變成普通文字；表格列改成逐格包，整列包住會切斷表格。
+    清單、引言的行首記號留在標籤外；表格列改成逐格包，整列包住會切斷表格。
+    標題行不經過這裡：build() 讓標題保持原樣，改動註記在下一行。
     """
     if not line.strip():
         return line
@@ -189,11 +193,38 @@ def backup_path(name: str, suffix: str) -> pathlib.Path:
     )
 
 
+HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)(?:\s+#+)?\s*$")
+ADDED_NOTE = mark("（本節新增）", "ins")
+CHANGED_NOTE = mark("（標題已修改）", "ins")
+
+
+def headings(lines: list[str]) -> set[int]:
+    """回傳是標題的行號（程式碼區塊裡以 # 開頭的行不算）。"""
+    found, fence = set(), None
+    for i, line in enumerate(lines):
+        m = FENCE.match(line)
+        if fence:
+            if m and m.group(1) == fence:
+                fence = None
+            continue
+        if m:
+            fence = m.group(1)
+            continue
+        if HEADING.match(line):
+            found.add(i)
+    return found
+
+
+def heading_text(line: str) -> str:
+    return HEADING.match(line).group(1)
+
+
 def build(name: str, suffix: str) -> tuple[int, int]:
     path, key = target(name)
     # 基準後綴寫 new 表示這個檔是新建的：沒有舊版，整份都標成新增
     old = [] if suffix == "new" else backup_path(name, suffix).read_text().splitlines()
     new = path.read_text().splitlines()
+    old_heads, new_heads = headings(old), headings(new)
     out = []
     ins = dele = 0
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
@@ -202,12 +233,34 @@ def build(name: str, suffix: str) -> tuple[int, int]:
         if tag == "equal":
             out.extend(new[j1:j2])
             continue
-        for line in old[i1:i2]:
-            if line.strip():
-                out.append(wrap(line, "del"))
-                dele += 1
-        for line in new[j1:j2]:
-            out.append(wrap(line, "ins"))
+        # 標題行保持原樣、不加任何標籤：檢視器用標題的文字產生錨點，
+        # 標籤混進去錨點就變了，目錄連結跳不過去。改動改在標題下一行註記。
+        # 同一段改動裡的舊標題與新標題依序配對，配到的算「標題已修改」。
+        gone = [i for i in range(i1, i2) if i in old_heads]
+        came = [j for j in range(j1, j2) if j in new_heads]
+        renamed = dict(zip(came, gone))
+        for i in range(i1, i2):
+            line = old[i]
+            if not line.strip() or i in renamed.values():
+                continue
+            # 刪掉的標題：去掉行首的 #，當成普通文字標紅，不產生錨點
+            out.append(mark(heading_text(line), "del") if i in old_heads else wrap(line, "del"))
+            dele += 1
+        for j in range(j1, j2):
+            line = new[j]
+            if j in new_heads:
+                out.append(line)
+                if j in renamed:
+                    out.append(mark("舊標題：" + heading_text(old[renamed[j]]), "del"))
+                    out.append(CHANGED_NOTE)
+                    dele += 1
+                else:
+                    out.append(ADDED_NOTE)
+                # 註記自成一段，不跟下一行的清單或表格黏在一起
+                if j + 1 < len(new) and new[j + 1].strip():
+                    out.append("")
+            else:
+                out.append(wrap(line, "ins"))
             if line.strip():
                 ins += 1
     rev = next_rev(key)

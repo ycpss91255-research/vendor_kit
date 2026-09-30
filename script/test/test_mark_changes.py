@@ -1,6 +1,7 @@
 """mark_changes.py 的標記格式與版本號行為：跑法 `python3 -m unittest discover -s script/test`。"""
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -81,6 +82,82 @@ class VersionTest(unittest.TestCase):
         self.assertEqual(pathlib.Path("doc/contract/09_x.md").read_text(), body)
         self.assertEqual(pathlib.Path("doc/decisions/_marked/09_x.v1.md").read_text(), body)
         self.assertTrue(pathlib.Path("doc/decisions/_marked/09_x.v1.marked.md").exists())
+
+
+class HeadingTest(unittest.TestCase):
+    """標題行不加標籤：錨點（GitHub slug）要跟正式檔一樣，目錄連結才跳得過去。"""
+
+    GREEN = '<mark style="background-color:#c8f0c8">'
+    RED = '<mark style="background-color:#f8c8c8">'
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.TemporaryDirectory()
+        os.chdir(self._tmp.name)
+        pathlib.Path("doc/contract").mkdir(parents=True)
+        pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        self._tmp.cleanup()
+
+    @staticmethod
+    def slug(heading):
+        """GitHub 的錨點規則：小寫、去標點、空白換成 -。"""
+        text = re.sub(r"^#+\s+", "", heading).strip().lower()
+        return re.sub(r"[^\w\- ]", "", text).replace(" ", "-")
+
+    @staticmethod
+    def heads(text):
+        return [line for line in text.splitlines() if re.match(r"^#{1,6}\s", line)]
+
+    def run_build(self, old, new):
+        pathlib.Path("doc/contract/09_x.md").write_text(new)
+        pathlib.Path("doc/decisions/_backup/doc_contract_09_x.pre_r1.md").write_text(old)
+        mark_changes.build("09_x", "pre_r1")
+        return pathlib.Path("doc/decisions/_marked/09_x.v1.marked.md").read_text()
+
+    def assert_anchors_match(self, marked, new):
+        got = self.heads(marked)
+        for line in got:
+            self.assertNotRegex(line, r"<[^>]+>")
+        self.assertEqual([self.slug(h) for h in got], [self.slug(h) for h in self.heads(new)])
+
+    def test_added_heading(self):
+        old = "# 頁\n\n## 1. 甲\n\n內容\n"
+        new = old + "\n## 2. 乙：新的, 一條\n\n新內容\n"
+        marked = self.run_build(old, new)
+        self.assert_anchors_match(marked, new)
+        lines = marked.splitlines()
+        i = lines.index("## 2. 乙：新的, 一條")
+        self.assertEqual(lines[i + 1], self.GREEN + "（本節新增）</mark>")
+        self.assertIn("2-乙新的-一條", [self.slug(h) for h in self.heads(marked)])
+
+    def test_renamed_heading(self):
+        old = "# 頁\n\n## 1. 舊名稱\n\n內容\n"
+        new = "# 頁\n\n## 1. 新名稱\n\n內容\n"
+        marked = self.run_build(old, new)
+        self.assert_anchors_match(marked, new)
+        lines = marked.splitlines()
+        i = lines.index("## 1. 新名稱")
+        self.assertEqual(lines[i + 1], self.RED + "舊標題：1. 舊名稱</mark>")
+        self.assertEqual(lines[i + 2], self.GREEN + "（標題已修改）</mark>")
+        self.assertNotIn("## 1. 舊名稱", marked)
+
+    def test_deleted_heading(self):
+        old = "# 頁\n\n## 1. 甲\n\n內容\n\n## 2. 要刪的\n\n舊內容\n"
+        new = "# 頁\n\n## 1. 甲\n\n內容\n"
+        marked = self.run_build(old, new)
+        self.assert_anchors_match(marked, new)
+        self.assertIn(self.RED + "2. 要刪的</mark>", marked.splitlines())
+
+    def test_toc_anchor_unchanged(self):
+        old = "# 頁\n\n## 目錄\n\n1. [甲](#1-甲)\n\n## 1. 甲\n"
+        new = "# 頁\n\n## 目錄\n\n1. [甲](#1-甲)\n2. [乙](#2-乙)\n\n## 1. 甲\n\n## 2. 乙\n"
+        marked = self.run_build(old, new)
+        self.assert_anchors_match(marked, new)
+        self.assertIn("](#2-乙)", marked)
+        self.assertIn("2-乙", [self.slug(h) for h in self.heads(marked)])
 
 
 class RelinkTest(unittest.TestCase):
