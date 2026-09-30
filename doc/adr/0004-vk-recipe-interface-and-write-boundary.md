@@ -18,8 +18,8 @@
 - `CI` 由 CI 服務自己設，使用者不必額外配置；本機把 `CI` 留在環境裡的人會拿到 CI 行為。
 - 需要寫進 git 的情境各有固定的訊息與結束碼，改訊息或結束碼等於改介面。[03 訊息與錯誤碼總表](../contract/03_messages.md)列了未完成導入、基準版落後與薄殼不符；三種情境都以[結束碼 `2`](../contract/03_messages.md#結束碼)結束，訊息見[訊息總表](../contract/03_messages.md#訊息)。
 - 內部機制（之後搬到實作 issue）：
-  - 轉發形狀：每個 recipe 一行 `<recipe> *args`，以 `[group('常用')]` 與 `[group('進階')]` 分段；轉發行不解讀參數、不判斷狀態。`vendor.just` 屬於進 git 的薄殼五檔（[不變量 6](../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)）。
-  - `check.sh` 自己設 `CI=1`。`update` 在 CI 模式下仍然查 registry：它是唯讀 recipe，查詢就是它的用途。
+  - 轉發形狀：每個 recipe 一行 `<recipe> *args`，以 `[group('常用')]` 與 `[group('進階')]` 分段；轉發行不解讀參數、不判斷狀態。`vendor.just` 屬於進 git 的薄殼四檔（[不變量 6](../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)）。
+  - `just vendor_kit test` 自己開啟 CI 模式。`update` 在 CI 模式下仍然查 registry：它是唯讀 recipe，查詢就是它的用途。
   - CI 模式附加的紅燈規則是封閉清單，只有兩條，都以[結束碼 `2`](../contract/03_messages.md#結束碼)結束：需要改進 git 的檔（一律不寫），以及有任何本機覆寫。需要改進 git 的檔有三個具名情境：基準版落後（本機只警告）、未完成導入、薄殼不符（後兩者本機也回 `2`）。清單以外的結果照[結束碼](../contract/03_messages.md#結束碼)：版本組合不合回 `3`，一般失敗回 `2`，多個結果取最大值。「這個檔沒納管」「這個版本你拒絕過」只提醒、不紅燈。
   - `sync` 的三種情境：未完成導入回 `2`，訊息見[訊息總表](../contract/03_messages.md#訊息)；基準版落後版本鎖定行在本機只警告、CI 下回 `2`，訊息見[訊息總表](../contract/03_messages.md#訊息)；快取逐檔指紋驗不過就重裝並警告；重裝只動 VK 自己的 `cache/`，不違反寫入邊界。
   - 可寫 recipe 的時序：

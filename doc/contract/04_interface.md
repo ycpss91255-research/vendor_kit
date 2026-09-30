@@ -1,6 +1,6 @@
 # 04 使用者介面
 
-<ins>使用者</ins>日常只透過 `just vendor_kit` 指令跟 <ins>VK</ins> 打交道；首次導入用 `bootstrap.sh`，CI 用 `.vendor_kit/ci/check.sh`。這一頁列出全部指令與必要的參數、<ins>選項</ins>：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。
+<ins>使用者</ins>與 CI 都透過 `just vendor_kit` 指令跟 <ins>VK</ins> 打交道；只有首次導入用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、<ins>選項</ins>：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。
 
 - 必須永遠成立的規則以 [02 不變量](02_invariants.md) 為準，這一頁只補使用者看得到的介面行為
 - <ins>結束碼</ins>的意思與每條訊息見 [03 訊息與錯誤碼總表](03_messages.md)
@@ -16,7 +16,7 @@
 - [各指令專用選項](#各指令專用選項)
 - [輸出](#輸出)
 - [使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
-- [CI 檢查腳本](#ci-檢查腳本)
+- [檢查（test）](#檢查test)
 - [CI 模式](#ci-模式)
 
 ## 主機需求
@@ -32,12 +32,12 @@
 |---|---|---|---|
 | [Docker](https://www.docker.com/) | 19.03 以上 | 不支援 Podman | 由<ins>啟動器</ins>檢查，首次導入與已有安裝目錄都一樣：在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見[訊息總表](03_messages.md#訊息) |
 | [Git](https://git-scm.com/) | 不設最低版本 | VK 不在主機上呼叫 git；「安裝目錄在 git repo 裡」由啟動器用 sh 往上找 `.git` 判斷；`.git` 是目錄或檔都算，所以 worktree 與 submodule 也適用 | — |
-| [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 分首次導入與已有安裝目錄兩種，見下方的註 |
+| [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 首次導入：`bootstrap.sh` 以[結束碼 `2`](03_messages.md#結束碼)結束。已有安裝目錄：由 just 自己報錯，見下方的註 |
 
 註：just 版本不足時
 
 - 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，另印下載與安裝指令，訊息見[訊息總表](03_messages.md#訊息)
-- 已有安裝目錄：just 太舊時，讀 justfile 就會出錯，VK 還沒開始執行；這時看到的是 just 自己的錯誤訊息與結束碼，VK 不留執行紀錄
+- 已有安裝目錄：justfile 用了 just 1.33.0 才支援的寫法，just 太舊時讀 justfile 就會出錯，輪不到 VK 執行，也就沒機會檢查版本；這時看到的是 just 自己的錯誤訊息與結束碼，VK 不留執行紀錄
 
 ## registry 與認證
 
@@ -51,7 +51,7 @@
 
 ## 入口
 
-VK 對外只有三個入口：
+VK 對外只有兩個入口：
 
 - `bootstrap.sh`
   - 第一次<ins>導入</ins>時用
@@ -61,11 +61,8 @@ VK 對外只有三個入口：
   - 再跑一次就是修復
   - 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，Release 頁上目前還沒有這個檔
 - `just vendor_kit …`
-  - 日常使用的全部指令
+  - 日常使用的全部指令；CI 也用它，見下面的[檢查（test）](#檢查test)
   - 都收在 `vendor_kit` 這個<ins>命名空間</ins>底下，不佔用 <ins>repo</ins> 自己的頂層指令名
-- `.vendor_kit/ci/check.sh`
-  - 給 CI 呼叫
-  - 檢查什麼見下面的 [CI 檢查腳本](#ci-檢查腳本)
 
 ## 指令
 
@@ -91,6 +88,8 @@ VK 對外只有三個入口：
   install                     把 VK 裝進 repo 的一個目錄，使它成為安裝目錄
   uninstall                   把 VK 從那個目錄移除。初始檔不刪
   prune                       清掉 VK 產生、但已不再使用的本機資源
+  test                        跑全部檢查；本機與 CI 用同一個
+  test dist                   只檢查工具交付的內容
 ```
 
 清單裡的名詞見名詞表：
@@ -136,7 +135,7 @@ VK 對外只有三個入口：
 - 同一個概念一種寫法：對象是引擎一律寫 `--engine`，本機 image 一律寫 `-i <image>`
 - 選項採 GNU 式的長短選項與 `--`（[GNU Coding Standards](https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html)），但有兩點刻意不遵循 [POSIX Utility Syntax Guidelines](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html)：選項放在位置參數之後也可以（不遵循 Guideline 9），`--engine` 的值可帶可不帶（不遵循 Guideline 7）。具體寫法：
   - 有短也有長：`-h`／`--help`、`-y`／`--yes`、`-i`／`--image`、`-p`／`--path`
-  - 只有長：`--engine`、`--exit-code`、`--dist`（[CI 檢查腳本](#ci-檢查腳本)）
+  - 只有長：`--engine`、`--exit-code`
   - 選項放在位置參數之前或之後都可以，意思相同
   - 單獨的 `--` 結束選項：它之後的參數一律當位置參數，以 `-` 開頭也一樣，例如 `just vendor_kit add -- <repo>`
 - `--engine` 是值可帶可不帶的長選項：不帶值時只表示對象是引擎；要帶值只接受 `=` 形式 `--engine=<tag>`，不接受 `--engine <tag>`，例如 `--engine=v1.2.0`。工具的指定版本維持 `<repo>@<tag>`
@@ -241,17 +240,17 @@ append 型的初始檔：
 - `add` 遇到已存在的檔：不納管、不覆蓋，只警告
 - `remove` 與 `uninstall`：不刪初始檔，只印清單
 
-## CI 檢查腳本
+## 檢查（test）
 
-`.vendor_kit/ci/check.sh` 是 <ins>CI 檢查腳本</ins>，檢查的範圍照這個原則：
+<ins>`test`</ins> 是 VK 的檢查指令，本機與 CI 用同一個；檢查的範圍照這個原則：
 
 - [01 目的與承諾](01_purpose.md)的對外契約中，CI 驗得到的項目百分之百覆蓋
 - CI 驗不到的項目由 VK 的驗收測試覆蓋，依 [02 不變量](02_invariants.md#9-對外承諾必須黑箱可驗本機開發與正式啟動走同一個入口) 第 9 條
 
 兩種用法：
 
-- 不帶參數：檢查安裝目錄
-- `--dist`：檢查工具 repo 交付的內容，給提供工具的 repo 在自己的 CI 用。幾乎一定已經存在的那類初始檔若不用 append 型、改用整份複製，會被它擋下
+- `just vendor_kit test`：跑全部檢查
+- `just vendor_kit test dist`：只檢查工具交付的內容，給提供工具的 repo 在自己的 CI 用。幾乎一定已經存在的那類初始檔若不用 append 型、改用整份複製，會被它擋下
 
 結束碼是 `0`～`3`，意思見 [03 訊息與錯誤碼總表](03_messages.md#結束碼)。
 

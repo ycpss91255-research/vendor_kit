@@ -25,7 +25,7 @@
   - 啟動器限 POSIX sh + `docker` + [04 使用者介面](../contract/04_interface.md#主機需求)列的基礎 userland；清單外的命令由 lint 擋。主機不呼叫 git；「安裝目錄在 git repo 裡」由啟動器往上找 `.git` 判斷。合併用的 `git merge-file` 在引擎容器內跑，不是主機依賴。引擎不讀 `.git`、不碰 index、不做 `git init`。
   - 啟動器只做：偵測主機環境；以字串相等比對讀版本鎖定行與印記；驗引擎回傳的執行計畫文法；照計畫呼叫 docker；寫執行紀錄；清掉自己建的容器與暫存。`sync` 快路徑、`prune` 的 docker 刪除也在啟動器，但都只依引擎給的計畫或純字串比對；比對一律保守，不確定就起引擎。
   - 已經有版本鎖定行時，啟動器一律用它指定的引擎：拉不到就是失敗，不改用啟動器內嵌的那一版。內嵌版本只用在還沒有版本鎖定行的第一次導入。
-  - 薄殼五檔：`.vendor_kit/entry.just`、`vendor.just`、`log.sh`、`.gitignore`、`ci/check.sh`。薄殼帶自描述標頭（介面版、引擎版、其餘內容的 sha256），引擎重算比對、再與 image 內模板二次比對：前者抓「被改過」，後者抓「跟這一版引擎不是同一份」。不符就以[結束碼 `2`](../contract/03_messages.md#結束碼)結束、列差異，除執行紀錄外不動 repo 檔與其他 VK 檔，訊息見[訊息總表](../contract/03_messages.md#訊息)。`gen/.stamp` 只記產生薄殼的引擎 ref 供快路徑比對，不承擔薄殼 hash。
+  - 薄殼四檔：`.vendor_kit/entry.just`、`vendor.just`、`log.sh`、`.gitignore`。薄殼帶自描述標頭（介面版、引擎版、其餘內容的 sha256），引擎重算比對、再與 image 內模板二次比對：前者抓「被改過」，後者抓「跟這一版引擎不是同一份」。不符就以[結束碼 `2`](../contract/03_messages.md#結束碼)結束、列差異，除執行紀錄外不動 repo 檔與其他 VK 檔，訊息見[訊息總表](../contract/03_messages.md#訊息)。`gen/.stamp` 只記產生薄殼的引擎 ref 供快路徑比對，不承擔薄殼 hash。
   - 薄殼重產只由 `install`、`upgrade --engine` 做；`sync` 發現不符只回 `2`、提示 `upgrade --engine`。
   - 升引擎兩段：新引擎換上後停下、以 `2` 結束並要求重跑，後續由新引擎接手。它是「版本鎖定行最後才改」（[ADR-0004](0004-vk-recipe-interface-and-write-boundary.md)）的明列例外：先改鎖定行再由新引擎接手；中途回 `2` 時鎖定行已經改了，進度檔記著目標版本，重跑 `upgrade --engine` 續作。
   - 舊薄殼跑新 major 的一般 recipe，由薄殼在起引擎之前擋下，乾淨回 `3`，訊息見[訊息總表](../contract/03_messages.md#訊息)，除執行紀錄外不動 repo 檔與 VK 檔；判定合不合的規則在 [ADR-0008](0008-protocol-and-file-schema-versions.md)。這裡與 [不變量 10](../contract/02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)、ADR-0008 說的「零寫入」，依[不變量 4](../contract/02_invariants.md#4-永不靜默失敗) 都不含執行紀錄。

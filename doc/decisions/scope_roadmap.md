@@ -9,7 +9,7 @@
 - **薄啟動器 + 容器內引擎**（不變量 5、6）：主機三個工具；規則在引擎；啟動器凍結。
 - **初始檔建一次、歸使用者、基準版合併升級**（不變量 1）：基準版進 git 作合併祖先；衝突用 git 熟悉的標記解。
 - **命名空間下的 recipe、成對、語意固定**（不變量 8）：`just vendor_kit add`、`upgrade`、`dev` 是使用者需要知道的全部。
-- **一份 CI 契約腳本**（不變量 3、4）：repo 的 CI 只呼叫 `.vendor_kit/ci/check.sh`；GitHub／GitLab 差異不進引擎。
+- **一個 CI 契約入口**（不變量 3、4）：repo 的 CI 只呼叫 `just vendor_kit test`，本機也用同一個；GitHub／GitLab 差異不進引擎。
 
 ## 路線圖
 
@@ -19,7 +19,7 @@
 - 初始檔逐檔狀態機（純文字基準版合併；二進位只比對不合併；symlink 第一版禁止）；基準版 + metadata。
 - `.vendor_kit/` 佈局、自有 `.gitignore`、根 `justfile` 一行。
 - `dev <repo> -p <dir>` 與 `dev --engine -i <image>`；驗收 fixture repo 走完整流程；amd64 + arm64 原生 runner。
-- Renovate regex preset；`check.sh` 給 repo 的 CI 與工具 repo CI（`--dist`）。
+- Renovate regex preset；`just vendor_kit test` 給 repo 的 CI，`just vendor_kit test dist` 給出貨的 repo 在自己的 CI 檢查工具交付的內容。
 - 決議紀錄：proto 的 ADR-0001／0002 不搬回（內容綁原型實作與已作廢的詞，核心決定已改寫成 `doc/adr/` 的 0002–0012）；[`doc/contract/02_invariants.md`](../contract/02_invariants.md) 列的「待寫 ADR」已全部落地。
 
 以下是待拍板清單與現況對照。正式內容以 [`doc/contract/01_purpose.md`](../contract/01_purpose.md)、[`doc/contract/02_invariants.md`](../contract/02_invariants.md) 與根 [`GLOSSARY.md`](../../GLOSSARY.md)（名詞）為準。
@@ -33,7 +33,7 @@
 | Renovate 的初始檔合併由誰做 | 已定案 | VK 無 bot、不 commit、不開 PR；PR 只改一行版本鎖定行，初始檔合併由人在 PR 分支本機 `upgrade <repo> -y` → commit → push，CI 全部再跑一次才 merge。 |
 | 多命名空間工具 | 已定案 | 一個工具可出多個 `<ns>`：`dist/just/<ns>.just` 每檔一個頂層命名空間、數量工具自決、`<repo>.just` 必須存在；`gen/tools.just` 每個 `<ns>` 一行 `mod?`（一工具可多行）；`add` 時 `<ns>` 與其他已接工具、根 `justfile` 既有 recipe／module、保留名 `vendor_kit` 撞名 → 2 拒絕（在任何寫入之前）。 |
 | image 公開／私有 | 已定案 | 引擎 image 公開（不可逆要提醒），工具 image 由各工具 repo 自決；認證是主機／CI 各自的事，VK 只承諾「主機 docker 拉得到就能用」。未給憑證時不支援需認證的版本列舉，以[結束碼 `2`](../contract/03_messages.md#結束碼)結束，訊息見[訊息總表](../contract/03_messages.md#訊息)，提示設 `VENDOR_KIT_REGISTRY_TOKEN`（或 `_TOKEN_FILE`）或直接指定 `@<tag>`。 |
-| `.gitignore` 類初始檔的處理 | 已定案 | 用 append 型：根 `.gitignore`／`.dockerignore`／`.editorconfig` 這類必須 `strategy = "append"`，用 copy 指向它們 → `check.sh --dist` 報錯；無檔則建、已有則問後 append，刪也只刪原文相同的行（CRLF/LF 等價，零命中或多處只 warn）。VK 自己不碰使用者的 `.gitignore`：`.vendor_kit/.gitignore` 是 VK 擁有的薄殼檔，VK 自己寫的 repo 檔只有根 `justfile` 一行與根 `.dockerignore` 四行。 |
+| `.gitignore` 類初始檔的處理 | 已定案 | 用 append 型：根 `.gitignore`／`.dockerignore`／`.editorconfig` 這類必須 `strategy = "append"`，用 copy 指向它們 → `just vendor_kit test dist` 報錯；無檔則建、已有則問後 append，刪也只刪原文相同的行（CRLF/LF 等價，零命中或多處只 warn）。VK 自己不碰使用者的 `.gitignore`：`.vendor_kit/.gitignore` 是 VK 擁有的薄殼檔，VK 自己寫的 repo 檔只有根 `justfile` 一行與根 `.dockerignore` 四行。 |
 
 ### v2
 

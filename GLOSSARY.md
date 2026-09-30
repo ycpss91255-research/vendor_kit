@@ -122,8 +122,9 @@ _Avoid_: 簽章、信任來源
 **自描述標頭**（self-describing header）：
 薄殼檔開頭描述它自己的介面版、引擎版與其餘內容指紋的那段。
 
-**CI 檢查腳本**（CI check script）：
-薄殼之一 `.vendor_kit/ci/check.sh`，給使用者接進自己 CI 用。
+**`test`**：
+跑全部檢查的 VK recipe，本機與 CI 用同一個；`test dist` 只檢查工具在 `dist/` 交付的內容，給出貨的 repo 接進自己的 CI 用。
+寫法：`just vendor_kit test`；只檢查交付內容寫 `just vendor_kit test dist`。
 
 **執行紀錄**（run log）：
 記錄一次 VK 執行以供事後追溯的 VK 檔。

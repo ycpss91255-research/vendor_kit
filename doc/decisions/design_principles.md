@@ -29,7 +29,7 @@
 
 ### P5. 一條規則一個擁有者
 
-規則在引擎實作一次；啟動器、`check.sh`、工具 just 模組只轉發。兩個必須一致的實作是延遲發作的漂移。
+規則在引擎實作一次；啟動器、`just vendor_kit test`、工具 just 模組只轉發。兩個必須一致的實作是延遲發作的漂移。
 *寫在哪裡：* [`../adr/0007-host-thin-layer-and-shell-integrity.md`](../adr/0007-host-thin-layer-and-shell-integrity.md)、[`../adr/0006-tool-image-as-data-only.md`](../adr/0006-tool-image-as-data-only.md)。*服務：* 不變量 6、4。
 
 ### P6. 母體用推導，不列清單
