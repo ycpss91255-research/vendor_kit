@@ -42,6 +42,8 @@
 23. （Q12）主機前置檢查（just、Docker 版本不足、偵測到 Podman，訊息 6-23、6-39、6-40）失敗時不留執行紀錄：這些檢查沒有副作用，一律排在建執行紀錄之前；失敗只在 stderr 印訊息、以 `2` 結束，不建 log/、不動任何 VK 檔。不論首次 bootstrap.sh 或已有安裝目錄都一樣。02 第 4 條的前提是「任何副作用之前」，承諾不變。
 24. 工具 tag 跟引擎一樣只接受 vX.Y.Z（不帶 pre-release、build 後綴、不收前導零）；「最新版」把 X、Y、Z 當非負整數逐欄比數值取最大，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版；寫出格式不合的 `@<tag>` 是用法錯誤、以 `2` 結束。規則寫在 GLOSSARY 與 04。
 
+25. （Q14）不開 `--timeout`：`docker pull` 本身沒有逾時選項，CI 的 job 逾時（例如 GitHub Actions 的 timeout-minutes）或外層 `timeout(1)` 已能限時，VK 被中途中止也有進度檔可以恢復。從 04 與 ADR-0007 刪掉，04 補一句「要限時請在外層包 timeout(1) 或用 CI 的逾時設定」。
+
 ## 待討論
 
 ### Q1 02 第 8 條的 U1～U6 要不要編號（已定案，見上面第 10 條）
@@ -119,7 +121,7 @@
 - 頂層 `just vendor_kit -h`／`--help` 要不要列成一定成功（stdout、`0`）的救援路徑；裸呼叫 `just vendor_kit` 維持用法錯誤。
 - 待 codex 討論。
 
-### Q14 `--timeout` 開不開
+### Q14 `--timeout` 開不開（已定案，見上面第 25 條）
 
 - codex：保留 `--timeout <duration>`，照 POSIX timeout 的文法，大於零，預設無時限，逾時回 `2` 並新增訊息。Claude：不開，外層的 timeout(1) 與 CI 逾時已能做到，開了就是第二種寫法；主機白名單也沒有 timeout。實查 #71 沒有提到 timeout。
 - 要維護者決定。
