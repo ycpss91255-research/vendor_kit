@@ -83,6 +83,75 @@ class VersionTest(unittest.TestCase):
         self.assertTrue(pathlib.Path("doc/decisions/_marked/09_x.v1.marked.md").exists())
 
 
+class RelinkTest(unittest.TestCase):
+    """標示版放在 _marked/：相對連結改寫成從 _marked/ 出發，解析回去要等於原本的目標。"""
+
+    SRC = pathlib.Path("doc/contract/01_purpose.md")
+
+    def back(self, rewritten):
+        """把改寫後的目標從 _marked/ 解析回 repo 內路徑（錨點分開回傳）。"""
+        file_part, _, anchor = rewritten.partition("#")
+        return os.path.normpath(os.path.join(mark_changes.MARKED.as_posix(), file_part)), anchor
+
+    def link(self, text):
+        out = mark_changes.rewrite_links(text, self.SRC)
+        return out[out.index("](") + 2:out.rindex(")")]
+
+    def test_relative_targets_resolve_to_original(self):
+        cases = {
+            "../../GLOSSARY.md": ("GLOSSARY.md", ""),
+            "02_invariants.md#4-永不靜默失敗": ("doc/contract/02_invariants.md", "4-永不靜默失敗"),
+            "../adr/x.md": ("doc/adr/x.md", ""),
+        }
+        for dest, want in cases.items():
+            with self.subTest(dest=dest):
+                got = self.link(f"見 [名詞]({dest})。")
+                self.assertNotEqual(got, dest)
+                self.assertEqual(self.back(got), want)
+
+    def test_review_page_links_point_to_official_file(self):
+        got = self.link("[03](03_messages.md#結束碼)")
+        self.assertEqual(got, "../../contract/03_messages.md#結束碼")
+
+    def test_external_and_anchor_unchanged(self):
+        for text in ("[a](https://git-scm.com/)", "[b](http://x.org/a.md)",
+                     "[c](mailto:a@b.c)", "[d](#4-永不靜默失敗)"):
+            with self.subTest(text=text):
+                self.assertEqual(mark_changes.rewrite_links(text, self.SRC), text)
+
+    def test_code_untouched(self):
+        text = "`[x](../../GLOSSARY.md)` 與 [y](../../GLOSSARY.md)"
+        out = mark_changes.rewrite_links(text, self.SRC)
+        self.assertTrue(out.startswith("`[x](../../GLOSSARY.md)`"))
+        self.assertNotIn("[y](../../GLOSSARY.md)", out)
+        block = "```\n[x](../../GLOSSARY.md)\n```"
+        self.assertEqual(mark_changes.rewrite_links(block, self.SRC), block)
+
+    def test_angle_bracket_target(self):
+        got = self.link("[a](<../adr/x y.md>)")
+        self.assertTrue(got.startswith("<") and got.endswith(">"))
+        self.assertEqual(self.back(got[1:-1]), ("doc/adr/x y.md", ""))
+
+    def test_build_rewrites_both_outputs_not_original(self):
+        cwd = os.getcwd()
+        body = "# 標題\n\n見 [名詞](../../GLOSSARY.md#a)。\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                pathlib.Path("doc/contract").mkdir(parents=True)
+                pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
+                pathlib.Path("doc/contract/09_x.md").write_text(body)
+                pathlib.Path("doc/decisions/_backup/doc_contract_09_x.pre_r1.md").write_text("# 標題\n")
+                mark_changes.build("09_x", "pre_r1")
+                official = pathlib.Path("doc/contract/09_x.md").read_text()
+                copy = pathlib.Path("doc/decisions/_marked/09_x.v1.md").read_text()
+                marked = pathlib.Path("doc/decisions/_marked/09_x.v1.marked.md").read_text()
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(official, body)
+        self.assertIn("](../../../GLOSSARY.md#a)", copy)
+        self.assertIn("](../../../GLOSSARY.md#a)", marked)
+
 
 class BackupKeyTest(unittest.TestCase):
     """docs/ 併進 doc/ 之後，新備份用 doc_contract_<name>；之前的 docs_contract_<name> 照樣讀得到。"""

@@ -15,11 +15,15 @@
 新版讀 doc/contract/<name>.md，
 輸出 doc/decisions/_marked/<鍵>.v<N>.marked.md（審閱頁的鍵是頁名，其他檔是攤平後的路徑）。
 
+標示版與正文副本裡的相對連結會改寫成從 _marked/ 出發（錨點照留；指到其他審閱頁的
+連結指正式檔，不指版本副本），放到 _marked/ 後才不會因為深度不同而指錯；原檔不動。
+
 表格列（以 | 開頭）在儲存格內標記，不把整列包起來——整列包住會讓那一列
 不再是合法的表格列，GitHub 與 VS Code 都會把表格切斷。
 """
 import difflib
 import json
+import os
 import re
 import pathlib
 import sys
@@ -65,6 +69,58 @@ def wrap(line: str, tag: str) -> str:
     if not body.strip():
         return line
     return f"{prefix}{mark(body, tag)}"
+
+
+# 行內連結與圖片：](目標) 或 ](<目標>)，後面可接 "標題"
+LINK = re.compile(r'(\]\()(\s*)(<[^>\n]*>|[^\s()<>]+)((?:\s+"[^"\n]*")?\s*\))')
+# 反引號包住的行內程式碼：裡面的字樣不改
+CODE_SPAN = re.compile(r"(`+)(?:.+?)\1")
+FENCE = re.compile(r"^\s*(```|~~~)")
+SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+
+
+def relink(dest: str, src: pathlib.Path) -> str:
+    """把一個連結目標改寫成從 MARKED 出發；外部網址、純錨點、根目錄絕對路徑原樣回傳。"""
+    angled = dest.startswith("<") and dest.endswith(">")
+    raw = dest[1:-1] if angled else dest
+    if not raw or raw.startswith(("#", "/")) or SCHEME.match(raw):
+        return dest
+    file_part, sep, anchor = raw.partition("#")
+    if not file_part:
+        return dest
+    resolved = os.path.normpath(os.path.join(src.parent.as_posix(), file_part))
+    new = os.path.relpath(resolved, MARKED.as_posix()).replace(os.sep, "/")
+    if file_part.endswith("/") and not new.endswith("/"):
+        new += "/"
+    new += sep + anchor
+    return f"<{new}>" if angled else new
+
+
+def rewrite_links(text: str, src: pathlib.Path) -> str:
+    """把 src 裡照原位置寫的相對連結改寫成從 MARKED 出發；程式碼區塊與行內程式碼不動。"""
+    out = []
+    fence = None
+    for line in text.split("\n"):
+        m = FENCE.match(line)
+        if fence:
+            if m and m.group(1) == fence:
+                fence = None
+            out.append(line)
+            continue
+        if m:
+            fence = m.group(1)
+            out.append(line)
+            continue
+        parts, pos = [], 0
+        for cm in CODE_SPAN.finditer(line):
+            parts.append(LINK.sub(lambda l: l.group(1) + l.group(2) + relink(l.group(3), src) + l.group(4),
+                                  line[pos:cm.start()]))
+            parts.append(cm.group(0))
+            pos = cm.end()
+        parts.append(LINK.sub(lambda l: l.group(1) + l.group(2) + relink(l.group(3), src) + l.group(4),
+                              line[pos:]))
+        out.append("".join(parts))
+    return "\n".join(out)
 
 
 def next_rev(name: str) -> int:
@@ -165,8 +221,9 @@ def build(name: str, suffix: str) -> tuple[int, int]:
         old_file.unlink()
     # 同一版的正文副本，檔名帶版本號：送審時跟標示版一起給，不用打開檔案才知道是哪一版。
     # 正式檔名（沒有版本號）不動，其他文件的連結才不會斷。
-    (MARKED / f"{key}.v{rev}.md").write_text(path.read_text())
-    (MARKED / f"{key}.v{rev}.marked.md").write_text("\n".join(header + out) + "\n")
+    # 兩份都放在 _marked/，相對連結要改寫成從 _marked/ 出發才不會指錯
+    (MARKED / f"{key}.v{rev}.md").write_text(rewrite_links(path.read_text(), path))
+    (MARKED / f"{key}.v{rev}.marked.md").write_text(rewrite_links("\n".join(header + out) + "\n", path))
     return ins, dele
 
 

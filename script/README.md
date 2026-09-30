@@ -29,11 +29,13 @@
    版本號 `<N>` 取 `doc/decisions/review_log/versions.json` 裡這個鍵記的數字加一並寫回，沒有記錄就從 1 起算。`versions.json` 進 git（`_marked/` 不進 git），所以換電腦、新 clone 或清掉 `_marked/` 之後不會從 v1 重來。版本號只在 `_marked/` 的檔名：正式檔與正文副本內都不寫版本號，本工具也不改正式檔。每跑一次做兩件事：
 
    - 輸出標示版 `doc/decisions/_marked/<鍵>.v<N>.marked.md`。
-   - 輸出同一版的正文副本 `doc/decisions/_marked/<鍵>.v<N>.md`，內容跟正式檔一樣。
+   - 輸出同一版的正文副本 `doc/decisions/_marked/<鍵>.v<N>.md`，內容跟正式檔一樣，只差相對連結。
+
+   標示版裡的相對連結會改寫成從 `_marked/` 出發（正文副本也一樣）：以原檔所在目錄解析成 repo 內的實際路徑，再換成從 `doc/decisions/_marked/` 出發的相對路徑，錨點照留；指到其他審閱頁的連結指正式檔 `doc/contract/<頁>.md`，不指版本副本。外部網址、純錨點、行內程式碼與程式碼區塊裡的字樣不改，正式檔也不動。
 
    同一個鍵的舊版標示版與舊版副本會被刪掉，所以交出去的永遠是最新版，而且看檔名就知道是哪一版。正式檔名不帶版本號、不改名，其他文件的連結才不會斷。鍵對審閱頁是頁名（例如 `04_interface`），對其他檔是攤平後的路徑（`/` 換成 `_`、去掉 `.md` 與開頭的點，所以 `README.md` 的鍵是 `README`）。後綴就是步驟 1 用的那個，決定「跟哪一版比」。
 
-   取號與輸出檔名這些行為由 [mark_changes 測試](test/test_mark_changes.py) 涵蓋，在 repo 根目錄跑 `python3 -m unittest discover -s script/test`。
+   取號、輸出檔名與連結改寫這些行為由 [mark_changes 測試](test/test_mark_changes.py) 涵蓋，在 repo 根目錄跑 `python3 -m unittest discover -s script/test`。
 
 4. **基準永遠是審閱者上次看過的那一版**，不是最舊的那一版。他看過並回饋之後，下一輪的後綴就換成他讀的那一版。已經討論完的段落不該再標成新改動，紅綠色只留給他還沒看過的。
 
