@@ -34,6 +34,11 @@
 
 18. （2026-09-30 維護者）多個結果只回一個結束碼時，取數字最大的，沒有特例。順序不合就改編號：v1.0.0 前可以調整，v1.0.0 後固定。照這條，`1`、`2` 對調：`1` = 做完了但要人接手、`update --exit-code` 查到新版（對齊 `diff`、`git diff --exit-code` 有差異回 1）；`2` = 失敗、需人處理、用法錯誤（對齊 `diff`、`grep` 出錯回 2、Python argparse 用法錯誤回 2）。`update` 同時查詢失敗與有新版的特例拿掉（取最大值自然回 2）。
 
+19. 引擎指定版本寫 `upgrade --engine=<tag>`（例如 `--engine=v1.2.0`，tag 一律 vX.Y.Z），不寫 `--engine@<tag>`；`--engine` 是可選擇性帶值的長選項，只接受 `=` 形式。工具端維持 `<repo>@<tag>`。
+20. ADR 改成 skill 的 ADR-FORMAT：標題加 1～3 句的決定與理由，選填 Status、Considered Options、Consequences；拿掉 `> Serves:`、必要段落規則、索引表、TEMPLATE、修訂段。12 個編號保留。機制細節：使用者看得到的在 03／04，內部機制放 issue。
+21. 拿掉 `needs-decision` 標籤：8 個 open issue 改標 `needs-triage` 後刪標籤；triage-labels.md、issue-tracker.md、AGENTS.md 跟著改。
+22. 不開 `--color`：只在輸出串流是 TTY 時上色，`NO_COLOR` 非空一律不上色，機器輸出永遠不含顏色；04 寫明，03 補「顏色不改本文」。
+
 ## 待討論
 
 ### Q1 02 第 8 條的 U1～U6 要不要編號（已定案，見上面第 10 條）
