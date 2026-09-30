@@ -12,19 +12,19 @@
 
 ## Consequences
 
-- 版本不足或裝的是 Podman，在第一次寫入之前就停下。這些前置檢查失敗時要不要先留執行紀錄（[不變量 4](../contract/02_invariants.md#4-永不靜默失敗) 要求執行紀錄早於任何副作用）還沒定，是未決的邊界，見[待討論佇列](../../doc/decisions/review_log/discussion_queue.md#q12-主機前置檢查失敗時要不要留執行紀錄)的 Q12；定案後本檔、[ADR-0004](0004-vk-recipe-interface-and-write-boundary.md)、[ADR-0005](0005-run-log-and-event-registry.md) 與 [04 使用者介面](../contract/04_interface.md#主機需求)、[訊息 6-23、6-39、6-40](../contract/03_messages.md#訊息) 一起改。
-- 薄殼被手改、或跟引擎不是同一版，一律在寫入前被抓到並列出差異，包含無害的格式調整；想調薄殼格式只能改引擎的模板再重產。
-- 薄殼與引擎脫節時，`sync` 只提示，使用者要自己跑 `upgrade --engine`。
+- 版本不足或裝的是 Podman，在第一次寫入之前就停下。這些前置檢查沒有副作用，一律排在建執行紀錄之前；失敗時不建執行紀錄、不動任何 VK 檔，只在 stderr 印訊息、以[結束碼 `2`](../contract/03_messages.md#結束碼)結束（[訊息 6-23、6-39、6-40](../contract/03_messages.md#訊息)）。首次導入或已有安裝目錄都一樣。[不變量 4](../contract/02_invariants.md#4-永不靜默失敗) 要求執行紀錄早於任何副作用，這些檢查排在副作用之前，所以不受影響。
+- 薄殼被手改或跟引擎不是同一版，都會在寫入前抓出來並列出差異，包含無害的格式調整；想調薄殼格式只能改引擎的模板再重產。
+- 薄殼與引擎脫節時，`sync` 不重產薄殼，只以 `2` 結束並提示（[訊息 6-28](../contract/03_messages.md#訊息)），使用者要自己跑 `upgrade --engine`。
 - 升引擎要跑兩次，指令歷史裡會看到同一行指令連著兩次。
 - 白名單多一個主機命令就是改對外契約，得先修訂不變量 5 再改 lint。
 - 驗收案例（黑箱層）：低版本 docker、`docker --version` 含 `podman`、低版本 just 各一條；改一個位元組的薄殼；舊薄殼跑新 major 的一般 recipe；同一個不合組合下救援路徑仍然可用。
 - 內部機制（之後搬到實作 issue）：
-  - 主機依賴下限：`docker >= 19.03`、`just >= 1.33.0`（`[group]` 放在 `mod` 上要 1.33），都由主機側在任何寫入之前檢出（跟執行紀錄的先後未定，見 Q12）；下限數字會隨時間提高，不動不變量 5 的性質。
+  - 主機依賴下限：`docker >= 19.03`、`just >= 1.33.0`（`[group]` 放在 `mod` 上要 1.33），都由主機側在建執行紀錄與任何寫入之前檢出。提高下限會讓原本可用的主機不能再用，屬不相容變動：只能隨 X 變動，並事前公告、寫明要做哪些手動步驟（[不變量 10](../contract/02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)）；不動不變量 5 的性質。
   - 啟動器限 POSIX sh + `docker` + [04 使用者介面](../contract/04_interface.md#主機需求)列的基礎 userland；清單外的命令由 lint 擋。主機不呼叫 git；「安裝目錄在 git repo 裡」由啟動器往上找 `.git` 判斷。合併用的 `git merge-file` 在引擎容器內跑，不是主機依賴。引擎不讀 `.git`、不碰 index、不做 `git init`。
-  - 啟動器只做：偵測主機環境；以字串相等比對讀版本鎖定行與印記；驗引擎回傳的執行計畫文法；照計畫呼叫 docker；寫執行紀錄；清掉自己建的容器與暫存。`sync` 快路徑、`--timeout` 攔截、`prune` 的 docker 刪除也在啟動器，但都只依引擎給的計畫或純字串比對；比對一律保守，不確定就起引擎。
+  - 啟動器只做：偵測主機環境；以字串相等比對讀版本鎖定行與印記；驗引擎回傳的執行計畫文法；照計畫呼叫 docker；寫執行紀錄；清掉自己建的容器與暫存。`sync` 快路徑、`prune` 的 docker 刪除也在啟動器，但都只依引擎給的計畫或純字串比對；比對一律保守，不確定就起引擎。
   - 已經有版本鎖定行時，啟動器一律用它指定的引擎：拉不到就是失敗，不改用啟動器內嵌的那一版。內嵌版本只用在還沒有版本鎖定行的第一次導入。
-  - 薄殼五檔：`.vendor_kit/entry.just`、`vendor.just`、`log.sh`、`.gitignore`、`ci/check.sh`。薄殼帶自描述標頭（介面版、引擎版、其餘內容的 sha256），引擎重算比對、再與 image 內模板二次比對：前者抓「被改過」，後者抓「跟這一版引擎不是同一份」。不符就以[結束碼 `2`](../contract/03_messages.md#結束碼)結束、列差異、不動任何檔。`gen/.stamp` 只記產生薄殼的引擎 ref 供快路徑比對，不承擔薄殼 hash。
+  - 薄殼五檔：`.vendor_kit/entry.just`、`vendor.just`、`log.sh`、`.gitignore`、`ci/check.sh`。薄殼帶自描述標頭（介面版、引擎版、其餘內容的 sha256），引擎重算比對、再與 image 內模板二次比對：前者抓「被改過」，後者抓「跟這一版引擎不是同一份」。不符就以[結束碼 `2`](../contract/03_messages.md#結束碼)結束、列差異，除執行紀錄外不動 repo 檔與其他 VK 檔（[訊息 6-28](../contract/03_messages.md#訊息)）。`gen/.stamp` 只記產生薄殼的引擎 ref 供快路徑比對，不承擔薄殼 hash。
   - 薄殼重產只由 `install`、`upgrade --engine` 做；`sync` 發現不符只回 `2`、提示 `upgrade --engine`。
   - 升引擎兩段：新引擎換上後停下、以 `2` 結束並要求重跑，後續由新引擎接手。它是「版本鎖定行最後才改」（[ADR-0004](0004-vk-recipe-interface-and-write-boundary.md)）的明列例外：先改鎖定行再由新引擎接手；中途回 `2` 時鎖定行已經改了，進度檔記著目標版本，重跑 `upgrade --engine` 續作。
-  - 舊薄殼跑新 major 的一般 recipe，由薄殼在起引擎之前擋下，乾淨回 `3`（[訊息 6-36](../contract/03_messages.md#訊息)）、零寫入；判定合不合的規則在 [ADR-0008](0008-protocol-and-file-schema-versions.md)。
-  - 永久可用的救援路徑：`install`、`upgrade --engine`、`sync` 的不符判定，以及印用法。印用法只限這幾種確切形狀：`just vendor_kit`（不帶指令，印用法、屬用法錯誤）；`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）。其他 recipe 的 `-h`／`--help` 不在救援路徑內，版本組合不合時照一般 recipe 回 `3`。
+  - 舊薄殼跑新 major 的一般 recipe，由薄殼在起引擎之前擋下，乾淨回 `3`（[訊息 6-36](../contract/03_messages.md#訊息)），除執行紀錄外不動 repo 檔與 VK 檔；判定合不合的規則在 [ADR-0008](0008-protocol-and-file-schema-versions.md)。
+  - 永久可用的救援路徑：`install`、`upgrade --engine`、`sync` 的不符判定，以及印用法。印用法只限這幾種確切形狀：`just vendor_kit`（不帶指令，印版本與用法、屬用法錯誤）；`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）。其他 recipe 的 `-h`／`--help` 不在救援路徑內，版本組合不合時照一般 recipe 回 `3`。

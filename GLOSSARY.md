@@ -80,6 +80,7 @@ _Avoid_: 下游 image
 
 **tag**：
 image 引用裡給人與外部版本追蹤工具看的版本標籤；它可以被重新指到別的內容，所以不鎖內容。
+工具與引擎的 tag 只接受 `vX.Y.Z`（不帶 pre-release、build 後綴，不收前導零）；最新版是把 X、Y、Z 當非負整數逐欄比數值取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版。寫出格式不合的 tag 是用法錯誤，以結束碼 `2` 結束。
 
 **digest**：
 image 引用裡那個 image 內容的 sha256；內容相同才會相同，所以它鎖的是內容，不是版本。
@@ -197,7 +198,7 @@ VK 停下並要求使用者採取下一步的結果。
 VK 因無法繼續而結束的結果。
 
 **警告**（warning）：
-指出非阻斷問題的訊息；它不會讓該次執行變成失敗或需人處理。
+指出非阻斷問題的訊息；不會讓這次執行變成失敗或需人處理。
 
 **結束碼**（exit code）：
 VK recipe 結束時回給呼叫方的整數。
@@ -222,7 +223,7 @@ VK recipe 結束時回給呼叫方的整數。
 清掉 VK 產生、但目前 repo 已不再使用的本機資源。
 
 **`install` / `uninstall`**：
-`install` 把 VK 裝進 repo 的一個目錄，使它成為安裝目錄；`uninstall` 是它的反向，把 VK 從那裡移除。
+`install` 把 VK 裝進 repo 的一個目錄，讓它成為安裝目錄；`uninstall` 是它的反向，把 VK 從那裡移除。
 
 ### 介面版與契約
 
@@ -237,6 +238,7 @@ VK 寫入檔案時用來標示該檔資料格式的整數版號。
 
 **救援路徑**（rescue path）：
 不論薄殼、VK 檔與引擎的版本組合是否相符，都必須能用的呼叫，只有這些：`install`、`upgrade --engine`、`sync` 的版本不符判定，以及四種印用法呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）。其他 recipe 的 `-h`／`--help` 不屬救援路徑。
+`just vendor_kit`（不帶指令）第一行印 `vendor_kit <版本>`，接著印用法，輸出到 stderr、以結束碼 `2` 結束。沒有頂層的 `-h`／`--version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱。
 
 **契約**（contract）：
 VK 對使用者承諾不會隨意改變的那組介面；引擎內部實作不屬契約。

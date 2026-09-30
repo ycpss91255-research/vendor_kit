@@ -1,8 +1,8 @@
 # 04 使用者介面
 
-<ins>使用者</ins>只透過指令跟 <ins>VK</ins> 打交道。這一頁列出全部指令與<ins>選項</ins>（共同選項與各指令專用的選項）。
+<ins>使用者</ins>只透過指令跟 <ins>VK</ins> 打交道。這一頁列出全部指令與必要的參數、<ins>選項</ins>：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。
 
-- 每一項必須永遠成立的規則寫在 [02 不變量](02_invariants.md)，這裡只寫「依第 N 條」，不重述
+- 必須永遠成立的規則以 [02 不變量](02_invariants.md) 為準，這一頁只補使用者看得到的介面行為
 - <ins>結束碼</ins>的意思與每條訊息見 [03 訊息與錯誤碼總表](03_messages.md)
 - 名詞見[名詞表](../../GLOSSARY.md)
 
@@ -114,7 +114,7 @@ VK 對外只有三個入口：
 
 依 [02 不變量](02_invariants.md#2-一個來源版本鎖定行只有一份進-git) 第 2 條：
 
-- VK recipe 只准在安裝目錄執行；在別處執行就以[結束碼 `2`](03_messages.md#結束碼)拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外
+- VK recipe 只准在安裝目錄執行；在別處執行就以[結束碼 `2`](03_messages.md#結束碼)拒絕，並印出該切到哪裡。唯讀 recipe 也一樣
 - 工具 recipe 自動觸發的 `sync` 會先回到安裝目錄再呼叫，所以不受影響；工具自己的 recipe 要不要擋，由那個工具決定
 - `install` 時上層或下層已經有安裝目錄，就以[結束碼 `2`](03_messages.md#結束碼)拒絕：安裝目錄不能巢狀
 
@@ -130,20 +130,31 @@ VK 對外只有三個入口：
 
 依 [02 不變量](02_invariants.md#8-使用者介面不可取代寫法一致) 第 8 條：
 
-- 每個指令都支援 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼 `0`](03_messages.md#結束碼)結束；沒有 `help` 指令
-- `just vendor_kit --version`：把版本印到 stdout，以[結束碼 `0`](03_messages.md#結束碼)結束。第一行格式固定為 `vendor_kit <tag>`，`<tag>` 是這個安裝目錄使用的引擎版本，寫成 vX.Y.Z
+- 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼 `0`](03_messages.md#結束碼)結束；沒有 `help` 指令。薄殼、VK 檔與引擎的版本組合不相符時 `-h` 怎麼反應，這一頁不定；一定能用的只有[救援路徑](../../GLOSSARY.md#介面版與契約)列的那幾種
+- 只打 `just vendor_kit`、不帶指令：第一行印 `vendor_kit <版本>`，接著印用法，輸出到 stderr，以[結束碼 `2`](03_messages.md#結束碼)結束
+- 沒有頂層的 `just vendor_kit -h` 與 `just vendor_kit --version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱去找，參數到不了 VK
 - 用法錯誤：在 stderr 印出哪裡錯與簡短用法，以[結束碼 `2`](03_messages.md#結束碼)結束。算用法錯誤的有：
   - 只輸入 `just vendor_kit`、不帶指令
   - 缺必要參數
   - 不認得的指令或選項
+  - tag 格式不合，見下面的[指定版本](#指定版本)
 - 位置參數只放工具名稱 `<repo>`；其他值都經由選項帶入，例如 `-p <dir>`、`-i <image>`
 - 同一個概念一種寫法：對象是引擎一律寫 `--engine`，本機 image 一律寫 `-i <image>`
 - 選項採 GNU 式的長短選項與 `--`（[GNU Coding Standards](https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html)），但有兩點刻意不遵循 [POSIX Utility Syntax Guidelines](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html)：選項放在位置參數之後也可以（不遵循 Guideline 9），`--engine` 的值可帶可不帶（不遵循 Guideline 7）。具體寫法：
-  - 常用的有短也有長：`-h`／`--help`、`-y`／`--yes`、`-p`／`--path`、`-i`／`--image`
-  - 不常用的只有長：`--engine`、`--dry-run`、`--timeout`、`--exit-code`、`--version`
+  - 有短也有長：`-h`／`--help`、`-y`／`--yes`、`-i`／`--image`
+  - 只有短：`-p`
+  - 只有長：`--engine`、`--exit-code`
   - 選項放在位置參數之前或之後都可以，意思相同
   - 單獨的 `--` 結束選項：它之後的參數一律當位置參數，以 `-` 開頭也一樣，例如 `just vendor_kit add -- <repo>`
-- `--engine` 是值可帶可不帶的長選項：不帶值時只表示對象是引擎；要帶值只接受 `=` 形式 `--engine=<tag>`，不接受 `--engine <tag>`。`<tag>` 一律寫成 vX.Y.Z，例如 `--engine=v1.2.0`。工具的指定版本維持 `<repo>@<tag>`
+- `--engine` 是值可帶可不帶的長選項：不帶值時只表示對象是引擎；要帶值只接受 `=` 形式 `--engine=<tag>`，不接受 `--engine <tag>`，例如 `--engine=v1.2.0`。工具的指定版本維持 `<repo>@<tag>`
+
+### 指定版本
+
+`<repo>@<tag>` 與 `--engine=<tag>` 的 [tag](../../GLOSSARY.md#工具與出貨) 照同一套規則：
+
+- 工具與引擎的 tag 只接受 `vX.Y.Z`，不帶 pre-release、build 後綴，不收前導零
+- 最新版是把 X、Y、Z 當非負整數逐欄比數值取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版
+- 寫出格式不合的 tag 是用法錯誤，以[結束碼 `2`](03_messages.md#結束碼)結束
 - 不加 `init`、`ensure`、`diff`、`accept`、`rollback` 這類別名，也不加 `--purge`（VK 永不刪 repo 檔，這個選項沒有對象）。這些用途各自由既有指令的選項或 git 處理
 - 工具 repo 的命名空間也照這套寫法，例如 base（[base#1192](https://github.com/ycpss91255-docker/base/issues/1192)）
 
@@ -159,11 +170,11 @@ VK 對外只有三個入口：
 
 ## 共同選項
 
-`-y` 與 `--dry-run` 只適用於<ins>可寫 recipe</ins>。這一節只定兩個選項的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合：
+`-y` 只適用於<ins>可寫 recipe</ins>。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合：
 
 - `upgrade <repo> -y`：[訊息 6-5](03_messages.md#訊息) 要使用者照打
 
-其餘哪個指令接受哪個選項，實作時再定。
+其餘哪個指令接受 `-y`，實作時再定。
 
 - <ins>`-y`</ins>：可代替原本允許的<ins>詢問</ins>
   - 照樣印出改了什麼
@@ -171,12 +182,6 @@ VK 對外只有三個入口：
   - 不能把已存在、尚未<ins>納管</ins>的檔改成 append 納管，見下面的[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
   - 不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼 `2`](03_messages.md#結束碼)結束並印出清單，與有沒有 `-y` 無關
   - 不隱含 CI 模式
-- `--dry-run`：只預覽會做什麼
-  - 除執行紀錄外，不寫 <ins>repo 檔</ins>與其他 <ins>VK 檔</ins>
-  - 不建<ins>進度檔</ins>
-  - <ins>執行紀錄</ins>照寫，依 [02 不變量](02_invariants.md#4-永不靜默失敗) 第 4 條
-
-沒有關掉執行紀錄的選項。
 
 沒帶 `-y`、又不能互動時（例如在腳本裡），需要詢問的操作：
 
@@ -189,26 +194,17 @@ VK 對外只有三個入口：
 
 - `update --exit-code`：查到新版時以[結束碼 `1`](03_messages.md#結束碼)結束，給 CI 或腳本判斷有沒有新版。
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
+- `bootstrap.sh -i <image>`：離線導入，用本機 image 當引擎來源。
+- 兩種離線導入共通：
   - `<image>` 可以是已載入的本機 image，或 image tar 檔
   - 寫進的版本鎖定行與線上導入相同
-  - 缺少必要的 <ins>digest</ins> 資訊時以[結束碼 `2`](03_messages.md#結束碼)結束，不退化成只寫 tag
-- `bootstrap.sh -t <repo>[@<tag>]`（長選項 `--tool`）：導入時一併把工具納入。
-  - 可重複，一次一個工具
-  - 不寫 `@<tag>` 就取最新版
-- `bootstrap.sh -i <image>`：離線導入，用本機 image 當引擎來源。
-  - `<image>` 可以是已載入的本機 image，或 image tar 檔
-- `--timeout`：限制等待的時間。
-  - 由啟動器在主機這一側處理，不交給引擎
+  - 缺少必要的 <ins>digest</ins> 資訊時以[結束碼 `2`](03_messages.md#結束碼)結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替
+
+VK 沒有限時的選項。要限時就在外層包 `timeout(1)`，或用 CI 的逾時設定。
 
 ## 輸出
 
-- 正常結果印到 stdout，含 `-h`／`--help` 與 `--version` 的輸出
-- 錯誤、警告、提示印到 stderr；每條訊息的格式與前綴見 [03 訊息與錯誤碼總表](03_messages.md#訊息)
-- 不提供 `--json` 之類的機器格式選項：結構化的結果只記在<ins>執行紀錄</ins>
-- 不提供 `--color` 選項。顏色照這三條：
-  - 只在那個輸出串流是終端（TTY）時上色；stdout 與 stderr 各自判斷
-  - 環境變數 `NO_COLOR` 有值且不是空字串時，一律不上色（[NO_COLOR](https://no-color.org/)）
-  - 給程式讀的輸出永遠不含顏色，例如執行紀錄
+stdout 與 stderr 怎麼分、訊息的前綴與顏色，見 [03 訊息與錯誤碼總表](03_messages.md)。
 
 ## 使用者的檔與 VK 的檔
 
@@ -221,7 +217,7 @@ VK 對外只有三個入口：
 - 其餘進 git 的 VK 檔（版本鎖定行、基準版、納管紀錄、薄殼）內容由 VK 擁有，VK 重寫它們不構成覆蓋。版本鎖定行雖由 VK 擁有，使用者仍可以照它的固定格式手改來升版或退版；手改不會讓它變成交由使用者維護的內容。薄殼被改過的處置依 [02 不變量](02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義) 第 6 條
 - 執行紀錄與進度檔是 VK 的工作狀態，不是使用者的內容
 
-動到使用者的檔、又不構成覆蓋的寫入，只有這四種明定例外：
+目標不存在時新建檔（例如第一次導入時整份複製的初始檔）不動到既有的內容。動到既有使用者檔、又不構成覆蓋的寫入，只有這四種明定例外：
 
 - 根 `justfile` 加一行 `import`：沒有這個檔就建，有就詢問後 append
 - 根 `.dockerignore` 加四行：同上的 append 規則
@@ -242,7 +238,7 @@ append 型的初始檔：
 - `uninstall` 移除加在根 `.dockerignore` 的那四行
 - `remove` 與 `uninstall` 移除 append 型初始檔當初插進既有檔的那幾行
 
-有紀錄、所以會被收回動作碰到的檔，就是根 `justfile`、根 `.dockerignore`，以及工具宣告為 append 的那些檔。收回時：
+收回動作只碰有紀錄的檔：根 `justfile`、根 `.dockerignore`，以及工具宣告為 append 的那些檔。收回時：
 
 - 整份檔裡恰好一處與當初插入的原文相同，才刪那一行
 - 一處也沒有、或有兩處以上，都不刪，只<ins>警告</ins>，講出是哪個檔、找到幾處
