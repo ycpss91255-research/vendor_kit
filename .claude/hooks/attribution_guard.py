@@ -19,8 +19,15 @@ BANNED = re.compile(
     r"Co-Authored-By:\s*Claude|noreply@anthropic\.com|claude\.ai/code/session_|Generated with \[?Claude Code",
     re.IGNORECASE,
 )
-# 會把文字寫進 commit、PR、issue 的指令
-WRITES = re.compile(r"\bgit\b.*\bcommit\b|\bgh\s+(pr|issue)\s+(create|edit|comment)\b|\bgh\s+api\b")
+# 會把文字寫進 commit、PR、issue 的子指令（逐段比對開頭，避免唯讀指令因字串裡碰巧有這些字被擋）
+WRITES = re.compile(
+    r"^\s*(?:\w+=\S*\s+)*(?:"
+    r"git(?:\s+-C\s+\S+)?\s+commit\b"
+    r"|gh\s+(?:pr|issue)\s+(?:create|edit|comment)\b"
+    r"|gh\s+api\b.*(?:-X\s*(?:POST|PATCH|PUT)|\s-[fF]\s|--field|--raw-field|--input)"
+    r")"
+)
+SPLIT = re.compile(r"&&|\|\||;|\||\n")
 FILE_OPTS = {"-F", "--file", "--body-file", "--message-file"}
 
 
@@ -50,10 +57,12 @@ def main() -> int:
     if data.get("tool_name") != "Bash":
         return 0
     command = (data.get("tool_input") or {}).get("command") or ""
-    if not WRITES.search(command):
-        return 0
     cwd = Path(data.get("cwd") or os.getcwd())
     hits = []
+    segs = SPLIT.split(command)
+    if not any(WRITES.search(seg) for seg in segs):
+        return 0
+    # 有寫入指令時查整個指令：多行 -m 訊息會被換行切開，只查那一段會漏掉署名行
     if BANNED.search(command):
         hits.append("指令內容")
     for f in files_in(command, cwd):
