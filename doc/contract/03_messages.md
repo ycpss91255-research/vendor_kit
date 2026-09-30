@@ -57,7 +57,7 @@
 
 | 情況 | 訊息 | 下一步 |
 |---|---|---|
-| `update`、`upgrade`、`add` 要列出某個<ins>工具</ins>有哪些版本，但 <ins>registry</ins> 要求認證而沒有給憑證 | `無法列舉 <repo> 的版本：需要 registry 讀取權限。可設定 VENDOR_KIT_REGISTRY_TOKEN（或 VENDOR_KIT_REGISTRY_TOKEN_FILE），或直接指定版本：just vendor_kit <指令> <repo>@<tag>（拉取使用主機 docker 認證）` | `add` 時是 `just vendor_kit add <repo>@<tag>`；`update`、`upgrade` 時是 `just vendor_kit upgrade <repo>@<tag>` |
+| `update`、`upgrade`、`add` 列版本時沒有 <ins>registry</ins> 憑證 | `無法列舉 <repo> 的版本：需要 registry 讀取權限。可設定 VENDOR_KIT_REGISTRY_TOKEN（或 VENDOR_KIT_REGISTRY_TOKEN_FILE），或直接指定版本：just vendor_kit <指令> <repo>@<tag>（拉取使用主機 docker 認證）` | `add` 時是 `just vendor_kit add <repo>@<tag>`；`update`、`upgrade` 時是 `just vendor_kit upgrade <repo>@<tag>` |
 | 操作需要<ins>詢問</ins>，但沒帶 `-y` 又不能互動（沒有終端，或讀到輸入結束） | `需要確認，但沒有終端可以互動。除執行紀錄外，未修改任何檔。請在終端執行，或加上 -y 重新執行：<加上 -y 的原指令>` | `<加上 -y 的原指令>` |
 | <ins>CI 模式</ins>下，<ins>基準版</ins>落後<ins>版本鎖定行</ins>（本機不印這條：本機只印警告、結束碼 `0`） | `請在本機執行 just vendor_kit upgrade <repo> -y 後 commit 並 push` | `just vendor_kit upgrade <repo> -y` |
 | `sync` 發現某個工具未完成<ins>導入</ins>（本機與 CI 模式都一樣） | `<repo> 未完成導入，請執行：just vendor_kit add <repo>` | `just vendor_kit add <repo>` |
@@ -70,7 +70,7 @@
 - 操作需要詢問，但沒帶 `-y` 又不能互動：一律不改；依 [02 不變量](02_invariants.md#1-使用者寫的內容歸使用者可以建要改先問永不刪永不覆蓋) 第 1 條。`<加上 -y 的原指令>` 由這次執行的參數逐項重組，每一項依 POSIX shell 的規則加引號，`-y` 插在單獨的 `--` 之前；沒有 `--` 時放在最後。不在原指令字串尾端直接接 `-y`
 - CI 模式下，基準版落後版本鎖定行：依 [02 不變量](02_invariants.md#3-自動化只碰不進-git-的東西) 第 3 條
 - `sync` 發現某個工具未完成導入：依 [02 不變量](02_invariants.md#3-自動化只碰不進-git-的東西) 第 3 條
-- `bootstrap.sh` 發現主機的 just 低於 1.33.0：這條是主機前置檢查。主機前置檢查排在建執行紀錄之前，失敗時不建執行紀錄、不動任何 VK 檔，只在 stderr 印對應的訊息；依 [02 不變量](02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust) 第 5 條。`<安裝指令>` 不覆蓋主機既有的 just，也不要求主機另裝其他工具
+- `bootstrap.sh` 發現主機的 just 低於 1.33.0：這條是主機前置檢查：排在建執行紀錄之前，失敗時不建執行紀錄、不動任何 VK 檔，只在 stderr 印對應的訊息；依 [02 不變量](02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust) 第 5 條。`<安裝指令>` 不覆蓋主機既有的 just，也不要求主機另裝其他工具
 - 薄殼的檔跟這一版引擎的模板比對不符：訊息裡的 `<files>` 逐檔標出是哪一種；不重產薄殼；除執行紀錄外，不動 repo 檔與其他 VK 檔；依 [02 不變量](02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義) 第 6 條
 
 ### 版本組合不合（結束碼 3）
@@ -89,7 +89,7 @@
 
 ### 失敗（結束碼 2）
 
-這一組的類別是失敗，以結束碼 `2` 結束。podman 與 Docker 兩條是主機前置檢查。主機前置檢查排在建執行紀錄之前，失敗時不建執行紀錄、不動任何 VK 檔，只在 stderr 印對應的訊息；依 [02 不變量](02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust) 第 5 條。
+這一組的類別是失敗，以結束碼 `2` 結束。podman 與 Docker 兩條是主機前置檢查：排在建執行紀錄之前，失敗時不建執行紀錄、不動任何 VK 檔，只在 stderr 印對應的訊息；依 [02 不變量](02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust) 第 5 條。
 
 | 情況 | 訊息 | 下一步 |
 |---|---|---|
