@@ -71,6 +71,25 @@ class RulesTest(unittest.TestCase):
         self.assertIn("-z", out)
         self.assertNotIn("用了 --engine", out)
 
+    def test_messages_csv_commands_must_be_defined_earlier(self):
+        # CSV 不准 Markdown，指令沒有反引號；錯誤位置報 <檔>:<代碼>:<欄名>
+        self.write("01_a.md", "# 01\n\n## 目錄\n")
+        self.write("03_m.md", "# 03\n\n## 目錄\n")
+        pathlib.Path("doc/contract/03_m.csv").write_text(
+            "\ufeffcode,message,next_step,note\n"
+            "VK0001,請執行 just vendor_kit upgrade --engine 後重試,just vendor_kit upgrade --engine,\n"
+            "VK0002,請在本機執行 just vendor_kit upgrade <repo> -z 後 commit,just vendor_kit upgrade <repo> -z,"
+            "just vendor_kit add --bad 也不行\n",
+            encoding="utf-8",
+        )
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        for field in ("message", "next_step"):
+            self.assertIn(f"03_m.csv:VK0002:{field}: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z", out)
+        self.assertIn("03_m.csv:VK0002:note: 指令 `just vendor_kit add --bad` 用了 --bad", out)
+        self.assertNotIn("VK0001", out)
+        self.assertNotIn("後 commit", out)
+
     def test_new_style_rule_citation_passes(self):
         self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n")
         self.write("02_b.md", "# 02\n\n## 目錄\n\n依 [01 第 1 條](01_a.md#第一節)。\n")

@@ -50,6 +50,43 @@
 - 清單、引言的行首記號留在標籤外，否則會變成普通文字。
 - 粗體留給結構標籤、底線留給名詞標記、綠底與紅底的 `<mark>` 留給改動，三者互不衝突。
 
+### 審閱頁旁的 CSV（`03_messages`）
+
+審閱頁旁邊有同名的 CSV（`doc/contract/03_messages.csv`）時，傳頁名 `03_messages`（或路徑 `doc/contract/03_messages.csv`，效果相同）會一起處理 `.md` 與 `.csv`，兩個檔共用 `versions.json` 裡同一個鍵 `03_messages`，一次只加一號。輸出三個檔：
+
+- `03_messages.v<N>.md`：03 頁的正文副本（03 頁這一輪沒改也照樣輸出）。
+- `03_messages.v<N>.csv`：CSV 的副本，逐位元組照抄（BOM、LF 都保留）。
+- `03_messages.v<N>.marked.md`：合併的標示版。前半是 03 頁的逐行差異，規則同上；後半是「03_messages.csv 的逐碼差異」。
+
+CSV 的逐碼差異：新舊兩版依 `code` 對齊、逐欄比較，每個有改動的代碼寫成一段 `#### VKnnnn`，列出這個代碼的各欄。改過的欄寫成紅底舊值 → 綠底新值，沒改的欄照原樣列出、不加標記。新增的代碼在標題下一行註記綠底「（本碼新增）」、各欄標綠；改成 `retired` 的註記紅底「（本碼停用）」；從 CSV 拿掉的列註記紅底「（本列刪除）」、各欄標紅。沒改動的代碼不成段，最後用一行列出有幾個、是哪些。欄位值裡的 `<`、`>` 會跳脫，占位符照原樣看得到；格內換行改成 `<br>`。
+
+CSV 的基準版是 `doc/decisions/_backup/doc_contract_03_messages.<後綴>.csv`，攤平規則跟 `.md` 相同，只差副檔名。兩個檔只有一個有基準版時，另一個視為這一輪沒改；CSV 沒有基準版、也不在 git 的 `HEAD` 裡時，視為新建、整份標新增。這兩種情況都會印在輸出，也寫在標示版開頭。兩個都沒有基準版就停下。基準後綴寫 `new` 時，兩個檔都整份標新增。
+
+## 訊息表自檢（`check_messages.py`）
+
+`doc/contract/03_messages.csv` 是每個原因代碼的唯一出處（#122）。改了 CSV、03 頁的長說明節，或其他頁引用代碼的地方就跑：
+
+```sh
+python3 script/check_messages.py
+```
+
+在 repo 根目錄執行。全過印 `OK` 回 0，任一不過逐條印出回 1。CSV 還不存在時印 `OK` 並跳過。錯誤位置報 `<檔>:<代碼>:<欄名>`，例如 `doc/contract/03_messages.csv:VK0003:next_step`，不報實體行號。查這幾件事：
+
+- 格式：UTF-8 開頭恰好一個 BOM、只准 LF、檔尾恰好一個換行；表頭逐字等於 `code,status,level,disposition,situation,message,next_step,note,invariant,details`；用 `csv` 模組以 strict 照 RFC 4180 解析，每列欄數相同。格內換行（雙引號包住的 LF）解析得過。欄位頭尾不准空白，不准以 `=`、`+`、`-`、`@`、Tab、CR 開頭（Excel 會當成公式）。
+- 代碼：`VK` 加四位數字，從 `VK0001` 起逐列加一，所以唯一、遞增、不缺列；停用的代碼留列。
+- `status` 只准 `active`、`retired`。`retired` 列只留 `code`、`status`、`situation`、`note`，其餘欄要空白。
+- `active` 列：`level` 只准 `warn`、`error`、`fatal`；`situation`、`message` 必填。
+- `disposition` 只准「需人處理」「失敗」或空白；`warn` 一律空白；「需人處理」必有 `next_step`；「失敗」的 `next_step` 必須空白。
+- `next_step` 有值時，必須逐字出現在 `message` 裡。
+- 欄位不准 HTML（有屬性的標籤、結束標籤、`<ins>`、`<br>` 這類常見標籤名、`<!--`）與 Markdown（反引號、粗體、刪除線、連結、行首的標題、清單或引言記號）；不帶屬性的 `<…>`（例如 `<repo>`、`<P>`）算占位符。`<`、`>` 要成對、不巢狀。
+- `invariant`：空白，或 02 的條號（02 頁的 `## N.` 標題），多個用 `;` 分隔、遞增、不重複。
+- `details`：空白，或 `03_messages.md#vknnnn`，而且只准等於本列代碼。跟 03 頁的 `### VKnnnn` 節一一對應：有 `details` 就要有那一節，有那一節就要有 `details`；節的標題只寫代碼。
+- 引用：`README.md`、`doc/contract/*.md`、`GLOSSARY.md` 裡出現的每個 `VKnnnn` 都要在 CSV 裡、而且是 `active`；`doc/adr/*.md` 只要求在 CSV 裡，可以是 `retired`。連結文字是代碼時：連到 `03_messages.csv` 不准帶 `#`；連到 `03_messages.md` 的錨點要是 `#vknnnn`、跟連結文字同一個代碼，而且那一列的 `details` 指同一個目標，否則要改連 CSV。01、02 不准連 CSV。
+
+CSV 的 `message`、`next_step`、`note` 裡的 `just vendor_kit …` 指令寫法由 `check_review_pages.py` 檢查，跟 03 頁反引號裡的指令用同一個函式：每個選項與 `@<tag>` 寫法都要在 `GLOSSARY.md`、01、02 出現過。CSV 裡的指令沒有反引號，範圍從 `just vendor_kit` 起到第一個非 ASCII 字（中文、全形標點）或欄尾。
+
+各條規則的正反例在 [check_messages 測試](test/test_check_messages.py)。
+
 ## 名詞表自檢（`check_context.py`）
 
 根 `GLOSSARY.md` 每改一次就跑，不要目視：
@@ -69,16 +106,16 @@ python3 script/check_context.py
 
 ## 舊名殘留自檢（`check_terms.py`）
 
-`check_context.py` 只管 `GLOSSARY.md` 自己；改名改到一半、舊詞留在某一頁，要靠這支抓：
+`check_context.py` 只管 `GLOSSARY.md` 自己；改名改到一半、舊詞留在某一頁或 CSV 的某一格，要靠這支抓：
 
 ```sh
 python3 script/check_terms.py
 ```
 
-每筆殘留印 `<檔>:<行號>  <詞>  <該行內容>`，全乾淨印 `OK` 加統計（掃了幾個檔、幾個 `_Avoid_` 詞）。有殘留回 1，乾淨回 0。
+每筆殘留印 `<檔>:<行號>  <詞>  <該行內容>`（CSV 印 `<檔>:<代碼>:<欄名>  <詞>  <欄位內容>`），全乾淨印 `OK` 加統計（掃了幾個 `.md` 檔、幾個 CSV、幾個 `_Avoid_` 詞）。有殘留回 1，乾淨回 0。
 
 - **詞從哪裡來**：每次跑都從根 `GLOSSARY.md` 的 `_Avoid_:` 行現抽，不寫死清單。名詞表會長大，寫死的清單幾次改名之後就跟名詞表脫鉤，而且是靜默的。
-- **掃哪些檔**：`git ls-files -co --exclude-standard` 取得的現行 `.md` 檔。排除 `_backup/`、`review_log/`、`doc/decisions/_marked/`（歷史快照與本地產物）、`.claude/skills/`（vendored 的第三方 skill）、`script/diagram/` 與 `discussion.drawio`（架構圖已凍結，裡面的舊詞是歷史），以及 index 裡還留著但已刪除的檔。
+- **掃哪些檔**：`git ls-files -co --exclude-standard` 取得的現行 `.md` 檔，加上 `doc/contract/*.csv` 的文字欄（`disposition`、`situation`、`message`、`next_step`、`note`；其他欄是固定值域，由 `check_messages.py` 管）。排除 `_backup/`、`review_log/`、`doc/decisions/_marked/`（歷史快照與本地產物）、`.claude/skills/`（vendored 的第三方 skill）、`script/diagram/` 與 `discussion.drawio`（架構圖已凍結，裡面的舊詞是歷史），以及 index 裡還留著但已刪除的檔。
 - **不算殘留的行**：`_Avoid_:` 行本身；以及帶「舊名」「已廢止」「已移除」「之名作廢」「舊審閱頁」「改名」這類引述標記的行，因為講改名史本來就得同時寫出新舊兩個詞。標記清單是 `check_terms.py` 頂端的 `QUOTE_MARKERS` 常數，要放行新的講法就加在那裡。
 - **逐行白名單**：已定案要保留舊詞的**個別一行**登記在 `check_terms.py` 頂端的 `WHITELIST`，每筆是 `(檔案路徑, 該行必須包含的字串, 理由)`。三個欄位都要對上才放行，而且只放行「那段字串裡面」的舊詞：把字串從該行挖掉之後還搜得到舊詞，照樣算殘留。所以同一個檔的其他行、同一行的其他位置、別的檔抄同一段字，全都還是會被抓到。只比對詞會讓那個詞全域失效、只比對檔案會讓整個檔失效，白名單就成了漏洞，所以這兩種寫法刻意不做。白名單筆數印在 `OK`／`FAIL` 那行，悄悄長大會看得見。
 - **目前沒有登記**：`WHITELIST` 是空的。（歷史：過去登記過 01 審閱頁的舊標題與 `doc/decisions/README.md` 引用它的那一列；維護者 2026-09-30 定案把標題改成「01 目的與承諾」後，這兩筆已拿掉。）

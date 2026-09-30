@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""檢查現行 .md 檔沒有殘留根 GLOSSARY.md 的 _Avoid_ 詞。
+"""檢查現行 .md 檔與 doc/contract/*.csv 的文字欄沒有殘留根 GLOSSARY.md 的 _Avoid_ 詞。
 
 `check_context.py` 只管 GLOSSARY.md 自己；這支管其他所有文件。改名改到一半、
 舊詞留在某一頁，靠人逐輪目視一定會漏，所以寫成腳本擋掉。
@@ -7,8 +7,10 @@
 用法：python3 script/check_terms.py
 已定案要保留舊詞的個別行寫在 WHITELIST（逐行、逐字串登記）。
 另外擋目錄規則：repo 根目錄有 docs/ 就失敗（文件一律放 doc/）。
+CSV 的殘留位置報 `<檔>:<代碼>:<欄名>`，不報實體行號。
 全乾淨印 OK 回 0；有殘留逐筆印出回 1。
 """
+import csv
 import re
 import subprocess
 import sys
@@ -107,6 +109,36 @@ def target_files() -> list[Path]:
 
 
 U_TAG = re.compile(r"</?u>")
+# CSV 裡會寫出文字的欄；code、status、level、invariant、details 是固定值域，由 check_messages.py 管
+CSV_TEXT_FIELDS = ("disposition", "situation", "message", "next_step", "note")
+
+
+def csv_cells(root: Path) -> list[tuple[str, str, str]]:
+    """doc/contract/*.csv 的文字欄：（檔, `<代碼>:<欄名>`, 欄位文字）。格式錯誤交給 check_messages.py。"""
+    out = []
+    for path in sorted((root / "doc/contract").glob("*.csv")):
+        rel = path.relative_to(root).as_posix()
+        try:
+            rows = list(csv.DictReader(path.read_text(encoding="utf-8-sig").splitlines(keepends=True)))
+        except (csv.Error, UnicodeDecodeError):
+            continue
+        for row in rows:
+            for field in CSV_TEXT_FIELDS:
+                value = row.get(field) or ""
+                if value:
+                    out.append((rel, f"{row.get('code', '?')}:{field}", value))
+    return out
+
+
+def line_hits(rel: str, ln: str, patterns) -> list[str]:
+    """這一行（或 CSV 的一格）殘留的 _Avoid_ 詞與 <u>。"""
+    if ln.startswith("_Avoid_:") or any(mark in ln for mark in QUOTE_MARKERS):
+        return []
+    found = [term for term, pat in patterns if pat.search(ln) and not whitelisted(rel, ln, pat)]
+    # GitHub 轉換 markdown 時會刪掉 <u>，底線不會顯示；名詞底線一律用 <ins>（#60）
+    if U_TAG.search(ln):
+        found.append("<u>（改用 <ins>）")
+    return found
 
 
 def layout_errors(root: Path) -> list[str]:
@@ -136,16 +168,12 @@ def main() -> int:
     for path in files:
         rel = path.relative_to(ROOT).as_posix()
         for no, ln in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if ln.startswith("_Avoid_:"):
-                continue
-            if any(mark in ln for mark in QUOTE_MARKERS):
-                continue
-            for term, pat in patterns:
-                if pat.search(ln) and not whitelisted(rel, ln, pat):
-                    hits.append((rel, no, term, ln.strip()))
-            # GitHub 轉換 markdown 時會刪掉 <u>，底線不會顯示；名詞底線一律用 <ins>（#60）
-            if U_TAG.search(ln):
-                hits.append((rel, no, "<u>（改用 <ins>）", ln.strip()))
+            for term in line_hits(rel, ln, patterns):
+                hits.append((rel, no, term, ln.strip()))
+    cells = csv_cells(ROOT)
+    for rel, where, value in cells:
+        for term in line_hits(rel, value, patterns):
+            hits.append((rel, where, term, value.replace("\n", " ").strip()))
 
     layout = layout_errors(ROOT)
     for e in layout:
@@ -154,7 +182,7 @@ def main() -> int:
     for rel, no, term, ln in hits:
         shown = ln if len(ln) <= 60 else ln[:60] + "…"
         print(f"{rel}:{no}  {term}  {shown}")
-    tail = f"掃 {len(files)} 個 .md 檔、{len(terms)} 個 _Avoid_ 詞、白名單 {len(WHITELIST)} 筆"
+    tail = f"掃 {len(files)} 個 .md 檔、{len(list((ROOT / "doc/contract").glob("*.csv")))} 個 CSV、{len(terms)} 個 _Avoid_ 詞、白名單 {len(WHITELIST)} 筆"
     bad = bool(hits or layout)
     print(f"{'OK' if not bad else 'FAIL'}: {tail}" + ("" if not hits else f"、殘留 {len(hits)} 處")
           + ("" if not layout else "、根目錄有 docs/"))

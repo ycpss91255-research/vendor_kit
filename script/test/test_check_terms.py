@@ -27,5 +27,28 @@ class LayoutTest(unittest.TestCase):
             self.assertEqual(check_terms.layout_errors(root), [])
 
 
+class CsvTest(unittest.TestCase):
+    def test_csv_text_fields_scanned(self):
+        # CSV 的文字欄也要擋 _Avoid_ 詞；位置報 <代碼>:<欄名>，固定值域的欄不掃
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "doc/contract").mkdir(parents=True)
+            (root / "doc/contract/03_messages.csv").write_text(
+                "\ufeffcode,status,situation,message,note,details\n"
+                "VK0001,舊詞,舊詞出現,正常,\"第一行\n舊詞在第二行\",舊詞\n",
+                encoding="utf-8",
+            )
+            cells = check_terms.csv_cells(root)
+        self.assertEqual([c[1] for c in cells], ["VK0001:situation", "VK0001:message", "VK0001:note"])
+        patterns = [("舊詞", check_terms.re.compile("舊詞"))]
+        hits = {where: check_terms.line_hits(rel, value, patterns) for rel, where, value in cells}
+        self.assertEqual(hits, {"VK0001:situation": ["舊詞"], "VK0001:message": [], "VK0001:note": ["舊詞"]})
+
+    def test_quote_marker_and_u_tag_apply_to_cells(self):
+        patterns = [("舊詞", check_terms.re.compile("舊詞"))]
+        self.assertEqual(check_terms.line_hits("x.csv", "舊名：舊詞", patterns), [])
+        self.assertEqual(check_terms.line_hits("x.csv", "<u>底線</u>", patterns), ["<u>（改用 <ins>）"])
+
+
 if __name__ == "__main__":
     unittest.main()

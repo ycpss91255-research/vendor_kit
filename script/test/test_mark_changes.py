@@ -266,5 +266,126 @@ class BackupKeyTest(unittest.TestCase):
         self.assertEqual(mark_changes.backup_path("doc/contract/README.md", "pre_r1"), new)
 
 
+class CsvTest(unittest.TestCase):
+    """審閱頁旁的同名 CSV：跟 .md 共用版本號，合併成一份標示版；CSV 部分依 code 逐欄標示。"""
+
+    GREEN = '<mark style="background-color:#c8f0c8">'
+    RED = '<mark style="background-color:#f8c8c8">'
+    HEAD = "code,status,level,message,next_step\n"
+    OLD = "\ufeff" + HEAD + "VK0001,active,error,舊本文 <repo>,\nVK0002,active,warn,不變,\nVK0003,active,error,要停用,\n"
+    NEW = ("\ufeff" + HEAD + "VK0001,active,fatal,新本文 <repo>,\nVK0002,active,warn,不變,\nVK0003,retired,,,\n"
+           "VK0004,active,warn,\"第一行\n第二行\",\n")
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.TemporaryDirectory()
+        os.chdir(self._tmp.name)
+        pathlib.Path("doc/contract").mkdir(parents=True)
+        pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
+        pathlib.Path("doc/decisions/review_log").mkdir(parents=True)
+        pathlib.Path("doc/decisions/review_log/versions.json").write_text('{"03_messages": 8}\n')
+        pathlib.Path("doc/contract/03_messages.md").write_text("# 03\n\n規則\n")
+        pathlib.Path("doc/contract/03_messages.csv").write_text(self.NEW, encoding="utf-8")
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        self._tmp.cleanup()
+
+    def backup(self, ext, text):
+        pathlib.Path(f"doc/decisions/_backup/doc_contract_03_messages.pre_r1{ext}").write_text(text, encoding="utf-8")
+
+    def marked(self, rev=9):
+        return pathlib.Path(f"doc/decisions/_marked/03_messages.v{rev}.marked.md").read_text()
+
+    def test_outputs_share_one_version(self):
+        self.backup(".md", "# 03\n\n舊規則\n")
+        self.backup(".csv", self.OLD)
+        mark_changes.build("03_messages", "pre_r1")
+        out = pathlib.Path("doc/decisions/_marked")
+        self.assertEqual(sorted(p.name for p in out.iterdir()),
+                         ["03_messages.v9.csv", "03_messages.v9.marked.md", "03_messages.v9.md"])
+        # CSV 副本逐位元組照抄（BOM 保留）
+        self.assertEqual((out / "03_messages.v9.csv").read_bytes(),
+                         pathlib.Path("doc/contract/03_messages.csv").read_bytes())
+        self.assertIn('"03_messages": 9', pathlib.Path("doc/decisions/review_log/versions.json").read_text())
+        text = self.marked()
+        # md 部分照舊逐行標示，CSV 部分接在後面
+        self.assertLess(text.index(self.GREEN + "規則</mark>"), text.index("## 03_messages.csv 的逐碼差異"))
+
+    def test_csv_path_is_same_as_page_name(self):
+        self.backup(".md", "# 03\n\n規則\n")
+        self.backup(".csv", self.OLD)
+        mark_changes.build("doc/contract/03_messages.csv", "pre_r1")
+        self.assertTrue(pathlib.Path("doc/decisions/_marked/03_messages.v9.marked.md").exists())
+
+    def test_per_code_per_field(self):
+        self.backup(".md", "# 03\n\n規則\n")
+        self.backup(".csv", self.OLD)
+        mark_changes.build("03_messages", "pre_r1")
+        text = self.marked()
+        lines = text.splitlines()
+        # 改欄位：舊值紅、新值綠；沒改的欄不標；占位符照原樣看得到
+        self.assertIn(f"- `level`：{self.RED}error</mark> → {self.GREEN}fatal</mark>", lines)
+        self.assertIn(f"- `message`：{self.RED}舊本文 &lt;repo&gt;</mark> → {self.GREEN}新本文 &lt;repo&gt;</mark>", lines)
+        self.assertIn("- `status`：active", lines)
+        # 沒改的代碼不成段，只在摘要
+        self.assertNotIn("#### VK0002", lines)
+        self.assertIn("沒改動的代碼 1 個：VK0002。", lines)
+        # 停用：整段註記，改掉的欄都標
+        i = lines.index("#### VK0003")
+        self.assertEqual(lines[i + 1], self.RED + "（本碼停用）</mark>")
+        self.assertIn(f"- `status`：{self.RED}active</mark> → {self.GREEN}retired</mark>", lines[i:])
+        # 新增：整段綠，格內換行改成 <br>
+        i = lines.index("#### VK0004")
+        self.assertEqual(lines[i + 1], self.GREEN + "（本碼新增）</mark>")
+        self.assertIn(f"- `message`：{self.GREEN}第一行<br>第二行</mark>", lines[i:])
+        # 標題不加標籤（錨點不變）
+        for line in lines:
+            if line.startswith("#"):
+                self.assertNotIn("<", line)
+
+    def test_removed_row(self):
+        self.backup(".md", "# 03\n\n規則\n")
+        self.backup(".csv", self.OLD + "VK0009,active,warn,拿掉,\n")
+        mark_changes.build("03_messages", "pre_r1")
+        lines = self.marked().splitlines()
+        i = lines.index("#### VK0009")
+        self.assertEqual(lines[i + 1], self.RED + "（本列刪除）</mark>")
+        self.assertIn(f"- `message`：{self.RED}拿掉</mark>", lines[i:])
+
+    def test_md_backup_missing_means_md_unchanged(self):
+        self.backup(".csv", self.OLD)
+        mark_changes.build("03_messages", "pre_r1")
+        text = self.marked()
+        self.assertIn("> 注意：沒有 doc/contract/03_messages.md 的基準版 pre_r1：視為這一輪沒改", text)
+        self.assertNotIn(self.GREEN + "規則</mark>", text)
+        self.assertIn("#### VK0001", text)
+
+    def test_csv_backup_missing_and_not_in_git_means_new(self):
+        self.backup(".md", "# 03\n\n規則\n")
+        mark_changes.build("03_messages", "pre_r1")
+        text = self.marked()
+        self.assertIn("視為新建，整份標新增", text)
+        for code in ("VK0001", "VK0002", "VK0003", "VK0004"):
+            self.assertIn(f"#### {code}\n{self.GREEN}（本碼新增）</mark>", text)
+
+    def test_both_backups_missing_fails(self):
+        with self.assertRaises(SystemExit):
+            mark_changes.build("03_messages", "pre_r1")
+
+    def test_old_version_files_removed(self):
+        self.backup(".md", "# 03\n\n規則\n")
+        self.backup(".csv", self.OLD)
+        mark_changes.build("03_messages", "pre_r1")
+        mark_changes.build("03_messages", "pre_r1")
+        names = sorted(p.name for p in pathlib.Path("doc/decisions/_marked").iterdir())
+        self.assertEqual(names, ["03_messages.v10.csv", "03_messages.v10.marked.md", "03_messages.v10.md"])
+
+    def test_csv_backup_path(self):
+        self.backup(".csv", self.OLD)
+        self.assertEqual(mark_changes.backup_path("03_messages", "pre_r1", ".csv"),
+                         pathlib.Path("doc/decisions/_backup/doc_contract_03_messages.pre_r1.csv"))
+
+
 if __name__ == "__main__":
     unittest.main()

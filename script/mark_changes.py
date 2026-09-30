@@ -24,8 +24,18 @@
 
 表格列（以 | 開頭）在儲存格內標記，不把整列包起來——整列包住會讓那一列
 不再是合法的表格列，GitHub 與 VS Code 都會把表格切斷。
+
+審閱頁旁邊有同名的 CSV（例如 doc/contract/03_messages.csv，#122）時，一個頁名同時處理兩個檔，
+共用一個版本號：輸出 <鍵>.v<N>.md、<鍵>.v<N>.csv，與一份合併的 <鍵>.v<N>.marked.md——前半是
+.md 的逐行差異，後半是 CSV 的逐碼差異（依 code 對齊、逐欄比較，只列有改動的代碼）。
+CSV 的基準版是 _backup/doc_contract_<name>.<後綴>.csv；傳 doc/contract/<name>.csv 等於傳頁名。
+兩個檔只有一個有基準版時，另一個視為這一輪沒改（CSV 不在 git 的 HEAD 裡則視為新建、整份標新增），
+並在輸出與標示版開頭註明。
 """
+import csv
 import difflib
+import html
+import subprocess
 import json
 import os
 import re
@@ -141,6 +151,22 @@ def next_rev(name: str) -> int:
     return n
 
 
+def normalize(name: str) -> str:
+    """doc/contract/<頁>.csv 等於傳頁名：CSV 是那一頁的附屬資料，跟 .md 一起產標示版、共用版本號。"""
+    path = pathlib.Path(name)
+    if path.suffix == ".csv" and path.parent == REVIEW:
+        return path.stem
+    return name
+
+
+def companion_csv(name: str) -> pathlib.Path | None:
+    """審閱頁旁邊的同名 CSV（例如 03_messages.csv）；沒有就回 None。以路徑指定的檔沒有附屬 CSV。"""
+    if "/" in name or name.endswith(".md"):
+        return None
+    path = REVIEW / f"{name}.csv"
+    return path if path.exists() else None
+
+
 def target(name: str) -> tuple[pathlib.Path, str]:
     """回傳（正式檔路徑, 標示版與備份用的鍵）。
 
@@ -155,7 +181,30 @@ def target(name: str) -> tuple[pathlib.Path, str]:
     return REVIEW / f"{name}.md", name
 
 
-def backup_path(name: str, suffix: str) -> pathlib.Path:
+def find_backup(name: str, suffix: str, ext: str = ".md") -> tuple[pathlib.Path | None, list[pathlib.Path]]:
+    """回傳（找到的基準版或 None, 試過的路徑）。命名規則見 backup_path()。"""
+    path, key = target(name)
+    tried: list[pathlib.Path] = []
+    if key != name:
+        keys = [key]
+        if key.startswith("doc_"):
+            keys.append("docs_" + key[len("doc_"):])
+        for k in keys:
+            tried += [BACKUP / f"{k}.{suffix}{ext}", BACKUP / f".{k}.{suffix}{ext}"]
+    else:
+        tried = [
+            BACKUP / f"doc_contract_{name}.{suffix}{ext}",
+            BACKUP / f"docs_contract_{name}.{suffix}{ext}",
+            BACKUP / f"doc_decisions_review_{name}.{suffix}{ext}",
+            BACKUP / "review" / f"{name}.{suffix}{ext}",
+        ]
+    for candidate in tried:
+        if candidate.exists():
+            return candidate, tried
+    return None, tried
+
+
+def backup_path(name: str, suffix: str, ext: str = ".md") -> pathlib.Path:
     """備份檔的四種命名都認：攤平的（doc_contract_<name>）、docs/ 併進 doc/ 之前的
     攤平命名（docs_contract_<name>）、審閱頁搬到 docs/contract/ 之前的攤平命名
     （doc_decisions_review_<name>），與 review/ 子目錄的。
@@ -163,34 +212,15 @@ def backup_path(name: str, suffix: str) -> pathlib.Path:
     攤平是主要慣例（doc-apply workflow 與各子代理都用它，因為它對任何路徑都成立）；
     後三種是搬目錄前的歷史寫法，留著讀得到舊備份就好，不要再產生新的。
     以路徑指定的檔同理：doc/<子目錄>/… 攤平成 doc_<子目錄>_…，也認併目錄前的 docs_<子目錄>_…。
+    ext 是副檔名：審閱頁旁的 CSV 用 ".csv"（doc_contract_<name>.<後綴>.csv；歷史命名不會有 CSV）。
     """
-    path, key = target(name)
-    if key != name:  # 以路徑指定的檔：備份就是攤平後的路徑
-        keys = [key]
-        if key.startswith("doc_"):
-            keys.append("docs_" + key[len("doc_"):])  # docs/ 併進 doc/ 之前的備份
-        tried = []
-        for k in keys:
-            # 備份檔也可能照原路徑攤平、保留開頭的點（例如 .claude_workflows_README），兩種都認
-            for flat in (BACKUP / f"{k}.{suffix}.md", BACKUP / f".{k}.{suffix}.md"):
-                tried.append(flat)
-                if flat.exists():
-                    return flat
+    found, tried = find_backup(name, suffix, ext)
+    if found is None:
         raise SystemExit(
             f"找不到 {name} 的基準版。試過：\n  " + "\n  ".join(map(str, tried))
             + "\n改檔之前要先備份，命名見 script/README.md。"
         )
-    flat = BACKUP / f"doc_contract_{name}.{suffix}.md"
-    pre_merge = BACKUP / f"docs_contract_{name}.{suffix}.md"
-    old_flat = BACKUP / f"doc_decisions_review_{name}.{suffix}.md"
-    nested = BACKUP / "review" / f"{name}.{suffix}.md"
-    for candidate in (flat, pre_merge, old_flat, nested):
-        if candidate.exists():
-            return candidate
-    raise SystemExit(
-        f"找不到 {name} 的基準版。試過：\n  {flat}\n  {pre_merge}\n  {old_flat}\n  {nested}\n"
-        f"改檔之前要先備份，命名見 script/README.md。"
-    )
+    return found
 
 
 HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)(?:\s+#+)?\s*$")
@@ -219,11 +249,8 @@ def heading_text(line: str) -> str:
     return HEADING.match(line).group(1)
 
 
-def build(name: str, suffix: str) -> tuple[int, int]:
-    path, key = target(name)
-    # 基準後綴寫 new 表示這個檔是新建的：沒有舊版，整份都標成新增
-    old = [] if suffix == "new" else backup_path(name, suffix).read_text().splitlines()
-    new = path.read_text().splitlines()
+def diff_md(old: list[str], new: list[str]) -> tuple[list[str], int, int]:
+    """逐行比較，回傳（標示後的行, 新增數, 刪除數）。"""
     old_heads, new_heads = headings(old), headings(new)
     out = []
     ins = dele = 0
@@ -263,19 +290,150 @@ def build(name: str, suffix: str) -> tuple[int, int]:
                 out.append(wrap(line, "ins"))
             if line.strip():
                 ins += 1
+    return out, ins, dele
+
+
+def read_rows(text: str) -> tuple[list[str], dict[str, dict[str, str]]]:
+    """CSV 文字（可帶 BOM）→（欄名, code → 列）。"""
+    reader = csv.DictReader(text.lstrip("\ufeff").splitlines(keepends=True))
+    rows = {row.get("code", ""): row for row in reader}
+    return list(reader.fieldnames or []), rows
+
+
+def show(value: str) -> str:
+    """CSV 欄位值放進 Markdown：<repo> 這類占位符要照原樣看得到，換行改成 <br>。"""
+    if value == "":
+        return "（空）"
+    return html.escape(value, quote=False).replace("\n", "<br>")
+
+
+CODE_ADDED = mark("（本碼新增）", "ins")
+CODE_RETIRED = mark("（本碼停用）", "del")
+CODE_REMOVED = mark("（本列刪除）", "del")
+
+
+def diff_csv(old_text: str | None, new_text: str, name: str) -> tuple[list[str], int, int]:
+    """依 code 對齊、逐欄比較；只列有改動的代碼，每碼一段 #### VKnnnn。回傳（行, 新增數, 刪除數）。
+
+    old_text 是 None 表示 CSV 是新建的：每個代碼都算新增。
+    """
+    old_fields, old_rows = read_rows(old_text) if old_text is not None else ([], {})
+    new_fields, new_rows = read_rows(new_text)
+    fields = new_fields or old_fields
+    out = ["---", "", f"## {name}.csv 的逐碼差異", "",
+           "依 code 對齊、逐欄比較，只列有改動的代碼；綠底是新值、紅底是舊值，沒改的欄照原樣列出。", ""]
+    ins = dele = 0
+    same = []
+    for code in sorted(set(old_rows) | set(new_rows)):
+        old, new = old_rows.get(code), new_rows.get(code)
+        if old is not None and new is not None and all(old.get(f, "") == new.get(f, "") for f in fields):
+            same.append(code)
+            continue
+        out.append(f"#### {code}")
+        if old is None:
+            out.append(CODE_ADDED)
+        elif new is None:
+            out.append(CODE_REMOVED)
+        elif old.get("status") != "retired" and new.get("status") == "retired":
+            out.append(CODE_RETIRED)
+        out.append("")
+        for f in fields:
+            if f == "code":  # 已經是這一段的標題
+                continue
+            a = "" if old is None else old.get(f, "")
+            b = "" if new is None else new.get(f, "")
+            if old is None:
+                if b:
+                    out.append(f"- `{f}`：{mark(show(b), 'ins')}")
+                    ins += 1
+            elif new is None:
+                if a:
+                    out.append(f"- `{f}`：{mark(show(a), 'del')}")
+                    dele += 1
+            elif a == b:
+                if b:
+                    out.append(f"- `{f}`：{show(b)}")
+            else:
+                out.append(f"- `{f}`：{mark(show(a), 'del')} → {mark(show(b), 'ins')}")
+                ins += 1
+                dele += 1
+        out.append("")
+    if len(same) == len(set(old_rows) | set(new_rows)):
+        out += ["CSV 沒有改動。", ""]
+    out.append(f"沒改動的代碼 {len(same)} 個" + (f"：{'、'.join(same)}" if same else "") + "。")
+    return out, ins, dele
+
+
+def in_head(path: pathlib.Path) -> bool:
+    """這個檔在 git 的 HEAD 裡嗎（不在 git 裡、或 git 失敗都算不在）。"""
+    try:
+        return subprocess.run(["git", "cat-file", "-e", f"HEAD:{path.as_posix()}"],
+                              capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+def build(name: str, suffix: str) -> tuple[int, int]:
+    name = normalize(name)
+    path, key = target(name)
+    csv_path = companion_csv(name)
+    new = path.read_text().splitlines()
+    notes: list[str] = []
+    old_csv: str | None = None
+    # 基準後綴寫 new 表示這個檔是新建的：沒有舊版，整份都標成新增
+    if suffix == "new":
+        old = []
+    elif csv_path is None:
+        old = backup_path(name, suffix).read_text().splitlines()
+    else:
+        md_backup, md_tried = find_backup(name, suffix, ".md")
+        csv_backup, csv_tried = find_backup(name, suffix, ".csv")
+        if md_backup is None and csv_backup is None:
+            raise SystemExit(
+                f"找不到 {name} 的基準版（.md 與 .csv 都沒有）。試過：\n  "
+                + "\n  ".join(map(str, md_tried + csv_tried))
+                + "\n改檔之前要先備份，命名見 script/README.md。"
+            )
+        if md_backup is None:
+            old = new
+            notes.append(f"沒有 {path.as_posix()} 的基準版 {suffix}：視為這一輪沒改")
+        else:
+            old = md_backup.read_text().splitlines()
+        if csv_backup is not None:
+            old_csv = csv_backup.read_text(encoding="utf-8")
+        elif in_head(csv_path):
+            old_csv = csv_path.read_text(encoding="utf-8")
+            notes.append(f"沒有 {csv_path.as_posix()} 的基準版 {suffix}：視為這一輪沒改")
+        else:
+            notes.append(f"沒有 {csv_path.as_posix()} 的基準版 {suffix}，而且它不在 git 的 HEAD 裡：視為新建，整份標新增")
+    out, ins, dele = diff_md(old, new)
+    if csv_path is not None:
+        csv_out, c_ins, c_del = diff_csv(old_csv, csv_path.read_text(encoding="utf-8"), name)
+        out += [""] + csv_out
+        ins += c_ins
+        dele += c_del
     rev = next_rev(key)
     MARKED.mkdir(parents=True, exist_ok=True)
+    official = f"/{path.as_posix()}" + ("" if csv_path is None else f" 與 /{csv_path.as_posix()}")
     header = [
         f"<!-- 標示版 v{rev}：綠底 <mark> 是新增、紅底 <mark> 是刪除；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
-        f"基準 {suffix}。正式內容看 /{path.as_posix()} -->",
+        f"基準 {suffix}。正式內容看 {official} -->",
         "",
     ]
-    for old_file in list(MARKED.glob(f"{key}.v*.marked.md")) + list(MARKED.glob(f"{key}.v*[0-9].md")):
+    for note in notes:
+        print(f"{name}: {note}")
+        header += [f"> 注意：{note}", ""]
+    stale = (list(MARKED.glob(f"{key}.v*.marked.md")) + list(MARKED.glob(f"{key}.v*[0-9].md"))
+             + list(MARKED.glob(f"{key}.v*[0-9].csv")))
+    for old_file in stale:
         old_file.unlink()
     # 同一版的正文副本，檔名帶版本號：送審時跟標示版一起給，不用打開檔案才知道是哪一版。
     # 正式檔名（沒有版本號）不動，其他文件的連結才不會斷。
     # 兩份都放在 _marked/，相對連結要改寫成從 _marked/ 出發才不會指錯
     (MARKED / f"{key}.v{rev}.md").write_text(rewrite_links(path.read_text(), path))
+    if csv_path is not None:
+        # CSV 逐位元組照抄（BOM、LF 都保留）；CSV 裡不准 Markdown，所以沒有連結要改寫
+        (MARKED / f"{key}.v{rev}.csv").write_bytes(csv_path.read_bytes())
     (MARKED / f"{key}.v{rev}.marked.md").write_text(rewrite_links("\n".join(header + out) + "\n", path))
     return ins, dele
 

@@ -8,13 +8,15 @@
 3a. HTML 只准 <ins>：<a id>、<br> 這類只有部分環境顯示得出來；錨點一律用標題產生。
 4. 相對連結的檔案與錨點都存在（錨點照 GitHub 的標題轉換規則算）。
 5. 只能向前依賴：審閱頁 N 不能連到編號比它大的審閱頁。
-6. 03 總表的指令寫法只能用前面頁定義過的：反引號裡 `just vendor_kit …` 的每個選項（-x、--xxx）
-   與 @<tag> 寫法，都要在 GLOSSARY.md、01、02 出現過。
+6. 03 的指令寫法只能用前面頁定義過的：03 頁反引號裡的 `just vendor_kit …`，以及 03 的 CSV
+   （message、next_step、note 欄）裡的 just vendor_kit …，每個選項（-x、--xxx）與 @<tag> 寫法
+   都要在 GLOSSARY.md、01、02 出現過。CSV 的錯誤位置報 `<檔>:<代碼>:<欄名>`。
 7. 引用別頁條目不寫舊寫法「[名字](連結) 第 N 條」：一律寫「依 [頁名第 N 條](連結#錨點)」；
    行內程式碼（反引號內）不算。
 
 用法：python3 script/check_review_pages.py（在 repo 根目錄跑；有問題以 1 結束）
 """
+import csv
 import pathlib
 import re
 import sys
@@ -108,20 +110,47 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
                 errors.append(f"{where}: 審閱頁 {me:02d} 連到後面的頁 {dest.name}；只能向前依賴")
 
 
-def check_commands(errors: list[str]) -> None:
-    msgs = sorted(REVIEW.glob("03_*.md"))
-    if not msgs:
+CMD_MD = re.compile(r"`(just vendor_kit [^`]+)`")
+# CSV 不准 Markdown，指令沒有反引號：從 just vendor_kit 起取到第一個非 ASCII 字（中文、全形標點）或欄尾
+CMD_CSV = re.compile(r"just vendor_kit [ -~]*")
+CSV_COMMAND_FIELDS = ("message", "next_step", "note")
+
+
+def command_errors(cmds, where: str, defined: str) -> list[str]:
+    """共用：每個指令裡的選項（-x、--xxx）與 @<tag> 寫法都要在 defined（GLOSSARY.md、01、02）出現過。"""
+    errors = []
+    for cmd in cmds:
+        cmd = cmd.strip()
+        for tok in re.findall(r"(?<![\w<])(--?[a-z][\w-]*|@<[^>]+>)", cmd):
+            if tok not in defined:
+                errors.append(f"{where}: 指令 `{cmd}` 用了 {tok}，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁")
+    return errors
+
+
+def csv_command_texts(path: pathlib.Path):
+    """03 的 CSV 裡會印出指令的欄：（位置 `<檔>:<代碼>:<欄名>`, 欄位文字）。讀不了的格式交給 check_messages.py。"""
+    try:
+        rows = list(csv.DictReader(path.read_text(encoding="utf-8-sig").splitlines(keepends=True)))
+    except (csv.Error, UnicodeDecodeError):
         return
+    for row in rows:
+        for field in CSV_COMMAND_FIELDS:
+            value = row.get(field) or ""
+            if value:
+                yield f"{path}:{row.get('code', '?')}:{field}", value
+
+
+def check_commands(errors: list[str]) -> None:
     defined = "\n".join(
         p.read_text() for p in [ROOT / "GLOSSARY.md", *sorted(REVIEW.glob("0[12]_*.md"))] if p.exists()
     )
-    for i, line in body_lines(msgs[0]):
-        for cmd in re.findall(r"`(just vendor_kit [^`]+)`", line):
-            for tok in re.findall(r"(?<![\w<])(--?[a-z][\w-]*|@<[^>]+>)", cmd):
-                if tok not in defined:
-                    errors.append(
-                        f"{msgs[0]}:{i}: 指令 `{cmd}` 用了 {tok}，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁"
-                    )
+    msgs = sorted(REVIEW.glob("03_*.md"))
+    if msgs:
+        for i, line in body_lines(msgs[0]):
+            errors.extend(command_errors(CMD_MD.findall(line), f"{msgs[0]}:{i}", defined))
+    for path in sorted(REVIEW.glob("03_*.csv")):
+        for where, value in csv_command_texts(path):
+            errors.extend(command_errors(CMD_CSV.findall(value), where, defined))
 
 
 def main() -> int:
