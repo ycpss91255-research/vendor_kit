@@ -193,7 +193,10 @@ recipe 後面帶的 `-x` 或 `--long` 參數。
 VK 在 CI 環境中執行時採用的模式。
 
 **診斷** (diagnostic)：
-VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <中文本文>` 的訊息，含續行。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。
+VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。
+
+**level** (log level)：
+診斷的嚴重程度，只有 info、warn、error、fatal，依序對應結束碼 0、1、2、3；info 不印前綴。
 
 **正常輸出** (normal output)：
 成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。

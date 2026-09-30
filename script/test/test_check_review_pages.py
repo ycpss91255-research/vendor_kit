@@ -76,20 +76,27 @@ class RulesTest(unittest.TestCase):
         self.write("01_a.md", "# 01\n\n## 目錄\n")
         self.write("03_m.md", "# 03\n\n## 目錄\n")
         pathlib.Path("doc/contract/03_m.csv").write_text(
-            "\ufeffcode,situation,message,next_step\n"
-            "VK0001,開發模式中執行 just vendor_kit undev …,請執行 just vendor_kit upgrade --engine 後重試,"
-            "just vendor_kit upgrade --engine\n"
-            "VK0002,執行 just vendor_kit add --bad 也不行,請在本機執行 just vendor_kit upgrade <repo> -z 後 commit,"
+            "\ufeffcode,status,level,exit_code,disposition,situation,message,description,next_step\n"
+            "VK0001,active,warn,1,,開發模式中執行 just vendor_kit undev …,"
+            "Run just vendor_kit upgrade --engine and retry.,中文說明,just vendor_kit upgrade --engine\n"
+            "VK0002,active,error,2,需人處理,執行 just vendor_kit add --bad 也不行,"
+            "Run just vendor_kit upgrade <repo> -z and retry.,中文說明 just vendor_kit test --description-only,"
             "just vendor_kit upgrade <repo> -z\n",
             encoding="utf-8",
         )
         code, out = self.run_main()
         self.assertEqual(code, 1)
-        for field in ("message", "next_step"):
-            self.assertIn(f"03_m.csv:VK0002:{field}: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z", out)
+        self.assertIn(
+            "03_m.csv:VK0002:message: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z",
+            out,
+        )
+        self.assertIn(
+            "03_m.csv:VK0002:next_step: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z",
+            out,
+        )
         self.assertIn("03_m.csv:VK0002:situation: 指令 `just vendor_kit add --bad` 用了 --bad", out)
         self.assertNotIn("VK0001", out)
-        self.assertNotIn("後 commit", out)
+        self.assertNotIn("--description-only", out)
 
     def test_new_style_rule_citation_passes(self):
         self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n")

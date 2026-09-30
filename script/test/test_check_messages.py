@@ -20,12 +20,15 @@ def row(**kw):
 
 def good_rows():
     return [
-        row(code="VK0001", status="active", level="error", disposition="需人處理", situation="要確認但不能互動",
-            message="請加上 -y 重新執行：<加上 -y 的原指令>", next_step="<加上 -y 的原指令>"),
-        row(code="VK0002", status="active", level="error", disposition="失敗", situation="建不出執行紀錄",
-            message="無法寫入 <path>。請重試。"),
-        row(code="VK0003", status="active", level="warn", situation="合併衝突",
-            message="<file> 留下合併衝突，請檢視後解決：git status", next_step="git status"),
+        row(code="VK0001", status="active", level="error", exit_code="2", disposition="需人處理",
+            situation="要確認但不能互動", message="Run again with -y: <original command with -y>",
+            description="請加上 -y 重新執行。", next_step="<original command with -y>"),
+        row(code="VK0002", status="active", level="error", exit_code="2", disposition="失敗",
+            situation="建不出執行紀錄", message="Could not write <path>. Try again.",
+            description="無法寫入執行紀錄，請重試。"),
+        row(code="VK0003", status="active", level="warn", exit_code="1", situation="合併衝突",
+            message="Resolve the merge conflicts left in <file>: git status",
+            description="檔案留下合併衝突，請檢視後解決。", next_step="git status"),
         row(code="VK0004", status="retired", situation="舊的情況"),
     ]
 
@@ -122,15 +125,16 @@ class FormatTest(Base):
         rows = good_rows()
         rows[1] = rows[1][:-1]
         self.write_csv(rows)
-        self.assert_fail("有 6 欄")
+        self.assert_fail(f"有 {len(HEADER) - 1} 欄")
 
     def test_strict_parse(self):
         p = pathlib.Path("doc/contract/03_messages.csv")
-        p.write_bytes(encode(good_rows()) + 'VK0005,active,warn,,"a"b,x,\n'.encode())
+        malformed = ["VK0005", "active", "warn", "1", "", "x", '"a"b', "x", ""]
+        p.write_bytes(encode(good_rows()) + (",".join(malformed) + "\n").encode())
         self.assert_fail("CSV 解析失敗")
 
     def test_quoted_newline_parses(self):
-        self.edit(1, message="第一行\n第二行")
+        self.edit(1, message="First line.\nSecond line.")
         self.assert_ok()
 
     def test_surrounding_space(self):
@@ -182,6 +186,28 @@ class FieldTest(Base):
         self.edit(1, message="")
         self.assert_fail("VK0002:message: active 列必填")
 
+    def test_description_required(self):
+        self.edit(1, description="")
+        self.assert_fail("VK0002:description: active 列必填")
+
+    def test_message_must_be_english(self):
+        self.edit(1, message="無法寫入 <path>. Try again.")
+        self.assert_fail("VK0002:message:", "中文字元")
+
+    def test_exit_code_matches_level(self):
+        for level, exit_code in (("warn", "1"), ("error", "2"), ("fatal", "3")):
+            with self.subTest(level=level):
+                self.edit(1, level=level, exit_code=exit_code, disposition="")
+                self.assert_ok()
+
+    def test_wrong_exit_code(self):
+        self.edit(1, exit_code="3")
+        self.assert_fail("VK0002:exit_code: error 必須是 2")
+
+    def test_exit_code_required(self):
+        self.edit(1, exit_code="")
+        self.assert_fail("VK0002:exit_code:")
+
     def test_disposition_values(self):
         self.edit(1, disposition="requires_action")
         self.assert_fail("VK0002:disposition: 只准")
@@ -207,6 +233,30 @@ class FieldTest(Base):
     def test_next_step_verbatim_in_message(self):
         self.edit(2, next_step="git status -s")
         self.assert_fail("VK0003:next_step: 要逐字出現在 message 裡")
+
+    def test_message_sentence_start(self):
+        self.edit(1, message="could not write <path>. Try again.")
+        self.assert_fail("VK0002:message: 句首要大寫")
+
+        self.edit(1, message="justice was not done.")
+        self.assert_fail("VK0002:message: 句首要大寫")
+
+    def test_message_sentence_end(self):
+        self.edit(1, message="Could not write <path>. Try again")
+        self.assert_fail("VK0002:message: 結尾要是句點")
+
+    def test_message_start_and_end_exceptions(self):
+        cases = (
+            ("<file> already exists.", ""),
+            ("just 1.33.0 or later is required.", ""),
+            ("Run it now: <command>", "<command>"),
+            ("Retry with: just vendor_kit upgrade <repo>", ""),
+            ("Retry with: just vendor_kit add <repo>@v1.2.3", ""),
+        )
+        for message, next_step in cases:
+            with self.subTest(message=message):
+                self.edit(1, message=message, next_step=next_step, disposition="")
+                self.assert_ok()
 
     def test_html(self):
         for bad in ("<ins>導入</ins>", "第一行<br>", '<a href="x">', "<!-- x -->"):
@@ -261,6 +311,31 @@ class RefTest(Base):
     def test_01_02_must_not_link_csv(self):
         self.write("01_purpose.md", "# 01\n\n[訊息表](03_messages.csv)\n")
         self.assert_fail("01、02 不准連 CSV")
+
+
+class DiagnosticTest(Base):
+    def test_level_must_match_csv(self):
+        self.write("04_interface.md", "vendor_kit: warn[VK0002]: Could not write /tmp/log. Try again.\n")
+        self.assert_fail("VK0002 的 level 是 warn，CSV 是 error")
+
+    def test_body_must_match_message_first_line(self):
+        self.write("04_interface.md", "vendor_kit: error[VK0002]: A different message.\n")
+        self.assert_fail("VK0002 的本文不符合 CSV message 第一行")
+
+    def test_placeholder_matches_actual_value(self):
+        self.write("04_interface.md", "vendor_kit: error[VK0002]: Could not write /tmp/run.jsonl. Try again.\n")
+        self.assert_ok()
+
+    def test_retired_and_unknown_codes_are_skipped_by_rule_9(self):
+        self.write(
+            "04_interface.md",
+            "vendor_kit: error[VK0004]: Historical example.\n"
+            "vendor_kit: fatal[VK9999]: Unknown example.\n",
+        )
+        by_code = {r[HEADER.index("code")]: dict(zip(HEADER, r)) for r in good_rows()}
+        errors = []
+        m.check_diagnostics(by_code, errors)
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

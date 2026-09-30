@@ -34,16 +34,33 @@ class CsvTest(unittest.TestCase):
             root = pathlib.Path(tmp)
             (root / "doc/contract").mkdir(parents=True)
             (root / "doc/contract/03_messages.csv").write_text(
-                "\ufeffcode,status,level,disposition,situation,message,next_step\n"
-                "VK0001,舊詞,舊詞,舊詞處置,舊詞出現,正常,\"第一行\n舊詞在第二行\"\n",
+                "\ufeffcode,status,level,exit_code,disposition,situation,message,description,next_step\n"
+                "VK0001,舊詞,舊詞,舊詞,舊詞處置,舊詞情況,Old .version message,"
+                "\"第一行\n舊詞說明\",Old term next step\n",
                 encoding="utf-8",
             )
             cells = check_terms.csv_cells(root)
-        fields = ["VK0001:disposition", "VK0001:situation", "VK0001:message", "VK0001:next_step"]
+        fields = [
+            "VK0001:situation",
+            "VK0001:message",
+            "VK0001:description",
+            "VK0001:next_step",
+        ]
         self.assertEqual([c[1] for c in cells], fields)
-        patterns = [("舊詞", check_terms.re.compile("舊詞"))]
+        patterns = [
+            ("舊詞", check_terms.re.compile("舊詞")),
+            (".version", check_terms.re.compile(r"\.version")),
+        ]
         hits = {where: check_terms.line_hits(rel, value, patterns) for rel, where, value in cells}
-        self.assertEqual(hits, dict(zip(fields, [["舊詞"], ["舊詞"], [], ["舊詞"]])))
+        self.assertEqual(
+            hits,
+            {
+                "VK0001:situation": ["舊詞"],
+                "VK0001:message": [".version"],
+                "VK0001:description": ["舊詞"],
+                "VK0001:next_step": [],
+            },
+        )
 
     def test_quote_marker_and_u_tag_apply_to_cells(self):
         patterns = [("舊詞", check_terms.re.compile("舊詞"))]

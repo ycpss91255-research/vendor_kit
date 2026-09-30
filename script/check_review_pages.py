@@ -171,8 +171,8 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
 
 
 CMD_MD = re.compile(r"`(just vendor_kit [^`]+)`")
-# CSV 不准 Markdown，指令沒有反引號：從 just vendor_kit 起取到第一個非 ASCII 字（中文、全形標點）或欄尾
-CMD_CSV = re.compile(r"just vendor_kit [ -~]*")
+# CSV 不准 Markdown，指令沒有反引號：從 just vendor_kit 起取到英文 and retry 收尾、句讀、第一個非 ASCII 字或欄尾
+CMD_CSV = re.compile(r"just vendor_kit [ -~]*?(?=\s+and\s+retry\.(?:\s|$)|[;,(]|\.(?:\s|$)|[^ -~]|$)")
 CSV_COMMAND_FIELDS = ("situation", "message", "next_step")
 
 

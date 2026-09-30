@@ -272,12 +272,16 @@ class CsvTest(unittest.TestCase):
     GREEN = '<mark style="background-color:#c8f0c8">'
     RED = '<mark style="background-color:#f8c8c8">'
     # 表頭照 check_messages.FIELDS：note、invariant、details 三欄已刪
-    HEAD = "code,status,level,disposition,situation,message,next_step\n"
-    OLD = ("\ufeff" + HEAD + "VK0001,active,error,失敗,舊情境,舊本文 <repo>,\n"
-           "VK0002,active,warn,,情境,不變,\nVK0003,active,error,失敗,要停用的情境,要停用,\n")
-    NEW = ("\ufeff" + HEAD + "VK0001,active,error,需人處理,新情境,新本文 <repo>,重跑 <repo>\n"
-           "VK0002,active,warn,,情境,不變,\nVK0003,retired,,,,,\n"
-           "VK0004,active,warn,,新增的情境,\"第一行\n第二行\",\n")
+    HEAD = "code,status,level,exit_code,disposition,situation,message,description,next_step\n"
+    OLD = ("\ufeff" + HEAD
+           + "VK0001,active,error,2,失敗,舊情境,Old message <repo>.,舊本文 <repo>,\n"
+           "VK0002,active,warn,1,,情境,Unchanged.,不變,\n"
+           "VK0003,active,error,2,失敗,要停用的情境,Retire this message.,要停用,\n")
+    NEW = ("\ufeff" + HEAD
+           + "VK0001,active,error,2,需人處理,新情境,New message <repo>. Rerun <repo>.,新本文 <repo>,Rerun <repo>.\n"
+           "VK0002,active,warn,1,,情境,Unchanged.,不變,\n"
+           "VK0003,retired,,,,,,,\n"
+           "VK0004,active,warn,1,,新增的情境,\"First line.\nSecond line.\",新增的本文,\n")
 
     def setUp(self):
         self._cwd = os.getcwd()
@@ -330,10 +334,14 @@ class CsvTest(unittest.TestCase):
         # 改欄位：舊值紅、新值綠；沒改的欄不標；占位符照原樣看得到
         self.assertIn(f"- `disposition`：{self.RED}失敗</mark> → {self.GREEN}需人處理</mark>", lines)
         self.assertIn(f"- `situation`：{self.RED}舊情境</mark> → {self.GREEN}新情境</mark>", lines)
-        self.assertIn(f"- `message`：{self.RED}舊本文 &lt;repo&gt;</mark> → {self.GREEN}新本文 &lt;repo&gt;</mark>", lines)
-        self.assertIn(f"- `next_step`：{self.RED}（空）</mark> → {self.GREEN}重跑 &lt;repo&gt;</mark>", lines)
+        self.assertIn(f"- `message`：{self.RED}Old message &lt;repo&gt;.</mark> → "
+                      f"{self.GREEN}New message &lt;repo&gt;. Rerun &lt;repo&gt;.</mark>", lines)
+        self.assertIn(f"- `description`：{self.RED}舊本文 &lt;repo&gt;</mark> → "
+                      f"{self.GREEN}新本文 &lt;repo&gt;</mark>", lines)
+        self.assertIn(f"- `next_step`：{self.RED}（空）</mark> → {self.GREEN}Rerun &lt;repo&gt;.</mark>", lines)
         self.assertIn("- `status`：active", lines)
         self.assertIn("- `level`：error", lines)
+        self.assertIn("- `exit_code`：2", lines)
         # 沒改的代碼不成段，只在摘要
         self.assertNotIn("#### VK0002", lines)
         self.assertIn("沒改動的代碼 1 個：VK0002。", lines)
@@ -345,7 +353,8 @@ class CsvTest(unittest.TestCase):
         i = lines.index("#### VK0004")
         self.assertEqual(lines[i + 1], self.GREEN + "（本碼新增）</mark>")
         self.assertIn(f"- `situation`：{self.GREEN}新增的情境</mark>", lines[i:])
-        self.assertIn(f"- `message`：{self.GREEN}第一行<br>第二行</mark>", lines[i:])
+        self.assertIn(f"- `message`：{self.GREEN}First line.<br>Second line.</mark>", lines[i:])
+        self.assertIn(f"- `description`：{self.GREEN}新增的本文</mark>", lines[i:])
         # 標題不加標籤（錨點不變）
         for line in lines:
             if line.startswith("#"):
@@ -355,8 +364,10 @@ class CsvTest(unittest.TestCase):
         # 舊表頭多一欄 note：VK0001 的 note 有值、VK0002 的 note 是空的
         old_head = self.HEAD.rstrip("\n") + ",note\n"
         self.backup(".md", "# 03\n\n規則\n")
-        self.backup(".csv", "\ufeff" + old_head + "VK0001,active,error,失敗,舊情境,舊本文 <repo>,,舊值\n"
-                    "VK0002,active,warn,,情境,不變,,\nVK0003,active,error,失敗,要停用的情境,要停用,,\n")
+        self.backup(".csv", "\ufeff" + old_head
+                    + "VK0001,active,error,2,失敗,舊情境,Old message <repo>.,舊本文 <repo>,,舊值\n"
+                    "VK0002,active,warn,1,,情境,Unchanged.,不變,,\n"
+                    "VK0003,active,error,2,失敗,要停用的情境,Retire this message.,要停用,,\n")
         mark_changes.build("03_messages", "pre_r1")
         lines = self.marked().splitlines()
         self.assertIn(f"- 表頭：{self.RED}{old_head.strip()}</mark> → {self.GREEN}{self.HEAD.strip()}</mark>", lines)
@@ -373,25 +384,32 @@ class CsvTest(unittest.TestCase):
         # 舊表頭沒有 next_step
         old_head = self.HEAD.replace(",next_step", "")
         self.backup(".md", "# 03\n\n規則\n")
-        self.backup(".csv", "\ufeff" + old_head + "VK0001,active,error,失敗,舊情境,舊本文 <repo>\n"
-                    "VK0002,active,warn,,情境,不變\nVK0003,active,error,失敗,要停用的情境,要停用\n")
+        self.backup(".csv", "\ufeff" + old_head
+                    + "VK0001,active,error,2,失敗,舊情境,Old message <repo>.,舊本文 <repo>\n"
+                    "VK0002,active,warn,1,,情境,Unchanged.,不變\n"
+                    "VK0003,active,error,2,失敗,要停用的情境,Retire this message.,要停用\n")
         mark_changes.build("03_messages", "pre_r1")
         lines = self.marked().splitlines()
         self.assertIn(f"- 表頭：{self.RED}{old_head.strip()}</mark> → {self.GREEN}{self.HEAD.strip()}</mark>", lines)
         self.assertIn(f"- `next_step`：{self.GREEN}（本欄新增）</mark>", lines)
         self.assertNotIn(f"- `next_step`：{self.RED}（本欄刪除）</mark>", lines)
-        self.assertIn(f"- `next_step`：{self.RED}（空）</mark> → {self.GREEN}重跑 &lt;repo&gt;</mark>", lines)
+        self.assertIn(
+            f"- `next_step`：{self.GREEN}Rerun &lt;repo&gt;.</mark> {self.GREEN}（本欄新增）</mark>",
+            lines,
+        )
         self.assertIn("沒改動的代碼 1 個：VK0002。", lines)
 
     def test_removed_row(self):
         self.backup(".md", "# 03\n\n規則\n")
-        self.backup(".csv", self.OLD + "VK0009,active,warn,,拿掉的情境,拿掉,\n")
+        self.backup(".csv", self.OLD
+                    + "VK0009,active,warn,1,,拿掉的情境,Remove this message.,拿掉,\n")
         mark_changes.build("03_messages", "pre_r1")
         lines = self.marked().splitlines()
         i = lines.index("#### VK0009")
         self.assertEqual(lines[i + 1], self.RED + "（本列刪除）</mark>")
         self.assertIn(f"- `situation`：{self.RED}拿掉的情境</mark>", lines[i:])
-        self.assertIn(f"- `message`：{self.RED}拿掉</mark>", lines[i:])
+        self.assertIn(f"- `message`：{self.RED}Remove this message.</mark>", lines[i:])
+        self.assertIn(f"- `description`：{self.RED}拿掉</mark>", lines[i:])
 
     def test_md_backup_missing_means_md_unchanged(self):
         self.backup(".csv", self.OLD)
@@ -437,7 +455,8 @@ class BaseVersionTest(unittest.TestCase):
     GREEN = '<mark style="background-color:#c8f0c8">'
     RED = '<mark style="background-color:#f8c8c8">'
     PAGE = "# 03\n\n見 [名詞表](../../GLOSSARY.md#vk) 與 [04](04_interface.md)。\n\n不變的段落\n"
-    CSV = "﻿code,status,message\nVK0001,active,本文\n"
+    CSV = ("﻿code,status,level,exit_code,disposition,situation,message,description,next_step\n"
+           "VK0001,active,error,2,失敗,情境,Message text.,本文,\n")
 
     def setUp(self):
         self._cwd = os.getcwd()
@@ -475,12 +494,13 @@ class BaseVersionTest(unittest.TestCase):
 
     def test_only_later_changes_marked(self):
         pathlib.Path("doc/contract/03_messages.md").write_text(self.PAGE.replace("不變的段落", "改過的段落"))
-        pathlib.Path("doc/contract/03_messages.csv").write_text(self.CSV.replace("本文", "新本文"), encoding="utf-8")
+        pathlib.Path("doc/contract/03_messages.csv").write_text(
+            self.CSV.replace("Message text.", "New message text."), encoding="utf-8")
         ins, dele = mark_changes.build_from_version("03_messages", 13)
         text = self.marked()
         self.assertIn(self.GREEN + "改過的段落</mark>", text)
         self.assertIn(self.RED + "不變的段落</mark>", text)
-        self.assertIn(self.RED + "本文</mark> → " + self.GREEN + "新本文</mark>", text)
+        self.assertIn(self.RED + "Message text.</mark> → " + self.GREEN + "New message text.</mark>", text)
         # 沒改的連結行不標
         self.assertNotIn(self.GREEN + "見 [名詞表]", text)
         self.assertEqual((ins, dele), (2, 2))

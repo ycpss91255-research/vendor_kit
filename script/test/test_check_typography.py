@@ -19,7 +19,9 @@ import tempfile
 import unittest
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent.parent
-FIELDS = ["code", "status", "level", "disposition", "situation", "message", "next_step"]
+FIELDS = [
+    "code", "status", "level", "exit_code", "disposition", "situation", "message", "description", "next_step",
+]
 CSV_REL = "doc/contract/03_messages.csv"
 
 
@@ -29,10 +31,11 @@ def row(**kw):
 
 def good_rows():
     return [
-        row(code="VK0001", status="active", level="error", disposition="需人處理", situation="要確認但不能互動",
-            message="請加上 -y 重新執行：<加上 -y 的原指令>", next_step="<加上 -y 的原指令>"),
-        row(code="VK0002", status="active", level="warn", situation="第 2 次重試",
-            message="VK 的 recipe 失敗，請重試。"),
+        row(code="VK0001", status="active", level="error", exit_code="2", disposition="需人處理",
+            situation="要確認但不能互動", message="Run again with -y: <original command with -y>",
+            description="請加上 -y 重新執行。", next_step="<original command with -y>"),
+        row(code="VK0002", status="active", level="warn", exit_code="1", situation="第 2 次重試",
+            message="Retry the VK recipe.", description="VK recipe 失敗，請重試。"),
     ]
 
 
@@ -254,6 +257,7 @@ class ExcludeTest(Base):
         rows = good_rows()
         rows[1][FIELDS.index("status")] = "啟用active"
         rows[1][FIELDS.index("level")] = "等級warn"
+        rows[1][FIELDS.index("exit_code")] = "結束碼1"
         rows[1][FIELDS.index("code")] = "代碼VK0002"
         self.write_csv(rows)
         before = (self.root / CSV_REL).read_bytes()
@@ -263,19 +267,26 @@ class ExcludeTest(Base):
 
 
 class CsvTest(Base):
-    """CSV 的文字欄：disposition、situation、message、next_step。"""
+    """CSV 的中文文字欄 situation、description，以及英文 message、next_step。"""
 
-    def test_text_columns_scanned(self):
-        for field in ["disposition", "situation", "message", "next_step"]:
+    def test_chinese_text_columns_scanned(self):
+        for field in ["situation", "description"]:
             with self.subTest(field=field):
                 rows = good_rows()
                 rows[1][FIELDS.index(field)] = "無法寫入VK設定"
                 self.write_csv(rows)
                 self.assert_fail((CSV_REL, None))
 
+    def test_english_message_and_next_step_pass(self):
+        rows = good_rows()
+        rows[1][FIELDS.index("message")] = "Run command2 (test): <next_step>."
+        rows[1][FIELDS.index("next_step")] = "<next_step>"
+        self.write_csv(rows)
+        self.assert_ok()
+
     def test_csv_fix_keeps_format(self):
         rows = good_rows()
-        rows[1][FIELDS.index("message")] = "無法寫入VK設定（test），\"引號\"與\n第2行"
+        rows[1][FIELDS.index("description")] = "無法寫入VK設定（test），\"引號\"與\n第2行"
         rows[1][FIELDS.index("situation")] = "第12條"
         self.write_csv(rows)
         self.assertEqual(self.run_tool()[0], 1)
@@ -285,7 +296,7 @@ class CsvTest(Base):
         self.assertFalse(data.startswith("﻿﻿".encode()))
         self.assertNotIn(b"\r", data)
         want = good_rows()
-        want[1][FIELDS.index("message")] = "無法寫入 VK 設定 (test)，\"引號\"與\n第 2 行"
+        want[1][FIELDS.index("description")] = "無法寫入 VK 設定 (test)，\"引號\"與\n第 2 行"
         want[1][FIELDS.index("situation")] = "第 12 條"
         self.assertEqual(data, encode(want))
         self.assert_ok()

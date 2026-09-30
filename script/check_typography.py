@@ -11,7 +11,7 @@
 掃描範圍：README.md、doc/contract/*.md、GLOSSARY.md，以及 doc/contract/*.csv 的文字欄
 （TEXT_FIELDS）。不檢查、不改：行內程式碼的內容（反引號內）、程式碼區塊、HTML 註解、URL、
 Markdown 連結目標（括號裡的路徑與錨點）與參照定義行、HTML 標籤本身、CSV 的固定欄
-（code、status、level）。
+（code、status、level、exit_code、disposition）。
 
 HTML 標籤、連結的 [ ] 與 ](目標)、粗體記號 ** 與 __ 不算字元：`<ins>VK</ins>的` 照樣算
 「VK」緊貼「的」，空格補在結束標籤之後、開始標籤之前，標籤不會被拆開；行內程式碼緊貼連結的
@@ -37,8 +37,10 @@ import sys
 from dataclasses import dataclass, field
 
 ROOT = pathlib.Path(".")
-CSV_FIELDS = ["code", "status", "level", "disposition", "situation", "message", "next_step"]
-TEXT_FIELDS = ("disposition", "situation", "message", "next_step")
+CSV_FIELDS = [
+    "code", "status", "level", "exit_code", "disposition", "situation", "message", "description", "next_step",
+]
+TEXT_FIELDS = ("situation", "message", "description", "next_step")
 BOM = "﻿"
 
 # 中文（含日文假名、注音、部首）；全形標點（U+3000–303F、U+FF00–FFEF）不算

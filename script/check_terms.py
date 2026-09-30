@@ -109,8 +109,8 @@ def target_files() -> list[Path]:
 
 
 U_TAG = re.compile(r"</?u>")
-# CSV 裡會寫出文字的欄；code、status、level 是固定值域，由 check_messages.py 管
-CSV_TEXT_FIELDS = ("disposition", "situation", "message", "next_step")
+# CSV 裡會寫出文字的欄；code、status、level、exit_code、disposition 是固定值域，由 check_messages.py 管
+CSV_TEXT_FIELDS = ("situation", "message", "description", "next_step")
 
 
 def csv_cells(root: Path) -> list[tuple[str, str, str]]:

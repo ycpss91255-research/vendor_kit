@@ -62,7 +62,7 @@ VK 對外只有兩個入口：
   - 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，Release 頁上目前還沒有這個檔
 - `just vendor_kit …`
   - 日常使用的全部指令；CI 也用它，見下面的[檢查 (test)](#檢查-test)
-  - 都收在 `vendor_kit` 這個<ins>命名空間</ins>底下，不佔用 <ins>repo</ins> 自己的頂層指令名
+  - 都收在 `vendor_kit` 這個命名空間底下，不佔用 <ins>repo</ins> 自己的頂層指令名
 
 ## 指令
 
@@ -129,7 +129,7 @@ VK 對外只有兩個入口：
   ```text
   $ just vendor_kit
   stderr: vendor_kit <版本>
-  stderr: vendor_kit: error[VK0024]: 未指定指令。
+  stderr: vendor_kit: error[VK0024]: No command was specified.
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
   ```
@@ -142,17 +142,17 @@ VK 對外只有兩個入口：
 
   ```text
   $ just vendor_kit add
-  stderr: vendor_kit: error[VK0025]: 缺少必要參數：<repo>。
+  stderr: vendor_kit: error[VK0025]: Required argument is missing: <repo>.
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
 
   $ just vendor_kit upgrde base
-  stderr: vendor_kit: error[VK0026]: 不認得的指令或選項：upgrde。
+  stderr: vendor_kit: error[VK0026]: Unknown command or option: upgrde.
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
 
   $ just vendor_kit upgrade base@1.2.0
-  stderr: vendor_kit: error[VK0027]: tag 格式不合：1.2.0；只接受 vX.Y.Z，X、Y、Z 不收前導零。
+  stderr: vendor_kit: error[VK0027]: Invalid tag format: 1.2.0. Use vX.Y.Z with no leading zeros in X, Y, or Z.
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
   ```
@@ -229,7 +229,7 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
   ```text
   $ just vendor_kit update --exit-code
   stdout: base 有新版 v1.3.0（目前為 v1.2.0）。
-  stderr: vendor_kit: warn[VK0022]: base 有新版：目前為 v1.2.0，新版為 v1.3.0。可執行：just vendor_kit upgrade base
+  stderr: vendor_kit: warn[VK0022]: A newer version of base is available: current v1.2.0; new v1.3.0. Run: just vendor_kit upgrade base
   exit code: 1
   ```
 

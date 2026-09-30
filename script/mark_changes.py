@@ -29,6 +29,8 @@
 共用一個版本號：輸出 <鍵>.v<N>.md、<鍵>.v<N>.csv，與一份合併的 <鍵>.v<N>.marked.md——前半是
 .md 的逐行差異，後半是 CSV 的逐碼差異（依 code 對齊、逐欄比較，只列有改動的代碼）。
 表頭改了（例如刪掉 note 欄）時，後半開頭先標出新舊表頭；刪掉的欄在各碼照樣列出舊值並標紅。
+表頭新增欄位（例如在 level 後新增 exit_code、在 message 後新增 description）也會依新表頭的位置
+列入逐碼差異；欄位順序一律以新版表頭為準，已刪欄位才接在最後。
 CSV 的基準版是 _backup/doc_contract_<name>.<後綴>.csv；傳 doc/contract/<name>.csv 等於傳頁名。
 兩個檔只有一個有基準版時，另一個視為這一輪沒改（CSV 不在 git 的 HEAD 裡則視為新建、整份標新增），
 並在輸出與標示版開頭註明。
@@ -325,8 +327,9 @@ def diff_csv(old_text: str | None, new_text: str, name: str) -> tuple[list[str],
     """依 code 對齊、逐欄比較；只列有改動的代碼，每碼一段 #### VKnnnn。回傳（行, 新增數, 刪除數）。
 
     old_text 是 None 表示 CSV 是新建的：每個代碼都算新增。
-    欄位照新表頭的順序，新表頭拿掉的欄接在後面：刪掉的欄在表頭與各碼都標紅，
-    否則只刪欄的代碼會被當成沒改動。
+    欄位照新表頭的順序，新表頭拿掉的欄接在後面：
+    刪掉的欄在表頭與各碼都標紅，否則只刪欄的代碼會被當成沒改動。
+    新表頭新增的欄在各碼標綠新值並註記（本欄新增）；舊值是空的不算改動。
     """
     old_fields, old_rows = read_rows(old_text) if old_text is not None else ([], {})
     new_fields, new_rows = read_rows(new_text)
@@ -372,6 +375,10 @@ def diff_csv(old_text: str | None, new_text: str, name: str) -> tuple[list[str],
                 if a:
                     out.append(f"- `{f}`：{mark(show(a), 'del')} {COLUMN_REMOVED}")
                     dele += 1
+            elif f in added:
+                if b:
+                    out.append(f"- `{f}`：{mark(show(b), 'ins')} {COLUMN_ADDED}")
+                    ins += 1
             elif a == b:
                 if b:
                     out.append(f"- `{f}`：{show(b)}")

@@ -8,15 +8,21 @@
    不准以 =、+、-、@、Tab、CR 開頭（Excel 公式注入）。
 2. 代碼：VK 加四位數字；從 VK0001 起逐列加一（唯一、遞增、不缺列；停用的留列）。
 3. status 只准 active、retired；retired 列除 code、status、situation 外都要空白。
-4. active 列：level 只准 warn、error、fatal；situation、message 必填。
+4. active 列：level 只准 warn、error、fatal；exit_code 必須分別是 1、2、3；
+   situation、message、description 必填，message 不准含中文字元。
 5. disposition 只准「需人處理」「失敗」或空白；warn 一律空白；需人處理必有 next_step；失敗的 next_step 必須空白。
 6. next_step 有值時必須逐字出現在 message 裡。
 7. 欄位不准 HTML 與 Markdown；不帶屬性的 <…> 算占位符；< 與 > 要成對。
 8. 引用：README.md、doc/contract/*.md、GLOSSARY.md 裡的每個 VKnnnn 都要在 CSV 且是 active；
    doc/adr/*.md 只要求存在。連 03_messages.csv 不准帶 #；連結文字是代碼時不准連 03_messages.md
    （03_messages.md 不放逐碼內容，一律連 CSV）。01、02 不准連 CSV。
+9. 診斷範例：README.md、doc/contract/*.md、GLOSSARY.md 裡的
+   `vendor_kit: <level>[VKnnnn]: <本文>`，level 要等於 CSV；本文要符合 message 第一行，
+   message 裡的 <…> 占位符可對應範例中的任意文字。
+10. active 列的 message 句首要大寫，或以占位符、小寫指令名 just 開頭；結尾要是句點，
+    或以 next_step、just vendor_kit 指令結尾。
 
-指令寫法（CSV 的 message、next_step 裡的 `just vendor_kit …`）由 check_review_pages.py 檢查。
+指令寫法（CSV 的 situation、message、next_step 裡的 `just vendor_kit …`）由 check_review_pages.py 檢查。
 錯誤位置報 `<檔>:<代碼>:<欄名>`，不報實體行號。CSV 還不存在時跳過並印 OK。
 
 用法：python3 script/check_messages.py（在 repo 根目錄跑；有問題以 1 結束）
@@ -31,9 +37,12 @@ ROOT = pathlib.Path(".")
 REVIEW = ROOT / "doc/contract"
 CSV_PATH = REVIEW / "03_messages.csv"
 MD_PATH = REVIEW / "03_messages.md"
-FIELDS = ["code", "status", "level", "disposition", "situation", "message", "next_step"]
+FIELDS = [
+    "code", "status", "level", "exit_code", "disposition", "situation", "message", "description", "next_step",
+]
 STATUS = {"active", "retired"}
 LEVELS = {"warn", "error", "fatal"}
+EXIT_CODES = {"warn": "1", "error": "2", "fatal": "3"}
 DISPOSITIONS = {"需人處理", "失敗", ""}
 RETIRED_KEEP = {"code", "status", "situation"}
 CODE = re.compile(r"^VK\d{4}$")
@@ -55,6 +64,10 @@ MARKDOWN = (
     (re.compile(r"(?m)^(#{1,6}\s|[-*+]\s|>\s|\d+\.\s)"), "行首的標題、清單或引言記號"),
 )
 LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
+CHINESE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+DIAGNOSTIC = re.compile(r"vendor_kit: (warn|error|fatal)\[(VK\d{4})\]: (.*)$")
+PLACEHOLDER = re.compile(r"<[^<>]+>")
+COMMAND_END = re.compile(r"just vendor_kit\b[^\n]*\Z")
 
 
 def rel(path: pathlib.Path) -> str:
@@ -156,7 +169,7 @@ def check_rows(rows: list[dict[str, str]], errors: list[str]) -> dict[str, dict[
             bad = placeholders_ok(v)
             if bad:
                 errors.append(f"{fa}: {bad}")
-        status, level, disp = row["status"], row["level"], row["disposition"]
+        status, level, exit_code, disp = row["status"], row["level"], row["exit_code"], row["disposition"]
         if status not in STATUS:
             errors.append(f"{at}:status: 只准 active、retired")
         if not row["situation"]:
@@ -169,8 +182,14 @@ def check_rows(rows: list[dict[str, str]], errors: list[str]) -> dict[str, dict[
         if status == "active":
             if level not in LEVELS:
                 errors.append(f"{at}:level: active 列只准 warn、error、fatal")
+            elif exit_code != EXIT_CODES[level]:
+                errors.append(f"{at}:exit_code: {level} 必須是 {EXIT_CODES[level]}")
             if not row["message"]:
                 errors.append(f"{at}:message: active 列必填")
+            if not row["description"]:
+                errors.append(f"{at}:description: active 列必填")
+        if CHINESE.search(row["message"]):
+            errors.append(f"{at}:message: 不准含中文字元；中文說明放 description")
         if disp not in DISPOSITIONS:
             errors.append(f"{at}:disposition: 只准「需人處理」「失敗」或空白")
         if level == "warn" and disp:
@@ -181,6 +200,15 @@ def check_rows(rows: list[dict[str, str]], errors: list[str]) -> dict[str, dict[
             errors.append(f"{at}:next_step: 失敗的 next_step 必須空白")
         if row["next_step"] and row["next_step"] not in row["message"]:
             errors.append(f"{at}:next_step: 要逐字出現在 message 裡")
+        message = row["message"]
+        if message and not (message[0].isupper() or message.startswith("<") or re.match(r"just(?:\s|$)", message)):
+            errors.append(f"{at}:message: 句首要大寫，或以占位符、小寫指令名 just 開頭")
+        if message and not (
+            message.endswith(".")
+            or (row["next_step"] and message.endswith(row["next_step"]))
+            or COMMAND_END.search(message)
+        ):
+            errors.append(f"{at}:message: 結尾要是句點，或以 next_step、just vendor_kit 指令結尾")
     return by_code
 
 
@@ -225,6 +253,40 @@ def check_refs(by_code: dict[str, dict[str, str]], errors: list[str]) -> None:
                     errors.append(f"{where}: [{text}]({target}) 改連 03_messages.csv；03_messages.md 不放逐碼內容")
 
 
+def message_pattern(message: str) -> re.Pattern[str]:
+    """把 message 第一行轉成整行比對；<…> 占位符是萬用字元。"""
+    parts = []
+    end = 0
+    for placeholder in PLACEHOLDER.finditer(message):
+        parts.append(re.escape(message[end:placeholder.start()]))
+        parts.append(".*")
+        end = placeholder.end()
+    parts.append(re.escape(message[end:]))
+    return re.compile("".join(parts) + r"\Z")
+
+
+def check_diagnostics(by_code: dict[str, dict[str, str]], errors: list[str]) -> None:
+    """規則 9：文件裡的診斷範例要與 CSV 的 level、message 第一行一致。"""
+    paths = [ROOT / "README.md", ROOT / "GLOSSARY.md", *sorted(REVIEW.glob("*.md"))]
+    for path in paths:
+        if not path.exists():
+            continue
+        for i, line in enumerate(path.read_text().splitlines(), 1):
+            match = DIAGNOSTIC.search(line)
+            if not match:
+                continue
+            level, code, body = match.groups()
+            row = by_code.get(code)
+            if row is None or row["status"] != "active":
+                continue  # 規則 8 會回報不存在或已停用的代碼
+            where = f"{rel(path)}:{i}"
+            if level != row["level"]:
+                errors.append(f"{where}: {code} 的 level 是 {level}，CSV 是 {row['level']}")
+            first_line = row["message"].splitlines()[0]
+            if not message_pattern(first_line).fullmatch(body):
+                errors.append(f"{where}: {code} 的本文不符合 CSV message 第一行：{first_line}")
+
+
 def check(errors: list[str]) -> bool:
     """回傳 CSV 是否存在。"""
     if not CSV_PATH.exists():
@@ -234,6 +296,7 @@ def check(errors: list[str]) -> bool:
         return True
     by_code = check_rows(rows, errors)
     check_refs(by_code, errors)
+    check_diagnostics(by_code, errors)
     return True
 
 

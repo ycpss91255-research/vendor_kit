@@ -38,8 +38,8 @@
 ```text
 stdout: A 已是最新。
 stdout: B 有新版 v1.3.0（目前為 v1.2.0）。
-stderr: vendor_kit: warn[VK0022]: B 有新版：目前為 v1.2.0，新版為 v1.3.0。可執行：just vendor_kit upgrade B
-stderr: vendor_kit: error[VK0001]: 無法列舉 C 的版本：需要 registry 讀取權限。可設定 VENDOR_KIT_REGISTRY_TOKEN（或 VENDOR_KIT_REGISTRY_TOKEN_FILE），或直接指定版本：just vendor_kit upgrade C@<tag>（拉取使用主機 docker 認證）
+stderr: vendor_kit: warn[VK0022]: A newer version of B is available: current v1.2.0; new v1.3.0. Run: just vendor_kit upgrade B
+stderr: vendor_kit: error[VK0001]: Cannot list versions for C: registry read access is required. Set VENDOR_KIT_REGISTRY_TOKEN (or VENDOR_KIT_REGISTRY_TOKEN_FILE), or specify a version directly: just vendor_kit upgrade C@<tag> (pulling uses the host's Docker credentials).
 exit code: 2
 ```
 
@@ -47,7 +47,11 @@ exit code: 2
 
 - 成功時改了什麼、查詢結果與各 recipe 的 `-h`／`--help` 用法只印到 stdout，不加前綴
 - stderr 只放診斷及其續行、<ins>詢問</ins>文字、不帶指令時第一行的版本行，以及用法錯誤後附的用法
-- 只打 `just vendor_kit`、不帶指令時，stderr 第一行印 `vendor_kit <版本>`，第二行印 `vendor_kit: error[VK0024]: 未指定指令。`，接著印簡短用法，以 `2` 結束
+- 只打 `just vendor_kit`、不帶指令時，stderr 第一行印 `vendor_kit <版本>`，第二行印下列診斷，接著印簡短用法，以 `2` 結束：
+
+  ```text
+  vendor_kit: error[VK0024]: No command was specified.
+  ```
 - 主機前置檢查（檢查主機的 just 與 Docker）排在建執行紀錄之前；沒通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷
 - `remove`／`uninstall` 依契約保留初始檔時，把保留清單印到 stdout，以 `0` 結束
 - 詢問時使用者明確回答「否」，是正常取消：不做變更，在 stdout 說明未變更，以 `0` 結束
@@ -59,11 +63,11 @@ exit code: 2
 
 ## 訊息
 
-每條診斷都印到 stderr。第一行格式固定是 `vendor_kit: <level>[VKnnnn]: <中文本文>`。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。多行診斷的續行也印到 stderr。
+每條診斷都印到 stderr。第一行格式固定是 `vendor_kit: <level>[VKnnnn]: <message>`。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。只有診斷本文固定使用英文；stdout 的正常輸出、詢問與用法不在這條語言規則內。診斷本文以完整英文句子書寫，句首大寫並以句點結尾；以占位符或小寫的指令名開頭時照原樣，以指令結尾時不加句點，免得複製到句點。本文可能同時包含原因與下一步，需要保留完整句子的邊界。中文說明見訊息表的 `description` 欄。多行診斷的續行也印到 stderr。
 
 <ins>原因代碼</ins>是 `VK` 加四位數字。每個代碼以訊息表的 `situation` 欄為唯一意思；發出後永不重用。停用的代碼不刪列，`status` 改成 `retired`，留作空號。
 
-每個代碼的 level、處置、情況、本文與下一步，只寫在[訊息表](03_messages.csv)，一列一個代碼；本頁不再列一份。
+每個代碼的 level、處置、情況、本文與下一步，只寫在[訊息表](03_messages.csv)，一列一個代碼。
 
 處置與下一步：
 
@@ -79,9 +83,11 @@ exit code: 2
   - `code`：原因代碼，從 `VK0001` 起逐列加一，不缺列
   - `status`：`active` 使用中；`retired` 已停用，只留 `code`、`status`、`situation`
   - `level`：`warn`、`error`、`fatal`，對應的結束碼見[結束碼](#結束碼)
+  - `exit_code`：該 level 對應的結束碼；`warn` 為 `1`、`error` 為 `2`、`fatal` 為 `3`；`retired` 列留空
   - `disposition`：處置，`需人處理`、`失敗` 或留空；`warn` 一律留空
   - `situation`：什麼情況發出這個代碼，是它唯一的意思
-  - `message`：本文，逐字照印，不含前綴；多行診斷在同一格內換行，一行對應印出的一行
+  - `message`：英文本文，逐字照印，不含前綴；多行診斷在同一格內換行，一行對應印出的一行
+  - `description`：訊息的中文說明，給人閱讀；`active` 列必填
   - `next_step`：可以直接複製執行的單一指令，逐字出現在 `message` 裡，占位符都由 VK 換成實際的值；需人處理必填，失敗與沒有指令的留空；做不到的診斷標失敗
 - 占位符
   - `<…>` 是占位符，VK 印出時換成實際的值
