@@ -34,7 +34,7 @@
    ```
 
 3. **產生標示版與帶版本號的副本。** 改完在 repo 根目錄跑 `python3 script/mark_changes.py <基準後綴> <頁>`（[標示版產生器](../../script/mark_changes.py)），基準後綴是這一輪的備份後綴，例如 `pre_r101`。審閱頁傳頁名，例如 `02_invariants`；根目錄 README 傳 `README.md`。每跑一次：
-   - 在 `doc/decisions/_marked/` 產出兩個檔名帶版本號的檔：`<鍵>.vN.marked.md` 是標示版，綠底是新增，紅底是刪除或被取代的舊文字；`<鍵>.vN.md` 是同一版的正文副本。同一個鍵的舊版會被刪掉，只留最新一版。
+   - 在 `doc/decisions/_marked/` 產出兩個檔名帶版本號的檔：`<鍵>.vN.marked.md` 是標示版，新增用綠底 `<mark>`、刪除（被取代或拿掉的舊文字）用紅底 `<mark>`；`<鍵>.vN.md` 是同一版的正文副本。同一個鍵的舊版會被刪掉，只留最新一版。
    - 版本號只在 `_marked/` 的檔名：正式檔與正文副本內都不寫版本號。正式檔名不帶版本號，也不改名，其他文件的連結才不會斷。
    - 版本號 N 取 [版本號紀錄](../decisions/review_log/versions.json)（`doc/decisions/review_log/versions.json`，進 git）裡這個鍵的數字加一並寫回，沒有記錄就是 v1。它跟著 git 走，所以換電腦、新 clone 或清掉 `_marked/` 之後不會從 v1 重來。
 

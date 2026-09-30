@@ -30,7 +30,7 @@
 |---|---|---|
 | `review_log/` | 審閱頁（01–04）的審閱往返：codex brief／output、Claude 子代理審查紀錄。舊輪次的子目錄已歸檔（跟著原本的 `_legacy` 目錄搬到 repo 外的本機參考目錄）。另有 `versions.json`：`mark_changes.py` 記各鍵版本號的檔，進 git，不屬於審閱往返。 | 審閱往返在審閱頁定案後就沒有讀者，見「待處理」；`versions.json` 在 `mark_changes.py` 還在用時留著。 |
 | `_backup/` | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`），`script/mark_changes.py` 靠它產生改動標示。 | 定案後只有 `mark_changes.py` 還需要最近一輪。見「待處理」。 |
-| `_marked/` | `mark_changes.py` 的輸出：新增綠底、被取代的舊文字紅底，給維護者審閱用。只有對外文件（根目錄 README.md 與審閱頁 01～04）產標示版；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產。已在 `.gitignore`，是產生物。 | 每輪重新產生，不需要保留。 |
+| `_marked/` | `mark_changes.py` 的輸出：新增綠底 `<mark>`、刪除（被取代或拿掉的舊文字）紅底 `<mark>`，給維護者審閱用。只有對外文件（根目錄 README.md 與審閱頁 01～04）產標示版；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產。已在 `.gitignore`，是產生物。 | 每輪重新產生，不需要保留。 |
 | `_legacy`（已搬出） | 原本放已歸檔的檔案；已搬到 repo 外、只留維護者本機的 `../reference/_legacy`，不進 git。見下一段。 | 本機參考用，確認清楚之後刪。 |
 
 ## 已歸檔（repo 外的 `../reference/_legacy`）

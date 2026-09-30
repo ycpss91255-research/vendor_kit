@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""產生審閱頁的標示版：新增用 <mark> 綠底、被取代的舊文字用 <del> 紅底刪除線。
+"""產生審閱頁的標示版：新增用綠底 <mark>，刪除（被取代或拿掉的舊文字）用紅底 <mark>。
 
 底線 <ins> 是名詞標記，所以改動不用底線，避免兩種意思混在一起。
 
@@ -32,20 +32,20 @@ VERSIONS = pathlib.Path("doc/decisions/review_log/versions.json")
 
 
 def mark(body: str, tag: str) -> str:
-    """新增用 <mark>（綠底），被取代的舊文字用 <del>（紅底、刪除線）。
+    """新增用綠底 <mark>，刪除（被取代或拿掉的舊文字）用紅底 <mark>。
 
-    兩種用不同標籤，編輯器外掛（例如 render-markdown.nvim 的 html.tag）才能各自上色；
-    GitHub 會濾掉內嵌樣式，但 <del> 照樣顯示成刪除線。標示版只在本地 review 用、不進 git。
+    tag 是 "ins"（新增）或 "del"（刪除），只用來選顏色，輸出一律是 <mark>。
+    GitHub 會濾掉內嵌樣式；標示版只在本地 review 用、不進 git。
     """
     if tag == "ins":
-        return '<mark style="background:#c8f7c5">' + body + "</mark>"
-    return '<del style="background:#ffc9c9">' + body + "</del>"
+        return '<mark style="background-color:#c8f0c8">' + body + "</mark>"
+    return '<mark style="background-color:#f8c8c8">' + body + "</mark>"
 
 
 def wrap(line: str, tag: str) -> str:
-    """把一行包成 <ins>／<del>。
+    """把一行包成新增或刪除的 <mark>（tag 是 "ins" 或 "del"）。
 
-    標題、清單、引言的行首記號留在標籤外，否則 `<ins>## 目錄</ins>` 會讓標題
+    標題、清單、引言的行首記號留在標籤外，否則 `<mark>## 目錄</mark>` 會讓標題
     變成普通文字；表格列改成逐格包，整列包住會切斷表格。
     """
     if not line.strip():
@@ -157,7 +157,7 @@ def build(name: str, suffix: str) -> tuple[int, int]:
     rev = next_rev(key)
     MARKED.mkdir(parents=True, exist_ok=True)
     header = [
-        f"<!-- 標示版 v{rev}：綠底 <mark> 是新文字、紅底刪除線 <del> 是被取代的舊文字；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
+        f"<!-- 標示版 v{rev}：綠底 <mark> 是新增、紅底 <mark> 是刪除；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
         f"基準 {suffix}。正式內容看 /{path.as_posix()} -->",
         "",
     ]

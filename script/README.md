@@ -2,7 +2,7 @@
 
 ## 對外文件的改動標示（`mark_changes.py`）
 
-對外文件（審閱頁 `doc/contract/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增文字用綠底 `<mark>`；刪除或被取代的舊文字用紅底 `<mark>`。標示版只在本機審閱用、不進 git（`doc/decisions/_marked/` 在 `.gitignore` 裡），所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；審完只留最終版。整套審閱流程（討論分支、定案才 merge、送審給哪兩個檔）見[審閱頁說明](../doc/contract/README.md)「版本怎麼迭代」，這裡只講工具。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
+對外文件（審閱頁 `doc/contract/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增用綠底 `<mark>`，刪除（被取代或拿掉的舊文字）用紅底 `<mark>`。標示版只在本機審閱用、不進 git（`doc/decisions/_marked/` 在 `.gitignore` 裡），所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；審完只留最終版。整套審閱流程（討論分支、定案才 merge、送審給哪兩個檔）見[審閱頁說明](../doc/contract/README.md)「版本怎麼迭代」，這裡只講工具。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
 
 ### 一輪的流程
 
@@ -44,7 +44,7 @@
 ### 標示規則
 
 - 表格列在儲存格內標記，不把整列包起來。整列包住會讓那一列不再是合法的表格列，GitHub 與 VS Code 都會把表格切斷。
-- 標題、清單、引言的行首記號留在標籤外（`## <mark style="background:#c8f7c5">目錄</mark>`），否則標題會變成普通文字。
+- 標題、清單、引言的行首記號留在標籤外（`## <mark style="background-color:#c8f0c8">目錄</mark>`），否則標題會變成普通文字。
 - 粗體留給結構標籤、底線留給名詞標記、綠底與紅底的 `<mark>` 留給改動，三者互不衝突。
 
 ## 名詞表自檢（`check_context.py`）
