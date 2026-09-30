@@ -49,6 +49,8 @@
 
 28. 只打 `just vendor_kit`（不帶指令）印出版本與用法：第一行 `vendor_kit <版本>`，接著是用法；維持用法錯誤，輸出到 stderr、以 `2` 結束。不提供頂層 `just vendor_kit -h`／`--version`（just 會當成 recipe 名稱）。各 recipe 的 `-h`／`--help` 照留（實測參數會原樣傳進 recipe）。
 
+29. VK 承諾支援離線導入：01 補上這條承諾；04 保留 `bootstrap.sh -i <image>` 與 `add <repo> -i <image>`（用本機 image 當來源，版本鎖定行照樣寫 digest）。
+
 ## 待討論
 
 ### Q1 02 第 8 條的 U1～U6 要不要編號（已定案，見上面第 10 條）
