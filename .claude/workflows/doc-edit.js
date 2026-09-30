@@ -53,7 +53,7 @@ ${FILES}
 5. 名詞照 ${repo}/CONTEXT.md；_Avoid_ 詞不准出現。名詞底線用 <ins>，不用 <u>（GitHub 會刪掉 <u>）。
 6. 連結要是有名字的超連結（[名字](路徑)），不要把路徑當連結文字；路徑要實際存在。`
 
-const LINT = `cd ${repo} && python3 script/check_terms.py && python3 script/check_context.py`
+const LINT = `cd ${repo} && python3 script/check_terms.py && python3 script/check_context.py && python3 script/check_review_pages.py`
 
 const RESULT = {
   type: 'object',
@@ -127,13 +127,13 @@ ${files.map(f => `- ${f}`).join('\n')}
 先讀 doc/decisions/review/01_purpose.md、doc/decisions/review/02_invariants.md、CONTEXT.md，以及檔中引用到的 ADR。
 
 請回答：
-1. 正確性：每一句跟 01、02、CONTEXT.md、ADR 有沒有對不上的地方？出處標的條號、章節對不對？
+1. 正確性：每一句跟 01、02、CONTEXT.md、ADR 有沒有對不上的地方？「依 [頁名](連結#錨點) 第 N 條」引用的條號與錨點對不對？對外頁（README、審閱頁 01～04）不准有「出處：」行。
 2. 連結：每個連結都是有名字的超連結嗎？目標路徑存在嗎？
 3. 名詞：有沒有用了 CONTEXT.md 沒定義的詞、或 _Avoid_ 詞？
 4. 易讀性：第一次看的人哪裡看不懂？哪句太長、太繞？
 ${codex_focus.trim() ? `5. 額外重點：${codex_focus.trim()}` : ''}
 
-輸出 markdown，分「必改」「建議」兩區；每條寫位置（檔名＋行號或標題）、問題、建議、出處。不要客套話。`
+輸出 markdown，分「必改」「建議」兩區；每條寫位置（檔名＋行號或標題）、問題、建議、證據（檔名＋行號）。不要客套話。`
 
 const ITEM = {
   type: 'object',
@@ -170,7 +170,7 @@ codex exec --skip-git-repo-check -C ${repo} -o ${CODEX_OUT} "$(cat <暫存檔>)"
 
    - \`< /dev/null\` 不可省略，省了 codex 會停在等 stdin。
    - 不要帶 --sandbox：repo 的 .codex/config.toml 已設 danger-full-access。
-4. 讀 ${CODEX_OUT}，「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、出處。output_file 填 ${CODEX_OUT}。
+4. 讀 ${CODEX_OUT}，「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、證據（放 source 欄）。output_file 填 ${CODEX_OUT}。
 5. codex 失敗或輸出是空的：兩個陣列都回空，error 寫原因。**不要假裝有結果。**
 
 brief：
@@ -192,7 +192,7 @@ ${BACKGROUND}
 ${JSON.stringify(review.must_fix, null, 2)}
 
 規則：
-- 每一條都要處理；做法照 fix 欄，但要先對照 source 欄的出處確認 codex 沒看錯。確認 codex 看錯的那條不要改，寫進 changed 並註明「未改：理由」。
+- 每一條都要處理；做法照 fix 欄，但要先對照 source 欄的證據確認 codex 沒看錯。改法若會削弱 02 的不變量、改變 01 的承諾或 03／04 的對外介面，不要改，寫進 changed 並註明「未改：改到對外承諾，要維護者決定」。確認 codex 看錯的那條不要改，寫進 changed 並註明「未改：理由」。
 - 只改必改指到的地方，不要順手改別的。
 - 改完跑 \`${LINT}\`，要全部 OK。`,
     { label: '套用必改', phase: '套用必改', schema: RESULT, agentType: 'general-purpose', ...(effort.edit ? { effort: effort.edit } : {}) })
@@ -211,7 +211,7 @@ ${GUARDRAILS}
 ${BACKGROUND}
 
 額外規則：
-- 不改意思、不加新事實、不刪承諾或出處。
+- 不改意思、不加新事實、不刪承諾或「依 [頁名](連結) 第 N 條」的引用。
 - 不動程式碼區塊、行內程式碼、路徑、連結目標、數字、條號、表格結構。
 - 語氣直接，用「你」或省略主詞；不用「我認為」「建議」「也許」這類軟化詞。
 - 這一輪不做文字浮水印檢查，skill 最後的浮水印詢問略過。
