@@ -237,7 +237,7 @@ VK recipe 結束時回給呼叫方的整數。
 VK 寫入檔案時用來標示該檔資料格式的整數版號。
 
 **救援路徑**（rescue path）：
-不論薄殼、VK 檔與引擎的版本組合是否相符，都必須能用的呼叫，只有這些：`install`、`upgrade --engine`、`sync` 的版本不符判定，以及四種印用法呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）。其他 recipe 的 `-h`／`--help` 不屬救援路徑。
+不論薄殼、VK 檔與引擎的版本組合是否相符，都必須能用的呼叫，只有這些：`install`、`upgrade --engine`、`sync` 的版本不符判定，以及四種印用法呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）。本詞條不規定救援路徑以外 recipe 的 `-h`／`--help` 在版本組合不合時的行為。
 `just vendor_kit`（不帶指令）第一行印 `vendor_kit <版本>`，接著印用法，輸出到 stderr、以結束碼 `2` 結束。沒有頂層的 `-h`／`--version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱。
 
 **契約**（contract）：
