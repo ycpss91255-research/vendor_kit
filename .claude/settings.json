@@ -64,6 +64,15 @@
             "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/contract_edit_guard.py\""
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/decision_guard.py\""
+          }
+        ]
       }
     ]
   }
