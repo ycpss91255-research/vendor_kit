@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """檢查根 GLOSSARY.md：照 domain-modeling skill 的格式（.claude/skills/domain-modeling/CONTEXT-FORMAT.md）。
 
-- `## Language` 底下用 `### 分群` 分群，名詞一行 `**名詞**（英文）：`，下一行起是定義，可接 `_Avoid_:`。
+- `## Language` 底下用 `### 分群` 分群，名詞一行 `**名詞** (english)：`（舊寫法 `**名詞**（英文）：` 也認），下一行起是定義，可接 `_Avoid_:`。
 - 不寫目錄、不寫 HTML 錨點：skill 沒有這些；HTML 只准 `<ins>`（GitHub 與 GitLab 都顯示）。
 - `_Avoid_` 詞不得出現在正文。
 
@@ -13,7 +13,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TERM = re.compile(r"^\*\*(.+?)\*\*(（[^）]*）)?[:：]\s*$")
+# 英文注名兩種寫法都認：全形「**X**（y）：」與半形「**X** (y)：」（括號內全 ASCII 時用半形並空一格）。
+TERM = re.compile(r"^\*\*(.+?)\*\*(（[^）]*）| \([^)]*\))?[:：]\s*$")
+# 看起來像名詞行（粗體開頭、冒號結尾）卻不合 TERM：寫法改了而 regex 沒跟上時會靜默少算，所以報錯。
+LOOKS_LIKE_TERM = re.compile(r"^\*\*.+\*\*.*[:：]\s*$")
 TAG = re.compile(r"<(/?)([a-zA-Z][\w-]*)[^>]*>")
 
 
@@ -52,6 +55,8 @@ def main(path: Path) -> int:
             continue
         m = TERM.match(ln)
         if not m:
+            if LOOKS_LIKE_TERM.match(ln):
+                errs.append(f"正文第 {lang + i + 2} 行像名詞行但格式不認得：{ln.strip()}；用 `**名詞** (english)：` 或 `**名詞**（中文注名）：`")
             continue
         if not groups:
             errs.append(f"名詞 {m.group(1)} 不在任何 ### 分群底下")

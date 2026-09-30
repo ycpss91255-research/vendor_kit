@@ -41,7 +41,7 @@
    鍵對審閱頁是頁名，對其他檔是攤平後的路徑，規則見[工具說明](../../script/README.md)。
 4. **送審。** 用 SendUserFile 把 `<鍵>.vN.md` 與 `<鍵>.vN.marked.md` 兩個檔一起傳給維護者。不傳沒帶版本號的正式檔：看檔名就要知道是哪一版，不用打開才知道。
 
-內部文件（本檔、[工作約定](../../AGENTS.md)、[工具說明](../../script/README.md)、[ADR 規則](../adr/README.md) 等，也就是對外文件以外的所有文件）改完照樣走步驟 2（doc-edit），但不產標示版、不送審；也不准留過時的資訊。
+內部文件（本檔、[工作約定](../../AGENTS.md)、[工具說明](../../script/README.md)、[ADR 規則](../adr/README.md) 等，也就是對外文件以外的所有文件）改完照樣走步驟 2 (doc-edit)，但不產標示版、不送審；也不准留過時的資訊。
 
 `doc/decisions/_marked/` 與 `doc/decisions/_backup/` 只在本機，不進 git（見[忽略清單](../../.gitignore)），所以標示版與帶版本號的副本要在本機看。正式的改動紀錄是 git 的 commit 歷史。
 
