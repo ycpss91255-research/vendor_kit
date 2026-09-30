@@ -23,10 +23,10 @@ style 字串都是完整的，直接貼進 `<mxCell style="...">`。
 
 模組、repo、外部角色這一層用泳道。標題列高 38、字 18 粗體、黑框 2。
 
-紅：VK 要開發的模組
+深紫加紅框：VK 的容器（例如引擎）。紅框表示 VK 開發的，填色表示類型
 
 ```
-swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#f8cecc;swimlaneFillColor=#ffffff;strokeColor=#000000;strokeWidth=2;
+swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#c9b8e8;swimlaneFillColor=#ffffff;strokeColor=#b85450;strokeWidth=2;
 ```
 
 綠：使用 VK 的 repo
@@ -41,10 +41,16 @@ swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;colla
 swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#FFF4C3;swimlaneFillColor=#ffffff;strokeColor=#000000;strokeWidth=2;
 ```
 
-紫：image／container（框線用紫，不用黑）
+淡紫：image（框線用紫，不用黑）
 
 ```
 swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#e1d5e7;swimlaneFillColor=#ffffff;strokeColor=#9673a6;strokeWidth=2;
+```
+
+深紫：不是 VK 開發的容器（框線用紫）
+
+```
+swimlane;html=1;rounded=1;startSize=38;fontStyle=1;fontSize=18;container=1;collapsible=1;recursiveResize=0;fillColor=#c9b8e8;swimlaneFillColor=#ffffff;strokeColor=#7e57c2;strokeWidth=2;
 ```
 
 淺灰：分組（無狀態意義；流程頁的情境分組也用它）
@@ -322,12 +328,9 @@ swimlane;html=1;rounded=1;startSize=34;fontStyle=1;fontSize=14;container=0;colla
 - 模組（紅泳道）放在 VK 容器內：容器內左邊距 20、頂端從 50 開始；模組上下至少隔 60（放線與線上文字）。
 - 方塊放在模組內：第一格 (12, 45)，也就是標題列 38 下面再空 7。
 
-### 4.4 流程頁的泳道
+### 4.4 流程頁的版面
 
-- 欄頭列：y = 60（純文字欄頭，高 24）或 y = 64（灰底欄頭格，高 28）；欄頭的 x、寬就是下面每一欄的 x、寬。
-- 欄由左到右依「誰做」排：使用者 → 外部服務 → 啟動器（主機）→ 引擎容器 → registry → repo 目錄。
-- 情境分組（淺灰泳道）橫跨整頁：x = 20，寬 1560～1600；第一個從 y = 100 開始，由上往下疊，分組之間隔 30。
-- 分組內的格子依欄對齊：格子的中心落在所屬欄內；同一列的格子等高，列與列之間隔 20。
+流程頁不分泳道，版面規則見第 7 節。
 
 ### 4.5 方塊尺寸與間距
 
@@ -400,3 +403,18 @@ rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=
 - **字不得壓到線或泳道邊框**。泳道之間至少留 100，讓線上文字落在空白處；畫完匯出成圖逐格檢查。
 - **能對齊就拉直線**。兩端的格子調到同一條水平或垂直線上，避免轉彎；真的對不齊才加轉折點。
 - **排緊**：泳道高度由最高那欄決定，其餘欄的格子往上貼。
+
+## 7. 流程頁的規則（2026-09-29 定案）
+
+這一節優先於前面各節裡講到流程頁的部分（1.1 的深紫、1.3 的藍、2.1～2.3 的黃綠紅橙、2.8 的淺灰情境分組、3.4 的彩色圖例）。架構頁照舊。
+
+- **流程圖只畫要設計的流程**：不分「使用者／主機／引擎」泳道，也不標哪一步由誰做。流程裡的東西都還沒做出來，所以不用紅框標「VK 開發的」。
+- **誰做的用底色分，不用泳道**：要標出某一步由誰做，只改那一格的底色，流程的排法不因此改變。使用者做的步驟淡黃 `#FFF4C3`、主機做的步驟淺灰 `#f5f5f5`、引擎做的步驟白色。判斷、起點、終點一律白色。不用紫色、不用紅框。
+- **除了上一條，不上顏色**：格子白底黑框。靠形狀分類型：
+  - 判斷 = 菱形（`rhombus`，白底、框粗 2）
+  - 起點、終點 = 橢圓（`ellipse`，白底、框粗 2）；終點橢圓裡寫退出碼
+  - 步驟 = 圓角方塊（`rounded=1`，白底、框粗 1）
+- **標區塊用虛線框**：要標出一段流程屬於哪個區塊（例如「逐檔處理初始檔」），畫一個有名字的虛線框把那段圍起來。樣式 `rounded=1;dashed=1;fillColor=none;strokeColor=#666666;verticalAlign=top;align=left;spacingLeft=8;fontSize=14;`。虛線框放在格子下層，不是容器。
+- **版面**：主流程直排一欄；分支往右排，迴圈回線走左側；多個結果匯回同一處時用右側匯流線。
+- **使用者視角**：常用指令的流程頁（add、upgrade、dev）只畫使用者看得到的判斷與結果。執行紀錄、進度檔、預檢、取件細節、「要改先問」的 `-y`／CI 規則各自畫在共用頁。
+- **圖例**：菱形「判斷」、橢圓「起點／終點」、圓角方塊「步驟」、虛線框「區塊」，有用到的底色各一格（「使用者做的」「主機做的」），外加文字「數字 = 退出碼；實線 = 執行順序」。

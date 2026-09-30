@@ -27,6 +27,26 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 |---|---|---|---|
 | `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
 | `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
+| `diagram-page` | 子代理照規格用 drawio MCP 逐格畫一頁、自查版面，再由 codex 附圖只讀審查 | 新畫或重畫 `proposal_claude_v3.drawio` 的某一頁 | `page_id`、`page_name`、`what`、`spec` |
+
+## diagram-page
+
+一個子代理畫、一個子代理啟動 codex 審。畫的那個只准用 `edit_diagram` 逐格改、只動指定頁；審的那個只轉述 codex，不加自己的意見。
+
+args 欄位：
+
+| 欄位 | 必填 | 說明 |
+|---|---|---|
+| `page_id` | 是 | 圖的持久鍵 `<diagram id>` |
+| `page_name` | 是 | 頁名（標題就寫在頁名） |
+| `what` | 是 | 一句話說這頁畫什麼，給 codex 看 |
+| `spec` | 是 | 版面規格：泳道、每一格（文字、類型、座標）、每條線（起訖、標籤） |
+| `settled` | 否 | 這頁已定的規則與契約出處，codex 不要建議推翻 |
+| `read_first` | 否 | codex 要先讀的檔，預設 01、02、`CONTEXT.md`、`STYLE.md`、`doc/adr/` |
+| `drawio_file` | 否 | 預設 `doc/decisions/research/diagram_proposals/proposal_claude_v3.drawio` |
+| `effort` | 否 | `{ draw, review }` |
+
+產物：`doc/decisions/review_log/diagram/` 下的 `page_<id>.png`、`brief_codex_<id>.md`、`codex_<id>.md`。回傳 `{ page_id, drawn, review }`；`review` 分 `must_fix`、`suggest`、`different`。args 範例在腳本檔尾。
 
 兩個都有選填的 `repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`（共用背景／已定案前提）與 `effort`。
 
