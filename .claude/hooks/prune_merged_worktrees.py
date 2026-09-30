@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO = "ycpss91255-research/vendor_kit"
@@ -114,9 +115,11 @@ def prune(root: Path) -> tuple[list[str], list[str]]:
     fp = git(root, "rev-list", "--first-parent", "origin/main")
     first_parent = set(fp.stdout.split()) if fp.returncode == 0 else set()
 
-    # 先把判斷全部做完；gh 任何一次失敗就整批不刪
-    merged = [(p, b) for p, b in targets
-              if merged_by_gh(b) or merged_by_ancestry(root, b, first_parent)]
+    # 先把判斷全部做完（gh 並行查）；gh 任何一次失敗就整批不刪
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        by_gh = list(pool.map(merged_by_gh, [b for _, b in targets]))
+    merged = [(p, b) for (p, b), g in zip(targets, by_gh)
+              if g or merged_by_ancestry(root, b, first_parent)]
 
     removed, dirty = [], []
     for path, branch in merged:
