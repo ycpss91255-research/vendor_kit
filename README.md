@@ -1,6 +1,6 @@
 # vendor_kit
 
-vendor_kit（VK）把一套工具送進很多個 repo，例如開發環境設定、共用腳本、初始檔。它記住每個安裝目錄用哪一版，可以升版，也可以退版；升版時不會蓋掉你改過的初始檔。主機只需要 [Docker](https://www.docker.com/)、[Git](https://git-scm.com/)、[just](https://github.com/casey/just)。
+vendor_kit (VK) 把一套工具送進很多個 repo，例如開發環境設定、共用腳本、初始檔。它記住每個安裝目錄用哪一版，可以升版，也可以退版；升版時不會蓋掉你改過的初始檔。主機只需要 [Docker](https://www.docker.com/)、[Git](https://git-scm.com/)、[just](https://github.com/casey/just)。
 
 ## 目錄
 
@@ -67,6 +67,6 @@ sh bootstrap.sh
 - [03 訊息與錯誤碼總表](doc/contract/03_messages.md)：每個結束碼的意思，與要使用者動手處理的訊息
 - [04 使用者介面](doc/contract/04_interface.md)：全部指令與選項
 - [名詞表](GLOSSARY.md)
-- [架構決議（ADR）](doc/adr/)
+- [架構決議 (ADR)](doc/adr/)
 
 每個指令的開發進度見 [issue #47](https://github.com/ycpss91255-research/vendor_kit/issues/47)。

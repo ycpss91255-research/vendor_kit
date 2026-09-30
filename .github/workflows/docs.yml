@@ -23,6 +23,8 @@ jobs:
         run: python3 script/check_review_pages.py
       - name: check_messages（訊息表 03_messages.csv：格式、代碼、欄位規則、引用）
         run: python3 script/check_messages.py
+      - name: check_typography（排版：ASCII 括號用半形、中文與英數之間空一格）
+        run: python3 script/check_typography.py
 
   # 文件工具（script/ 底下的 lint 與產生器）自己的測試；VK 程式碼的測試放根目錄 test/ 與 test.yml，不混在這裡
   docs-tool-test:

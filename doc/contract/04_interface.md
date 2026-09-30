@@ -16,7 +16,7 @@
 - [各指令專用選項](#各指令專用選項)
 - [輸出](#輸出)
 - [使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
-- [檢查（test）](#檢查test)
+- [檢查 (test)](#檢查-test)
 - [CI 模式](#ci-模式)
 
 ## 主機需求
@@ -43,7 +43,7 @@
 
 依 [02 不變量第 2 條](02_invariants.md#2-一個來源版本鎖定行只有一份進-git)，認證由主機與 CI 各自處理：在支援的 registry 上，主機的 docker 拉得到的 image，VK 就用得了。
 
-- 支援的 registry 目前只有 GitHub 的 image 伺服器（GHCR）。沒列在這份清單上的 registry（例如 Docker Hub、GitLab、自架）不在承諾內
+- 支援的 registry 目前只有 GitHub 的 image 伺服器 (GHCR)。沒列在這份清單上的 registry（例如 Docker Hub、GitLab、自架）不在承諾內
 - <ins>引擎 image</ins> 公開；<ins>工具 image</ins> 公開或私有，由出貨那個 repo 自己決定
 - 沒有給憑證時，不支援需要認證的版本列舉：對那個工具以[結束碼](03_messages.md#結束碼) `2`結束，印出兩條路，訊息見 [訊息](03_messages.csv) `VK0001`
   - 設定 `VENDOR_KIT_REGISTRY_TOKEN`（或 `VENDOR_KIT_REGISTRY_TOKEN_FILE`）
@@ -61,7 +61,7 @@ VK 對外只有兩個入口：
   - 再跑一次就是修復
   - 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，Release 頁上目前還沒有這個檔
 - `just vendor_kit …`
-  - 日常使用的全部指令；CI 也用它，見下面的[檢查（test）](#檢查test)
+  - 日常使用的全部指令；CI 也用它，見下面的[檢查 (test)](#檢查-test)
   - 都收在 `vendor_kit` 這個<ins>命名空間</ins>底下，不佔用 <ins>repo</ins> 自己的頂層指令名
 
 ## 指令
@@ -132,7 +132,7 @@ VK 對外只有兩個入口：
   - tag 格式不合：[訊息](03_messages.csv) `VK0027`，見下面的[指定版本](#指定版本)
 - 位置參數只放工具名稱 `<repo>`；其他值都經由選項帶入，例如 `-p <dir>`、`-i <image>`
 - 同一個概念一種寫法：對象是引擎一律寫 `--engine`，本機 image 一律寫 `-i <image>`
-- 選項採 GNU 式的長短選項與 `--`（[GNU Coding Standards](https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html)），但有兩點刻意不遵循 [POSIX Utility Syntax Guidelines](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html)：選項放在位置參數之後也可以（不遵循 Guideline 9），`--engine` 的值可帶可不帶（不遵循 Guideline 7）。具體寫法：
+- 選項採 GNU 式的長短選項與 `--` ([GNU Coding Standards](https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html))，但有兩點刻意不遵循 [POSIX Utility Syntax Guidelines](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html)：選項放在位置參數之後也可以（不遵循 Guideline 9），`--engine` 的值可帶可不帶（不遵循 Guideline 7）。具體寫法：
   - 有短也有長：`-h`／`--help`、`-y`／`--yes`、`-i`／`--image`、`-p`／`--path`
   - 只有長：`--engine`、`--exit-code`
   - 選項放在位置參數之前或之後都可以，意思相同
@@ -147,7 +147,7 @@ VK 對外只有兩個入口：
 - 最新版是把 X、Y、Z 當非負整數逐欄比數值，取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版
 - 寫出格式不合的 tag 是用法錯誤，印出 [訊息](03_messages.csv) `VK0027` 診斷，以[結束碼](03_messages.md#結束碼) `2`結束
 - 不加 `init`、`ensure`、`diff`、`accept`、`rollback` 這類別名，也不加 `--purge`（VK 永不刪 repo 檔，這個選項沒有對象）。這些用途各自由既有指令的選項或 git 處理
-- 工具 repo 的命名空間也照這套寫法，例如 base（[base#1192](https://github.com/ycpss91255-docker/base/issues/1192)）
+- 工具 repo 的命名空間也照這套寫法，例如 base ([base#1192](https://github.com/ycpss91255-docker/base/issues/1192))
 
 ### 成對與無害
 
@@ -179,7 +179,7 @@ VK 對外只有兩個入口：
 - 一律不改
 - 以[結束碼](03_messages.md#結束碼) `2`結束
 - 印出該打的指令，訊息見 [訊息](03_messages.md#vk0002) `VK0002`
-- 讀到輸入結束（EOF）不算同意
+- 讀到輸入結束 (EOF) 不算同意
 
 能互動時，詢問文字印到 stderr，不帶 <ins>[level](03_messages.md#結束碼)</ins> 前綴。使用者明確回答「否」是正常取消：不修改，並在 stdout 說明未變更，以[結束碼](03_messages.md#結束碼) `0`結束。
 
@@ -242,7 +242,7 @@ append 型的初始檔：
 - `add` 遇到已存在的檔：不納管、不覆蓋，印出 [訊息](03_messages.csv) `VK0018` 警告並以[結束碼](03_messages.md#結束碼) `1`結束
 - `remove` 與 `uninstall`：不刪初始檔，只把清單印到 stdout，不加前綴，以[結束碼](03_messages.md#結束碼) `0`結束
 
-## 檢查（test）
+## 檢查 (test)
 
 <ins>`test`</ins> 是 VK 的檢查指令，本機與 CI 用同一個。`test` 一律以 CI 模式執行，不寫進 git 的檔。檢查的範圍照這個原則：
 

@@ -121,6 +121,24 @@ python3 script/check_terms.py
 - **目前沒有登記**：`WHITELIST` 是空的。（歷史：過去登記過 01 審閱頁的舊標題與 `doc/decisions/README.md` 引用它的那一列；維護者 2026-09-30 定案把標題改成「01 目的與承諾」後，這兩筆已拿掉。）
 - **「數位簽章」例外**：「簽章」是名詞「印記」的舊名，但「數位簽章」是密碼學的標準術語（digital signature），跟印記無關；講 registry 或 image 的簽章時本來就該這樣寫。所以用負向前瞻 `(?<!數位)簽章` 只抓單獨的「簽章」，否則這支腳本會逼著大家把正確的詞改掉。
 
+## 中英排版自檢（`check_typography.py`）
+
+改了 `README.md`、`doc/contract/*.md`、`doc/contract/*.csv` 或 `GLOSSARY.md` 就跑，CI 的 docs-lint job 也跑這支：
+
+```sh
+python3 script/check_typography.py
+python3 script/check_typography.py --fix
+```
+
+在 repo 根目錄執行。全過印 `OK` 回 0；有違規逐條印 `<檔>:<行>: <問題與建議寫法>` 回 1。加 `--fix` 直接改檔，只動下面兩條規則涉及的空白與括號，其他字元不動。規則是維護者定案的：
+
+- 括號裡全是 ASCII（英文、數字、符號）時用半形括號，半形括號與中文之間空一格：「檢查（test）」寫成「檢查 (test)」。括號裡有中文就維持全形「（…）」。
+- 中文與英文字母或阿拉伯數字相鄰時中間空一格：「VK的recipe」寫成「VK 的 recipe」、「第12條」寫成「第 12 條」。全形標點（，。、：；「」（）等）與英數之間不加空白。
+
+不查行內程式碼、程式碼區塊、URL、Markdown 連結目標（括號裡的路徑與錨點）與 HTML 標籤。CSV 只查文字欄（`disposition`、`situation`、`message`、`next_step`、`note`），`code`、`status`、`level`、`invariant`、`details` 是固定值域，不查。`--fix` 改到 CSV 之後再跑 `check_messages.py`，確認 `next_step` 仍逐字出現在 `message` 裡；改到標題時 GitHub 產生的錨點跟著變，連到舊錨點的連結不會自動改，要另外改。
+
+各條規則的正反例與排除範圍在 [check_typography 測試](test/test_check_typography.py)。
+
 ## 圖面工具
 
 見[圖面工具說明](diagram/README.md)。
