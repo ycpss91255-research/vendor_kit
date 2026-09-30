@@ -32,6 +32,12 @@
 CSV 的基準版是 _backup/doc_contract_<name>.<後綴>.csv；傳 doc/contract/<name>.csv 等於傳頁名。
 兩個檔只有一個有基準版時，另一個視為這一輪沒改（CSV 不在 git 的 HEAD 裡則視為新建、整份標新增），
 並在輸出與標示版開頭註明。
+
+以已送審的版本當基準（維護者看過並回覆的內容不再標紅綠，只標之後的改動）：
+    python3 script/mark_changes.py --base-version 03_messages=13 04_interface=17 GLOSSARY=6
+基準讀 doc/decisions/_marked/<鍵>.v<N>.md（有附屬 CSV 時也讀 <鍵>.v<N>.csv），版本號照舊加一；
+左邊可寫頁名、路徑或鍵（GLOSSARY 對到根目錄的 GLOSSARY.md）。找不到指定版號的副本就停下報錯。
+基準版的副本保留不刪。
 """
 import csv
 import difflib
@@ -454,7 +460,94 @@ def build(name: str, suffix: str) -> tuple[int, int]:
     return ins, dele
 
 
+def resolve_base_name(name: str) -> str:
+    """--base-version 左邊的名字 → mark_changes 的名字。
+
+    審閱頁照舊傳頁名；其他檔可傳路徑，也可以直接傳鍵：頁名對不到 doc/contract/<名>.md、
+    但 repo 根目錄有 <名>.md 時（例如 GLOSSARY、README），當成那個根目錄檔。
+    """
+    name = normalize(name)
+    if "/" not in name and not name.endswith(".md") and not (REVIEW / f"{name}.md").exists() \
+            and pathlib.Path(f"{name}.md").exists():
+        return f"{name}.md"
+    return name
+
+
+def missing_base(name: str, base: int) -> list[pathlib.Path]:
+    """已送審版本 v<base> 缺哪些副本（.md，有附屬 CSV 時加 .csv）。"""
+    name = resolve_base_name(name)
+    key = target(name)[1]
+    need = [MARKED / f"{key}.v{base}.md"]
+    if companion_csv(name) is not None:
+        need.append(MARKED / f"{key}.v{base}.csv")
+    return [p for p in need if not p.exists()]
+
+
+def build_from_version(name: str, base: int) -> tuple[int, int]:
+    """以已送審的 _marked/<鍵>.v<base>.md（與 .csv）當基準產生新的標示版，版本號照舊加一。
+
+    維護者看過並回覆的那一版不再標紅綠，只標之後的改動。基準副本裡的相對連結已改寫成從
+    _marked/ 出發，所以正式檔先用同一套改寫再比，連結不會被誤標成改動；比出來的行已是改寫後的
+    寫法，輸出時不再改寫一次。基準版的副本保留不刪，下一輪還沒回覆前還能再當基準。
+    找不到指定版號的副本就停下報錯。
+    """
+    name = resolve_base_name(name)
+    path, key = target(name)
+    csv_path = companion_csv(name)
+    base_md = MARKED / f"{key}.v{base}.md"
+    base_csv = MARKED / f"{key}.v{base}.csv"
+    missing = missing_base(name, base)
+    if missing:
+        raise SystemExit(f"找不到 {name} 的已送審版本 v{base}：\n  " + "\n  ".join(map(str, missing)))
+    old = base_md.read_text().splitlines()
+    new = rewrite_links(path.read_text(), path).splitlines()
+    out, ins, dele = diff_md(old, new)
+    if csv_path is not None:
+        csv_out, c_ins, c_del = diff_csv(base_csv.read_text(encoding="utf-8"),
+                                         csv_path.read_text(encoding="utf-8"), name)
+        out += [""] + csv_out
+        ins += c_ins
+        dele += c_del
+    rev = next_rev(key)
+    official = f"/{path.as_posix()}" + ("" if csv_path is None else f" 與 /{csv_path.as_posix()}")
+    header = [
+        f"<!-- 標示版 v{rev}：綠底 <mark> 是新增、紅底 <mark> 是刪除；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
+        f"基準是已送審的 v{base}。正式內容看 {official} -->",
+        "",
+    ]
+    keep = {base_md, base_csv}
+    stale = (list(MARKED.glob(f"{key}.v*.marked.md")) + list(MARKED.glob(f"{key}.v*[0-9].md"))
+             + list(MARKED.glob(f"{key}.v*[0-9].csv")))
+    for old_file in stale:
+        if old_file not in keep:
+            old_file.unlink()
+    (MARKED / f"{key}.v{rev}.md").write_text(rewrite_links(path.read_text(), path))
+    if csv_path is not None:
+        (MARKED / f"{key}.v{rev}.csv").write_bytes(csv_path.read_bytes())
+    # out 裡的行已是從 _marked/ 出發的寫法，不再改寫
+    (MARKED / f"{key}.v{rev}.marked.md").write_text("\n".join(header + out) + "\n")
+    return ins, dele
+
+
 def main() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] == "--base-version":
+        pairs = sys.argv[2:]
+        if not pairs:
+            sys.exit(__doc__)
+        parsed = []
+        for pair in pairs:
+            name, sep, num = pair.rpartition("=")
+            if not sep or not name or not num.isdigit():
+                sys.exit(f"--base-version 的參數要寫成 <頁>=<版號>，例如 03_messages=13：{pair}")
+            parsed.append((name, int(num)))
+        # 先全部檢查過再產：缺一個就整批不做，不會只取到一部分的號
+        missing = [p for name, base in parsed for p in missing_base(name, base)]
+        if missing:
+            sys.exit("找不到指定版號的已送審副本，沒有產生任何標示版：\n  " + "\n  ".join(map(str, missing)))
+        for name, base in parsed:
+            ins, dele = build_from_version(name, base)
+            print(f"{name}: {ins} ins, {dele} del（基準 v{base}）")
+        return
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     suffix, names = sys.argv[1], sys.argv[2:]

@@ -429,3 +429,112 @@ class CsvTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BaseVersionTest(unittest.TestCase):
+    """--base-version：以已送審的 _marked/<鍵>.v<N>.md（與 .csv）當基準。"""
+
+    GREEN = '<mark style="background-color:#c8f0c8">'
+    RED = '<mark style="background-color:#f8c8c8">'
+    PAGE = "# 03\n\n見 [名詞表](../../GLOSSARY.md#vk) 與 [04](04_interface.md)。\n\n不變的段落\n"
+    CSV = "﻿code,status,message\nVK0001,active,本文\n"
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.TemporaryDirectory()
+        os.chdir(self._tmp.name)
+        pathlib.Path("doc/contract").mkdir(parents=True)
+        pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
+        pathlib.Path("doc/decisions/review_log").mkdir(parents=True)
+        pathlib.Path("doc/decisions/review_log/versions.json").write_text('{"03_messages": 13, "GLOSSARY": 6}\n')
+        pathlib.Path("doc/contract/03_messages.md").write_text(self.PAGE)
+        pathlib.Path("doc/contract/03_messages.csv").write_text(self.CSV, encoding="utf-8")
+        marked = pathlib.Path("doc/decisions/_marked")
+        marked.mkdir(parents=True)
+        # 已送審的 v13：正文副本的連結已改寫成從 _marked/ 出發
+        (marked / "03_messages.v13.md").write_text(
+            mark_changes.rewrite_links(self.PAGE, pathlib.Path("doc/contract/03_messages.md")))
+        (marked / "03_messages.v13.csv").write_text(self.CSV, encoding="utf-8")
+        (marked / "03_messages.v13.marked.md").write_text("舊標示版\n")
+
+    def tearDown(self):
+        os.chdir(self._cwd)
+        self._tmp.cleanup()
+
+    def marked(self, rev=14):
+        return pathlib.Path(f"doc/decisions/_marked/03_messages.v{rev}.marked.md").read_text()
+
+    def test_same_content_has_no_marks(self):
+        # 正式檔與基準副本相同：連結寫法不同也不能算改動
+        ins, dele = mark_changes.build_from_version("03_messages", 13)
+        self.assertEqual((ins, dele), (0, 0))
+        text = self.marked()
+        self.assertNotIn("<mark", text.split("-->", 1)[1])
+        self.assertIn("../../../GLOSSARY.md#vk", text)
+        self.assertIn('"03_messages": 14', pathlib.Path("doc/decisions/review_log/versions.json").read_text())
+
+    def test_only_later_changes_marked(self):
+        pathlib.Path("doc/contract/03_messages.md").write_text(self.PAGE.replace("不變的段落", "改過的段落"))
+        pathlib.Path("doc/contract/03_messages.csv").write_text(self.CSV.replace("本文", "新本文"), encoding="utf-8")
+        ins, dele = mark_changes.build_from_version("03_messages", 13)
+        text = self.marked()
+        self.assertIn(self.GREEN + "改過的段落</mark>", text)
+        self.assertIn(self.RED + "不變的段落</mark>", text)
+        self.assertIn(self.RED + "本文</mark> → " + self.GREEN + "新本文</mark>", text)
+        # 沒改的連結行不標
+        self.assertNotIn(self.GREEN + "見 [名詞表]", text)
+        self.assertEqual((ins, dele), (2, 2))
+
+    def test_base_copy_kept_and_older_removed(self):
+        mark_changes.build_from_version("03_messages", 13)
+        names = sorted(p.name for p in pathlib.Path("doc/decisions/_marked").iterdir())
+        self.assertEqual(names, ["03_messages.v13.csv", "03_messages.v13.md",
+                                 "03_messages.v14.csv", "03_messages.v14.marked.md", "03_messages.v14.md"])
+
+    def test_missing_version_fails(self):
+        with self.assertRaises(SystemExit) as cm:
+            mark_changes.build_from_version("03_messages", 12)
+        self.assertIn("v12", str(cm.exception))
+        # 失敗不取號
+        self.assertIn('"03_messages": 13', pathlib.Path("doc/decisions/review_log/versions.json").read_text())
+
+    def test_missing_csv_copy_fails(self):
+        pathlib.Path("doc/decisions/_marked/03_messages.v13.csv").unlink()
+        with self.assertRaises(SystemExit):
+            mark_changes.build_from_version("03_messages", 13)
+
+    def test_root_file_by_key(self):
+        pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n[03](doc/contract/03_messages.md)\n")
+        pathlib.Path("doc/decisions/_marked/GLOSSARY.v6.md").write_text(
+            mark_changes.rewrite_links(pathlib.Path("GLOSSARY.md").read_text(), pathlib.Path("GLOSSARY.md")))
+        self.assertEqual(mark_changes.build_from_version("GLOSSARY", 6), (0, 0))
+        self.assertTrue(pathlib.Path("doc/decisions/_marked/GLOSSARY.v7.marked.md").exists())
+
+    def test_cli_parses_pairs(self):
+        argv = sys.argv
+        sys.argv = ["mark_changes.py", "--base-version", "03_messages=13"]
+        try:
+            mark_changes.main()
+        finally:
+            sys.argv = argv
+        self.assertTrue(pathlib.Path("doc/decisions/_marked/03_messages.v14.marked.md").exists())
+
+    def test_cli_rejects_bad_pair(self):
+        argv = sys.argv
+        sys.argv = ["mark_changes.py", "--base-version", "03_messages"]
+        try:
+            with self.assertRaises(SystemExit):
+                mark_changes.main()
+        finally:
+            sys.argv = argv
+
+    def test_cli_missing_one_builds_none(self):
+        argv = sys.argv
+        sys.argv = ["mark_changes.py", "--base-version", "03_messages=13", "GLOSSARY=6"]
+        try:
+            with self.assertRaises(SystemExit):
+                mark_changes.main()
+        finally:
+            sys.argv = argv
+        self.assertFalse(pathlib.Path("doc/decisions/_marked/03_messages.v14.marked.md").exists())
+        self.assertIn('"03_messages": 13', pathlib.Path("doc/decisions/review_log/versions.json").read_text())
