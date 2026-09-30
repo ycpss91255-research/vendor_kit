@@ -1,6 +1,6 @@
 # ADR-0010：dev 自身與驗收共用同一條「用指定 image 當引擎」的路
 
-> Serves: 機制（服務不變量 9、10），不建立不變量——本檔記錄驗收用的乾淨 fixture repo、recipe 矩陣與流程順序、用剛 build 出來的引擎 image、以 `version.local.toml` 覆寫引擎，以及 `dev vendor_kit -i <本機 image>` 指到舊引擎時的限制，是[不變量 9「對外承諾必須黑箱可驗；本機開發與正式啟動走同一個入口」](../decisions/review/02_invariants.md#9-對外承諾必須黑箱可驗本機開發與正式啟動走同一個入口)的實現機制；指到舊引擎時的那條限制同時服務[不變量 10](../decisions/review/02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)的「退得回」。
+> Serves: 機制（服務不變量 9、10），不建立不變量——本檔記錄驗收用的乾淨 fixture repo、recipe 矩陣與流程順序、用剛 build 出來的引擎 image、以 `version.local.toml` 覆寫引擎，以及 `dev --engine -i <image>` 指到舊引擎時的限制，是[不變量 9「對外承諾必須黑箱可驗；本機開發與正式啟動走同一個入口」](../decisions/review/02_invariants.md#9-對外承諾必須黑箱可驗本機開發與正式啟動走同一個入口)的實現機制；指到舊引擎時的那條限制同時服務[不變量 10](../decisions/review/02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)的「退得回」。
 
 - **Status:** Accepted
 
@@ -59,9 +59,14 @@ install → add → upgrade → dev/undev → remove → uninstall
 - 本檔的 `<本機 image tag>`、`<本機 image>` 一律讀作 `<image>`；出處同上。
 - 機制不變：`dev --engine -i <image>` 寫的仍是 `version.local.toml` 的引擎覆寫 `vendor_kit = "<image>"`；第 5 節「指到舊引擎時允許跑、禁止重產薄殼」與第 6 節的擁有者分工，新寫法照舊適用。原文保留，不改寫歷史。
 
+### 修訂（2026-09-30）
+
+- **Amendment status:** Accepted
+- 檔頭 Serves 與 Consequences 直接改用現行寫法 `dev --engine -i <image>`；Decision 各節與修訂（2026-09-29）保留原文，仍照該則修訂讀作新寫法。決定不變。
+
 ## Consequences
 
-- 開發者手上那條路就是出貨閘門走的那條路。`dev vendor_kit -i` 壞了，驗收會一起壞，不會只壞在使用者那邊。
+- 開發者手上那條路就是出貨閘門走的那條路。`dev --engine -i` 壞了，驗收會一起壞，不會只壞在使用者那邊。
 - 驗收只碰公開入口，所以引擎內部隨時重寫都不用改驗收。反過來說，任何對外行為的改動都必須先在矩陣裡有一項，否則出貨閘門攔不到它。
 - 「退得回」有可跑的驗證方式：拿舊引擎跑一次，看內容取不取得回來。
 - 付出的是驗收的慢。每一項都要起容器、建 fixture repo、跑完整流程；矩陣有 13 項，時間花在最後一層。

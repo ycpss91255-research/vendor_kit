@@ -21,7 +21,7 @@
   - 旁邊一份同名 `.digest` 檔，記那個 image 的正式多架構 index digest
   - 另有一份 `SHA256SUMS` 涵蓋其餘資產
 
-旁檔記的是正式的多架構 index digest，不是那一份 tar 的雜湊。它的用途只有一個：讓離線那條路寫出跟線上一樣的版本鎖定行。`SHA256SUMS` 管的是其餘資產的完整性，不承擔 digest 這件事。
+旁檔記的是正式的多架構 index digest，不是那一份 tar 的雜湊。各平台的 tar 本身位元組不同；兩個平台之間要一致的是 image 裡的交付資料，比較方式見 [ADR-0011 第 3 節](0011-test-layers-and-ci-matrix.md#3-多架構-image-與兩平台驗證)。它的用途只有一個：讓離線那條路寫出跟線上一樣的版本鎖定行。`SHA256SUMS` 管的是其餘資產的完整性，不承擔 digest 這件事。
 
 ### 2. 離線導入從旁檔取得 digest
 
@@ -47,6 +47,7 @@
 - **Amendment status:** Accepted
 - 不變量頁改成只寫概念（維護者 2026-09-30），原本寫在那裡的機制細節移到本檔。決定不變，只補記。
 - 第 3 節的永不刪涵蓋已釋出的 image（含多架構 index 的子 digest）、Release 資產，以及驗收用的 fixture。
+- Consequences 的驗收敘述直接改用現行寫法 `add <repo> -i <image>`；第 2 節與修訂（2026-09-29）保留原文，仍照該則修訂讀作新寫法。
 
 ## Consequences
 
@@ -54,9 +55,9 @@
 
 代價落在出貨端。每次 release 要多交每個平台的 `.digest` 與一份 `SHA256SUMS`；支援平台增加時 tar 與旁檔的數量跟著長。永不刪是永久成本：儲存與已用過的版本號只會累積，發錯的版本也只能另發一版蓋過去，不能撤掉。
 
-`doc/adr/README.md` 的待拍板清單裡有「dist image 單架構 amd64」。那一項若定成單架構，tar 的份數變成一份，旁檔與 `SHA256SUMS` 的形狀不動，本檔不必改。
+工具 image 已定為多架構 amd64＋arm64（[ADR-0011 第 3 節](0011-test-layers-and-ci-matrix.md#3-多架構-image-與兩平台驗證)），所以每個支援平台各一份 tar。（歷史：這裡原本寫「單架構 amd64」仍待拍板。）
 
-驗收落在黑箱層：乾淨 fixture 裡拿掉旁檔跑 `add --local`，要得到 `1`，且版本鎖定行不動。
+驗收落在黑箱層：乾淨 fixture 裡拿掉旁檔跑 `add <repo> -i <image>`，要得到 `1`，且版本鎖定行不動。
 
 ## Alternatives
 

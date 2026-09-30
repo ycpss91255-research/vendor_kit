@@ -10,7 +10,7 @@
 
 平台那一側的失敗方式更難發現。鎖只在一個平台鎖得住、行尾比對只在一個平台等價、指紋只在一個平台算得一樣——這些在別的平台上不會報錯，只會靜默給錯答案，而且通常被當成那台機器的個別狀況。同一批使用者手上同時有 Jetson、WSL2 與共用工作站，出錯的那一台不會自己回報。要接住這類錯誤，支援平台得先是一份明列的清單，清單上的每個平台都要真的跑過。
 
-主機那三個工具裡，`just` 是唯一會因版本差異改變 recipe 行為的一個；不變量 5 已經把下限定在 `just >= 1.33.0`。下限只寫在文件裡不等於驗過，也不保證上游後來的版本還照舊行為。
+主機那三個工具裡，`just` 是唯一會因版本差異改變 recipe 行為的一個；下限 `just >= 1.33.0` 記在 [ADR-0007 第 1 節](0007-host-thin-layer-and-shell-integrity.md#1-主機依賴的版本下限)與 [04 使用者介面的主機需求](../decisions/review/04_interface.md#主機需求)。下限只寫在文件裡不等於驗過，也不保證上游後來的版本還照舊行為。
 
 ## Decision
 
@@ -32,9 +32,9 @@
 
 ### 3. 多架構 image 與兩平台驗證
 
-- 工具 image 為多架構 amd64 + arm64，同一次 buildx 出、COPY-only，CI 驗兩平台位元組一致；引擎 image 同為多架構，只驗兩平台 LABEL（protocol 與 schema）一致
+- 工具 image 為多架構 amd64 + arm64，同一次 buildx 出、COPY-only，CI 驗兩平台 image 內展開的交付資料逐檔位元組一致；引擎 image 同為多架構，只驗兩平台 LABEL（protocol 與 schema）一致
 
-工具 image 只裝資料，同一份 `dist/` 進去，兩個平台出來就該一個位元組都不差，所以驗的是位元組。工具 image 三行 `Dockerfile.dist` 的 COPY-only 形狀由 [ADR-0006](0006-tool-image-as-data-only.md) 擁有，本檔擁有的是驗證那一側。
+工具 image 只裝資料，同一份 `dist/` 進去，兩個平台展開出來的每個檔就該一個位元組都不差，所以驗的是交付資料逐檔的位元組。比的是展開後的檔。image tar、layer 與 digest 含平台資訊，兩個平台本來就不同，不拿來比。工具 image 三行 `Dockerfile.dist` 的 COPY-only 形狀由 [ADR-0006](0006-tool-image-as-data-only.md) 擁有，本檔擁有的是驗證那一側。
 
 引擎 image 兩個平台各有自己的編譯產物，位元組本來就不同，能比也該比的是對外契約：`protocol` 與 `schema` 兩個 LABEL 在兩個平台一致。
 
@@ -64,7 +64,7 @@
 ## Alternatives
 
 - **CI 只跑 amd64，arm64 等使用者回報。** 省一半 CI 資源，但不變量 11 要防的正是「不會報錯、只給錯答案」的那類錯誤，靠回報等於沒驗。
-- **每個平台各發一個單架構 image、版本鎖定行各鎖一個 digest。** 建置最簡單，但同一行在不同機器就會裝到不同內容，打破鎖定行的意義（同樣的理由讓 [ADR-0001](0001-why-not-existing-tools.md) 不採 vendir 的多架構處理）。`doc/decisions/scope_roadmap.md` 仍有「dist image 單架構 amd64」待拍板，要改走這條就得先修那一條。
+- **每個平台各發一個單架構 image、版本鎖定行各鎖一個 digest。** 建置最簡單，但同一行在不同機器就會裝到不同內容，打破鎖定行的意義（同樣的理由讓 [ADR-0001](0001-why-not-existing-tools.md) 不採 vendir 的多架構處理）。（歷史：`doc/decisions/scope_roadmap.md` 曾把「dist image 單架構 amd64」列為待拍板，那一項已定案為多架構。）
 - **引擎 image 也驗兩平台位元組一致。** 標準更嚴，但引擎在兩個架構上編出來的產物本來就不同，這個檢查永遠紅，測不到任何東西。
 - **分層交給 CI job 串接，不用 multi-stage。** CI 設定寫得出同樣的順序，代價是順序只存在於 CI：本機跑不到同一條鏈，分層與閘門變成兩份真相。
 - **CI 只鎖 `1.33.0` 一格。** 綠燈最穩定，但上游 `just` 改了行為要等使用者撞到才知道，而使用者裝的通常就是 latest。

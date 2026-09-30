@@ -93,15 +93,16 @@ VK 在主機上只留一層很薄的東西：啟動器把事情叫起來，規�
 - 第 2 節「不變量 5 列的基礎 userland」的清單（POSIX sh 與它的內建指令，加上 `grep`、`sed`、`id`、`mktemp`、`mkdir`、`date`、`rm`、`sleep`、`od`、`tr`）現在列在 [04 使用者介面](../decisions/review/04_interface.md#主機需求)，第 2 節讀作那一份。
 - 主機不必為 VK 裝任何第三方 binary，只借主機已有的 docker。合併用的 `git merge-file` 在引擎容器內跑，不是主機依賴，所以與「VK 在主機上不呼叫 git」不衝突。
 - 引擎不讀 `.git`、不碰 index、不做 `git init`；worktree 與 submodule 同樣適用。
+- Consequences 直接改用現行寫法 `upgrade --engine`；Decision 各節與修訂（2026-09-29）保留原文，仍照該則修訂讀作新寫法。
 
 ## Consequences
 
 - 主機只要備 Docker、Git、just；版本不足或裝的是 Podman，在第一次寫入之前就停下，錯誤訊息裡有可以照做的指令。
 - 薄殼被手改、或跟引擎不是同一版，一律在寫入前被抓到並列出差異，包含無害的格式調整。想調薄殼格式只能改引擎的模板再重產。
-- 薄殼與引擎脫節時，`sync` 只提示，不替使用者重寫進 git 的檔。使用者要自己跑一次 `upgrade vendor_kit`。
+- 薄殼與引擎脫節時，`sync` 只提示，不替使用者重寫進 git 的檔。使用者要自己跑一次 `upgrade --engine`。
 - 升引擎要跑兩次：第一次換引擎並以 1 結束，第二次才做事。指令歷史裡會看到同一行指令連著兩次。
 - 白名單多一個主機命令就是改對外契約，得先修訂不變量 5 再改 lint，沒有「先加了再說」的路。
-- 需要同步的東西：`doc/decisions/review/02_invariants.md` 第 5、6、10 條的「建立或服務它的 ADR」行改指本檔。
+- 已同步更新（歷史）：`doc/decisions/review/02_invariants.md` 第 5、6、10 條的「建立或服務它的 ADR」行已列入本檔。
 - 驗收案例（黑箱層）：低版本 docker、`docker --version` 含 `podman`、低版本 just 各一條；改一個位元組的薄殼；舊薄殼跑新 major 的一般 recipe；同一個不合組合下四條救援路徑仍然可用。
 
 ## Alternatives

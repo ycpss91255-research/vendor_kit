@@ -1,6 +1,6 @@
 # ADR-0004：VK recipe 一行轉發、寫入邊界，與 CI 模式的封閉紅燈清單
 
-> Serves: 機制（服務不變量 8、3、4），不建立不變量——本檔記錄 VK recipe 的轉發形狀與分組、每個 recipe 能寫什麼（CI 模式判定與五項封閉紅燈清單）、進度檔與入口檔的原子替換順序，以及 `sync` 三種情境的處置，是[不變量 8「使用者介面不可取代、寫法一致；recipe 語意固定」](../decisions/review/02_invariants.md#8-使用者介面不可取代寫法一致recipe-語意固定)、[不變量 3「自動化只碰不進 git 的東西」](../decisions/review/02_invariants.md#3-自動化只碰不進-git-的東西)與[不變量 4「永不靜默失敗」](../decisions/review/02_invariants.md#4-永不靜默失敗)的共同機制。
+> Serves: 機制（服務不變量 8、3、4），不建立不變量——本檔記錄 VK recipe 的轉發形狀與分組、每個 recipe 能寫什麼（CI 模式判定與五項封閉紅燈清單）、進度檔與入口檔的原子替換順序，以及 `sync` 三種情境的處置，是[不變量 8「使用者介面不可取代、寫法一致」](../decisions/review/02_invariants.md#8-使用者介面不可取代寫法一致)、[不變量 3「自動化只碰不進 git 的東西」](../decisions/review/02_invariants.md#3-自動化只碰不進-git-的東西)與[不變量 4「永不靜默失敗」](../decisions/review/02_invariants.md#4-永不靜默失敗)的共同機制。
 
 - **Status:** Accepted
 
@@ -61,7 +61,7 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
 - 說明改由兩件事處理：
   - 每個 recipe 都支援 `-h`／`--help`
   - 不帶指令（只輸入 `just vendor_kit`）與缺必要參數都算錯誤，印出用法並以 1 結束
-- 理由：說明只留一種寫法，不另開一個指令（[不變量 8](../decisions/review/02_invariants.md#8-使用者介面不可取代寫法一致recipe-語意固定)「一個概念一種寫法」；說明只用 `-h`／`--help` 的具體寫法見 [04 使用者介面](../decisions/review/04_interface.md#說明與用法錯誤)）。出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。
+- 理由：說明只留一種寫法，不另開一個指令（[不變量 8](../decisions/review/02_invariants.md#8-使用者介面不可取代寫法一致)「一個概念一種寫法」；說明只用 `-h`／`--help` 的具體寫法見 [04 使用者介面](../decisions/review/04_interface.md#說明與用法錯誤)）。出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。
 - 原文保留，不改寫歷史。
 
 ### 修訂（2026-09-30）
@@ -81,12 +81,12 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
 
 ## Consequences
 
-- 使用者端要記的只有一個命名空間下的 recipe 名，加上 `help`。分組讓常用的三個先被看到。
+- 使用者端要記的只有一個命名空間下的 recipe 名，加上 `help`。分組讓常用的三個先被看到。（歷史：「加上 `help`」已由修訂（2026-09-30）第一則拿掉；現在每個 recipe 用 `-h`／`--help` 印用法，不帶指令或缺必要參數時印出用法並以 1 結束。）
 - `vendor.just` 進 git，所以 fresh clone 直接有入口，不必先跑啟動器。代價是改轉發行等於改一個進 git 的檔，要走 `upgrade` 重產薄殼。
 - CI 的紅燈條件只有五項，可以逐項寫成測試。清單外的 warn 不會擋住別人的 pipeline，也就不會被使用者用 `|| true` 整批關掉。
 - `CI` 這個變數由 CI 服務自己設，所以使用者不必額外配置；但本機把 `CI` 留在環境裡的人會拿到 CI 行為，要自己清掉。
 - `gen/tools.just` 與 `cache/` 綁在同一個 apply，實作要多一層暫存目錄與替換步驟。換來的是中斷後不會有指著已消失快取的入口檔。
-- 需要寫進 git 的三個情境各有固定訊息編號，訊息編號表因此是對外契約的一部分，改號等於改介面。
+- 需要寫進 git 的三個情境各要有固定訊息編號，訊息編號表因此是對外契約的一部分，改號等於改介面。目前 [03 訊息與錯誤碼總表](../decisions/review/03_messages.md)只列了未完成導入（6-13）與基準版落後（6-5）；薄殼不符的編號還沒列進去，記在[待討論佇列](../decisions/review_log/discussion_queue.md)的 Q8。
 
 ## Alternatives
 

@@ -45,15 +45,16 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
 - 不變量頁改成只寫概念（維護者 2026-09-30），原本寫在那裡的機制細節移到本檔。決定不變，只補記。
 - 執行紀錄不提供關掉它的選項。建不出執行紀錄的那次執行以 1 結束、不動任何檔。
 - 執行紀錄早於任何寫入、任何拉 image、任何起引擎；完整時序見 [ADR-0004](0004-vk-recipe-interface-and-write-boundary.md) 的修訂（2026-09-30）第二則。
+- Consequences 直接改用現行寫法 `upgrade --engine`；Decision 與修訂（2026-09-29）保留原文。
 
 ## Consequences
 
 - 讀 VK 執行結果只有兩個介面：執行紀錄與 `vk-resolve/<P>`。人讀的訊息改措辭不會弄壞任何讀取端。
 - 事件名成為對外契約的一部分。新增一個事件要改引擎 image 裡的真本；若是啟動器事件，`log.sh` 的內嵌清單也要一起改。
-- `log.sh` 是薄殼檔，改它會讓既有 repo 的薄殼與引擎不符，那些 repo 要先 `upgrade vendor_kit`。所以啟動器事件不是隨手加的東西。
+- `log.sh` 是薄殼檔，改它會讓既有 repo 的薄殼與引擎不符，那些 repo 要先 `upgrade --engine`。所以啟動器事件不是隨手加的東西。
 - 不開 `--porcelain` 的代價：想在同一次呼叫的 stdout 拿到結構化輸出的人拿不到，得去讀紀錄檔。
 - 別的 ADR 要精確引用某個事件名或某段紀錄欄位時，引本檔第 2 節與真本，不各自複述一份清單。
-- 需要同步更新：`doc/decisions/review/02_invariants.md` 第 4 條的「建立或服務它的 ADR」行加上 ADR-0005。
+- 已同步更新（歷史）：`doc/decisions/review/02_invariants.md` 第 4 條的「建立或服務它的 ADR」行已加上 ADR-0005。
 - 驗收：release CI 的「內嵌清單 ⊆ 真本」檢查，加上原始碼的靜態檢查。執行期對表由引擎與啟動器各自的測試涵蓋。
 
 ## Alternatives

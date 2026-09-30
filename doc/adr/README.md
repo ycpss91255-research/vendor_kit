@@ -41,7 +41,7 @@ vendor_kit 的架構決議紀錄（Architecture Decision Record）索引，以�
 | 0001 | 為什麼不用現成工具（vendir／Copier／subtree／submodule／套件管理器） | Accepted | 設計原則 P2（借主機已有的，不養第三方）；不變量 5（主機只需 docker + git + just，見 `../decisions/review/02_invariants.md` 第 5 條） |
 | 0002 | VK 的狀態全收進 `.vendor_kit/`，版本鎖定行只認一種正規形 | Accepted | 機制：不變量 2（一份版本鎖定行、進 git）、1（只動有紀錄的檔）、3（自動化只碰不進 git 的東西） |
 | 0003 | 初始檔升級走基準版全文加逐檔狀態機，移除只認紀錄原文恰好一處 | Accepted | 機制：不變量 1（可以建、要改先問、永不刪、永不覆蓋）、4（結束碼不由 `git merge-file` 的原生狀態決定） |
-| 0004 | VK recipe 一行轉發、寫入邊界，與 CI 模式的封閉紅燈清單 | Accepted | 機制：不變量 8（使用者介面極少；recipe 語意固定）、3（自動化只碰不進 git 的東西）、4（永不靜默失敗） |
+| 0004 | VK recipe 一行轉發、寫入邊界，與 CI 模式的封閉紅燈清單 | Accepted | 機制：[不變量 8（使用者介面不可取代、寫法一致）](../decisions/review/02_invariants.md#8-使用者介面不可取代寫法一致)、3（自動化只碰不進 git 的東西）、4（永不靜默失敗） |
 | 0005 | 機器可讀的輸出只走執行紀錄，事件名由註冊表封閉 | Accepted | 機制：不變量 4（永不靜默失敗——執行紀錄不可關閉那一段） |
 | 0006 | 工具 image 只搬不跑——取件走 `docker create`／`cp`，位元組相同靠三層 | Accepted | 機制：不變量 7（工具 image 只承載交付資料；引擎與工具不互相綁發版）；也服務 5（取件只借主機已有的 docker）、6（引擎單一實作） |
 | 0007 | 主機薄層：依賴下限與命令白名單固定，薄殼以自描述標頭鎖住，引擎升級分兩段 | Accepted | 機制：不變量 5（主機依賴最小）、6（引擎版本由安裝目錄鎖定；啟動器不判斷 repo 內容的意義）；也服務 10（舊薄殼遇新 major 的處置） |
@@ -53,4 +53,4 @@ vendor_kit 的架構決議紀錄（Architecture Decision Record）索引，以�
 
 ## 待拍板（不寫 ADR，直到定案）
 
-`doc/decisions/review/02_invariants.md` 與 `doc/decisions/scope_roadmap.md` 內標「> ⚠ 待拍板」的項目：宣告檔名（`version.toml` vs `lock.toml`）、`just` 最低版本、dist image 單架構 amd64、衝突時 baseline 是否推到新版、Renovate 路徑由 PR 作者本機補合併、多命名空間工具、image 公開／私有、`.gitignore` 類初始檔。每項定案後併入上表對應主題的 ADR，或獨立成一份。
+目前沒有待拍板的 ADR 主題。[範圍與路線](../decisions/scope_roadmap.md)的待拍板清單各項都已定案（歷史：這裡曾列出宣告檔名、`just` 最低版本、工具 image 單架構、衝突時基準版是否推到新版、Renovate 的初始檔合併由誰做、多命名空間工具、image 公開／私有、`.gitignore` 類初始檔）。等維護者決定的問題記在[待討論佇列](../decisions/review_log/discussion_queue.md)，例如 Q10 registry 承諾的範圍；定案後併入上表對應主題的 ADR，或獨立成一份。
