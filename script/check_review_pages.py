@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫法規則。
+r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫法規則。
 
 規則見 doc/contract/README.md「寫法規則」與「版本怎麼迭代」：
 1. 不寫「出處：」行：沿用規則時在正文寫「依 [頁名第 N 條](連結#錨點)」。
 2. 不寫「> 版本 vN」：版本只在 doc/decisions/_marked/ 的檔名。
 3. 每頁有「## 目錄」。
 3a. HTML 只准 <ins>：<a id>、<br> 這類只有部分環境顯示得出來；錨點一律用標題產生。
+    反斜線跳脫的 \<repo\> 是字面文字，不算標籤。
 4. 相對連結的檔案與錨點都存在（錨點照 GitHub 的標題轉換規則算）。
 5. 只能向前依賴：審閱頁 N 不能連到編號比它大的審閱頁。
 6. 03 的指令寫法只能用前面頁定義過的：03 頁反引號裡的 `just vendor_kit …`，以及 03 的 CSV
@@ -15,6 +16,9 @@
    行內程式碼（反引號內）不算。
 8. 連結文字不得含反引號：碼放在連結外，寫「[結束碼](03_messages.md#結束碼) `2`」、
    「[訊息](03_messages.csv) `VK0028`」；行內程式碼裡的連結例子不算。
+   程式碼名詞本身當連結時直接寫名詞，例如「[dist/](…)」。
+9. 連結文字裡的 <…> 要跳脫：寫「[\<repo\>](../../GLOSSARY.md#工具與出貨)」；沒跳脫的 <repo> 會被當成
+   HTML 標籤吃掉。<ins> 不算。
 
 用法：python3 script/check_review_pages.py（在 repo 根目錄跑；有問題以 1 結束）
 """
@@ -32,6 +36,10 @@ FENCE = re.compile(r"^\s*(```|~~~)")
 OLD_CITE = re.compile(r"\]\([^)]+\)\s*第\s*\d+\s*條")
 # 連結文字取最內層的 [ ]，避免從行內程式碼裡落單的 [ 一路吃到後面的連結
 LINK_TEXT = re.compile(r"\[([^\[\]]*)\]\([^)\s]+\)")
+# HTML 標籤；前面有反斜線的 \<repo\> 是跳脫過的字面文字，不算
+TAG = re.compile(r"(?<!\\)</?([a-zA-Z][\w-]*)[^>]*>")
+# 連結文字裡沒跳脫的 <…>（<ins> 另外放行）
+RAW_ANGLE = re.compile(r"(?<!\\)<(/?)([^<>]*)>")
 
 
 def code_spans(line: str) -> list[tuple[int, int]]:
@@ -50,17 +58,30 @@ def code_spans(line: str) -> list[tuple[int, int]]:
     return spans
 
 
-def backtick_link_texts(line: str) -> list[str]:
-    """連結文字含反引號的連結（整段原文）；[ 或 ]( 落在行內程式碼裡的是例子，不是連結，不算。"""
+def link_texts(line: str):
+    """連結（整段原文, 連結文字）；[ 或 ]( 落在行內程式碼裡的是例子，不是連結，不算。"""
     spans = code_spans(line)
     inside = lambda pos: any(s <= pos < e for s, e in spans)  # noqa: E731
-    out = []
     for m in LINK_TEXT.finditer(line):
         close = m.start() + 1 + len(m.group(1))
         if inside(m.start()) or inside(close):
             continue
-        if "`" in m.group(1):
-            out.append(m.group(0))
+        yield m.group(0), m.group(1)
+
+
+def backtick_link_texts(line: str) -> list[str]:
+    """連結文字含反引號的連結（整段原文）。"""
+    return [link for link, text in link_texts(line) if "`" in text]
+
+
+def raw_angle_link_texts(line: str) -> list[tuple[str, str]]:
+    """連結文字裡有沒跳脫的 <…> 的連結：（整段原文, 第一個 <…>）；<ins>、</ins> 不算。"""
+    out = []
+    for link, text in link_texts(line):
+        for m in RAW_ANGLE.finditer(text):
+            if m.group(2) != "ins":
+                out.append((link, m.group(0)))
+                break
     return out
 
 
@@ -70,7 +91,7 @@ def pages() -> list[pathlib.Path]:
 
 def slug(text: str) -> str:
     """GitHub 的標題錨點：小寫、去掉標點（保留文字、數字、_、-、空白），空白換成 -。"""
-    text = re.sub(r"<[^>]+>", "", text)          # <ins> 之類的標籤
+    text = re.sub(r"(?<!\\)<[^>]+>", "", text)   # <ins> 之類的標籤；跳脫的 \<repo\> 留著，反斜線下面當標點去掉
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)  # 連結只留文字
     text = text.replace("`", "").lower()
     text = re.sub(r"[^\w\- ]", "", text)
@@ -119,13 +140,16 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
         where = f"{path}:{i}"
         if re.match(r"^\s*(?:[-*]\s*)?出處[:：]", line):
             errors.append(f"{where}: 對外頁不寫「出處」行；沿用規則時在正文寫「依 [頁名第 N 條](連結#錨點)」")
-        tags = sorted({t for t in re.findall(r"</?([a-zA-Z][\w-]*)[^>]*>", re.sub(r"`[^`]*`", "", line)) if t != "ins"})
+        tags = sorted({t for t in TAG.findall(re.sub(r"`[^`]*`", "", line)) if t != "ins"})
         if tags:
             errors.append(f"{where}: 用了 HTML {tags}：對外頁只准 <ins>（GitHub 與 GitLab 都顯示）；錨點用標題產生")
         if OLD_CITE.search(re.sub(r"`[^`]*`", "", line)):
             errors.append(f"{where}: 引用條目的舊寫法「[名字](連結) 第 N 條」；改成「依 [頁名第 N 條](連結#錨點)」")
         for link in backtick_link_texts(line):
-            errors.append(f"{where}: 連結文字不得含反引號：{link}；碼放在連結外，寫「[結束碼](03_messages.md#結束碼) `2`」「[訊息](03_messages.csv) `VK0028`」")
+            errors.append(f"{where}: 連結文字不得含反引號：{link}；碼放在連結外，寫「[結束碼](03_messages.md#結束碼) `2`」「[訊息](03_messages.csv) `VK0028`」；程式碼名詞本身當連結時直接寫名詞，例如「[dist/](…)」")
+        for link, raw in raw_angle_link_texts(line):
+            fixed = "\\<" + raw[1:-1] + "\\>"
+            errors.append(f"{where}: 連結文字裡的 {raw} 沒跳脫：{link}；改成 {fixed}，例如「[\\<repo\\>](../../GLOSSARY.md#工具與出貨)」")
         if re.match(r"^>\s*版本\s*v\d+\s*$", line):
             errors.append(f"{where}: 正式檔不寫版本號；版本只在 _marked/ 的檔名")
         for target in LINK.findall(line):

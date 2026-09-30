@@ -135,6 +135,32 @@ class RulesTest(unittest.TestCase):
         code, out = self.run_main()
         self.assertEqual(code, 0, out)
 
+    def test_escaped_angle_link_text_passes(self):
+        # 維護者定案 B 案：程式碼名詞當連結時直接寫名詞、< > 用反斜線跳脫；\<repo\> 不是 HTML 標籤
+        pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n## 工具與出貨\n\n`<repo>`\n")
+        self.write(
+            "01_a.md",
+            "# 01\n\n## 目錄\n\n## 第一節\n\n"
+            "用 [\\<repo\\>](../../GLOSSARY.md#工具與出貨) 與 [dist/](01_a.md#第一節)，"
+            "連結外的 \\<ns\\> 也不是標籤；例子 `[<repo>](01_a.md)` 在行內程式碼裡不算。\n",
+        )
+        pathlib.Path("README.md").write_text("# VK\n\n## 目錄\n\n[\\<ns\\>/\\<repo\\>](GLOSSARY.md#工具與出貨)\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+    def test_unescaped_angle_in_link_text_fails(self):
+        # 對外頁連結文字裡未跳脫的 <…> 要擋，提示改成 \<…\>；錯誤位置報 <檔>:<行>
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n\n見 [<repo>](01_a.md#第一節)。\n")
+        pathlib.Path("README.md").write_text("# VK\n\n## 目錄\n\n[用 <ns> 分](doc/contract/01_a.md)\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        for where, link in (
+            ("doc/contract/01_a.md:7:", "[<repo>](01_a.md#第一節)"),
+            ("README.md:5:", "[用 <ns> 分](doc/contract/01_a.md)"),
+        ):
+            hits = [l for l in out.splitlines() if l.startswith(where) and link in l and "\\<" in l]
+            self.assertEqual(len(hits), 1, out)
+
 
 if __name__ == "__main__":
     unittest.main()
