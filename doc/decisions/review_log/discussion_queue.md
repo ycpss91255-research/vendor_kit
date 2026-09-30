@@ -57,6 +57,8 @@
 
 32. 除了首次導入的 `bootstrap.sh`，使用者與 CI 一律透過 just：`.vendor_kit/ci/check.sh` 改成 `just vendor_kit test`（只打 `test` 就跑全部檢查；`just vendor_kit test dist` 只檢查工具交付的內容），本機與 CI 用同一個；名稱照動作命名、不叫 `ci`（同 base ADR-00000011）。CI 模式照舊由環境變數 `CI` 判斷。其他子命令實作時再定（第 26 條）。依據：不變量 5（主機含 CI 只需 Docker、Git、just）、不變量 8（一個概念一種寫法）。薄殼少掉 `ci/check.sh`；GLOSSARY 的「CI 檢查腳本」改成 `test`。
 
+33. just 分兩層、不混用：對外是薄殼的 `just vendor_kit …`（使用者 repo 裡，寫在 04，含 `test`）；內部是 VK repo 根目錄自己的 justfile（VK 的測試、lint、發版，只在 VK repo 叫得到，不進 04）。兩層都是本機與 CI 走同一個 just 入口，GitHub／GitLab 的 yaml 只負責呼叫。`just vendor_kit test` 一律以 CI 模式執行。內部 justfile 的細節在架構階段定。
+
 ## 待討論
 
 ### Q1 02 第 8 條的 U1～U6 要不要編號（已定案，見上面第 10 條）
@@ -178,3 +180,8 @@
 
 - 03 的訊息編號（M1～M13）目前只供文件互相引用，不印在訊息裡。
 - 印出來（例如 `vendor_kit: 失敗[M6]: …`）方便使用者搜尋與回報，但會改變訊息格式，是對外承諾；先跟 codex 討論，再決定要不要問維護者。
+
+### Q17 VK 要不要提供 release（第一版範圍外，架構階段再議）
+
+- 目前出貨由工具 repo 自己推 image，VK 只提供 `just vendor_kit test dist` 檢查交付內容。
+- 若之後提供，照主流（goreleaser、`cargo publish`、base 的 `just release`）本機也能跑；只在 CI 正式發版是權限把關（憑證、核准環境），不是技術限制；對齊 02 第 9 條本機與正式走同一個入口。
