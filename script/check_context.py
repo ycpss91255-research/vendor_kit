@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""檢查根 CONTEXT.md：照 domain-modeling skill 的格式（.claude/skills/domain-modeling/CONTEXT-FORMAT.md）。
+"""檢查根 GLOSSARY.md：照 domain-modeling skill 的格式（.claude/skills/domain-modeling/CONTEXT-FORMAT.md）。
 
 - `## Language` 底下用 `### 分群` 分群，名詞一行 `**名詞**（英文）：`，下一行起是定義，可接 `_Avoid_:`。
 - 不寫目錄、不寫 HTML 錨點：skill 沒有這些；HTML 只准 `<ins>`（GitHub 與 GitLab 都顯示）。
 - `_Avoid_` 詞不得出現在正文。
 
-用法：python3 script/check_context.py [CONTEXT.md]
+用法：python3 script/check_context.py [GLOSSARY.md]
 成功印 OK 並回 0；有問題逐條印出並回 1。
 """
 import re
@@ -84,5 +84,5 @@ def main(path: Path) -> int:
 
 
 if __name__ == "__main__":
-    target = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "CONTEXT.md"
+    target = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "GLOSSARY.md"
     sys.exit(main(target))

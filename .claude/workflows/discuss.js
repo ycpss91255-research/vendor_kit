@@ -18,7 +18,7 @@ if (!Array.isArray(questions) || questions.length === 0) throw new Error('args.q
 
 const repo = '/home/cyc/Desktop/vendor-kit_ws/src'
 const BG = background.trim() ? `已定案前提（不要質疑）：\n${background.trim()}` : ''
-const READ = '先讀 CONTEXT.md、doc/decisions/review/01_purpose.md、doc/decisions/review/02_invariants.md，以及題目提到的檔；結論要附證據（檔名＋行號、外部文件網址或 repo 內實例），沒有證據的主張標明是推論。'
+const READ = '先讀 GLOSSARY.md、docs/contract/01_purpose.md、docs/contract/02_invariants.md，以及題目提到的檔；結論要附證據（檔名＋行號、外部文件網址或 repo 內實例），沒有證據的主張標明是推論。'
 
 const ANSWER = {
   type: 'object',

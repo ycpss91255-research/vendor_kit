@@ -2,7 +2,7 @@
 
 ## 對外文件的改動標示（`mark_changes.py`）
 
-對外文件（審閱頁 `doc/decisions/review/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增文字用綠底 `<mark>`；刪除或被取代的舊文字用紅底 `<mark>`。標示版只在本機審閱用、不進 git（`doc/decisions/_marked/` 在 `.gitignore` 裡），所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；審完只留最終版。整套審閱流程（討論分支、定案才 merge、送審給哪兩個檔）見[審閱頁說明](../doc/decisions/review/README.md)「版本怎麼迭代」，這裡只講工具。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
+對外文件（審閱頁 `docs/contract/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增文字用綠底 `<mark>`；刪除或被取代的舊文字用紅底 `<mark>`。標示版只在本機審閱用、不進 git（`doc/decisions/_marked/` 在 `.gitignore` 裡），所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；審完只留最終版。整套審閱流程（討論分支、定案才 merge、送審給哪兩個檔）見[審閱頁說明](../docs/contract/README.md)「版本怎麼迭代」，這裡只講工具。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
 
 ### 一輪的流程
 
@@ -49,13 +49,13 @@
 
 ## 名詞表自檢（`check_context.py`）
 
-根 `CONTEXT.md` 每改一次就跑，不要目視：
+根 `GLOSSARY.md` 每改一次就跑，不要目視：
 
 ```sh
 python3 script/check_context.py
 ```
 
-`CONTEXT.md` 照 domain-modeling skill 的格式（[CONTEXT 格式說明](../.claude/skills/domain-modeling/CONTEXT-FORMAT.md)）：沒有目錄，`## Language` 底下的 `###` 分群標題本身就是大綱；要連到某個名詞，連到它所在分群標題產生的錨點。
+`GLOSSARY.md` 照 domain-modeling skill 的格式（[CONTEXT 格式說明](../.claude/skills/domain-modeling/CONTEXT-FORMAT.md)）：沒有目錄，`## Language` 底下的 `###` 分群標題本身就是大綱；要連到某個名詞，連到它所在分群標題產生的錨點。
 
 查這幾件事，全過印 `OK` 回 0，任一不過逐條印出回 1：
 
@@ -66,7 +66,7 @@ python3 script/check_context.py
 
 ## 舊名殘留自檢（`check_terms.py`）
 
-`check_context.py` 只管 `CONTEXT.md` 自己；改名改到一半、舊詞留在某一頁，要靠這支抓：
+`check_context.py` 只管 `GLOSSARY.md` 自己；改名改到一半、舊詞留在某一頁，要靠這支抓：
 
 ```sh
 python3 script/check_terms.py
@@ -74,8 +74,8 @@ python3 script/check_terms.py
 
 每筆殘留印 `<檔>:<行號>  <詞>  <該行內容>`，全乾淨印 `OK` 加統計（掃了幾個檔、幾個 `_Avoid_` 詞）。有殘留回 1，乾淨回 0。
 
-- **詞從哪裡來**：每次跑都從根 `CONTEXT.md` 的 `_Avoid_:` 行現抽，不寫死清單。名詞表會長大，寫死的清單幾次改名之後就跟名詞表脫鉤，而且是靜默的。
-- **掃哪些檔**：`git ls-files -co --exclude-standard` 取得的現行 `.md` 檔。排除 `doc/decisions/_legacy/`、`_backup/`、`review_log/`、`doc/decisions/_marked/`（歷史快照與本地產物）、`.claude/skills/`（vendored 的第三方 skill）、`script/diagram/` 與 `discussion.drawio`（架構圖已凍結，裡面的舊詞是歷史），以及 index 裡還留著但已刪除的檔。
+- **詞從哪裡來**：每次跑都從根 `GLOSSARY.md` 的 `_Avoid_:` 行現抽，不寫死清單。名詞表會長大，寫死的清單幾次改名之後就跟名詞表脫鉤，而且是靜默的。
+- **掃哪些檔**：`git ls-files -co --exclude-standard` 取得的現行 `.md` 檔。排除 `_backup/`、`review_log/`、`doc/decisions/_marked/`（歷史快照與本地產物）、`.claude/skills/`（vendored 的第三方 skill）、`script/diagram/` 與 `discussion.drawio`（架構圖已凍結，裡面的舊詞是歷史），以及 index 裡還留著但已刪除的檔。
 - **不算殘留的行**：`_Avoid_:` 行本身；以及帶「舊名」「已廢止」「已移除」「之名作廢」「舊審閱頁」「改名」這類引述標記的行，因為講改名史本來就得同時寫出新舊兩個詞。標記清單是 `check_terms.py` 頂端的 `QUOTE_MARKERS` 常數，要放行新的講法就加在那裡。
 - **逐行白名單**：已定案要保留舊詞的**個別一行**登記在 `check_terms.py` 頂端的 `WHITELIST`，每筆是 `(檔案路徑, 該行必須包含的字串, 理由)`。三個欄位都要對上才放行，而且只放行「那段字串裡面」的舊詞：把字串從該行挖掉之後還搜得到舊詞，照樣算殘留。所以同一個檔的其他行、同一行的其他位置、別的檔抄同一段字，全都還是會被抓到。只比對詞會讓那個詞全域失效、只比對檔案會讓整個檔失效，白名單就成了漏洞，所以這兩種寫法刻意不做。白名單筆數印在 `OK`／`FAIL` 那行，悄悄長大會看得見。
 - **目前沒有登記**：`WHITELIST` 是空的。（歷史：過去登記過 01 審閱頁的舊標題與 `doc/decisions/README.md` 引用它的那一列；維護者 2026-09-30 定案把標題改成「01 目的與承諾」後，這兩筆已拿掉。）

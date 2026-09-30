@@ -47,12 +47,12 @@ const applyEffort = effort?.apply          // 不給就繼承 session
 const verifyEffort = effort?.verify ?? 'low'   // 驗證是機械活，預設便宜跑
 
 // ───────────────── 共用護欄：組進每個子代理的 prompt，不是只寫在註解 ─────────────────
-const NO_TOUCH = 'doc/decisions/_legacy/、doc/decisions/_backup/、doc/decisions/review_log/、doc/decisions/_marked/'
+const NO_TOUCH = 'doc/decisions/_backup/、doc/decisions/review_log/、doc/decisions/_marked/'
 
 const GUARD_WRITE = `Repo ${repo}。以下是硬性護欄，違反就算這個 task 失敗：
 
 1. **不 commit、不 push、不跑任何 git 寫入指令**（commit／push／add／reset／checkout／stash／rebase／tag 一概不准）。只讀的 git status／git diff 可以。
-2. 會改檔的話，**改前先備份**到 ${repo}/doc/decisions/_backup/，命名 <路徑攤平>.pre_${round}.<ext>（把路徑的 / 換成 _，例如 doc/agents/domain.md → agents_domain.pre_${round}.md）；同名已存在就在後綴加序號（…pre_${round}.2.md）。回報實際的備份檔路徑。
+2. 會改檔的話，**改前先備份**到 ${repo}/doc/decisions/_backup/，命名 <路徑攤平>.pre_${round}.<ext>（把路徑的 / 換成 _，例如 docs/agents/domain.md → agents_domain.pre_${round}.md）；同名已存在就在後綴加序號（…pre_${round}.2.md）。回報實際的備份檔路徑。
 3. **不准動** ${NO_TOUCH}（歷史快照與本地產物），除非這個 task 的指示明說可以動哪個檔。
 4. **驗證一律用腳本／grep 算，不要目視**：改完自己 grep 一次確認，回報的數字要是跑出來的。`
 
@@ -177,7 +177,7 @@ const DEFAULT_VERIFY = [
     ask: `抓舊說法殘留：把共用背景裡提到的 _Avoid_ 詞與舊路徑全部掃一遍，回報出現位置。
 
 共用背景（要從裡面自己抽出「不該再出現的詞」與「已作廢的路徑／檔名」清單）：
-${background && background.trim() ? background : '（這一輪沒給背景。改用 repo 根 CONTEXT.md 的 _Avoid_ 行當清單：每個 **名詞** 條目的 _Avoid_ 詞都不該出現在現行檔的正文。）'}
+${background && background.trim() ? background : '（這一輪沒給背景。改用 repo 根 GLOSSARY.md 的 _Avoid_ 行當清單：每個 **名詞** 條目的 _Avoid_ 詞都不該出現在現行檔的正文。）'}
 
 做法：
 1. 先列出你要掃的詞與路徑清單（回報在 detail 裡）。
@@ -245,26 +245,26 @@ return { round, applied, verified, unresolved }
 // ───────────────── args 範例（可直接貼進 Workflow 的 args） ─────────────────
 // {
 //   "round": "r87",
-//   "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 CONTEXT.md，審閱頁只剩 review/01_purpose.md 與 review/02_invariants.md。",
+//   "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 GLOSSARY.md，審閱頁只剩 docs/contract/01_purpose.md 與 docs/contract/02_invariants.md。",
 //   "tasks": [
 //     {
 //       "key": "purpose",
 //       "label": "01_purpose.md",
-//       "ask": "改 doc/decisions/review/01_purpose.md：1. 全檔掃 _Avoid_ 詞，有殘留就改。2. 第 3 行指向名詞表的相對路徑改指根 CONTEXT.md（驗證過可解再寫）。回報改了哪幾行與掃描結果。",
-//       "files": ["doc/decisions/review/01_purpose.md"]
+//       "ask": "改 docs/contract/01_purpose.md：1. 全檔掃 _Avoid_ 詞，有殘留就改。2. 第 3 行指向名詞表的相對路徑改指根 GLOSSARY.md（驗證過可解再寫）。回報改了哪幾行與掃描結果。",
+//       "files": ["docs/contract/01_purpose.md"]
 //     },
 //     {
 //       "key": "adr",
-//       "label": "doc/adr/（README、TEMPLATE）",
-//       "ask": "改 doc/adr/README.md 與 TEMPLATE.md：「介面動詞」→「介面 recipe」，並把兩檔的相對路徑連結驗證一次，壞的修掉。回報每檔改了哪幾行。",
-//       "files": ["doc/adr/README.md", "doc/adr/TEMPLATE.md"]
+//       "label": "docs/adr/（README、TEMPLATE）",
+//       "ask": "改 docs/adr/README.md 與 TEMPLATE.md：「介面動詞」→「介面 recipe」，並把兩檔的相對路徑連結驗證一次，壞的修掉。回報每檔改了哪幾行。",
+//       "files": ["docs/adr/README.md", "docs/adr/TEMPLATE.md"]
 //     }
 //   ],
 //   "verify": [
 //     {
 //       "key": "residue",
 //       "label": "驗證：_Avoid_ 詞殘留",
-//       "ask": "以根 CONTEXT.md 的 _Avoid_ 行為準，grep 現行 md 的正文（_Avoid_ 行本身除外），列出每個殘留的位置與詞，並回報掃了幾個檔。"
+//       "ask": "以根 GLOSSARY.md 的 _Avoid_ 行為準，grep 現行 md 的正文（_Avoid_ 行本身除外），列出每個殘留的位置與詞，並回報掃了幾個檔。"
 //     }
 //   ],
 //   "effort": { "verify": "low" }

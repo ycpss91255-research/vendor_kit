@@ -23,8 +23,8 @@ class RulesTest(unittest.TestCase):
         self._cwd = os.getcwd()
         self._tmp = tempfile.TemporaryDirectory()
         os.chdir(self._tmp.name)
-        pathlib.Path("doc/decisions/review").mkdir(parents=True)
-        pathlib.Path("CONTEXT.md").write_text("# 名詞\n\n`--engine`\n")
+        pathlib.Path("docs/contract").mkdir(parents=True)
+        pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n`--engine`\n")
         pathlib.Path("README.md").write_text("# VK\n\n## 目錄\n")
 
     def tearDown(self):
@@ -38,7 +38,7 @@ class RulesTest(unittest.TestCase):
         return code, out.getvalue()
 
     def write(self, name, body):
-        pathlib.Path("doc/decisions/review", name).write_text(body)
+        pathlib.Path("docs/contract", name).write_text(body)
 
     def test_clean_pages_pass(self):
         self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n")

@@ -496,7 +496,7 @@ p8.append(v("t_fix", "d_test", LEAF(), "fixtures/\n假的 dist/、init.toml、�
 p8.append(v("t_conf", "d_test", LEAF(), "pytest/<層級>/conftest.py\n每層的資源限制（見右欄）", 12, 375, 356, 44))
 p8.append(v("d_df", "repo", LEAF(), "Dockerfile（中欄的 stage）", 20, 660, 180, 40))
 p8.append(v("d_bake", "repo", LEAF(), "docker-bake.hcl（group）", 220, 660, 180, 40))
-p8.append(v("d_adr", "repo", LEAF(), "doc/adr/\n測試分層與閘門（沿用 base ADR-12/15/18）", 20, 720, 380, 44))
+p8.append(v("d_adr", "repo", LEAF(), "docs/adr/\n測試分層與閘門（沿用 base ADR-12/15/18）", 20, 720, 380, 44))
 p8.append(v("d_ci", "repo", LEAF(), ".github/workflows/\nbake validate → system/acceptance → bake release", 20, 776, 380, 44))
 # 欄 2：Dockerfile stage
 p8.append(v("stages", "1", SW(YELLOW), "Dockerfile stage（BuildKit）", 520, 70, 380, 840))

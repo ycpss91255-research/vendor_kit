@@ -1,7 +1,7 @@
 # 產品形狀與路線圖
 
-> 每條將來各自併入相關 ADR。範圍已併入 [`review/01_purpose.md`](review/01_purpose.md)。
-> 本檔提到的「不變量 N」指 [`doc/decisions/review/02_invariants.md`](review/02_invariants.md) 的第 N 條，「Pn」指 [`doc/decisions/design_principles.md`](design_principles.md) 的設計原則。
+> 每條將來各自併入相關 ADR。範圍已併入 [`docs/contract/01_purpose.md`](../../docs/contract/01_purpose.md)。
+> 本檔提到的「不變量 N」指 [`docs/contract/02_invariants.md`](../../docs/contract/02_invariants.md) 的第 N 條，「Pn」指 [`doc/decisions/design_principles.md`](design_principles.md) 的設計原則。
 
 ## 產品形狀
 
@@ -20,9 +20,9 @@
 - `.vendor_kit/` 佈局、自有 `.gitignore`、根 `justfile` 一行。
 - `dev <repo> -p <dir>` 與 `dev --engine -i <image>`；驗收 fixture repo 走完整流程；amd64 + arm64 原生 runner。
 - Renovate regex preset；`check.sh` 給 repo 的 CI 與工具 repo CI（`--dist`）。
-- 決議紀錄：proto 的 ADR-0001／0002 不搬回（內容綁原型實作與已作廢的詞，核心決定已改寫成 `doc/adr/` 的 0002–0012）；[`doc/decisions/review/02_invariants.md`](review/02_invariants.md) 列的「待寫 ADR」已全部落地。
+- 決議紀錄：proto 的 ADR-0001／0002 不搬回（內容綁原型實作與已作廢的詞，核心決定已改寫成 `docs/adr/` 的 0002–0012）；[`docs/contract/02_invariants.md`](../../docs/contract/02_invariants.md) 列的「待寫 ADR」已全部落地。
 
-以下是待拍板清單與現況對照。正式內容以 [`review/01_purpose.md`](review/01_purpose.md)、[`review/02_invariants.md`](review/02_invariants.md) 與根 [`CONTEXT.md`](../../CONTEXT.md)（名詞）為準。
+以下是待拍板清單與現況對照。正式內容以 [`docs/contract/01_purpose.md`](../../docs/contract/01_purpose.md)、[`docs/contract/02_invariants.md`](../../docs/contract/02_invariants.md) 與根 [`GLOSSARY.md`](../../GLOSSARY.md)（名詞）為準。
 
 | 項目 | 狀態 | 結論 |
 |---|---|---|

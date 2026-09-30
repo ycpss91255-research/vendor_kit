@@ -8,10 +8,10 @@
 例：
     python3 script/mark_changes.py pre_r63 01_purpose 02_invariants
     python3 script/mark_changes.py pre_r91 README.md          # 其他檔傳路徑
-    python3 script/mark_changes.py new doc/decisions/review/README.md   # 新建的檔：整份標新增
+    python3 script/mark_changes.py new docs/contract/README.md   # 新建的檔：整份標新增
 
-舊版讀 doc/decisions/_backup/doc_decisions_review_<name>.<後綴>.md，
-新版讀 doc/decisions/review/<name>.md，
+舊版讀 doc/decisions/_backup/docs_contract_<name>.<後綴>.md（搬目錄前的 doc_decisions_review_<name> 也認），
+新版讀 docs/contract/<name>.md，
 輸出 doc/decisions/_marked/<鍵>.v<N>.marked.md（審閱頁的鍵是頁名，其他檔是攤平後的路徑）。
 
 表格列（以 | 開頭）在儲存格內標記，不把整列包起來——整列包住會讓那一列
@@ -23,7 +23,7 @@ import re
 import pathlib
 import sys
 
-REVIEW = pathlib.Path("doc/decisions/review")
+REVIEW = pathlib.Path("docs/contract")
 BACKUP = pathlib.Path("doc/decisions/_backup")
 MARKED = pathlib.Path("doc/decisions/_marked")
 # 各鍵最後產出的版本號；進 git（_marked/ 不進 git）
@@ -83,8 +83,8 @@ def next_rev(name: str) -> int:
 def target(name: str) -> tuple[pathlib.Path, str]:
     """回傳（正式檔路徑, 標示版與備份用的鍵）。
 
-    - 審閱頁照舊傳頁名（不含 .md），例如 04_interface → doc/decisions/review/04_interface.md，鍵是頁名。
-    - 其他檔傳相對 repo 根目錄的路徑，例如 README.md、doc/decisions/review/README.md；
+    - 審閱頁照舊傳頁名（不含 .md），例如 04_interface → docs/contract/04_interface.md，鍵是頁名。
+    - 其他檔傳相對 repo 根目錄的路徑，例如 README.md、docs/contract/README.md；
       鍵是攤平後的路徑（/ 換成 _、去掉 .md），跟備份檔的攤平命名一致。
     """
     if "/" in name or name.endswith(".md"):
@@ -95,10 +95,11 @@ def target(name: str) -> tuple[pathlib.Path, str]:
 
 
 def backup_path(name: str, suffix: str) -> pathlib.Path:
-    """備份檔的兩種命名都認：攤平的（doc_decisions_review_<name>）與 review/ 子目錄的。
+    """備份檔的三種命名都認：攤平的（docs_contract_<name>）、審閱頁搬到
+    docs/contract/ 之前的攤平命名（doc_decisions_review_<name>），與 review/ 子目錄的。
 
     攤平是主要慣例（doc-apply workflow 與各子代理都用它，因為它對任何路徑都成立）；
-    review/ 子目錄是早期寫法，留著讀得到就好，不要再產生新的。
+    後兩種是搬目錄前的歷史寫法，留著讀得到舊備份就好，不要再產生新的。
     """
     path, key = target(name)
     if key != name:  # 以路徑指定的檔：備份就是攤平後的路徑
@@ -107,13 +108,14 @@ def backup_path(name: str, suffix: str) -> pathlib.Path:
             if flat.exists():
                 return flat
         raise SystemExit(f"找不到 {name} 的基準版：{flat}\n改檔之前要先備份，命名見 script/README.md。")
-    flat = BACKUP / f"doc_decisions_review_{name}.{suffix}.md"
+    flat = BACKUP / f"docs_contract_{name}.{suffix}.md"
+    old_flat = BACKUP / f"doc_decisions_review_{name}.{suffix}.md"
     nested = BACKUP / "review" / f"{name}.{suffix}.md"
-    for candidate in (flat, nested):
+    for candidate in (flat, old_flat, nested):
         if candidate.exists():
             return candidate
     raise SystemExit(
-        f"找不到 {name} 的基準版。試過：\n  {flat}\n  {nested}\n"
+        f"找不到 {name} 的基準版。試過：\n  {flat}\n  {old_flat}\n  {nested}\n"
         f"改檔之前要先備份，命名見 script/README.md。"
     )
 

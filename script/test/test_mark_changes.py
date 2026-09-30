@@ -14,7 +14,7 @@ class VersionTest(unittest.TestCase):
         self._cwd = os.getcwd()
         self._tmp = tempfile.TemporaryDirectory()
         os.chdir(self._tmp.name)
-        pathlib.Path("doc/decisions/review").mkdir(parents=True)
+        pathlib.Path("docs/contract").mkdir(parents=True)
         pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
 
     def tearDown(self):
@@ -22,8 +22,8 @@ class VersionTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def write_page(self, body, backup):
-        pathlib.Path("doc/decisions/review/09_x.md").write_text(body)
-        pathlib.Path("doc/decisions/_backup/doc_decisions_review_09_x.pre_r1.md").write_text(backup)
+        pathlib.Path("docs/contract/09_x.md").write_text(body)
+        pathlib.Path("doc/decisions/_backup/docs_contract_09_x.pre_r1.md").write_text(backup)
 
     def test_rev_continues_from_tracked_table(self):
         # 新 clone：_marked/ 是空的，版本號照進 git 的表接下去，不從 v1 重來
@@ -40,7 +40,7 @@ class VersionTest(unittest.TestCase):
         body = "# 標題\n\n新內容\n"
         self.write_page(body, "# 標題\n\n舊內容\n")
         mark_changes.build("09_x", "pre_r1")
-        self.assertEqual(pathlib.Path("doc/decisions/review/09_x.md").read_text(), body)
+        self.assertEqual(pathlib.Path("docs/contract/09_x.md").read_text(), body)
         self.assertEqual(pathlib.Path("doc/decisions/_marked/09_x.v1.md").read_text(), body)
         self.assertTrue(pathlib.Path("doc/decisions/_marked/09_x.v1.marked.md").exists())
 

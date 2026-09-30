@@ -519,7 +519,7 @@ p8.append(v("t_fix", "d_test", LEAF(), "fixtures/\n假的 dist/、init.toml、VE
 p8.append(v("t_conf", "d_test", LEAF(), "pytest/<層級>/conftest.py\n每層的限制寫在這（見右欄）", 12, 540, TW, 44))
 p8.append(v("d_df", "repo", LEAF(), "Dockerfile（中欄的 stage）", 20, 816, 180, 40))
 p8.append(v("d_bake", "repo", LEAF(), "docker-bake.hcl（group）", 220, 816, 180, 40))
-p8.append(v("d_adr", "repo", LEAF(), "doc/adr/\n測試分層與閘門（本頁的決策）", 20, 876, 380, 44))
+p8.append(v("d_adr", "repo", LEAF(), "docs/adr/\n測試分層與閘門（本頁的決策）", 20, 876, 380, 44))
 p8.append(v("d_ci", "repo", LEAF(), ".github/workflows/\nbake validate → system/acceptance → bake release", 20, 932, 380, 44))
 # 欄 2：Dockerfile stage（紫：每個 stage 都是 image）
 SX, SW_ = 520, 480
@@ -593,7 +593,7 @@ p8 += terms("p8", 40, 70 + COLH + 150, [
  ("fixture / 假專案", "測試用的假資料：假的 dist/、init.toml，以及一個只有 .version 與 justfile 的假專案"),
  ("cli.main()", "vendor_kit 程式的正門（命令介面的進入點）；integration 測試只准從這裡進"),
  ("docker run / CI", "把 image 跑成容器的指令／GitHub 上的自動化流程（每次推送都跑 bake validate）"),
- ("ADR / ISTQB", "設計決策紀錄（doc/adr/ 裡一個決策一個檔）／國際軟體測試標準，本頁的層級名稱來自它"),
+ ("ADR / ISTQB", "設計決策紀錄（docs/adr/ 裡一個決策一個檔）／國際軟體測試標準，本頁的層級名稱來自它"),
  ("泳道", "流程圖裡的一條直欄，代表一個子命令或情境的完整流程"),
 ])
 

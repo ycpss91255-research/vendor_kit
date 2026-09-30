@@ -344,7 +344,6 @@ def get_git_status_summary(repo_dir):
         'doc/decisions/_backup/',
         'doc/decisions/review_log/',
         'doc/decisions/_marked/',
-        'doc/decisions/_legacy/',
         'script/diagram/_backup/',
     )
     LIMIT = 10

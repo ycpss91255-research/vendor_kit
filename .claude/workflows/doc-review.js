@@ -53,7 +53,7 @@ const codexOut = key => `${repo}/doc/decisions/review_log/codex/${round}-${key}.
 const GUARDRAILS = `硬性規則（違反就算這輪失敗）：
 1. 不 commit、不 push、不跑任何 git 寫入指令（含 add、checkout、reset、stash、tag）。
 2. 會改檔的話，改前先備份到 ${repo}/doc/decisions/_backup/，命名 <路徑攤平>.pre_${round}.<ext>（例如 agents_domain.pre_${round}.md）；同名已存在就在副檔名前加序號。
-3. 不准動 ${repo}/doc/decisions/_legacy/、doc/decisions/_backup/、doc/decisions/review_log/、doc/decisions/_marked/（歷史快照與本地產物），除非這個 task 明說。
+3. 不准動 ${repo}/doc/decisions/_backup/、doc/decisions/review_log/、doc/decisions/_marked/（歷史快照與本地產物），除非這個 task 明說。
 4. 驗證一律用腳本／grep／wc 算出來，不要目視判斷「看起來對」。`
 
 const BACKGROUND = background && background.trim()
@@ -240,17 +240,17 @@ return { round, tracks: useTracks, claude: claudeResults, codex: codexResults, c
 // ───────────────── 最小 args 範例（JSON） ─────────────────
 // {
 //   "round": "r87",
-//   "background": "審閱頁只有兩頁：01_purpose.md（目的與承諾）、02_invariants.md（不變量）；名詞全在根 CONTEXT.md。",
+//   "background": "審閱頁只有兩頁：01_purpose.md（目的與承諾）、02_invariants.md（不變量）；名詞全在根 GLOSSARY.md。",
 //   "angles": [
 //     {
 //       "key": "terms",
-//       "label": "CONTEXT.md 名詞完整性",
-//       "ask": "審 CONTEXT.md：定義是否一兩句、有沒有寫進規則或實作細節、目錄錨點是否都解得開（自己算 slug 比對）。"
+//       "label": "GLOSSARY.md 名詞完整性",
+//       "ask": "審 GLOSSARY.md：定義是否一兩句、有沒有寫進規則或實作細節、目錄錨點是否都解得開（自己算 slug 比對）。"
 //     },
 //     {
 //       "key": "consistency",
 //       "label": "01 與 02 的一致性",
-//       "ask": "審 doc/decisions/review/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 CONTEXT.md 沒定義的詞。"
+//       "ask": "審 docs/contract/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 GLOSSARY.md 沒定義的詞。"
 //     }
 //   ]
 // }

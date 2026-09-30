@@ -10,7 +10,7 @@
 | `extract_pages.py <drawio> <outdir> [page_id …]` | 每頁 → `<outdir>/<id>.json` + `<id>.md`；另寫 `pages.json`（頁序＋頁名） |
 | `lint_pages.py <outdir>` | 讀上面的 JSON → `<outdir>/lint.md`（依頁分組）+ `lint.json` |
 | `shrink_png.py <pngdir> <outdir> [scale] [page_id …]` | PIL 縮圖（預設 50%，白底）→ `<outdir>/*.png` + `pngs.json` |
-| `<repo>/doc/decisions/_legacy/workflows/diagram-review-v2.js` | 已停用的 workflow（只吃上面三個的產物）。圖面審查要重啟時以它為範本，改寫成命名 workflow 放 `.claude/workflows/` |
+| `<repo>/../reference/_legacy/workflows/diagram-review-v2.js`（repo 外，只在維護者本機） | 已停用的 workflow（只吃上面三個的產物）。圖面審查要重啟時以它為範本，改寫成命名 workflow 放 `.claude/workflows/` |
 
 ## 主對話要先跑的三個指令
 

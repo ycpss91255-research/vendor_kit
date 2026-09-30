@@ -27,7 +27,7 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 |---|---|---|---|
 | `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
 | `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
-| `doc-edit` | 改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → humanizer-zh-tw 潤稿；codex 的建議只回報 | 改任何現行文件（README、`doc/decisions/review/`、`CONTEXT.md`、ADR）時；主對話不自己改 | `round`、`files` |
+| `doc-edit` | 改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → humanizer-zh-tw 潤稿；codex 的建議只回報 | 改任何現行文件（README、`docs/contract/`、`GLOSSARY.md`、ADR）時；主對話不自己改 | `round`、`files` |
 
 選填欄位：
 
@@ -57,26 +57,26 @@ args 範例：
 ```json
 {
   "round": "r87",
-  "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 CONTEXT.md，審閱頁是 review/01_purpose.md、review/02_invariants.md、review/03_messages.md、review/04_interface.md。",
+  "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 GLOSSARY.md，審閱頁是 docs/contract/01_purpose.md、docs/contract/02_invariants.md、docs/contract/03_messages.md、docs/contract/04_interface.md。",
   "tasks": [
     {
       "key": "purpose",
       "label": "01_purpose.md",
-      "ask": "改 doc/decisions/review/01_purpose.md：1. 全檔掃 _Avoid_ 詞，有殘留就改。2. 第 3 行指向名詞表的相對路徑改指根 CONTEXT.md（驗證過可解再寫）。回報改了哪幾行與掃描結果。",
-      "files": ["doc/decisions/review/01_purpose.md"]
+      "ask": "改 docs/contract/01_purpose.md：1. 全檔掃 _Avoid_ 詞，有殘留就改。2. 第 3 行指向名詞表的相對路徑改指根 GLOSSARY.md（驗證過可解再寫）。回報改了哪幾行與掃描結果。",
+      "files": ["docs/contract/01_purpose.md"]
     },
     {
       "key": "adr",
-      "label": "doc/adr/（README、TEMPLATE）",
-      "ask": "改 doc/adr/README.md 與 TEMPLATE.md：把已改名的舊說法換成 recipe，並把兩檔的相對路徑連結驗證一次，壞的修掉。回報每檔改了哪幾行。",
-      "files": ["doc/adr/README.md", "doc/adr/TEMPLATE.md"]
+      "label": "docs/adr/（README、TEMPLATE）",
+      "ask": "改 docs/adr/README.md 與 TEMPLATE.md：把已改名的舊說法換成 recipe，並把兩檔的相對路徑連結驗證一次，壞的修掉。回報每檔改了哪幾行。",
+      "files": ["docs/adr/README.md", "docs/adr/TEMPLATE.md"]
     }
   ],
   "verify": [
     {
       "key": "residue",
       "label": "驗證：_Avoid_ 詞殘留",
-      "ask": "以根 CONTEXT.md 的 _Avoid_ 行為準，grep 現行 md 的正文（_Avoid_ 行本身除外），列出每個殘留的位置與詞，並回報掃了幾個檔。"
+      "ask": "以根 GLOSSARY.md 的 _Avoid_ 行為準，grep 現行 md 的正文（_Avoid_ 行本身除外），列出每個殘留的位置與詞，並回報掃了幾個檔。"
     }
   ],
   "effort": { "verify": "low" }
@@ -106,17 +106,17 @@ args 範例：
 ```json
 {
   "round": "r87",
-  "background": "審閱頁有四頁：01_purpose.md（目的與承諾）、02_invariants.md（不變量）、03_messages.md（訊息與錯誤碼總表）、04_interface.md（使用者介面）；名詞全在根 CONTEXT.md。",
+  "background": "審閱頁有四頁：01_purpose.md（目的與承諾）、02_invariants.md（不變量）、03_messages.md（訊息與錯誤碼總表）、04_interface.md（使用者介面）；名詞全在根 GLOSSARY.md。",
   "angles": [
     {
       "key": "terms",
-      "label": "CONTEXT.md 名詞完整性",
-      "ask": "審 CONTEXT.md：定義是否一兩句、有沒有寫進規則或實作細節、目錄錨點是否都解得開（自己算 slug 比對）。"
+      "label": "GLOSSARY.md 名詞完整性",
+      "ask": "審 GLOSSARY.md：定義是否一兩句、有沒有寫進規則或實作細節、目錄錨點是否都解得開（自己算 slug 比對）。"
     },
     {
       "key": "consistency",
       "label": "01 與 02 的一致性",
-      "ask": "審 doc/decisions/review/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 CONTEXT.md 沒定義的詞。"
+      "ask": "審 docs/contract/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 GLOSSARY.md 沒定義的詞。"
     }
   ]
 }
@@ -128,7 +128,7 @@ args 範例：
 
 - **不 commit、不 push、不跑任何 git 寫入指令**。唯讀的 `git status`／`git diff` 可以。
 - **改前先備份**到 `doc/decisions/_backup/`，命名 `<路徑攤平>.pre_<round>.<ext>`（例如 `agents_domain.pre_r86.md`），同名已存在就加序號。
-- **不准動** `doc/decisions/_legacy/`、`doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/decisions/_marked/`：這些是歷史快照與本機產物，除非該 task 明說。
+- **不准動** `doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/decisions/_marked/`：這些是歷史快照與本機產物，除非該 task 明說。
 - **驗證一律用腳本／grep 算，不要目視**。
 - codex 一律帶 `< /dev/null`：少了它，codex 會停在等 stdin，整條 workflow 卡死。固定的部分是 `codex exec --skip-git-repo-check -C <repo> -o <輸出檔>`、不加沙箱旗標、stdin 接 `/dev/null`。prompt 的傳法兩個 workflow 不同：
 
@@ -161,7 +161,7 @@ args 範例：
 
 ## 已歸檔
 
-以下四個移到[已歸檔 workflows](../../doc/decisions/_legacy/workflows/)：
+以下四個已歸檔，跟著原本的 `_legacy` 目錄搬出 repo，只留在維護者本機的 `../reference/_legacy`（`workflows` 子目錄，路徑相對 repo 根目錄），不進 git：
 
 | 名字 | 為什麼不用了 |
 |---|---|

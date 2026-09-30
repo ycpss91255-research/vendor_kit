@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""檢查現行 .md 檔沒有殘留根 CONTEXT.md 的 _Avoid_ 詞。
+"""檢查現行 .md 檔沒有殘留根 GLOSSARY.md 的 _Avoid_ 詞。
 
-`check_context.py` 只管 CONTEXT.md 自己；這支管其他所有文件。改名改到一半、
+`check_context.py` 只管 GLOSSARY.md 自己；這支管其他所有文件。改名改到一半、
 舊詞留在某一頁，靠人逐輪目視一定會漏，所以寫成腳本擋掉。
 
 用法：python3 script/check_terms.py
@@ -18,11 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # 這些路徑不掃：歷史快照、本地產物、外部素材原文、vendored 的第三方 skill、已凍結的架構圖。
 # 共同點是「文字不是我們寫的，或不是現行規範」，拿我們的名詞規範去掃它只會產生假警報。
 EXCLUDE_PREFIXES = (
-    "doc/decisions/_legacy/",
     "doc/decisions/_backup/",
     "doc/decisions/review_log/",
-    "doc/decisions/review/research/",
-    "doc/decisions/research/",
+    "docs/research/",
     "doc/decisions/_marked/",
     ".claude/skills/",
     ".agents/skills/",  # skill 的實體目錄；.claude/skills 是指過來的 symlink，git 追蹤的是這條路徑
@@ -70,7 +68,7 @@ def whitelisted(rel: str, line: str, pat: re.Pattern) -> bool:
 
 
 def avoid_terms(context: Path) -> list[str]:
-    """從 CONTEXT.md 的 `_Avoid_:` 行抽出所有要避免的詞（不寫死清單）。"""
+    """從 GLOSSARY.md 的 `_Avoid_:` 行抽出所有要避免的詞（不寫死清單）。"""
     terms = []
     for ln in context.read_text(encoding="utf-8").splitlines():
         if not ln.startswith("_Avoid_:"):
@@ -111,14 +109,14 @@ U_TAG = re.compile(r"</?u>")
 
 
 def main() -> int:
-    context = ROOT / "CONTEXT.md"
+    context = ROOT / "GLOSSARY.md"
     if not context.is_file():
         print(f"找不到 {context}")
         return 1
 
     terms = avoid_terms(context)
     if not terms:
-        print("CONTEXT.md 抽不到任何 _Avoid_ 詞，格式可能壞了")
+        print("GLOSSARY.md 抽不到任何 _Avoid_ 詞，格式可能壞了")
         return 1
     patterns = [(t, re.compile(SPECIAL_PATTERNS.get(t, re.escape(t)))) for t in terms]
 

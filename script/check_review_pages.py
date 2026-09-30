@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""檢查對外文件（根目錄 README.md 與 doc/decisions/review/0N_*.md）的寫法規則。
+"""檢查對外文件（根目錄 README.md 與 docs/contract/0N_*.md）的寫法規則。
 
-規則見 doc/decisions/review/README.md「寫法規則」與「版本怎麼迭代」：
+規則見 docs/contract/README.md「寫法規則」與「版本怎麼迭代」：
 1. 不寫「出處：」行：沿用規則時在正文寫「依 [頁名](連結#錨點) 第 N 條」。
 2. 不寫「> 版本 vN」：版本只在 doc/decisions/_marked/ 的檔名。
 3. 每頁有「## 目錄」。
@@ -9,7 +9,7 @@
 4. 相對連結的檔案與錨點都存在（錨點照 GitHub 的標題轉換規則算）。
 5. 只能向前依賴：審閱頁 N 不能連到編號比它大的審閱頁。
 6. 03 總表的指令寫法只能用前面頁定義過的：反引號裡 `just vendor_kit …` 的每個選項（-x、--xxx）
-   與 @<tag> 寫法，都要在 CONTEXT.md、01、02 出現過。
+   與 @<tag> 寫法，都要在 GLOSSARY.md、01、02 出現過。
 
 用法：python3 script/check_review_pages.py（在 repo 根目錄跑；有問題以 1 結束）
 """
@@ -18,7 +18,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(".")
-REVIEW = ROOT / "doc/decisions/review"
+REVIEW = ROOT / "docs/contract"
 PAGE = re.compile(r"^(\d\d)_.+\.md$")
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
@@ -108,14 +108,14 @@ def check_commands(errors: list[str]) -> None:
     if not msgs:
         return
     defined = "\n".join(
-        p.read_text() for p in [ROOT / "CONTEXT.md", *sorted(REVIEW.glob("0[12]_*.md"))] if p.exists()
+        p.read_text() for p in [ROOT / "GLOSSARY.md", *sorted(REVIEW.glob("0[12]_*.md"))] if p.exists()
     )
     for i, line in body_lines(msgs[0]):
         for cmd in re.findall(r"`(just vendor_kit [^`]+)`", line):
             for tok in re.findall(r"(?<![\w<])(--?[a-z][\w-]*|@<[^>]+>)", cmd):
                 if tok not in defined:
                     errors.append(
-                        f"{msgs[0]}:{i}: 指令 `{cmd}` 用了 {tok}，但 CONTEXT.md、01、02 都沒出現過；先補進前面的頁"
+                        f"{msgs[0]}:{i}: 指令 `{cmd}` 用了 {tok}，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁"
                     )
 
 

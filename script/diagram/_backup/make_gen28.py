@@ -23,7 +23,7 @@ for tid, y0 in [("t_lint", 185), ("t_unit", 240), ("t_inst", 295), ("t_init", 35
     src = src[:m.start()] + m.group(1) + str(y0 + 22) + m.group(2) + src[m.end():]
 rep('"Dockerfile（中欄的 stage）", 20, 900, 180, 40))', '"Dockerfile（中欄的 stage）", 20, 920, 180, 40))')
 rep('"docker-bake.hcl（group）", 220, 900, 180, 40))', '"docker-bake.hcl（group）", 220, 920, 180, 40))')
-rep('"doc/adr/\\n測試分層與閘門（本頁的決策）", 20, 960, 380, 44))', '"doc/adr/\\n測試分層與閘門（本頁的決策）", 20, 980, 380, 44))')
+rep('"docs/adr/\\n測試分層與閘門（本頁的決策）", 20, 960, 380, 44))', '"docs/adr/\\n測試分層與閘門（本頁的決策）", 20, 980, 380, 44))')
 rep('bake validate → system/acceptance → bake release", 20, 1016, 380, 44))', 'bake validate → system/acceptance → bake release", 20, 1036, 380, 44))')
 rep('"test-base = env-test + pytest + fixtures", LX, 302, LW, 40)', '"test-base = env-test + pytest + fixtures", LX, 312, LW, 40)')
 rep('GY = 350\n', 'GY = 372\n')

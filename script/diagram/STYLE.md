@@ -1,6 +1,6 @@
 # 圖面樣式規範
 
-所有 `.drawio` 圖都照這份畫。來源是 `gen57.py` 的樣式常數與 `legend_flow`／`legend_arch`／`page()`／`band()`／`tree()`，以及 `disc_v1_a.py`、`disc_v1_b.py`、`disc_v1_c.py` 的實際用法。本檔只管格式，不管方塊裡寫什麼；圖上的名詞一律用根目錄 `CONTEXT.md` 的詞。
+所有 `.drawio` 圖都照這份畫。來源是 `gen57.py` 的樣式常數與 `legend_flow`／`legend_arch`／`page()`／`band()`／`tree()`，以及 `disc_v1_a.py`、`disc_v1_b.py`、`disc_v1_c.py` 的實際用法。本檔只管格式，不管方塊裡寫什麼；圖上的名詞一律用根目錄 `GLOSSARY.md` 的詞。
 
 style 字串都是完整的，直接貼進 `<mxCell style="...">`。
 
@@ -376,7 +376,7 @@ edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;s
 2. **欄頭列**：流程頁才有，y = 60～64（4.4）。架構頁沒有欄頭，泳道自己的標題列就是欄頭。
 3. **主體**：架構頁的直欄泳道（4.3），或流程頁的情境分組（4.4）。補充便條放在它說明的東西旁邊。
 4. **圖例**：主體下方 40（第 3 節）。每頁都有。
-5. **本頁名詞**（選用）：圖例下方；標題「本頁名詞」（字 13 粗體、靠左），下面兩欄表格，名詞與定義照抄 `CONTEXT.md`，只列本頁用到的。
+5. **本頁名詞**（選用）：圖例下方；標題「本頁名詞」（字 13 粗體、靠左），下面兩欄表格，名詞與定義照抄 `GLOSSARY.md`，只列本頁用到的。
 
 本頁名詞表的兩種格：
 

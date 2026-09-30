@@ -608,7 +608,7 @@ VK = [
  (2, "pytest/system/", False, "整個 image 測試：docker run 每個子命令（CI 主機跑）"),
  (2, "pytest/acceptance/", False, "驗收測試：在假專案裡真的打 just（CI 主機跑）"),
  (2, "fixtures/", False, "測試用假資料：假 dist/、init.toml、VERSION、假專案（project/）、假工具 image 食譜（tool_image/）"),
- (1, "doc/adr/", False, "設計決策紀錄：一個決策一個 Markdown 檔（例：測試分層與閘門）"),
+ (1, "docs/adr/", False, "設計決策紀錄：一個決策一個 Markdown 檔（例：測試分層與閘門）"),
  (1, "Dockerfile", True, "打包食譜：runtime → env-test → test-base → 各測試 stage；runtime → release（第 8 頁）"),
  (1, "docker-bake.hcl", True, "一次跑多個 stage 的清單：group validate（測試）、group release（出貨）"),
  (1, ".github/workflows/ci.yaml", True, "CI：推送就跑 bake validate → system/acceptance → bake release"),
@@ -689,7 +689,7 @@ p8.append(v("t_acc", "d_test", LEAF(), "pytest/acceptance/\n第 3 頁三條泳�
 p8.append(v("t_conf", "d_test", LEAF(), "pytest/<層級>/conftest.py\n每層的限制寫在這（見右欄）", 12, 647, TW, 44))
 p8.append(v("d_df", "repo", LEAF(), "Dockerfile（中欄的 stage）", 20, 920, 180, 40))
 p8.append(v("d_bake", "repo", LEAF(), "docker-bake.hcl（group）", 220, 920, 180, 40))
-p8.append(v("d_adr", "repo", LEAF(), "doc/adr/\n測試分層與閘門（本頁的決策）", 20, 980, 380, 44))
+p8.append(v("d_adr", "repo", LEAF(), "docs/adr/\n測試分層與閘門（本頁的決策）", 20, 980, 380, 44))
 p8.append(v("d_ci", "repo", LEAF(), ".github/workflows/\nbake validate → system/acceptance → bake release（amd64 + arm64 都 build）", 20, 1036, 380, 44).replace("fontSize=14", "fontSize=12"))
 # 欄 2：Dockerfile stage（紫：每個 stage 都是 image）
 SX, SW_ = 520, 480
@@ -768,7 +768,7 @@ p8 += terms("p8", 40, 70 + COLH + 150, [
  ("image / 容器 / Docker / Dockerfile", "打包好的環境／image 開起來的實例／跑它們的軟體／怎麼做 image 的食譜（每個 stage 是食譜的一段）"),
  ("cli.main()", "vendor_kit 程式的正門（命令介面的進入點）；integration 測試只准從這裡進"),
  ("docker run / CI", "把 image 跑成容器的指令／GitHub 上的自動化流程（每次推送都跑 bake validate）"),
- ("ADR / ISTQB", "設計決策紀錄（doc/adr/ 裡一個決策一個檔）／國際軟體測試標準，本頁的層級名稱來自它"),
+ ("ADR / ISTQB", "設計決策紀錄（docs/adr/ 裡一個決策一個檔）／國際軟體測試標準，本頁的層級名稱來自它"),
  ("泳道", "流程圖裡的一條直欄，代表一個子命令或情境的完整流程"),
 ])
 
