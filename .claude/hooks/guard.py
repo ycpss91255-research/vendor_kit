@@ -343,8 +343,7 @@ def get_git_status_summary(repo_dir):
     NOISE = (
         'doc/decisions/_backup/',
         'doc/decisions/review_log/',
-        'doc/decisions/review/_marked/',
-        'doc/decisions/_legacy/',
+        'doc/decisions/_marked/',
         'script/diagram/_backup/',
     )
     LIMIT = 10
