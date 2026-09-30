@@ -55,6 +55,8 @@
 
 31. 01 目的與承諾（送審 v13）、02 不變量（送審 v14）定案。
 
+32. 除了首次導入的 `bootstrap.sh`，使用者與 CI 一律透過 just：`.vendor_kit/ci/check.sh` 改成 `just vendor_kit check`（工具交付內容用 `check --dist`），CI 模式照舊由環境變數 `CI` 判斷、`check` 自己開啟。依據：不變量 5（主機含 CI 只需 Docker、Git、just）、不變量 8（一個概念一種寫法）。薄殼少掉 `ci/check.sh`；GLOSSARY 的「CI 檢查腳本」改成 `check`。
+
 ## 待討論
 
 ### Q1 02 第 8 條的 U1～U6 要不要編號（已定案，見上面第 10 條）
