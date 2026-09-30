@@ -45,7 +45,9 @@
 25. （Q14）不開 `--timeout`：`docker pull` 本身沒有逾時選項，CI 的 job 逾時（例如 GitHub Actions 的 timeout-minutes）或外層 `timeout(1)` 已能限時，VK 被中途中止也有進度檔可以恢復。從 04 與 ADR-0007 刪掉，04 補一句「要限時請在外層包 timeout(1) 或用 CI 的逾時設定」。
 
 26. 04 只列指令與必要參數（少了就不能用或會影響相容性的，例如 `<repo>`、`@<tag>`、`--engine`）；其他選項的細節留到實作時決定。
-27. （Q13 一致部分）頂層 `just vendor_kit -h`／`--help` 列進救援路徑，任何版本組合下都印用法到 stdout、回 `0`，由薄殼自己印；裸呼叫 `just vendor_kit` 維持用法錯誤（stderr、`2`）。
+27. （已由第 28 條取代）頂層 `just vendor_kit -h`／`--help` 當救援路徑：實測 just 1.53.0 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱去找，參數到不了 VK，做不到。
+
+28. 只打 `just vendor_kit`（不帶指令）印出版本與用法：第一行 `vendor_kit <版本>`，接著是用法；維持用法錯誤，輸出到 stderr、以 `2` 結束。不提供頂層 `just vendor_kit -h`／`--version`（just 會當成 recipe 名稱）。各 recipe 的 `-h`／`--help` 照留（實測參數會原樣傳進 recipe）。
 
 ## 待討論
 
