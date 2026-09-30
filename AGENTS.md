@@ -15,6 +15,7 @@ repo 上一層的 `vendor-kit_ws/` 是工作區：`src/` 是這個 repo；`workt
 ## 決議與文件流程
 
 - **對外契約放 `doc/contract/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md`、`03_messages.md`、`04_interface.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
+- **目錄一律用 `doc/`，不用 `docs/`。** 這是刻意偏離 skill 的預設：`.agents/skills/` 是外部引入的 skill，內文寫的 `docs/adr/`、`docs/agents/` 等一律讀成 `doc/adr/`、`doc/agents/`。skill 本身不改，改了以後同步上游會衝突；根目錄出現 `docs/` 時 [check_terms.py](script/check_terms.py) 會擋下來。
 - 每個設計決議先在 issue 討論（中文）；定案後才寫 ADR。
 - **對外文件的審閱流程照[審閱頁說明](doc/contract/README.md)「版本怎麼迭代」做。** 對外文件是根目錄 [README](README.md) 與審閱頁 01～04。重點：
   1. 草稿只改在討論分支並開 PR；`main` 上只放定案版，維護者針對那一頁明確回覆「定案」才 merge。
