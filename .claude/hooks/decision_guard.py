@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """PreToolUse hook（matcher: Edit|Write）：檔案只寫做什麼與相關說明，不寫決策紀錄。
 
-決策與討論經過放 issue。例外：對外契約（根目錄 README.md、docs/contract/0N_*.md）
-與 ADR（docs/adr/）本來就是記錄決定的地方。
+決策與討論經過放 issue。例外：對外契約（根目錄 README.md、doc/contract/0N_*.md）
+與 ADR（doc/adr/）本來就是記錄決定的地方。
 
 擋的內容（只看這次寫入的新文字）：日期（YYYY-MM-DD），以及直接引用某人的話（「維護者：「…」」這種寫法）。
 描述流程的句子（例如「維護者回覆定案才 merge」）不擋。
@@ -11,7 +11,7 @@ import json
 import re
 import sys
 
-ALLOWED = re.compile(r"(^|/)(README\.md|docs/contract/0\d_[^/]+\.md|docs/adr/[^/]+\.md)$")
+ALLOWED = re.compile(r"(^|/)(README\.md|doc/contract/0\d_[^/]+\.md|doc/adr/[^/]+\.md)$")
 BANNED = re.compile(r"\b20\d\d-\d\d-\d\d\b|(?:維護者|使用者)[^\n。]{0,4}[:：]\s*「")
 
 

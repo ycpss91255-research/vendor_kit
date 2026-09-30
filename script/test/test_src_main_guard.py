@@ -47,7 +47,7 @@ class SrcMainGuardTest(unittest.TestCase):
         self.assertEqual(self.run_hook("Edit", {"file_path": str(self.src / "README.md")}), "deny")
 
     def test_write_relative_in_main_denied(self):
-        self.assertEqual(self.run_hook("Write", {"file_path": "docs/x.md"}), "deny")
+        self.assertEqual(self.run_hook("Write", {"file_path": "doc/x.md"}), "deny")
 
     def test_edit_in_worktree_allowed(self):
         self.assertEqual(self.run_hook("Edit", {"file_path": str(self.wt / "README.md")}), "allow")

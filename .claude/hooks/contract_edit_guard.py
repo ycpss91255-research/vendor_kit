@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse hook（matcher: Edit|Write）：改對外文件時附上兩條提醒。
 
-對外文件＝根目錄 README.md、docs/contract/0N_*.md，另含 GLOSSARY.md。
+對外文件＝根目錄 README.md、doc/contract/0N_*.md，另含 GLOSSARY.md。
 1. 介面細節（結束碼與優先序、選項寫法、說明與用法錯誤、訊息格式）先對照主流 CLI 慣例
    （GNU／POSIX、diff、grep、git、Python argparse），附來源；舊文件搬來的內容也要重新檢查。
 2. 對外頁的改動走 doc-edit workflow（它的 codex 審查會逐條對照慣例）。
@@ -12,7 +12,8 @@ import json
 import re
 import sys
 
-TARGET = re.compile(r"(^|/)(README\.md|GLOSSARY\.md|docs/contract/0\d_[^/]+\.md)$")
+TARGET = re.compile(r"(^|/)(README\.md|GLOSSARY\.md|doc/contract/0\d_[^/]+\.md)$")
+INTERNAL = re.compile(r"(^|/)doc/contract/README\.md$")  # 審閱頁說明是內部文件
 REMIND = (
     "你正在改對外文件 {path}。"
     "（1）介面細節（結束碼與優先序、選項寫法、說明與用法錯誤、訊息格式）先對照主流 CLI 慣例"
@@ -29,7 +30,7 @@ def main() -> int:
     path = str((data.get("tool_input") or {}).get("file_path") or "")
     if data.get("tool_name") not in ("Edit", "Write") or not TARGET.search(path):
         return 0
-    if "/docs/contract/README.md" in path:
+    if INTERNAL.search(path):
         return 0  # 審閱頁說明是內部文件
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",

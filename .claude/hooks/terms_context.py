@@ -17,7 +17,7 @@ ROOT = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path(__file__).resolve().par
 
 RULE = (
     "命名與提案規則（hook 自動附上）：提出任何名稱、選項名、指令寫法，或改對外文件之前，"
-    "先對照根目錄 GLOSSARY.md、docs/contract/01_purpose.md、02_invariants.md 的正式名詞與已定案內容；"
+    "先對照根目錄 GLOSSARY.md、doc/contract/01_purpose.md、02_invariants.md 的正式名詞與已定案內容；"
     "只用下面這些正式名詞，不用 _Avoid_ 詞，不自己發明近義詞。"
     "新概念若名詞表沒有，先說明它不在名詞表裡，再提議要不要新增。"
 )
