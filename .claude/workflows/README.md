@@ -27,32 +27,34 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 |---|---|---|---|
 | `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
 | `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
-| `doc-edit` | 改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → `humanizer-zh-tw` 潤稿；codex 的建議只回報 | 改任何現行文件（README、`doc/decisions/review/`、`CONTEXT.md`、ADR） | `round`、`files` |
+| `doc-edit` | 改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 只讀審查（含核對已定案）→ 套用必改 → 跨檔一致性 → `humanizer-zh-tw` 潤稿 → lint；預設 codex 改、Claude 查，可用 `editor` 切換；建議只回報 | 改任何現行文件（README、`docs/contract/`、`GLOSSARY.md`、ADR） | `round`、`files` |
 
 兩個都有選填的 `repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`（共用背景／已定案前提）與 `effort`。
 
 ## doc-edit
 
-改文件一律走這個流程，順序固定：
+改文件一律走這個流程，順序固定。分工用 `editor` 切換：預設 `codex`，由 codex 改寫、套用必改、修跨檔不一致，Claude 只讀審查與做跨檔檢查；`editor` 給 `claude` 就對調，Claude 改、codex 只讀審查（跨檔一致性由一個 Claude 子代理檢查並修）。審查方永遠是改稿方的另一方。codex 一律由包裝子代理啟動，改完由包裝子代理用指令驗證備份在、沒有動到範圍外的檔。
 
-1. **改寫**：一個子代理照 `ask` 改 `files`；沒給 `ask` 就跳過（檔已經改好，只跑後面三段）。
-2. **lint**：跑 `check_terms`、`check_context`，只修 lint 指出的地方，直到全部通過。
-3. **codex 審查**：只讀，對照 01、02、`CONTEXT.md`、ADR，分必改與建議。
-4. **套用必改**：必改直接改進檔裡，不問維護者；先對照出處確認 codex 沒看錯，看錯的那條不改並寫明理由。建議不改，只回報。
-5. **潤稿**：用 `humanizer-zh-tw` 局部潤稿，不改意思、不動程式碼與連結；改完再跑一次 lint。
+1. **改寫**：先查 `round` 是不是 `_backup` 最大編號加一，不對就停。每個檔一條並行，改稿方照 `ask` 改；沒給 `ask` 就跳過（檔已經改好，只跑後面幾段）。
+2. **lint**：一個 Claude 子代理跑 `check_terms`、`check_context`、`check_review_pages`，只修 lint 指出的地方，直到全部通過。
+3. **審查**：每個檔一條並行，審查方只讀。最重要的一項是先讀 `doc/decisions/review_log/discussion_queue.md`「已定案」區，逐條核對這一輪的改動有沒有違反定案、改變 01 的承諾、削弱 02 的不變量、或改動 03／04 的對外介面而 `ask` 沒要求；有就列必改，改法是還原。其餘對照 01、02、`GLOSSARY.md`、ADR 查正確性、連結、名詞、易讀性，對外頁另查 CLI 慣例；分必改與建議。
+4. **套用必改**：審完的檔立刻由改稿方套用，不問維護者；先對照證據確認審查沒看錯，跟定案衝突、改到對外承諾、屬於別的檔的不改，逐條寫已改或未改的理由。建議不改，只回報。
+5. **跨檔一致性**：全部套用完後比對各檔之間的結束碼、編號、名詞、連結；有要修的交給改稿方，最後 lint 要全部通過。
+6. **潤稿**：每個檔一個 Claude 子代理用 `humanizer-zh-tw` 局部潤稿，不改意思、不動程式碼與連結；改完再跑一次 lint。
 
 args 欄位：
 
 | 欄位 | 必填 | 說明 |
 |---|---|---|
-| `round` | 是 | 備份檔後綴與 codex 輸出檔名，例如 `r90` |
+| `round` | 是 | 備份檔後綴與審查輸出檔名，例如 `r90`；必須是 `_backup` 最大編號加一 |
 | `files` | 是 | 這次只准動的檔，相對 repo 根目錄 |
 | `ask` | 否 | 要怎麼改；不給就跳過改寫 |
 | `background` | 否 | 已定案的前提 |
-| `codex_focus` | 否 | codex 額外要看的重點 |
-| `effort` | 否 | `{ edit, polish, review }` |
+| `codex_focus` | 否 | 審查額外要看的重點（不論審查方是誰） |
+| `editor` | 否 | `codex`（預設）或 `claude`：誰改；審查方是另一方；其他值直接停 |
+| `effort` | 否 | `{ edit, polish, review }`；`edit`／`review` 只作用在 Claude 子代理，codex 那一方作用在包裝子代理 |
 
-codex 輸出寫到 `doc/decisions/review_log/codex/<round>-doc-edit.md`。回傳 `{ round, edited, linted, review, applied, polished }`。args 範例在腳本檔尾。
+輸出檔依產生者放 `doc/decisions/review_log/codex/` 或 `doc/decisions/review_log/claude/`：審查是 `<round>-doc-edit-<鍵>.md`；codex 改稿時另有 `<round>-doc-edit-edit-<鍵>.md`、`<round>-doc-edit-apply-<鍵>.md`、`<round>-doc-edit-consistency.md`。回傳 `{ round, edited, linted, review, applied, consistency, polished, finalLint }`。args 範例在腳本檔尾。
 
 ## doc-apply
 
