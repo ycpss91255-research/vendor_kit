@@ -124,15 +124,42 @@ VK 對外只有兩個入口：
 依 [02 不變量第 8 條](02_invariants.md#8-使用者介面不可取代寫法一致)：
 
 - 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](03_messages.md#結束碼) `0`結束；沒有 `help` 指令。薄殼、VK 檔與引擎的版本組合不相符時 `-h` 怎麼反應，這一頁不定；一定能用的只有[救援路徑](../../GLOSSARY.md#介面版與契約)列的那幾種
-- 只打 `just vendor_kit`、不帶指令：stderr 第一行印 `vendor_kit <版本>`，第二行印 [訊息](03_messages.csv) `VK0024` 診斷 `vendor_kit: error[VK0024]: 未指定指令。`，接著印簡短用法，以[結束碼](03_messages.md#結束碼) `2`結束，屬於用法錯誤
+- 只打 `just vendor_kit`、不帶指令是用法錯誤，stderr 依序印版本行、[訊息](03_messages.csv) `VK0024` 診斷與簡短用法，以[結束碼](03_messages.md#結束碼) `2`結束：
+
+  ```text
+  $ just vendor_kit
+  stderr: vendor_kit <版本>
+  stderr: vendor_kit: error[VK0024]: 未指定指令。
+  stderr: 用法：just vendor_kit <指令> [參數] [選項]
+  exit code: 2
+  ```
+
 - 沒有頂層的 `just vendor_kit -h` 與 `just vendor_kit --version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱去找，參數到不了 VK
 - 用法錯誤：先在 stderr 印出 `error` <ins>診斷</ins>，再接著印簡短用法，以[結束碼](03_messages.md#結束碼) `2`結束。算用法錯誤的有：
   - 缺必要參數：[訊息](03_messages.csv) `VK0025`
   - 不認得的指令或選項：[訊息](03_messages.csv) `VK0026`
   - tag 格式不合：[訊息](03_messages.csv) `VK0027`，見下面的[指定版本](#指定版本)
+
+  ```text
+  $ just vendor_kit add
+  stderr: vendor_kit: error[VK0025]: 缺少必要參數：<repo>。
+  stderr: 用法：just vendor_kit <指令> [參數] [選項]
+  exit code: 2
+
+  $ just vendor_kit upgrde base
+  stderr: vendor_kit: error[VK0026]: 不認得的指令或選項：upgrde。
+  stderr: 用法：just vendor_kit <指令> [參數] [選項]
+  exit code: 2
+
+  $ just vendor_kit upgrade base@1.2.0
+  stderr: vendor_kit: error[VK0027]: tag 格式不合：1.2.0；只接受 vX.Y.Z，X、Y、Z 不收前導零。
+  stderr: 用法：just vendor_kit <指令> [參數] [選項]
+  exit code: 2
+  ```
+
 - 位置參數只放工具名稱 `<repo>`；其他值都經由選項帶入，例如 `-p <dir>`、`-i <image>`
 - 同一個概念一種寫法：對象是引擎一律寫 `--engine`，本機 image 一律寫 `-i <image>`
-- 選項採 GNU 式的長短選項與 `--` ([GNU Coding Standards](https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html))，但有兩點刻意不遵循 [POSIX Utility Syntax Guidelines](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html)：選項放在位置參數之後也可以（不遵循 Guideline 9），`--engine` 的值可帶可不帶（不遵循 Guideline 7）。具體寫法：
+- 選項的寫法：
   - 有短也有長：`-h`／`--help`、`-y`／`--yes`、`-i`／`--image`、`-p`／`--path`
   - 只有長：`--engine`、`--exit-code`
   - 選項放在位置參數之前或之後都可以，意思相同
@@ -142,6 +169,17 @@ VK 對外只有兩個入口：
 ### 指定版本
 
 `<repo>@<tag>` 與 `--engine=<tag>` 的 [tag](../../GLOSSARY.md#工具與出貨) 照同一套規則：
+
+```text
+接受：
+just vendor_kit upgrade <repo>@v1.2.0
+just vendor_kit upgrade --engine=v1.2.0
+
+不接受：
+just vendor_kit upgrade --engine v1.2.0    值沒有用 = 接在 --engine 後面
+just vendor_kit upgrade <repo>@1.2.0       少了 v
+just vendor_kit upgrade <repo>@v01.2.0     有前導零
+```
 
 - 工具與引擎的 tag 只接受 `vX.Y.Z`，不帶 pre-release、build 後綴，不收前導零
 - 最新版是把 X、Y、Z 當非負整數逐欄比數值，取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版
@@ -186,7 +224,15 @@ VK 對外只有兩個入口：
 ## 各指令專用選項
 
 - `update`：查詢結果印到 stdout，不加前綴；不帶 `--exit-code` 時，查到新版仍以[結束碼](03_messages.md#結束碼) `0`結束。
-- `update --exit-code`：查到新版時除了在 stdout 印出查詢結果，也在 stderr 印出 [訊息](03_messages.csv) `VK0022` 的 `warn` 診斷，以[結束碼](03_messages.md#結束碼) `1`結束，給 CI 或腳本判斷有沒有新版。
+- `update --exit-code`：給 CI 或腳本判斷有沒有新版；查到新版時 stdout 照樣印查詢結果，stderr 另印 [訊息](03_messages.csv) `VK0022` 的 `warn` 診斷，以[結束碼](03_messages.md#結束碼) `1`結束：
+
+  ```text
+  $ just vendor_kit update --exit-code
+  stdout: base 有新版 v1.3.0（目前為 v1.2.0）。
+  stderr: vendor_kit: warn[VK0022]: base 有新版：目前為 v1.2.0，新版為 v1.3.0。可執行：just vendor_kit upgrade base
+  exit code: 1
+  ```
+
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
 - `bootstrap.sh -i <image>`：離線導入，用本機 image 當引擎來源。
 - 兩種離線導入共通：

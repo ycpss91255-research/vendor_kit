@@ -10,7 +10,7 @@ r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫�
 4. 相對連結的檔案與錨點都存在（錨點照 GitHub 的標題轉換規則算）。
 5. 只能向前依賴：審閱頁 N 不能連到編號比它大的審閱頁。
 6. 03 的指令寫法只能用前面頁定義過的：03 頁反引號裡的 `just vendor_kit …`，以及 03 的 CSV
-   （message、next_step、note 欄）裡的 just vendor_kit …，每個選項（-x、--xxx）與 @<tag> 寫法
+   （situation、message、next_step 欄）裡的 just vendor_kit …，每個選項（-x、--xxx）與 @<tag> 寫法
    都要在 GLOSSARY.md、01、02 出現過。CSV 的錯誤位置報 `<檔>:<代碼>:<欄名>`。
 7. 引用別頁條目不寫舊寫法「[名字](連結) 第 N 條」：一律寫「依 [頁名第 N 條](連結#錨點)」；
    行內程式碼（反引號內）不算。
@@ -173,7 +173,7 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
 CMD_MD = re.compile(r"`(just vendor_kit [^`]+)`")
 # CSV 不准 Markdown，指令沒有反引號：從 just vendor_kit 起取到第一個非 ASCII 字（中文、全形標點）或欄尾
 CMD_CSV = re.compile(r"just vendor_kit [ -~]*")
-CSV_COMMAND_FIELDS = ("message", "next_step", "note")
+CSV_COMMAND_FIELDS = ("situation", "message", "next_step")
 
 
 def command_errors(cmds, where: str, defined: str) -> list[str]:

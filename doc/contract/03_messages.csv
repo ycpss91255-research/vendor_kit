@@ -3,7 +3,7 @@ VK0001,active,error,失敗,update、upgrade、add 列版本時沒有 registry �
 VK0002,active,error,需人處理,操作需要詢問，但沒帶 -y 又不能互動（沒有終端，或讀到輸入結束）；<加上 -y 的原指令> 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後,需要確認，但沒有終端可以互動。除執行紀錄外，未修改任何檔。請在終端執行，或加上 -y 重新執行：<加上 -y 的原指令>,<加上 -y 的原指令>
 VK0003,active,error,需人處理,CI 模式下，基準版落後版本鎖定行,請在本機執行 just vendor_kit upgrade <repo> -y 後 commit 並 push,just vendor_kit upgrade <repo> -y
 VK0004,active,error,需人處理,sync 發現某個工具未完成導入,<repo> 未完成導入，請執行：just vendor_kit add <repo>,just vendor_kit add <repo>
-VK0005,active,error,需人處理,bootstrap.sh 發現主機的 just 低於 1.33.0（主機前置檢查：排在建執行紀錄之前，失敗時不建執行紀錄、不動任何 VK 檔）；<安裝指令> 不覆蓋主機既有的 just，也不要求主機另裝其他工具,"需要 just ≥ 1.33.0，目前為 <version>。請使用 GitHub release 版。
+VK0005,active,error,需人處理,bootstrap.sh 發現主機的 just 低於 1.33.0；<安裝指令> 不覆蓋主機既有的 just，也不要求主機另裝其他工具,"需要 just ≥ 1.33.0，目前為 <version>。請使用 GitHub release 版。
 下載：<平台對應的下載網址>
 安裝：<安裝指令>",<安裝指令>
 VK0006,active,error,失敗,薄殼的檔跟這一版引擎的模板比對不符（內容被修改過，或不是這一版引擎的模板）；<files> 逐檔標出是哪一種，除執行紀錄外不動 repo 檔與其他 VK 檔,偵測到薄殼跟這一版引擎的模板不符：<files>。未重產任何薄殼。請先檢視下列差異；手動修改過的先還原，再執行：just vendor_kit upgrade --engine,
@@ -11,8 +11,8 @@ VK0007,active,fatal,失敗,upgrade --engine=<tag> 降版，但目標引擎無法
 VK0008,active,fatal,需人處理,引擎讀到的 VK 檔，檔案版高於這個引擎支援的上限,無法讀取 <file>：檔案版 <N> 高於本引擎支援的 <M>；寫入者為 vendor_kit <written_by>。請升級引擎：just vendor_kit upgrade --engine,just vendor_kit upgrade --engine
 VK0009,active,fatal,需人處理,舊的薄殼遇上 X 較新的引擎，執行救援路徑以外的 recipe,薄殼介面版 <P_shell> 低於引擎 <vY> 的一般 recipe 需求。請先執行：just vendor_kit upgrade --engine,just vendor_kit upgrade --engine
 VK0010,active,error,失敗,任何 VK recipe 建不出執行紀錄（在任何副作用之前結束）,無法寫入執行紀錄 <path>：<原因>。vendor_kit 不在沒有紀錄的情況下執行，未修改任何檔。請清出磁碟空間或修正權限後重試。,
-VK0011,active,error,失敗,docker --version 的輸出含 podman（主機前置檢查：排在建執行紀錄之前，失敗時不建執行紀錄、不動任何 VK 檔）,偵測到 podman (docker --version)。vendor_kit 只支援 docker，不支援 Podman。請改用 docker（rootful 或 rootless）後重試。,
-VK0012,active,error,失敗,啟動器發現主機的 Docker 低於 19.03（主機前置檢查：排在建執行紀錄之前，失敗時不建執行紀錄、不動任何 VK 檔）,需要 Docker ≥ 19.03，目前為 <version>。請升級 Docker 後重試。,
+VK0011,active,error,失敗,docker --version 的輸出含 podman,偵測到 podman (docker --version)。vendor_kit 只支援 docker，不支援 Podman。請改用 docker（rootful 或 rootless）後重試。,
+VK0012,active,error,失敗,啟動器發現主機的 Docker 低於 19.03,需要 Docker ≥ 19.03，目前為 <version>。請升級 Docker 後重試。,
 VK0013,active,error,失敗,metadata 缺失或損壞，無法可靠還原,無法處理 <file>：metadata 缺失或損壞，無法可靠還原。vendor_kit 不以推測代替紀錄，除執行紀錄外，未修改任何檔。請先保留 <file> 與執行紀錄 <path>；metadata 若曾 commit 進 git，從 git 還原後重試；無法還原時，到 https://github.com/ycpss91255-research/vendor_kit/issues 回報，附上這兩個檔。,
 VK0014,active,warn,,本機執行 sync，發現基準版落後版本鎖定行,<repo> 的基準版落後版本鎖定行。請執行：just vendor_kit upgrade <repo> -y,just vendor_kit upgrade <repo> -y
 VK0015,active,warn,,sync 發現 cache/ 的逐檔指紋不符，已重新取件,<repo> 的 cache/ 逐檔指紋不符，已依版本鎖定行重新取件。,

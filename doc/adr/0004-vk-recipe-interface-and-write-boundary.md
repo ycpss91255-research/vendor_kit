@@ -2,6 +2,8 @@
 
 同一個 `justfile` 裡會載入好幾個工具的命名空間，recipe 的語意一改，寫進使用者 CI 的呼叫不會報錯、只會靜默做另一件事；而 CI 裡沒有人能回答詢問，需要寫進 git 的檔只能紅燈（依 [不變量頁第 3 條](../contract/02_invariants.md#3-自動化只碰不進-git-的東西)、[不變量頁第 8 條](../contract/02_invariants.md#8-使用者介面不可取代寫法一致)）。所以每個 VK recipe 在進 git 的 `vendor.just` 裡只是一行轉發，規則全在引擎；任何警告都以 `warn`、結束碼 `1` 讓本機與 CI 看見，CI 模式另外把兩類無法依契約完成的情境列為 `error`、結束碼 `2`。多工具、逐檔合併都會在中途失敗，守得住的是混合狀態可辨識（依 [不變量頁第 4 條](../contract/02_invariants.md#4-永不靜默失敗)），所以可寫 recipe 的寫入時序固定。
 
+選項寫法採 GNU 式的長短選項與 `--` ([GNU Coding Standards](https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html))，有兩點刻意不遵循 [POSIX Utility Syntax Guidelines](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html)：選項放在位置參數之後也可以（不遵循 Guideline 9），`--engine` 的值可帶可不帶（不遵循 Guideline 7）。值可帶可不帶，所以帶值只接受 `--engine=<tag>`：寫成 `--engine <tag>` 時，分不出後面那個字是 tag 還是位置參數。
+
 ## Considered Options
 
 - **CI 模式只看 `CI` 有沒有設**：`CI=0`、`CI=false` 的環境會被誤判，本機習慣導出這個變數的人會突然失去詢問。

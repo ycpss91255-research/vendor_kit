@@ -247,8 +247,7 @@ VK recipe 結束時回給呼叫方的整數，由診斷的 level 決定，與處
 VK 寫入檔案時用來標示該檔資料格式的整數版號。
 
 **救援路徑** (rescue path)：
-不論薄殼、VK 檔與引擎的版本組合是否相符，都必須能用的呼叫，只有這些：`install`、`upgrade --engine`、`sync` 的版本不符判定，以及四種印用法呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）。本詞條不規定救援路徑以外 recipe 的 `-h`／`--help` 在版本組合不合時的行為。
-`just vendor_kit`（不帶指令）輸出到 stderr：第一行印 `vendor_kit <版本>`，第二行印 `vendor_kit: error[VK0024]: 未指定指令。`，接著印簡短用法，以結束碼 `2` 結束。沒有頂層的 `-h`／`--version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱。
+不論薄殼、VK 檔與引擎的版本組合是否相符，都一定能用的幾種呼叫，用來升級或修復，讓版本組合回到相符。
 
 **契約** (contract)：
 VK 對使用者承諾不會隨意改變的那組介面；引擎內部實作不屬契約。
