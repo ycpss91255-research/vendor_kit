@@ -107,14 +107,14 @@ VK 對外只有兩個入口：
 
 依 [02 不變量第 2 條](02_invariants.md#2-一個來源版本鎖定行只有一份進-git)：
 
-- VK recipe 只准在安裝目錄執行；在別處執行就以[結束碼 `2`](03_messages.md#結束碼)拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外
+- VK recipe 只准在安裝目錄執行；在別處執行就印出 [`VK0024`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外
 - 工具 recipe 自動觸發的 `sync` 會先回到安裝目錄再呼叫，所以不受影響；工具自己的 recipe 要不要擋，由那個工具決定
-- `install` 時上層或下層已經有安裝目錄，就以[結束碼 `2`](03_messages.md#結束碼)拒絕：安裝目錄不能巢狀
+- `install` 時上層或下層已經有安裝目錄，就印出 [`VK0025`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)拒絕：安裝目錄不能巢狀
 
 ### 命名空間
 
 - 一個工具可以提供多個 <ins>`<ns>` 命名空間</ins>
-- `add` 時 `<ns>` 撞名就以[結束碼 `2`](03_messages.md#結束碼)拒絕，而且在任何寫入之前檢查。比對的對象是：
+- `add` 時 `<ns>` 撞名就印出 [`VK0026`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)拒絕，而且在任何寫入之前檢查。比對的對象是：
   - 其他已裝進 repo 的工具
   - 根 `justfile` 既有的 recipe 或 module
   - 保留名 `vendor_kit`
@@ -126,8 +126,7 @@ VK 對外只有兩個入口：
 - 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼 `0`](03_messages.md#結束碼)結束；沒有 `help` 指令。薄殼、VK 檔與引擎的版本組合不相符時 `-h` 怎麼反應，這一頁不定；一定能用的只有[救援路徑](../../GLOSSARY.md#介面版與契約)列的那幾種
 - 只打 `just vendor_kit`、不帶指令：第一行印 `vendor_kit <版本>`，接著印用法，輸出到 stderr，以[結束碼 `2`](03_messages.md#結束碼)結束
 - 沒有頂層的 `just vendor_kit -h` 與 `just vendor_kit --version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱去找，參數到不了 VK
-- 用法錯誤：在 stderr 印出哪裡錯與簡短用法，以[結束碼 `2`](03_messages.md#結束碼)結束。算用法錯誤的有：
-  - 只輸入 `just vendor_kit`、不帶指令
+- 用法錯誤：先在 stderr 印出 [`VK0023`](03_messages.md#訊息) `error` <ins>診斷</ins>，再接著印簡短用法，以[結束碼 `2`](03_messages.md#結束碼)結束；只輸入 `just vendor_kit` 例外，照上一條印版本與用法。算用法錯誤的有：
   - 缺必要參數
   - 不認得的指令或選項
   - tag 格式不合，見下面的[指定版本](#指定版本)
@@ -146,7 +145,7 @@ VK 對外只有兩個入口：
 
 - 工具與引擎的 tag 只接受 `vX.Y.Z`，不帶 pre-release、build 後綴，不收前導零
 - 最新版是把 X、Y、Z 當非負整數逐欄比數值，取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版
-- 寫出格式不合的 tag 是用法錯誤，以[結束碼 `2`](03_messages.md#結束碼)結束
+- 寫出格式不合的 tag 是用法錯誤，印出 [`VK0023`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)結束
 - 不加 `init`、`ensure`、`diff`、`accept`、`rollback` 這類別名，也不加 `--purge`（VK 永不刪 repo 檔，這個選項沒有對象）。這些用途各自由既有指令的選項或 git 處理
 - 工具 repo 的命名空間也照這套寫法，例如 base（[base#1192](https://github.com/ycpss91255-docker/base/issues/1192)）
 
@@ -169,7 +168,7 @@ VK 對外只有兩個入口：
 其餘哪個指令接受 `-y`，實作時再定。
 
 - <ins>`-y`</ins>：可代替原本允許的<ins>詢問</ins>
-  - 照樣印出改了什麼
+  - 照樣把改了什麼印到 stdout，不加前綴
   - 只省略詢問，不授權覆蓋使用者既有的檔，依 [02 不變量第 1 條](02_invariants.md#1-使用者寫的內容歸使用者可以建要改先問永不刪永不覆蓋)
   - 不能把已存在、尚未<ins>納管</ins>的檔改成 append 納管，見下面的[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
   - 不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼 `2`](03_messages.md#結束碼)結束並印出清單，與有沒有 `-y` 無關
@@ -182,21 +181,24 @@ VK 對外只有兩個入口：
 - 印出該打的指令，訊息見[訊息總表](03_messages.md#訊息)
 - 讀到輸入結束（EOF）不算同意
 
+能互動時，詢問文字印到 stderr，不帶 <ins>[level](03_messages.md#結束碼)</ins> 前綴。使用者明確回答「否」是正常取消：不修改，並在 stdout 說明未變更，以[結束碼 `0`](03_messages.md#結束碼)結束。
+
 ## 各指令專用選項
 
-- `update --exit-code`：查到新版時以[結束碼 `1`](03_messages.md#結束碼)結束，給 CI 或腳本判斷有沒有新版。
+- `update`：查詢結果印到 stdout，不加前綴；不帶 `--exit-code` 時，查到新版仍以[結束碼 `0`](03_messages.md#結束碼)結束。
+- `update --exit-code`：查到新版時除了在 stdout 印出查詢結果，也在 stderr 印出 [`VK0022`](03_messages.md#訊息) 警告，以[結束碼 `1`](03_messages.md#結束碼)結束，給 CI 或腳本判斷有沒有新版。
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
 - `bootstrap.sh -i <image>`：離線導入，用本機 image 當引擎來源。
 - 兩種離線導入共通：
   - `<image>` 可以是已載入的本機 image，或 image tar 檔
   - 寫進的版本鎖定行與線上導入相同
-  - 缺少必要的 <ins>digest</ins> 資訊時以[結束碼 `2`](03_messages.md#結束碼)結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替
+  - 缺少必要的 <ins>digest</ins> 資訊時印出 [`VK0027`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替
 
 VK 沒有限時的選項。要限時就在外層包 `timeout(1)`，或用 CI 的逾時設定。
 
 ## 輸出
 
-stdout 與 stderr 怎麼分、訊息的前綴與顏色，見 [03 訊息與錯誤碼總表](03_messages.md)。
+stdout 與 stderr 怎麼分、訊息的前綴與顏色，見 [03 訊息與錯誤碼總表](03_messages.md#輸出)。是否成功依 [02 不變量第 4 條](02_invariants.md#4-永不靜默失敗)。
 
 ## 使用者的檔與 VK 的檔
 
@@ -216,7 +218,7 @@ stdout 與 stderr 怎麼分、訊息的前綴與顏色，見 [03 訊息與錯誤
 - append 型初始檔第一次導入時向既有檔 append 內容，規則見下面「append 型的初始檔」
 - 已納管初始檔的基準版合併（VK 的設定檔沿用同一套規則）：
   - 使用者沒改過：詢問是否換新版
-  - 雙方都改過：詢問是否合併；<ins>合併衝突</ins>留下標記，由使用者解
+  - 雙方都改過：詢問是否合併；<ins>合併衝突</ins>留下標記，由使用者解，印出 [`VK0021`](03_messages.md#訊息) 警告並以[結束碼 `1`](03_messages.md#結束碼)結束；這次執行做完但要人接手
 
 append 型的初始檔：
 
@@ -233,12 +235,12 @@ append 型的初始檔：
 有紀錄、所以會被收回動作碰到的檔，就是根 `justfile`、根 `.dockerignore`，以及工具宣告為 append 的那些檔。收回時：
 
 - 整份檔裡恰好一處與當初插入的原文相同，才刪那一行
-- 一處也沒有、或有兩處以上，都不刪，只<ins>警告</ins>，講出是哪個檔、找到幾處
+- 一處也沒有、或有兩處以上，都不刪，講出是哪個檔、找到幾處；一處也沒有時印出 [`VK0016`](03_messages.md#訊息) 警告，有兩處以上時印出 [`VK0017`](03_messages.md#訊息) 警告，兩者都以[結束碼 `1`](03_messages.md#結束碼)結束
 
 其他情況：
 
-- `add` 遇到已存在的檔：不納管、不覆蓋，只警告
-- `remove` 與 `uninstall`：不刪初始檔，只印清單
+- `add` 遇到已存在的檔：不納管、不覆蓋，印出 [`VK0018`](03_messages.md#訊息) 警告並以[結束碼 `1`](03_messages.md#結束碼)結束
+- `remove` 與 `uninstall`：不刪初始檔，只把清單印到 stdout，不加前綴，以[結束碼 `0`](03_messages.md#結束碼)結束
 
 ## 檢查（test）
 
@@ -259,5 +261,7 @@ append 型的初始檔：
 環境變數 `CI` 有值、而且不是 `0` 或 `false`（不分大小寫）時，就是 CI 模式。`just vendor_kit test` 不看環境變數，一律是 CI 模式。CI 模式下：
 
 - 進 git 的檔一律不寫，依 [02 不變量第 3 條](02_invariants.md#3-自動化只碰不進-git-的東西)。
-- 遇到非寫不可的情況，以[結束碼 `2`](03_messages.md#結束碼)結束並印出清單。
-- 有任何<ins>本機覆寫</ins>（`dev` 造成的）也以[結束碼 `2`](03_messages.md#結束碼)結束，依 [02 不變量第 2 條](02_invariants.md#2-一個來源版本鎖定行只有一份進-git)。
+- 遇到非寫不可的情況，以[結束碼 `2`](03_messages.md#結束碼)結束並印出清單，例如基準版落後版本鎖定行時印出 [`VK0003`](03_messages.md#訊息) 診斷。
+- 有任何<ins>本機覆寫</ins>（`dev` 造成的）就印出 [`VK0028`](03_messages.md#訊息) 診斷，也以[結束碼 `2`](03_messages.md#結束碼)結束，依 [02 不變量第 2 條](02_invariants.md#2-一個來源版本鎖定行只有一份進-git)。
+
+不在 CI 模式時，基準版落後版本鎖定行會印出 [`VK0014`](03_messages.md#訊息) 警告，以[結束碼 `1`](03_messages.md#結束碼)結束。

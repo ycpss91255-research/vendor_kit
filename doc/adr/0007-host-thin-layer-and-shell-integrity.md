@@ -16,7 +16,7 @@
   - Docker 版本不足與偵測到 Podman：首次導入與已有安裝目錄都由啟動器檢查，只在 stderr 印訊息、以[結束碼 `2`](../contract/03_messages.md#結束碼)結束，訊息見[訊息總表](../contract/03_messages.md#訊息)。
   - just 版本不足：只有首次導入由 `bootstrap.sh` 在任何副作用之前檢查，只在 stderr 印訊息、以結束碼 `2` 結束，訊息見[訊息總表](../contract/03_messages.md#訊息)。已有安裝目錄時日常入口就是 `just vendor_kit …`，just 低於下限會在解析 justfile 時由 just 自己拒絕，VK 的啟動器沒機會執行，所以不承諾 VK 的訊息與結束碼，也不留執行紀錄。
 - 薄殼被手改或跟引擎不是同一版，都會在寫入前抓出來並列出差異，包含無害的格式調整；想調薄殼格式只能改引擎的模板再重產。
-- 薄殼與引擎脫節時，`sync` 不重產薄殼，只以 `2` 結束並提示，訊息見[訊息總表](../contract/03_messages.md#訊息)，使用者要自己跑 `upgrade --engine`。
+- 薄殼與引擎脫節時，`sync` 不重產薄殼，只以 `2` 結束，並在診斷中列出下一步；診斷見[訊息總表](../contract/03_messages.md#訊息)，使用者要自己跑 `upgrade --engine`。
 - 升引擎要跑兩次，指令歷史裡會看到同一行指令連著兩次。
 - 白名單多一個支援平台既有的基礎 userland 命令，是改對外介面：改 [04 使用者介面](../contract/04_interface.md#主機需求)的明列清單與 lint。多一個要另外安裝的主機依賴，是改主機依賴集合，得先修訂不變量 5。
 - 驗收案例（黑箱層）：低版本 docker、`docker --version` 含 `podman`、低版本 just 各一條；改一個位元組的薄殼；舊薄殼跑新 major 的一般 recipe；同一個不合組合下救援路徑仍然可用。
@@ -26,7 +26,7 @@
   - 啟動器只做：偵測主機環境；以字串相等比對讀版本鎖定行與印記；驗引擎回傳的執行計畫文法；照計畫呼叫 docker；寫執行紀錄；清掉自己建的容器與暫存。`sync` 快路徑、`prune` 的 docker 刪除也在啟動器，但都只依引擎給的計畫或純字串比對；比對一律保守，不確定就起引擎。
   - 已經有版本鎖定行時，啟動器一律用它指定的引擎：拉不到就是失敗，不改用啟動器內嵌的那一版。內嵌版本只用在還沒有版本鎖定行的第一次導入。
   - 薄殼四檔：`.vendor_kit/entry.just`、`vendor.just`、`log.sh`、`.gitignore`。薄殼帶自描述標頭（介面版、引擎版、其餘內容的 sha256），引擎重算比對、再與 image 內模板二次比對：前者抓「被改過」，後者抓「跟這一版引擎不是同一份」。不符就以[結束碼 `2`](../contract/03_messages.md#結束碼)結束、列差異，除執行紀錄外不動 repo 檔與其他 VK 檔，訊息見[訊息總表](../contract/03_messages.md#訊息)。`gen/.stamp` 只記產生薄殼的引擎 ref 供快路徑比對，不承擔薄殼 hash。
-  - 薄殼重產只由 `install`、`upgrade --engine` 做；`sync` 發現不符只回 `2`、提示 `upgrade --engine`。
-  - 升引擎兩段：新引擎換上後停下、以 `2` 結束並要求重跑，後續由新引擎接手。它是「版本鎖定行最後才改」（[ADR-0004](0004-vk-recipe-interface-and-write-boundary.md)）的明列例外：先改鎖定行再由新引擎接手；中途回 `2` 時鎖定行已經改了，進度檔記著目標版本，重跑 `upgrade --engine` 續作。
+  - 薄殼重產只由 `install`、`upgrade --engine` 做；`sync` 發現不符只回 `2`，並在診斷中列出下一步指令 `upgrade --engine`。
+  - 升引擎兩段：新引擎換上後停下、以[結束碼 `2`](../contract/03_messages.md#結束碼)結束並要求重跑，後續由新引擎接手。它是「版本鎖定行最後才改」（[ADR-0004](0004-vk-recipe-interface-and-write-boundary.md)）的明列例外：先改鎖定行再由新引擎接手；中途回 `2` 時鎖定行已經改了，進度檔記著目標版本，重跑 `upgrade --engine` 續作。
   - 舊薄殼跑新 major 的一般 recipe，由薄殼在起引擎之前擋下，乾淨回 `3`，訊息見[訊息總表](../contract/03_messages.md#訊息)，除執行紀錄外不動 repo 檔與 VK 檔；判定合不合的規則在 [ADR-0008](0008-protocol-and-file-schema-versions.md)。這裡與 [不變量 10](../contract/02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)、ADR-0008 說的「零寫入」，依[不變量 4](../contract/02_invariants.md#4-永不靜默失敗) 都不含執行紀錄。
   - 永久可用的救援路徑：`install`、`upgrade --engine`、`sync` 的不符判定，以及印用法。印用法只限這幾種確切形狀：`just vendor_kit`（不帶指令：第一行印 `vendor_kit <版本>`，接著印用法，輸出到 stderr、以[結束碼 `2`](../contract/03_messages.md#結束碼)結束）；`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）。救援路徑以外的 recipe 的 `-h`／`--help` 在版本組合不合時回 `0` 還是 `3`，架構階段再定（[#106](https://github.com/ycpss91255-research/vendor_kit/issues/106)）。
