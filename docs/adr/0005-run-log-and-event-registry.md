@@ -20,4 +20,4 @@
   - 事件註冊表 `log-events.txt` 是事件名的有限集合，真本在引擎 image。引擎寫紀錄前對真本查表，啟動器寫紀錄前對 `log.sh` 內嵌的子集查表，未註冊的事件名都當實作錯誤（FATAL）；CI 另以靜態檢查擋原始碼裡未註冊的事件名。執行期對表擋動態組出的名字，靜態檢查擋寫死的，兩層都要。
   - 啟動器的 `log.sh` 內嵌一份啟動器事件的子集，因為它在容器起來之前就開始寫紀錄、讀不到真本；子集只准少不准多，由 release CI 驗。
   - 執行紀錄不提供關掉的選項；建不出執行紀錄的那次執行以[結束碼 `2`](../contract/03_messages.md#結束碼)結束、不動任何檔。
-  - 執行紀錄早於任何寫入、拉 image、起引擎；只有沒有副作用的主機前置檢查（just、Docker 版本、Podman；[訊息 M7、M11、M12](../contract/03_messages.md#訊息)）排在它之前，這些檢查失敗時不建執行紀錄、不動任何 VK 檔，只在 stderr 印訊息、以 `2` 結束。完整時序見 [ADR-0004](0004-vk-recipe-interface-and-write-boundary.md)。
+  - 執行紀錄早於任何寫入、拉 image、起引擎；只有沒有副作用的主機前置檢查（just、Docker 版本、Podman；訊息見[訊息總表](../contract/03_messages.md#訊息)）排在它之前，這些檢查失敗時不建執行紀錄、不動任何 VK 檔，只在 stderr 印訊息、以 `2` 結束。完整時序見 [ADR-0004](0004-vk-recipe-interface-and-write-boundary.md)。

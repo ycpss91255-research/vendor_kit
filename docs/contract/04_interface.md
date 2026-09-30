@@ -41,9 +41,9 @@
 
 版本不足時：
 
-- Docker 版本不足：首次導入與已有安裝目錄都由啟動器檢查，在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，見[訊息 M12](03_messages.md#訊息)
+- Docker 版本不足：首次導入與已有安裝目錄都由啟動器檢查，在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見[訊息總表](03_messages.md#訊息)
 - just 版本不足，分兩種情況：
-  - 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，另印下載與安裝指令，見[訊息 M7](03_messages.md#訊息)
+  - 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，另印下載與安裝指令，訊息見[訊息總表](03_messages.md#訊息)
   - 已有安裝目錄：just 解析 justfile 時就先拒絕，啟動器沒機會執行，所以不承諾 VK 的訊息與結束碼，也不留執行紀錄
 
 ## registry 與認證
@@ -52,7 +52,7 @@
 
 - 支援的 registry 目前只有 GitHub 的 image 伺服器（GHCR）。沒列在這份清單上的 registry（例如 Docker Hub、GitLab、自架）不在承諾內
 - <ins>引擎 image</ins> 公開；<ins>工具 image</ins> 公開或私有，由出貨那個 repo 自己決定
-- 沒有給憑證時，不支援需要認證的版本列舉：對那個工具以[結束碼 `2`](03_messages.md#結束碼)結束，印出兩條路，見[訊息 M1](03_messages.md#訊息)
+- 沒有給憑證時，不支援需要認證的版本列舉：對那個工具以[結束碼 `2`](03_messages.md#結束碼)結束，印出兩條路，訊息見[訊息總表](03_messages.md#訊息)
   - 設定 `VENDOR_KIT_REGISTRY_TOKEN`（或 `VENDOR_KIT_REGISTRY_TOKEN_FILE`）
   - 直接指定版本 `@<tag>`
 
@@ -172,7 +172,7 @@ VK 對外只有三個入口：
 
 `-y` 只適用於<ins>可寫 recipe</ins>。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合：
 
-- `upgrade <repo> -y`：[訊息 M3](03_messages.md#訊息) 要使用者照打
+- `upgrade <repo> -y`：以[結束碼 `2`](03_messages.md#結束碼)結束時，訊息會要求使用者照打；訊息見[訊息總表](03_messages.md#訊息)
 
 其餘哪個指令接受 `-y`，實作時再定。
 
@@ -187,7 +187,7 @@ VK 對外只有三個入口：
 
 - 一律不改
 - 以[結束碼 `2`](03_messages.md#結束碼)結束
-- 印出該打的指令，見[訊息 M2](03_messages.md#訊息)
+- 印出該打的指令，訊息見[訊息總表](03_messages.md#訊息)
 - 讀到輸入結束（EOF）不算同意
 
 ## 各指令專用選項
