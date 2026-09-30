@@ -30,13 +30,13 @@
 
 | 工具 | 最低版本 | 說明 | 版本不足時 |
 |---|---|---|---|
-| [Docker](https://www.docker.com/) | 19.03 以上 | 不支援 Podman | 由<ins>啟動器</ins>檢查，首次導入與已有安裝目錄都一樣：在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見[訊息總表](03_messages.md#訊息) |
+| [Docker](https://www.docker.com/) | 19.03 以上 | 不支援 Podman | 由<ins>啟動器</ins>檢查，首次導入與已有安裝目錄都一樣：在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見 [`VK0012`](03_messages.md#訊息)（偵測到 Podman 時是 [`VK0011`](03_messages.md#訊息)） |
 | [Git](https://git-scm.com/) | 不設最低版本 | VK 不在主機上呼叫 git；「安裝目錄在 git repo 裡」由啟動器用 sh 往上找 `.git` 判斷；`.git` 是目錄或檔都算，所以 worktree 與 submodule 也適用 | — |
-| [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 首次導入：`bootstrap.sh` 以[結束碼 `2`](03_messages.md#結束碼)結束。已有安裝目錄：由 just 自己報錯，見下方的註 |
+| [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 首次導入：`bootstrap.sh` 以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見 [`VK0005`](03_messages.md#訊息)。已有安裝目錄：由 just 自己報錯，見下方的註 |
 
 註：just 版本不足時
 
-- 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，另印下載與安裝指令，訊息見[訊息總表](03_messages.md#訊息)
+- 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，另印下載與安裝指令，訊息見 [`VK0005`](03_messages.md#訊息)
 - 已有安裝目錄：justfile 用了 just 1.33.0 才支援的寫法，just 太舊時讀 justfile 就會出錯，輪不到 VK 執行，也就沒機會檢查版本；這時看到的是 just 自己的錯誤訊息與結束碼，VK 不留執行紀錄
 
 ## registry 與認證
@@ -45,7 +45,7 @@
 
 - 支援的 registry 目前只有 GitHub 的 image 伺服器（GHCR）。沒列在這份清單上的 registry（例如 Docker Hub、GitLab、自架）不在承諾內
 - <ins>引擎 image</ins> 公開；<ins>工具 image</ins> 公開或私有，由出貨那個 repo 自己決定
-- 沒有給憑證時，不支援需要認證的版本列舉：對那個工具以[結束碼 `2`](03_messages.md#結束碼)結束，印出兩條路，訊息見[訊息總表](03_messages.md#訊息)
+- 沒有給憑證時，不支援需要認證的版本列舉：對那個工具以[結束碼 `2`](03_messages.md#結束碼)結束，印出兩條路，訊息見 [`VK0001`](03_messages.md#訊息)
   - 設定 `VENDOR_KIT_REGISTRY_TOKEN`（或 `VENDOR_KIT_REGISTRY_TOKEN_FILE`）
   - 直接指定版本 `@<tag>`
 
@@ -107,14 +107,14 @@ VK 對外只有兩個入口：
 
 依 [02 不變量第 2 條](02_invariants.md#2-一個來源版本鎖定行只有一份進-git)：
 
-- VK recipe 只准在安裝目錄執行；在別處執行就印出 [`VK0024`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外
+- VK recipe 只准在安裝目錄執行；在別處執行就印出 [`VK0028`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外
 - 工具 recipe 自動觸發的 `sync` 會先回到安裝目錄再呼叫，所以不受影響；工具自己的 recipe 要不要擋，由那個工具決定
-- `install` 時上層或下層已經有安裝目錄，就印出 [`VK0025`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)拒絕：安裝目錄不能巢狀
+- `install` 時上層或下層已經有安裝目錄，就印出 [`VK0029`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)拒絕：安裝目錄不能巢狀
 
 ### 命名空間
 
 - 一個工具可以提供多個 <ins>`<ns>` 命名空間</ins>
-- `add` 時 `<ns>` 撞名就印出 [`VK0026`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)拒絕，而且在任何寫入之前檢查。比對的對象是：
+- `add` 時 `<ns>` 撞名就印出 [`VK0030`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)拒絕，而且在任何寫入之前檢查。比對的對象是：
   - 其他已裝進 repo 的工具
   - 根 `justfile` 既有的 recipe 或 module
   - 保留名 `vendor_kit`
@@ -124,12 +124,12 @@ VK 對外只有兩個入口：
 依 [02 不變量第 8 條](02_invariants.md#8-使用者介面不可取代寫法一致)：
 
 - 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼 `0`](03_messages.md#結束碼)結束；沒有 `help` 指令。薄殼、VK 檔與引擎的版本組合不相符時 `-h` 怎麼反應，這一頁不定；一定能用的只有[救援路徑](../../GLOSSARY.md#介面版與契約)列的那幾種
-- 只打 `just vendor_kit`、不帶指令：第一行印 `vendor_kit <版本>`，接著印用法，輸出到 stderr，以[結束碼 `2`](03_messages.md#結束碼)結束
+- 只打 `just vendor_kit`、不帶指令：stderr 第一行印 `vendor_kit <版本>`，第二行印 [`VK0024`](03_messages.md#訊息) 診斷 `vendor_kit: error[VK0024]: 未指定指令。`，接著印用法，以[結束碼 `2`](03_messages.md#結束碼)結束
 - 沒有頂層的 `just vendor_kit -h` 與 `just vendor_kit --version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱去找，參數到不了 VK
-- 用法錯誤：先在 stderr 印出 [`VK0023`](03_messages.md#訊息) `error` <ins>診斷</ins>，再接著印簡短用法，以[結束碼 `2`](03_messages.md#結束碼)結束；只輸入 `just vendor_kit` 例外，照上一條印版本與用法。算用法錯誤的有：
-  - 缺必要參數
-  - 不認得的指令或選項
-  - tag 格式不合，見下面的[指定版本](#指定版本)
+- 用法錯誤：先在 stderr 印出 `error` <ins>診斷</ins>，再接著印簡短用法，以[結束碼 `2`](03_messages.md#結束碼)結束。算用法錯誤的有：
+  - 缺必要參數：[`VK0025`](03_messages.md#訊息)
+  - 不認得的指令或選項：[`VK0026`](03_messages.md#訊息)
+  - tag 格式不合：[`VK0027`](03_messages.md#訊息)，見下面的[指定版本](#指定版本)
 - 位置參數只放工具名稱 `<repo>`；其他值都經由選項帶入，例如 `-p <dir>`、`-i <image>`
 - 同一個概念一種寫法：對象是引擎一律寫 `--engine`，本機 image 一律寫 `-i <image>`
 - 選項採 GNU 式的長短選項與 `--`（[GNU Coding Standards](https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html)），但有兩點刻意不遵循 [POSIX Utility Syntax Guidelines](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html)：選項放在位置參數之後也可以（不遵循 Guideline 9），`--engine` 的值可帶可不帶（不遵循 Guideline 7）。具體寫法：
@@ -145,7 +145,7 @@ VK 對外只有兩個入口：
 
 - 工具與引擎的 tag 只接受 `vX.Y.Z`，不帶 pre-release、build 後綴，不收前導零
 - 最新版是把 X、Y、Z 當非負整數逐欄比數值，取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版
-- 寫出格式不合的 tag 是用法錯誤，印出 [`VK0023`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)結束
+- 寫出格式不合的 tag 是用法錯誤，印出 [`VK0027`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)結束
 - 不加 `init`、`ensure`、`diff`、`accept`、`rollback` 這類別名，也不加 `--purge`（VK 永不刪 repo 檔，這個選項沒有對象）。這些用途各自由既有指令的選項或 git 處理
 - 工具 repo 的命名空間也照這套寫法，例如 base（[base#1192](https://github.com/ycpss91255-docker/base/issues/1192)）
 
@@ -163,7 +163,7 @@ VK 對外只有兩個入口：
 
 `-y` 只適用於<ins>可寫 recipe</ins>。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合：
 
-- `upgrade <repo> -y`：以[結束碼 `2`](03_messages.md#結束碼)結束時，訊息會要求使用者照打；訊息見[訊息總表](03_messages.md#訊息)
+- `upgrade <repo> -y`：以[結束碼 `2`](03_messages.md#結束碼)結束時，訊息會要求使用者照打；訊息見 [`VK0003`](03_messages.md#訊息)
 
 其餘哪個指令接受 `-y`，實作時再定。
 
@@ -171,14 +171,14 @@ VK 對外只有兩個入口：
   - 照樣把改了什麼印到 stdout，不加前綴
   - 只省略詢問，不授權覆蓋使用者既有的檔，依 [02 不變量第 1 條](02_invariants.md#1-使用者寫的內容歸使用者可以建要改先問永不刪永不覆蓋)
   - 不能把已存在、尚未<ins>納管</ins>的檔改成 append 納管，見下面的[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
-  - 不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼 `2`](03_messages.md#結束碼)結束並印出清單，與有沒有 `-y` 無關
+  - 不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼 `2`](03_messages.md#結束碼)結束並印出清單（例如 [`VK0003`](03_messages.md#訊息)），與有沒有 `-y` 無關
   - 不隱含 CI 模式
 
 沒帶 `-y`、又不能互動時（例如在腳本裡），需要詢問的操作：
 
 - 一律不改
 - 以[結束碼 `2`](03_messages.md#結束碼)結束
-- 印出該打的指令，訊息見[訊息總表](03_messages.md#訊息)
+- 印出該打的指令，訊息見 [`VK0002`](03_messages.md#訊息)
 - 讀到輸入結束（EOF）不算同意
 
 能互動時，詢問文字印到 stderr，不帶 <ins>[level](03_messages.md#結束碼)</ins> 前綴。使用者明確回答「否」是正常取消：不修改，並在 stdout 說明未變更，以[結束碼 `0`](03_messages.md#結束碼)結束。
@@ -192,7 +192,7 @@ VK 對外只有兩個入口：
 - 兩種離線導入共通：
   - `<image>` 可以是已載入的本機 image，或 image tar 檔
   - 寫進的版本鎖定行與線上導入相同
-  - 缺少必要的 <ins>digest</ins> 資訊時印出 [`VK0027`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替
+  - 缺少必要的 <ins>digest</ins> 資訊時印出 [`VK0031`](03_messages.md#訊息) 診斷，以[結束碼 `2`](03_messages.md#結束碼)結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替
 
 VK 沒有限時的選項。要限時就在外層包 `timeout(1)`，或用 CI 的逾時設定。
 
@@ -262,6 +262,6 @@ append 型的初始檔：
 
 - 進 git 的檔一律不寫，依 [02 不變量第 3 條](02_invariants.md#3-自動化只碰不進-git-的東西)。
 - 遇到非寫不可的情況，以[結束碼 `2`](03_messages.md#結束碼)結束並印出清單，例如基準版落後版本鎖定行時印出 [`VK0003`](03_messages.md#訊息) 診斷。
-- 有任何<ins>本機覆寫</ins>（`dev` 造成的）就印出 [`VK0028`](03_messages.md#訊息) 診斷，也以[結束碼 `2`](03_messages.md#結束碼)結束，依 [02 不變量第 2 條](02_invariants.md#2-一個來源版本鎖定行只有一份進-git)。
+- 有任何<ins>本機覆寫</ins>（`dev` 造成的）就印出 [`VK0032`](03_messages.md#訊息) 診斷，也以[結束碼 `2`](03_messages.md#結束碼)結束，依 [02 不變量第 2 條](02_invariants.md#2-一個來源版本鎖定行只有一份進-git)。
 
 不在 CI 模式時，基準版落後版本鎖定行會印出 [`VK0014`](03_messages.md#訊息) 警告，以[結束碼 `1`](03_messages.md#結束碼)結束。

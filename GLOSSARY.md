@@ -193,7 +193,7 @@ recipe 後面帶的 `-x` 或 `--long` 參數。
 VK 在 CI 環境中執行時採用的模式。
 
 **診斷**（diagnostic）：
-VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <中文本文>` 的訊息，含續行；level 只有 `warn`、`error`、`fatal`。
+VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <中文本文>` 的訊息，含續行。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。
 
 **正常輸出**（normal output）：
 成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。
@@ -205,13 +205,13 @@ VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <中文本文>` �
 診斷的處置屬性，表示這次執行沒有做完，而且只能說明原因；不附下一步指令，也不承諾有可直接執行的處置。
 
 **警告**（warning）：
-level 為 `warn` 的診斷：指出這次執行有非阻斷的問題，或雖已做完但仍要使用者接手；只要印出警告就不算成功，以結束碼 `1` 結束。
+level 為 `warn` 的診斷：指出這次執行有非阻斷的問題；只要印出警告就不算成功，以結束碼 `1` 結束。
 
 **原因代碼**（reason code）：
 每條診斷的固定識別碼，寫成 `VK` 加四位數字（`VKnnnn`）；代碼發出後永不改給其他原因，刪除診斷時留下空號、不重用。
 
 **結束碼**（exit code）：
-VK recipe 結束時回給呼叫方的整數，由診斷的 level 決定，與處置無關：`0`（info）只表示成功，沒有任何警告或要人接手的事項；`1`（warn）表示有警告，或做完但要人接手；`2`（error）表示沒做完，包括用法錯誤，以及處置為需人處理或失敗的 error 診斷；`3`（fatal）只表示版本組合不合，這類診斷也可能是需人處理。一次有多個結果時取最大的結束碼。
+VK recipe 結束時回給呼叫方的整數，由診斷的 level 決定，與處置無關：`0`（info）只表示成功，沒有任何警告或要人接手的事項；`1`（warn）表示有警告，或做完但要人接手；`2`（error）表示沒做完，包括用法錯誤，以及處置為需人處理或失敗的 error 診斷；`3`（fatal）只表示版本組合不合，這類診斷也可能是需人處理。有診斷時取最高 level 對應的碼，沒有診斷為 `0`。
 
 ### VK recipe 與用途
 
@@ -248,7 +248,7 @@ VK 寫入檔案時用來標示該檔資料格式的整數版號。
 
 **救援路徑**（rescue path）：
 不論薄殼、VK 檔與引擎的版本組合是否相符，都必須能用的呼叫，只有這些：`install`、`upgrade --engine`、`sync` 的版本不符判定，以及四種印用法呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）。本詞條不規定救援路徑以外 recipe 的 `-h`／`--help` 在版本組合不合時的行為。
-`just vendor_kit`（不帶指令）第一行印 `vendor_kit <版本>`，接著印用法，輸出到 stderr、以結束碼 `2` 結束。沒有頂層的 `-h`／`--version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱。
+`just vendor_kit`（不帶指令）輸出到 stderr：第一行印 `vendor_kit <版本>`，第二行印 `vendor_kit: error[VK0024]: 未指定指令。`，接著印用法，以結束碼 `2` 結束。沒有頂層的 `-h`／`--version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱。
 
 **契約**（contract）：
 VK 對使用者承諾不會隨意改變的那組介面；引擎內部實作不屬契約。
