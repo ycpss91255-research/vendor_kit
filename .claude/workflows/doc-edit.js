@@ -8,7 +8,7 @@ export const meta = {
     { title: '審查', detail: '每個檔一條並行，由審查方（改稿方的另一方：預設 Claude，editor=claude 時是 codex）只讀審查；先核對 discussion_queue.md 已定案區；審完的檔立刻進入套用必改；mode=light 一律由另一個 Claude 子代理只看這一輪的 diff 審查' },
     { title: '套用必改', detail: '每個檔由改稿方套用自己的必改，逐條寫已改或未改的理由；建議不改，只回報；mode=light 由 Claude 子代理套用，沒有必改就跳過' },
     { title: '跨檔一致性', detail: 'mode=light 不跑。全部套用完後比對各檔之間的結束碼、編號、名詞、連結；預設 Claude 只讀檢查、清單非空再交 codex 修；editor=claude 時一個 Claude 子代理檢查並修' },
-    { title: '潤稿', detail: 'mode=light 不跑。每個檔一個 Claude 子代理並行用 humanizer-zh-tw 局部潤稿，最後再跑一次 lint' },
+    { title: '潤稿', detail: 'mode=light 不跑。每個檔一個 Claude 子代理並行用 humanizer-zh-tw 潤稿，只准改這一輪改過的行、只修 AI 寫作模式；改完用腳本比對，越界的行還原，這一輪沒改的檔跳過；最後再跑一次 lint' },
   ],
 }
 
@@ -29,7 +29,7 @@ export const meta = {
 //   effort?      object    { edit, polish, review }
 //                          edit：改稿方的 Claude 子代理（editor=codex 時只作用在包裝 codex 的子代理，不影響 codex 本身）
 //                          review：審查方的 Claude 子代理（editor=claude 時只作用在包裝 codex 的子代理）
-//                          polish：潤稿子代理
+//                          polish：潤稿子代理（只准改這一輪改過的行，越界的由腳本還原；這一輪沒改的檔跳過）
 //                          mode=light 時 edit（含套用必改）與 review 不給就是 'low'；polish 用不到
 const {
   repo = '/home/cyc/Desktop/vendor-kit_ws/src',
@@ -411,22 +411,73 @@ if (!consistency || consistency.error) {
 }
 
 // ───────────────── 潤稿（每個檔並行） ─────────────────
+// 潤稿只准改這一輪改過的行：範圍是「這一輪的基準（不帶序號的 pre_<round> 備份）→ 潤稿前」的新增或修改行。
+// 越界檢查用下面的腳本算，不交給模型判斷：比潤稿前與潤稿後，變動落在範圍外的就還原成潤稿前的原文。
+// 用法：python3 polish_check.py <基準> <潤稿前> <潤稿後> [--fix]
+const POLISH_CHECK = `import sys, difflib, json
+base, pre, cur = (open(p, encoding='utf-8').read().splitlines(keepends=True) for p in sys.argv[1:4])
+fix = '--fix' in sys.argv[4:]
+allowed = set()
+for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, base, pre, autojunk=False).get_opcodes():
+    if tag in ('replace', 'insert'):
+        allowed.update(range(j1, j2))
+out, bad = [], []
+def keep(i1, i2, j1, j2):
+    ok = all(i in allowed for i in range(i1, i2)) if i2 > i1 else (i1 - 1 in allowed or i1 in allowed)
+    if ok:
+        out.extend(cur[j1:j2])
+    else:
+        bad.append({'pre_lines': [i1 + 1, i2], 'post_lines': [j1 + 1, j2], 'post_text': ''.join(cur[j1:j2])})
+        out.extend(pre[i1:i2])
+for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, pre, cur, autojunk=False).get_opcodes():
+    if tag == 'equal':
+        out.extend(pre[i1:i2])
+    elif tag == 'replace' and i2 - i1 == j2 - j1:
+        for k in range(i2 - i1):
+            keep(i1 + k, i1 + k + 1, j1 + k, j1 + k + 1)
+    else:
+        keep(i1, i2, j1, j2)
+if fix and bad:
+    open(sys.argv[3], 'w', encoding='utf-8').write(''.join(out))
+print(json.dumps({'round_changed_lines': len(allowed), 'violations': bad, 'reverted': bool(fix and bad)}, ensure_ascii=False))
+`
+const POLISH_RESULT = {
+  type: 'object',
+  properties: {
+    ...RESULT.properties,
+    verify: { type: 'string', description: '越界驗證結果：polish_check.py 兩次輸出的原文（還原前、還原後）；跳過就寫「跳過：這一輪沒有改動」' },
+  },
+  required: [...RESULT.required, 'verify'],
+}
 phase('潤稿')
-const polished = await parallel(files.map(f => () => agent(`你負責潤稿，只負責 ${f}。先用 Skill 工具呼叫 "humanizer-zh-tw"，照它的規則對 ${f} 做**局部**潤稿。
+const polished = await parallel(files.map(f => {
+  const base = `${repo}/doc/decisions/_backup/${key(f)}.pre_${round}.md`
+  return () => agent(`你負責潤稿，只負責 ${f}。
 
 ${guard([f])}
 
 ${BACKGROUND}
 
-額外規則：
-- 不改意思、不加新事實、不刪承諾或「依 [頁名](連結) 第 N 條」的引用。
-- 不動程式碼區塊、行內程式碼、路徑、連結目標、數字、條號、表格結構。
-- 語氣直接，用「你」或省略主詞；不用「我認為」「建議」「也許」這類軟化詞。
-- 這一輪不做文字浮水印檢查，skill 最後的浮水印詢問略過。
-- 改完跑 \`${LINT}\`；${f} 造成的 FAIL 要修掉。
+**硬規則：只准改這一輪改過的行。** 違反就算這輪失敗。
+- 這一輪的基準是 ${base}（不帶序號的那份就是這一輪改之前的原檔）；它不存在就用 \`git -C ${repo} show HEAD:${f}\` 的輸出（存進 scratchpad）當基準。
+- 先跑 \`diff -u <基準> ${repo}/${f}\` 取得這一輪的改動範圍。只在「新增或修改過的行」（diff 裡 + 開頭的行）內潤稿；diff 以外的行一個字都不准動，連標點都不准。
+- diff 是空的（這一輪沒改這個檔）：直接跳過，不備份、不呼叫 skill、不改任何東西；changed 與 backups 回空陣列，verify 寫「跳過：這一輪沒有改動」。
 
-回報每一處改動（原句 → 新句，太長就寫位置與改法）。`,
-  { label: `潤稿:${f}`, phase: '潤稿', schema: RESULT, agentType: 'general-purpose', ...(effort.polish ? { effort: effort.polish } : {}) })))
+步驟：
+1. 取得上面的 diff；空的就照上面跳過並回報。
+2. 照第 3 條護欄備份 ${f}：不帶序號的那份已經是基準，所以你的備份會帶序號（.pre_${round}.N.md，N 取目前最大的加一）。這份是「潤稿前」，記下它的路徑。
+3. 用 Skill 工具呼叫 "humanizer-zh-tw"。只修它列出的 AI 寫作模式，而且只在第 1 步的範圍內修；沒有明確對上某個模式就不改。不做同義替換、語序微調、連接詞增刪這類不改善可讀性的改動（例如「所以 VK 要…」不要改成「VK 因此要…」）。
+4. 另外：不改意思、不加新事實、不刪承諾或「依 [頁名](連結) 第 N 條」的引用；不動程式碼區塊、行內程式碼、路徑、連結目標、數字、條號、表格結構；語氣直接，用「你」或省略主詞，不用「我認為」「建議」「也許」這類軟化詞。這一輪不做文字浮水印檢查，skill 最後的浮水印詢問略過。
+5. 跑 \`${LINT}\`；${f} 造成的 FAIL 要修掉，修的時候也只准動第 1 步範圍內的行。
+6. 越界驗證（一律用腳本算）：用 Write 工具把下面的腳本原文存成你 scratchpad 的 polish_check.py，然後跑
+   \`python3 <scratchpad>/polish_check.py <基準> <潤稿前的備份> ${repo}/${f} --fix\`
+   它會找出落在這一輪範圍外的變動，並把那些行還原成潤稿前的原文。有還原（reverted 是 true）就再跑一次同一行指令（不帶 --fix），violations 必須是空的；再跑一次 lint。
+7. 回報：changed 列每一處保留下來的改動（原句 → 新句，太長就寫位置與改法，並寫它修的是 humanizer-zh-tw 的哪個模式）；被腳本還原的不算進 changed；verify 放第 6 步每次腳本輸出的原文；backups 放你的備份路徑。
+
+polish_check.py：
+${POLISH_CHECK}`,
+  { label: `潤稿:${f}`, phase: '潤稿', schema: POLISH_RESULT, agentType: 'general-purpose', ...(effort.polish ? { effort: effort.polish } : {}) })
+}))
 const finalLint = await lintAgent('最後 lint', '潤稿')
 
 log(review.errors.length
