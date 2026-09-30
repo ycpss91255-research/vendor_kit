@@ -31,7 +31,7 @@
 ## 輸出
 
 - 成功時改了什麼、查詢結果與各 recipe 的 `-h`／`--help` 用法只印到 stdout，不加前綴
-- stderr 只放診斷及其續行、<ins>詢問</ins>文字，以及用法錯誤後附的用法
+- stderr 只放診斷及其續行、<ins>詢問</ins>文字、不帶指令時第一行的版本行，以及用法錯誤後附的用法
 - 只打 `just vendor_kit`、不帶指令時，stderr 第一行印 `vendor_kit <版本>`，第二行印 `vendor_kit: error[VK0024]: 未指定指令。`，接著印簡短用法，以 `2` 結束
 - `remove`／`uninstall` 依契約保留初始檔時，把保留清單印到 stdout，以 `0` 結束
 - 詢問時使用者明確回答「否」，是正常取消：不做變更，在 stdout 說明未變更，以 `0` 結束
@@ -43,7 +43,7 @@
 
 ## 訊息
 
-每條診斷都印到 stderr。第一行格式固定是 `vendor_kit: <level>[VKnnnn]: <中文本文>`；診斷的 level 只有 `warn`、`error`、`fatal`；info 只用來標結束碼 `0`，不印前綴。多行診斷的續行也印到 stderr。
+每條診斷都印到 stderr。第一行格式固定是 `vendor_kit: <level>[VKnnnn]: <中文本文>`。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。多行診斷的續行也印到 stderr。
 
 <ins>原因代碼</ins>是 `VK` 加四位數字。每個代碼以表格的「情況」為唯一意思；發出後永不重用，刪掉的代碼留空號。
 
@@ -101,5 +101,5 @@
 - `VK0010`：在任何副作用之前結束，所有 VK recipe 都一樣；依 [02 不變量第 4 條](02_invariants.md#4-永不靜默失敗)
 - `VK0011`、`VK0012`：是主機前置檢查，排在建執行紀錄之前；失敗時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。依 [02 不變量第 5 條](02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)
 - `VK0013`：不猜測；除執行紀錄外，不寫 repo 檔與其他 VK 檔；依 [02 不變量第 1 條](02_invariants.md#1-使用者寫的內容歸使用者可以建要改先問永不刪永不覆蓋)
-- `VK0024`：stderr 第一行先印 `vendor_kit <版本>`，第二行印這條診斷，接著印簡短用法，以 `2` 結束
+- `VK0024`：輸出順序見[輸出](#輸出)。
 - `VK0032`：`<解除本機覆寫的指令>` 依對象印成 `just vendor_kit undev <repo>` 或 `just vendor_kit undev --engine`

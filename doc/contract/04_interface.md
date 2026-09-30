@@ -30,7 +30,7 @@
 
 | 工具 | 最低版本 | 說明 | 版本不足時 |
 |---|---|---|---|
-| [Docker](https://www.docker.com/) | 19.03 以上 | 不支援 Podman | 由<ins>啟動器</ins>檢查，首次導入與已有安裝目錄都一樣：在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見 [`VK0012`](03_messages.md#訊息)（偵測到 Podman 時是 [`VK0011`](03_messages.md#訊息)） |
+| [Docker](https://www.docker.com/) | 19.03 以上 | 不支援 Podman；偵測到 Podman 時由<ins>啟動器</ins>以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見 [`VK0011`](03_messages.md#訊息) | 由<ins>啟動器</ins>檢查，首次導入與已有安裝目錄都一樣：在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見 [`VK0012`](03_messages.md#訊息) |
 | [Git](https://git-scm.com/) | 不設最低版本 | VK 不在主機上呼叫 git；「安裝目錄在 git repo 裡」由啟動器用 sh 往上找 `.git` 判斷；`.git` 是目錄或檔都算，所以 worktree 與 submodule 也適用 | — |
 | [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 首次導入：`bootstrap.sh` 以[結束碼 `2`](03_messages.md#結束碼)結束，訊息見 [`VK0005`](03_messages.md#訊息)。已有安裝目錄：由 just 自己報錯，見下方的註 |
 
@@ -124,7 +124,7 @@ VK 對外只有兩個入口：
 依 [02 不變量第 8 條](02_invariants.md#8-使用者介面不可取代寫法一致)：
 
 - 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼 `0`](03_messages.md#結束碼)結束；沒有 `help` 指令。薄殼、VK 檔與引擎的版本組合不相符時 `-h` 怎麼反應，這一頁不定；一定能用的只有[救援路徑](../../GLOSSARY.md#介面版與契約)列的那幾種
-- 只打 `just vendor_kit`、不帶指令：stderr 第一行印 `vendor_kit <版本>`，第二行印 [`VK0024`](03_messages.md#訊息) 診斷 `vendor_kit: error[VK0024]: 未指定指令。`，接著印用法，以[結束碼 `2`](03_messages.md#結束碼)結束
+- 只打 `just vendor_kit`、不帶指令：stderr 第一行印 `vendor_kit <版本>`，第二行印 [`VK0024`](03_messages.md#訊息) 診斷 `vendor_kit: error[VK0024]: 未指定指令。`，接著印簡短用法，以[結束碼 `2`](03_messages.md#結束碼)結束，屬於用法錯誤
 - 沒有頂層的 `just vendor_kit -h` 與 `just vendor_kit --version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱去找，參數到不了 VK
 - 用法錯誤：先在 stderr 印出 `error` <ins>診斷</ins>，再接著印簡短用法，以[結束碼 `2`](03_messages.md#結束碼)結束。算用法錯誤的有：
   - 缺必要參數：[`VK0025`](03_messages.md#訊息)
@@ -171,7 +171,7 @@ VK 對外只有兩個入口：
   - 照樣把改了什麼印到 stdout，不加前綴
   - 只省略詢問，不授權覆蓋使用者既有的檔，依 [02 不變量第 1 條](02_invariants.md#1-使用者寫的內容歸使用者可以建要改先問永不刪永不覆蓋)
   - 不能把已存在、尚未<ins>納管</ins>的檔改成 append 納管，見下面的[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
-  - 不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼 `2`](03_messages.md#結束碼)結束並印出清單（例如 [`VK0003`](03_messages.md#訊息)），與有沒有 `-y` 無關
+  - 不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼 `2`](03_messages.md#結束碼)結束，例如基準版落後時印出 [`VK0003`](03_messages.md#訊息)，與有沒有 `-y` 無關
   - 不隱含 CI 模式
 
 沒帶 `-y`、又不能互動時（例如在腳本裡），需要詢問的操作：
