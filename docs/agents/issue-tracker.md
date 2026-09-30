@@ -1,6 +1,6 @@
 # Issue tracker：GitHub
 
-本 repo 的 issue 與 spec 都放在 GitHub `ycpss91255-research/vendor_kit`。所有操作一律用 `gh` CLI。對外契約與承諾見 `docs/contract/01_purpose.md`、名詞見根 `GLOSSARY.md`、不變量見 `docs/contract/02_invariants.md`、ADR 見 `docs/adr/`。
+本 repo 的 issue 與實作 ticket（issue 層級的 spec）放在 GitHub `ycpss91255-research/vendor_kit`；對外契約只放 `docs/contract/`，不發成 issue，見[工作約定](../../AGENTS.md#決議與文件流程)。所有操作一律用 `gh` CLI。對外契約與承諾見 `docs/contract/01_purpose.md`、名詞見根 `GLOSSARY.md`、不變量見 `docs/contract/02_invariants.md`、ADR 見 `docs/adr/`。
 
 ## 為什麼每個 `gh` 都明寫 `-R`
 
@@ -19,7 +19,7 @@
 
 - issue、PR、留言一律用中文（指令、識別字、檔名保留原文）。
 - **設計決議寫進 issue 本文**（編輯 body），不是只留在對話或留言裡；留言只放討論過程，定案後回頭更新本文。
-- 遇到需要維護者拍板的問題（設計取捨、契約要不要改、方案 A 或 B），貼 `needs-decision`，不要貼 `needs-info`；`needs-info` 只用在等回報者補資料。
+- 遇到需要維護者拍板的問題（設計取捨、契約要不要改、方案 A 或 B），貼 `needs-triage`（等維護者評估），不要貼 `needs-info`；`needs-info` 只用在等回報者補資料。
 
 ## Pull request 當作需求來源
 

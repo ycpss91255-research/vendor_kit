@@ -210,7 +210,7 @@ VK recipe 結束時回給呼叫方的整數。
 
 **`update`、`upgrade`**：
 `update` 只查有沒有新版；`upgrade` 把鎖定版本換成新版或指定版本。
-寫法：`just vendor_kit update`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine@<tag>`。
+寫法：`just vendor_kit update`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。
 
 **`dev` / `undev`**：
 `dev` 讓引擎或工具改用本機開發來源；`undev` 是它的反向，回到鎖定版本。

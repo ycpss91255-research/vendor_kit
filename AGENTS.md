@@ -4,7 +4,7 @@
 issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss91255-research/vendor_kit`，讓指令自己說出目標 repo，不依賴當下目錄的 remote 設定，也不會打到 fork）；外部 PR 不當需求來源。見 [issue tracker 約定](docs/agents/issue-tracker.md)。
 
 ### Triage labels
-五個標準狀態 = 同名標籤；另有 `needs-decision`（等維護者拍板）。見 [triage 標籤](docs/agents/triage-labels.md)。
+五個標準狀態 = 同名標籤，沒有其他狀態標籤；要維護者拍板的貼 `needs-triage`（等維護者評估）。見 [triage 標籤](docs/agents/triage-labels.md)。
 
 ### Domain docs
 單一語境：對外契約與承諾見 `docs/contract/01_purpose.md`、名詞見根目錄 `GLOSSARY.md`、不變量見 `docs/contract/02_invariants.md`、ADR 見 `docs/adr/`。見 [domain 文件約定](docs/agents/domain.md)。
@@ -33,5 +33,5 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 
 ## 圖面
 
-- 架構圖與流程圖用 drawio MCP 編輯與匯出，**不要為此引入容器或要求主機裝第三方工具**：那會讓這個 repo 變複雜。注意「主機只需 Docker、Git、just」是 VK 對它的使用者的承諾（不變量 5），不是這個 repo 作者流程的限制，兩者不要混。
+- 架構圖與流程圖用 drawio MCP 編輯與匯出，**不要為此引入容器或要求主機裝第三方工具**：那會讓這個 repo 變複雜。「主機只需 Docker、Git、just」是 VK 對它的使用者的承諾（不變量 5），不是這個 repo 作者流程的限制，兩者不要混。
 - 圖的持久鍵是 `<diagram id>`，不是頁名也不是頁序。
