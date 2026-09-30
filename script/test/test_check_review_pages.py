@@ -108,5 +108,33 @@ class RulesTest(unittest.TestCase):
         code, out = self.run_main()
         self.assertEqual(code, 0, out)
 
+    def test_backtick_in_link_text_fails(self):
+        # 對外頁（README、doc/contract/0N_*.md）的連結文字不得含反引號；錯誤位置報 <檔>:<行>
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n\n見 [`VK0001`](01_a.md#第一節) 與 [結束碼 `2`](01_a.md#第一節)。\n")
+        pathlib.Path("README.md").write_text("# VK\n\n## 目錄\n\n[`just vendor_kit`](doc/contract/01_a.md)\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        for want in (
+            "doc/contract/01_a.md:7: 連結文字不得含反引號：[`VK0001`](01_a.md#第一節)",
+            "doc/contract/01_a.md:7: 連結文字不得含反引號：[結束碼 `2`](01_a.md#第一節)",
+            "README.md:5: 連結文字不得含反引號：[`just vendor_kit`](doc/contract/01_a.md)",
+        ):
+            self.assertIn(want, out)
+        self.assertEqual(out.count("連結文字不得含反引號"), 3)
+
+    def test_code_outside_link_text_passes(self):
+        # 維護者定案的寫法：只連「結束碼」或「訊息」，碼放在連結外；非對外頁（GLOSSARY.md）不檢查
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n\n[結束碼](01_a.md#第一節) `2`、[訊息](01_a.md#第一節) `VK0005`。\n")
+        pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n[`--engine`](README.md)\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+    def test_backtick_link_text_in_code_span_passes(self):
+        # 行內程式碼裡的反例不算
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n不要寫 `` [`VK0028`](01_a.md) `` 這種寫法。\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,8 @@
    都要在 GLOSSARY.md、01、02 出現過。CSV 的錯誤位置報 `<檔>:<代碼>:<欄名>`。
 7. 引用別頁條目不寫舊寫法「[名字](連結) 第 N 條」：一律寫「依 [頁名第 N 條](連結#錨點)」；
    行內程式碼（反引號內）不算。
+8. 連結文字不得含反引號：碼放在連結外，寫「[結束碼](03_messages.md#結束碼) `2`」、
+   「[訊息](03_messages.csv) `VK0028`」；行內程式碼裡的連結例子不算。
 
 用法：python3 script/check_review_pages.py（在 repo 根目錄跑；有問題以 1 結束）
 """
@@ -28,6 +30,38 @@ LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 FENCE = re.compile(r"^\s*(```|~~~)")
 OLD_CITE = re.compile(r"\]\([^)]+\)\s*第\s*\d+\s*條")
+# 連結文字取最內層的 [ ]，避免從行內程式碼裡落單的 [ 一路吃到後面的連結
+LINK_TEXT = re.compile(r"\[([^\[\]]*)\]\([^)\s]+\)")
+
+
+def code_spans(line: str) -> list[tuple[int, int]]:
+    """行內程式碼的範圍：一串 n 個反引號配下一串同樣 n 個反引號（CommonMark 的配對規則）。"""
+    runs = [(m.start(), m.end()) for m in re.finditer(r"`+", line)]
+    spans = []
+    k = 0
+    while k < len(runs):
+        s, e = runs[k]
+        for j in range(k + 1, len(runs)):
+            if runs[j][1] - runs[j][0] == e - s:
+                spans.append((s, runs[j][1]))
+                k = j
+                break
+        k += 1
+    return spans
+
+
+def backtick_link_texts(line: str) -> list[str]:
+    """連結文字含反引號的連結（整段原文）；[ 或 ]( 落在行內程式碼裡的是例子，不是連結，不算。"""
+    spans = code_spans(line)
+    inside = lambda pos: any(s <= pos < e for s, e in spans)  # noqa: E731
+    out = []
+    for m in LINK_TEXT.finditer(line):
+        close = m.start() + 1 + len(m.group(1))
+        if inside(m.start()) or inside(close):
+            continue
+        if "`" in m.group(1):
+            out.append(m.group(0))
+    return out
 
 
 def pages() -> list[pathlib.Path]:
@@ -90,6 +124,8 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
             errors.append(f"{where}: 用了 HTML {tags}：對外頁只准 <ins>（GitHub 與 GitLab 都顯示）；錨點用標題產生")
         if OLD_CITE.search(re.sub(r"`[^`]*`", "", line)):
             errors.append(f"{where}: 引用條目的舊寫法「[名字](連結) 第 N 條」；改成「依 [頁名第 N 條](連結#錨點)」")
+        for link in backtick_link_texts(line):
+            errors.append(f"{where}: 連結文字不得含反引號：{link}；碼放在連結外，寫「[結束碼](03_messages.md#結束碼) `2`」「[訊息](03_messages.csv) `VK0028`」")
         if re.match(r"^>\s*版本\s*v\d+\s*$", line):
             errors.append(f"{where}: 正式檔不寫版本號；版本只在 _marked/ 的檔名")
         for target in LINK.findall(line):
