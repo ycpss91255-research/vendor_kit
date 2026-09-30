@@ -1,13 +1,13 @@
 {
-  "01_purpose": 15,
-  "02_invariants": 17,
-  "03_messages": 13,
-  "04_interface": 18,
-  "GLOSSARY": 6,
-  "README": 6,
+  "01_purpose": 16,
+  "02_invariants": 18,
+  "03_messages": 14,
+  "04_interface": 19,
+  "GLOSSARY": 7,
+  "README": 7,
   "claude_workflows_README": 1,
   "doc_decisions_README": 1,
   "doc_decisions_review_README": 2,
-  "review_zip": 2,
+  "review_zip": 3,
   "script_README": 1
 }
