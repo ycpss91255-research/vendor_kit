@@ -95,7 +95,7 @@ VK 對外只有兩個入口：
 清單裡的名詞見名詞表：
 
 - [工具](../../GLOSSARY.md#工具與出貨)
-- [repository name](../../GLOSSARY.md#工具與出貨) `<repo>`
+- [名詞表](../../GLOSSARY.md#工具與出貨)的 `<repo>`
 - [安裝目錄](../../GLOSSARY.md#工具與出貨)
 - [鎖定版本](../../GLOSSARY.md#版本與來源)
 - [版本鎖定行](../../GLOSSARY.md#版本與來源)
@@ -186,7 +186,7 @@ VK 對外只有兩個入口：
 ## 各指令專用選項
 
 - `update`：查詢結果印到 stdout，不加前綴；不帶 `--exit-code` 時，查到新版仍以[結束碼](03_messages.md#結束碼) `0`結束。
-- `update --exit-code`：查到新版時除了在 stdout 印出查詢結果，也在 stderr 印出 [訊息](03_messages.csv) `VK0022` 警告，以[結束碼](03_messages.md#結束碼) `1`結束，給 CI 或腳本判斷有沒有新版。
+- `update --exit-code`：查到新版時除了在 stdout 印出查詢結果，也在 stderr 印出 [訊息](03_messages.csv) `VK0022` 的 `warn` 診斷，以[結束碼](03_messages.md#結束碼) `1`結束，給 CI 或腳本判斷有沒有新版。
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
 - `bootstrap.sh -i <image>`：離線導入，用本機 image 當引擎來源。
 - 兩種離線導入共通：
@@ -218,7 +218,7 @@ stdout 與 stderr 怎麼分、訊息的前綴與顏色，見 [03 訊息與錯誤
 - append 型初始檔第一次導入時向既有檔 append 內容，規則見下面「append 型的初始檔」
 - 已納管初始檔的基準版合併（VK 的設定檔沿用同一套規則）：
   - 使用者沒改過：詢問是否換新版
-  - 雙方都改過：詢問是否合併；<ins>合併衝突</ins>留下標記，由使用者解，印出 [訊息](03_messages.csv) `VK0021` 警告並以[結束碼](03_messages.md#結束碼) `1`結束；這次執行做完但要人接手
+  - 雙方都改過：詢問是否合併；<ins>合併衝突</ins>留下標記，由使用者解，印出 [訊息](03_messages.csv) `VK0021` 的 `warn` 診斷並以[結束碼](03_messages.md#結束碼) `1`結束；這次執行做完但要人接手
 
 append 型的初始檔：
 
