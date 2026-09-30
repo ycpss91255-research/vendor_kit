@@ -115,7 +115,7 @@ VK 對外只有三個入口：
 
 依 [02 不變量](02_invariants.md#2-一個來源版本鎖定行只有一份進-git) 第 2 條：
 
-- VK recipe 只准在安裝目錄執行；在別處執行就以[結束碼 `2`](03_messages.md#結束碼)拒絕，並印出該切到哪裡。唯讀 recipe 也一樣
+- VK recipe 只准在安裝目錄執行；在別處執行就以[結束碼 `2`](03_messages.md#結束碼)拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外
 - 工具 recipe 自動觸發的 `sync` 會先回到安裝目錄再呼叫，所以不受影響；工具自己的 recipe 要不要擋，由那個工具決定
 - `install` 時上層或下層已經有安裝目錄，就以[結束碼 `2`](03_messages.md#結束碼)拒絕：安裝目錄不能巢狀
 
@@ -160,7 +160,7 @@ VK 對外只有三個入口：
 
 ### 成對與無害
 
-- 做得了就反得回：`add` 與 `remove`、`dev` 與 `undev`、`install` 與 `uninstall` 成對
+- 做得了就反得回：`add` 與 `remove`、`dev` 與 `undev`、`install` 與 `uninstall` 成對。
 - 查與套用分開：
   - `update` 只查
   - 真正換版本的是 `upgrade`：裝新版工具內容、做初始檔的<ins>基準版合併</ins>、更新<ins>基準版</ins>與<ins>納管</ins>紀錄，必要時重產<ins>薄殼</ins>，最後才寫版本鎖定行
@@ -238,7 +238,7 @@ append 型的初始檔：
 - `uninstall` 移除加在根 `.dockerignore` 的那四行
 - `remove` 與 `uninstall` 移除 append 型初始檔當初插進既有檔的那幾行
 
-收回動作只碰有紀錄的檔：根 `justfile`、根 `.dockerignore`，以及工具宣告為 append 的那些檔。收回時：
+有紀錄、所以會被收回動作碰到的檔，就是根 `justfile`、根 `.dockerignore`，以及工具宣告為 append 的那些檔。收回時：
 
 - 整份檔裡恰好一處與當初插入的原文相同，才刪那一行
 - 一處也沒有、或有兩處以上，都不刪，只<ins>警告</ins>，講出是哪個檔、找到幾處
