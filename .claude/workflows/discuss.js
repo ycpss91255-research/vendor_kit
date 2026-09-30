@@ -9,7 +9,7 @@ export const meta = {
 }
 
 // args:
-//   round      string  必填，codex 輸出檔名用，例如 'q-2026-09-30'
+//   round      string  必填，codex 輸出檔名用，例如 'q-exit-codes'
 //   questions  array   必填，每題 { id, question, context }：id 用在檔名；context 寫現況、事實與已定案前提
 //   background string  可省，所有題共用的已定案前提，不要質疑
 const { round, questions, background = '' } = args ?? {}
