@@ -1,7 +1,7 @@
 export const meta = {
   name: 'doc-edit',
   description: '改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 每檔只讀審查（含核對已定案）並套用必改 → 跨檔一致性 → 潤稿 → lint；預設 codex 改、Claude 查，可用 editor 切換成 Claude 改、codex 查；mode=light 給機械式或只改幾行的改動：只跑 Claude 改寫 → lint → Claude 審查並套用必改 → lint，不叫 codex、不跑跨檔一致性與潤稿；建議只回報，全程禁止 git 寫入',
-  whenToUse: '改任何現行文件（README、docs/contract/、GLOSSARY.md、ADR）時；主對話不自己改',
+  whenToUse: '改任何現行文件（README、doc/contract/、GLOSSARY.md、ADR）時；主對話不自己改',
   phases: [
     { title: '改寫', detail: '先查 round 是不是 _backup 最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過；mode=light 一律由 Claude 子代理改，機械式改動用腳本做並用腳本驗證' },
     { title: 'lint', detail: '全部改完後一個 Claude 子代理跑 check_terms、check_context、check_review_pages，只修 lint 指出的地方；mode=light 最後再跑一次當收尾' },
@@ -76,7 +76,7 @@ const guard = scope => `硬性規則（違反就算這輪失敗）：
 1. 不 commit、不 push、不跑任何 git 寫入指令（含 add、checkout、reset、stash）。唯讀的 git status／diff 可以。
 2. 只准動這幾個檔：
 ${scope.map(f => `- ${repo}/${f}`).join('\n')}
-3. 改前先備份到 ${repo}/doc/decisions/_backup/，命名 <鍵>.pre_${round}.md。<鍵>：相對 repo 根目錄的路徑，去掉 .md、/ 換成 _、去掉開頭的點（例如 .claude/workflows/README.md → claude_workflows_README；跟 script/mark_changes.py 同一套）。同名已存在就在 .md 前加序號（.pre_${round}.2.md）；不帶序號的那份一定是這一輪改之前的原檔。
+3. 改前先備份到 ${repo}/doc/decisions/_backup/，命名 <鍵>.pre_${round}.md。<鍵>：相對 repo 根目錄的路徑，去掉 .md、/ 換成 _、去掉開頭的點（例如 doc/contract/01_purpose.md → doc_contract_01_purpose、.claude/workflows/README.md → claude_workflows_README；跟 script/mark_changes.py 同一套）。同名已存在就在 .md 前加序號（.pre_${round}.2.md）；不帶序號的那份一定是這一輪改之前的原檔。
 4. 驗證一律用腳本算，不要目視判斷「看起來對」。
 5. 名詞照 ${repo}/GLOSSARY.md；_Avoid_ 詞不准出現。名詞底線用 <ins>，不用 <u>（GitHub 會刪掉 <u>）。
 6. 連結要是有名字的超連結（[名字](路徑)），不要把路徑當連結文字；路徑要實際存在。
@@ -206,13 +206,13 @@ ${BACKGROUND}
 
 這一輪你只審一個檔：${f}（repo 根目錄 ${repo}）。同一輪一起改的其他檔：${files.filter(x => x !== f).join('、') || '（無）'}；讀它們只為了檢查 ${f} 跟它們一致。
 
-先讀 docs/contract/01_purpose.md、docs/contract/02_invariants.md、GLOSSARY.md、${DECIDED} 的「已定案」區，以及 ${f} 引用到的 ADR。
+先讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md、${DECIDED} 的「已定案」區，以及 ${f} 引用到的 ADR。
 
 這一輪的改動：用 \`diff -u ${repo}/doc/decisions/_backup/${key(f)}.pre_${round}.md ${repo}/${f}\` 看（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。
 ${ask.trim() ? `這一輪的改動需求（ask）：\n${ask.trim()}\n` : '這一輪沒有 ask（檔已先改好）。\n'}
 請回答（只列 ${f} 裡的問題；跨檔不一致也算在 ${f} 身上，寫明對不上的是哪個檔哪一行）：
 0. 已定案（最重要）：逐條對照「已定案」區，檢查這一輪的改動有沒有違反任何一條定案；有沒有改變 01 的承諾、削弱 02 的不變量、或改動 03／04 的對外介面而 ask 沒有要求。有就列為必改，fix 寫「還原成…」（附原文），source 寫定案條號或頁名＋行號。
-1. 正確性：每一句跟 01、02、GLOSSARY.md、ADR 有沒有對不上的地方？「依 [頁名](連結#錨點) 第 N 條」引用的條號與錨點對不對？對外頁（README、docs/contract/0N）不准有「出處：」行。
+1. 正確性：每一句跟 01、02、GLOSSARY.md、ADR 有沒有對不上的地方？「依 [頁名](連結#錨點) 第 N 條」引用的條號與錨點對不對？對外頁（README、doc/contract/0N）不准有「出處：」行。
 2. 連結：每個連結都是有名字的超連結嗎？目標路徑存在嗎？
 3. 名詞：有沒有用了 GLOSSARY.md 沒定義的詞、或 _Avoid_ 詞？
 4. 易讀性：第一次看的人哪裡看不懂？哪句太長、太繞？
@@ -230,7 +230,7 @@ ${BACKGROUND}
 
 只看這一輪的改動：\`diff -u ${repo}/doc/decisions/_backup/${key(f)}.pre_${round}.md ${repo}/${f}\`（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。diff 以外的舊內容不審。
 ${ask.trim() ? `這一輪的改動需求（ask）：\n${ask.trim()}\n` : '這一輪沒有 ask（檔已先改好）。\n'}
-對照讀 ${DECIDED} 的「已定案」區，需要時再讀 docs/contract/01_purpose.md、docs/contract/02_invariants.md、GLOSSARY.md。只查這幾項（有就列必改，fix 寫「還原成…」或具體改法，source 寫定案條號或檔名＋行號）：
+對照讀 ${DECIDED} 的「已定案」區，需要時再讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md。只查這幾項（有就列必改，fix 寫「還原成…」或具體改法，source 寫定案條號或檔名＋行號）：
 1. 已定案：diff 裡的改動有沒有違反「已定案」區任何一條。
 2. 對外承諾：有沒有改變 01 的承諾、削弱 02 的不變量、或改動 03／04 的對外介面，而 ask 沒有要求。
 3. 做完沒：ask 要求的每一項在 ${f} 該做的部分都做了嗎？漏的列必改。
@@ -333,7 +333,7 @@ if (LIGHT) {
 phase('跨檔一致性')
 const otherFile = JSON.stringify(applied.flatMap(a => (a?.changed ?? []).filter(c => /屬於別的檔/.test(c)).map(c => ({ from: a.file, item: c }))), null, 2)
 const CHECK_STEPS = `1. 讀這一輪的全部檔。用腳本比對跨檔會一起出現的東西：結束碼與其意思、訊息編號、指令與選項寫法、名詞、互相引用的連結與錨點、同一條規則在兩處的說法。
-2. 對不上的地方，照 docs/contract/01～02 與 GLOSSARY.md、${DECIDED} 已定案區判斷哪邊對、錯的是哪邊；判斷不了的註明「無法判斷，要維護者決定」。
+2. 對不上的地方，照 doc/contract/01～02 與 GLOSSARY.md、${DECIDED} 已定案區判斷哪邊對、錯的是哪邊；判斷不了的註明「無法判斷，要維護者決定」。
 3. 上面那些「屬於別的檔」的必改也要處理。`
 let consistency
 if (editor === 'claude') {
@@ -488,7 +488,7 @@ return { round, mode, edited, linted, review, applied, consistency, polished, fi
 // ───────────────── args 範例（可直接貼進 Workflow 的 args） ─────────────────
 // {
 //   "round": "r90",
-//   "files": ["README.md", "docs/contract/04_interface.md"],
+//   "files": ["README.md", "doc/contract/04_interface.md"],
 //   "ask": "README 的「專案目的與承諾」改成「目的與承諾」。",
 //   "background": "03 是對外契約頁，規則只標 02 的條號、不重述。",
 //   "codex_focus": "指令清單的寫法要像 apt、git 的 help：用法一行、指令與說明對齊。",
@@ -498,7 +498,7 @@ return { round, mode, edited, linted, review, applied, consistency, polished, fi
 // light 範例（機械式或只改幾行的改動）：
 // {
 //   "round": "r91",
-//   "files": ["docs/contract/04_interface.md"],
+//   "files": ["doc/contract/04_interface.md"],
 //   "ask": "04 裡的「訊息 6-3」全部改成「M3」，連結錨點跟著改。",
 //   "mode": "light"
 // }

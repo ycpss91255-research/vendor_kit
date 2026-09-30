@@ -27,7 +27,7 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 |---|---|---|---|
 | `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
 | `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
-| `doc-edit` | 改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 只讀審查（含核對已定案）→ 套用必改 → 跨檔一致性 → `humanizer-zh-tw` 潤稿 → lint；預設 codex 改、Claude 查，可用 `editor` 切換；`mode: light` 只跑 Claude 改寫、lint、Claude 審查與套用必改；建議只回報 | 改任何現行文件（README、`docs/contract/`、`GLOSSARY.md`、ADR） | `round`、`files` |
+| `doc-edit` | 改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 只讀審查（含核對已定案）→ 套用必改 → 跨檔一致性 → `humanizer-zh-tw` 潤稿 → lint；預設 codex 改、Claude 查，可用 `editor` 切換；`mode: light` 只跑 Claude 改寫、lint、Claude 審查與套用必改；建議只回報 | 改任何現行文件（README、`doc/contract/`、`GLOSSARY.md`、ADR） | `round`、`files` |
 
 兩個都有選填的 `repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`（共用背景／已定案前提）與 `effort`。
 
