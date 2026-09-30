@@ -71,6 +71,23 @@ class RulesTest(unittest.TestCase):
         self.assertIn("-z", out)
         self.assertNotIn("用了 --engine", out)
 
+    def test_new_style_rule_citation_passes(self):
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n")
+        self.write("02_b.md", "# 02\n\n## 目錄\n\n依 [01 第 1 條](01_a.md#第一節)。\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+    def test_old_style_rule_citation_fails(self):
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n")
+        self.write("02_b.md", "# 02\n\n## 目錄\n\n依 [01](01_a.md#第一節) 第 1 條。\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("依 [頁名第 N 條](連結#錨點)", out)
+
+    def test_old_style_rule_citation_in_code_span_passes(self):
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n舊寫法 `[01](01_a.md) 第 1 條` 不要用。\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
 
 if __name__ == "__main__":
     unittest.main()

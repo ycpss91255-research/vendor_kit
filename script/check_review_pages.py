@@ -10,6 +10,8 @@
 5. 只能向前依賴：審閱頁 N 不能連到編號比它大的審閱頁。
 6. 03 總表的指令寫法只能用前面頁定義過的：反引號裡 `just vendor_kit …` 的每個選項（-x、--xxx）
    與 @<tag> 寫法，都要在 GLOSSARY.md、01、02 出現過。
+7. 引用別頁條目不寫舊寫法「[名字](連結) 第 N 條」：一律寫「依 [頁名第 N 條](連結#錨點)」；
+   行內程式碼（反引號內）不算。
 
 用法：python3 script/check_review_pages.py（在 repo 根目錄跑；有問題以 1 結束）
 """
@@ -23,6 +25,7 @@ PAGE = re.compile(r"^(\d\d)_.+\.md$")
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 FENCE = re.compile(r"^\s*(```|~~~)")
+OLD_CITE = re.compile(r"\]\([^)]+\)\s*第\s*\d+\s*條")
 
 
 def pages() -> list[pathlib.Path]:
@@ -83,6 +86,8 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
         tags = sorted({t for t in re.findall(r"</?([a-zA-Z][\w-]*)[^>]*>", re.sub(r"`[^`]*`", "", line)) if t != "ins"})
         if tags:
             errors.append(f"{where}: 用了 HTML {tags}：對外頁只准 <ins>（GitHub 與 GitLab 都顯示）；錨點用標題產生")
+        if OLD_CITE.search(re.sub(r"`[^`]*`", "", line)):
+            errors.append(f"{where}: 引用條目的舊寫法「[名字](連結) 第 N 條」；改成「依 [頁名第 N 條](連結#錨點)」")
         if re.match(r"^>\s*版本\s*v\d+\s*$", line):
             errors.append(f"{where}: 正式檔不寫版本號；版本只在 _marked/ 的檔名")
         for target in LINK.findall(line):
