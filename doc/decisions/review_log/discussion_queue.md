@@ -59,14 +59,6 @@
 - codex 討論結果（[codex 輸出](codex/q20260930-provenance.md)）：**一致**。介面頁與 README 拿掉「出處：…」行，指向 ADR、issue 的溯源一律刪；沿用 02 規則的段落在正文寫「依 02 第 N 條」。使用者操作要用的連結（官方下載頁、issue #27 進度）不是出處，留著。另外 doc-edit.js 的審查與潤稿提示會要求標出處，要一起改；總表的「出處」欄也適用同一原則。
 - 出處行是 doc-edit r90～r95 加的（`d7cae4a`、`21629f8`、`cb99fa9`、`3161d23`）。
 
-### Q5 本機沒有引擎 image 時，版本組合怎麼判定
-
-- r103 codex 必改指出：[ADR-0008](../../adr/0008-protocol-and-file-schema-versions.md) 說啟動器讀引擎 image 的 LABEL 就能判定版本組合、不必連 registry，但本機還沒有那個 image 時 LABEL 從哪裡來沒說，機制不閉合。
-- codex 提的修法（本機沒有 image 時延到拉 image 之後才判定、要連 registry）會削弱 [02](../review/02_invariants.md) 第 322 行「不必連上任何 registry 就判定得出來」，所以沒有套用，ADR-0008 維持原文。
-- codex 討論結果（[codex 輸出](codex/q20260930b-offline-floor.md)）：**主結論一致**。不變量不改弱，補 ADR-0008 的機制：引擎的版本鎖定行一起記下該版引擎接受的介面版；`version.toml` 進 git，本機沒有 image 時啟動器拿薄殼自描述標頭的介面版對這份紀錄，不上網就能判定；拉到 image 之後、寫入之前再用 LABEL 核對一次。
-- 分歧：記成區間（codex）還是接受的介面版列表（Claude：02 只准啟動器做字串相等比對）；誰寫這份紀錄。
-- 要問維護者：使用者只手改鎖定行的 `tag@digest`、沒改紀錄時，離線判定做不到。建議：02 第 322 行文字不動，ADR-0008 寫明這種情況判定延到拉 image 之後、任何寫入之前，仍然零寫入。
-
 ### Q6 r103 總表草稿的兩處內容
 
 - 6-3（沒有 registry 憑證）也會在 `add` 時出現，但訊息的下一步只給 `upgrade <repo>@<tag>`；介面頁沒有 `add <repo>@<tag>`。
@@ -108,3 +100,15 @@
 - 「不變量」不是大陸專用詞：國家教育研究院樂詞網 invariant 收「不變量」「不變式」（[樂詞網](https://terms.naer.edu.tw/detail/3214182/)）。repo 裡對外文件全部用「不變量」；「不變式」只出現在 `_legacy/` 兩處。
 - GNU 慣例的長選項寫 `--`：glibc 手冊 Argument Syntax：「Long options consist of `--` followed by a name」；單獨的 `--` 結束選項解析（[glibc 手冊](https://sourceware.org/glibc/manual/latest/html_node/Argument-Syntax.html)）。
 - `CONTEXT.md` 放 repo 根目錄：skill `setup-matt-pocock-skills` 的 domain.md 規定單一語境時放 repo 根目錄。
+
+## 後續（架構／流程階段再議）
+
+審對外文件（01～04、README）時不問這一區；到架構或流程階段才拿出來。
+
+### Q5 本機沒有引擎 image 時，版本組合怎麼判定（架構階段再議）
+
+- r103 codex 必改指出：[ADR-0008](../../adr/0008-protocol-and-file-schema-versions.md) 說啟動器讀引擎 image 的 LABEL 就能判定版本組合、不必連 registry，但本機還沒有那個 image 時 LABEL 從哪裡來沒說，機制不閉合。
+- codex 提的修法（本機沒有 image 時延到拉 image 之後才判定、要連 registry）會削弱 [02](../review/02_invariants.md) 第 322 行「不必連上任何 registry 就判定得出來」，所以沒有套用，ADR-0008 維持原文。
+- codex 討論結果（[codex 輸出](codex/q20260930b-offline-floor.md)）：**主結論一致**。不變量不改弱，補 ADR-0008 的機制：引擎的版本鎖定行一起記下該版引擎接受的介面版；`version.toml` 進 git，本機沒有 image 時啟動器拿薄殼自描述標頭的介面版對這份紀錄，不上網就能判定；拉到 image 之後、寫入之前再用 LABEL 核對一次。
+- 分歧：記成區間（codex）還是接受的介面版列表（Claude：02 只准啟動器做字串相等比對）；誰寫這份紀錄。
+- 要問維護者：使用者只手改鎖定行的 `tag@digest`、沒改紀錄時，離線判定做不到。建議：02 第 322 行文字不動，ADR-0008 寫明這種情況判定延到拉 image 之後、任何寫入之前，仍然零寫入。
