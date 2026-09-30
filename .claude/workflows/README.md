@@ -27,7 +27,7 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 |---|---|---|---|
 | `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
 | `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
-| `doc-edit` | 改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 只讀審查（含核對已定案）→ 套用必改 → 跨檔一致性 → `humanizer-zh-tw` 潤稿 → lint；預設 codex 改、Claude 查，可用 `editor` 切換；建議只回報 | 改任何現行文件（README、`docs/contract/`、`GLOSSARY.md`、ADR） | `round`、`files` |
+| `doc-edit` | 改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 只讀審查（含核對已定案）→ 套用必改 → 跨檔一致性 → `humanizer-zh-tw` 潤稿 → lint；預設 codex 改、Claude 查，可用 `editor` 切換；`mode: light` 只跑 Claude 改寫、lint、Claude 審查與套用必改；建議只回報 | 改任何現行文件（README、`docs/contract/`、`GLOSSARY.md`、ADR） | `round`、`files` |
 
 兩個都有選填的 `repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`（共用背景／已定案前提）與 `effort`。
 
@@ -42,6 +42,14 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 5. **跨檔一致性**：全部套用完後比對各檔之間的結束碼、編號、名詞、連結；有要修的交給改稿方，最後 lint 要全部通過。
 6. **潤稿**：每個檔一個 Claude 子代理用 `humanizer-zh-tw` 局部潤稿，不改意思、不動程式碼與連結；改完再跑一次 lint。
 
+上面是 `mode: full`（預設）。`mode: light` 給機械式改動（換詞、改連結、改編號）、只改幾行、對齊已定案內容的補句；對外頁的新內容或重寫用 `full`。light 不管 `editor`，全程只用 Claude 子代理、不叫 codex：
+
+1. **改寫**：輪次檢查照舊；每個檔一個 Claude 子代理並行改，護欄與備份規則同上，機械式改動用腳本做、改完用腳本驗證。
+2. **lint**：同上。
+3. **審查**：每個檔另一個 Claude 子代理只讀審查，只看這一輪的 diff（`_backup/<鍵>.pre_<round>.md` 對現行檔），只查有沒有違反「已定案」區、有沒有改到 01 承諾／削弱 02／動到 03、04 介面而 `ask` 沒要求、`ask` 做完沒、連結與錨點存不存在；結果寫到 `review_log/claude/<round>-doc-edit-<鍵>.md`。
+4. **套用必改**：有必改才由 Claude 子代理照同樣的規則修，修完跑 lint；指到別的檔的必改只回報。
+5. 不跑跨檔一致性與潤稿，最後再跑一次 lint。
+
 args 欄位：
 
 | 欄位 | 必填 | 說明 |
@@ -52,9 +60,10 @@ args 欄位：
 | `background` | 否 | 已定案的前提 |
 | `codex_focus` | 否 | 審查額外要看的重點（不論審查方是誰） |
 | `editor` | 否 | `codex`（預設）或 `claude`：誰改；審查方是另一方；其他值直接停 |
-| `effort` | 否 | `{ edit, polish, review }`；`edit`／`review` 只作用在 Claude 子代理，codex 那一方作用在包裝子代理 |
+| `mode` | 否 | `full`（預設）或 `light`：light 只給機械式或只改幾行的改動，全程 Claude、不跑跨檔一致性與潤稿；其他值直接停 |
+| `effort` | 否 | `{ edit, polish, review }`；`edit`／`review` 只作用在 Claude 子代理，codex 那一方作用在包裝子代理；light 時 `edit`（含套用必改）與 `review` 預設 `low` |
 
-輸出檔依產生者放 `doc/decisions/review_log/codex/` 或 `doc/decisions/review_log/claude/`：審查是 `<round>-doc-edit-<鍵>.md`；codex 改稿時另有 `<round>-doc-edit-edit-<鍵>.md`、`<round>-doc-edit-apply-<鍵>.md`、`<round>-doc-edit-consistency.md`。回傳 `{ round, edited, linted, review, applied, consistency, polished, finalLint }`。args 範例在腳本檔尾。
+輸出檔依產生者放 `doc/decisions/review_log/codex/` 或 `doc/decisions/review_log/claude/`：審查是 `<round>-doc-edit-<鍵>.md`；codex 改稿時另有 `<round>-doc-edit-edit-<鍵>.md`、`<round>-doc-edit-apply-<鍵>.md`、`<round>-doc-edit-consistency.md`。回傳 `{ round, mode, edited, linted, review, applied, consistency, polished, finalLint }`；light 的 `consistency` 與 `polished` 是 `null`。args 範例在腳本檔尾。
 
 ## doc-apply
 

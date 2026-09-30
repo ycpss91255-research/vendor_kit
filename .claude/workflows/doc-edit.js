@@ -1,14 +1,14 @@
 export const meta = {
   name: 'doc-edit',
-  description: '改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 每檔只讀審查（含核對已定案）並套用必改 → 跨檔一致性 → 潤稿 → lint；預設 codex 改、Claude 查，可用 editor 切換成 Claude 改、codex 查；建議只回報，全程禁止 git 寫入',
+  description: '改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 每檔只讀審查（含核對已定案）並套用必改 → 跨檔一致性 → 潤稿 → lint；預設 codex 改、Claude 查，可用 editor 切換成 Claude 改、codex 查；mode=light 給機械式或只改幾行的改動：只跑 Claude 改寫 → lint → Claude 審查並套用必改 → lint，不叫 codex、不跑跨檔一致性與潤稿；建議只回報，全程禁止 git 寫入',
   whenToUse: '改任何現行文件（README、docs/contract/、GLOSSARY.md、ADR）時；主對話不自己改',
   phases: [
-    { title: '改寫', detail: '先查 round 是不是 _backup 最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過' },
-    { title: 'lint', detail: '全部改完後一個 Claude 子代理跑 check_terms、check_context、check_review_pages，只修 lint 指出的地方' },
-    { title: '審查', detail: '每個檔一條並行，由審查方（改稿方的另一方：預設 Claude，editor=claude 時是 codex）只讀審查；先核對 discussion_queue.md 已定案區；審完的檔立刻進入套用必改' },
-    { title: '套用必改', detail: '每個檔由改稿方套用自己的必改，逐條寫已改或未改的理由；建議不改，只回報' },
-    { title: '跨檔一致性', detail: '全部套用完後比對各檔之間的結束碼、編號、名詞、連結；預設 Claude 只讀檢查、清單非空再交 codex 修；editor=claude 時一個 Claude 子代理檢查並修' },
-    { title: '潤稿', detail: '每個檔一個 Claude 子代理並行用 humanizer-zh-tw 局部潤稿，最後再跑一次 lint' },
+    { title: '改寫', detail: '先查 round 是不是 _backup 最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過；mode=light 一律由 Claude 子代理改，機械式改動用腳本做並用腳本驗證' },
+    { title: 'lint', detail: '全部改完後一個 Claude 子代理跑 check_terms、check_context、check_review_pages，只修 lint 指出的地方；mode=light 最後再跑一次當收尾' },
+    { title: '審查', detail: '每個檔一條並行，由審查方（改稿方的另一方：預設 Claude，editor=claude 時是 codex）只讀審查；先核對 discussion_queue.md 已定案區；審完的檔立刻進入套用必改；mode=light 一律由另一個 Claude 子代理只看這一輪的 diff 審查' },
+    { title: '套用必改', detail: '每個檔由改稿方套用自己的必改，逐條寫已改或未改的理由；建議不改，只回報；mode=light 由 Claude 子代理套用，沒有必改就跳過' },
+    { title: '跨檔一致性', detail: 'mode=light 不跑。全部套用完後比對各檔之間的結束碼、編號、名詞、連結；預設 Claude 只讀檢查、清單非空再交 codex 修；editor=claude 時一個 Claude 子代理檢查並修' },
+    { title: '潤稿', detail: 'mode=light 不跑。每個檔一個 Claude 子代理並行用 humanizer-zh-tw 局部潤稿，最後再跑一次 lint' },
   ],
 }
 
@@ -20,10 +20,17 @@ export const meta = {
 //   background?  string    已定案的前提，改稿方與審查方都不要質疑
 //   codex_focus? string    審查額外要看的重點（不論審查方是誰都會附上）
 //   editor?      string    'codex'（預設）或 'claude'：誰負責改寫、套用必改、跨檔修正；審查方永遠是另一方
+//   mode?        string    'full'（預設）或 'light'
+//                          full：改寫 → lint → 審查 → 套用必改 → 跨檔一致性 → 潤稿 → lint，分工照 editor
+//                          light：改寫 → lint → 審查 → 套用必改 → lint；全程只用 Claude 子代理（不管 editor，不叫 codex），
+//                                 審查只看這一輪的 diff，不跑跨檔一致性與潤稿，目標幾分鐘跑完
+//                          何時用 light：機械式改動（換詞、改連結、改編號）、只改幾行、對齊已定案內容的補句；
+//                          對外頁的新內容或重寫一律用 full
 //   effort?      object    { edit, polish, review }
 //                          edit：改稿方的 Claude 子代理（editor=codex 時只作用在包裝 codex 的子代理，不影響 codex 本身）
 //                          review：審查方的 Claude 子代理（editor=claude 時只作用在包裝 codex 的子代理）
 //                          polish：潤稿子代理
+//                          mode=light 時 edit（含套用必改）與 review 不給就是 'low'；polish 用不到
 const {
   repo = '/home/cyc/Desktop/vendor-kit_ws/src',
   round,
@@ -32,6 +39,7 @@ const {
   background = '',
   codex_focus = '',
   editor = 'codex',
+  mode = 'full',
   effort = {},
 } = args ?? {}
 
@@ -45,7 +53,15 @@ if (!Array.isArray(files) || files.length === 0 || files.some(f => typeof f !== 
 if (editor !== 'codex' && editor !== 'claude') {
   throw new Error(`args.editor 只能是 "codex" 或 "claude"（收到 ${JSON.stringify(editor)}）：預設 codex 改、Claude 查`)
 }
-const reviewer = editor === 'codex' ? 'claude' : 'codex'
+if (mode !== 'full' && mode !== 'light') {
+  throw new Error(`args.mode 只能是 "full" 或 "light"（收到 ${JSON.stringify(mode)}）：預設 full；light 只給機械式或只改幾行的改動`)
+}
+const LIGHT = mode === 'light'
+// light 一律 Claude 改、Claude 查（兩個不同的子代理），不叫 codex
+const editBy = LIGHT ? 'claude' : editor
+const reviewer = LIGHT ? 'claude' : (editor === 'codex' ? 'claude' : 'codex')
+const editEffort = effort.edit ?? (LIGHT ? 'low' : undefined)
+const reviewEffort = effort.review ?? (LIGHT ? 'low' : undefined)
 
 const key = f => f.replace(/\.md$/, '').replace(/\//g, '_').replace(/^\./, '')
 // 輸出檔依產生者放 review_log/codex/ 或 review_log/claude/
@@ -93,12 +109,12 @@ bash -c 'codex exec --skip-git-repo-check -C ${repo} -o ${out} "$(cat <暫存檔
    - 外層的 \`bash -c '…'\` 與最後的 \`echo "codex_exit=$?"\` 不可省略，也不要另外用 \`$status\` 或 \`$?\` 讀結束碼：結束碼一律從輸出裡 \`codex_exit=\` 那一行抓。
    - 輸出沒有 \`codex_exit=\` 那一行、或值不是 0，就是 codex 失敗：error 寫原因（附 codex_exit 的值與 codex 的錯誤輸出）。`
 
-// ───────────────── 改稿方：依 editor 叫 codex（包裝子代理）或 Claude 子代理 ─────────────────
+// ───────────────── 改稿方：依 editor 叫 codex（包裝子代理）或 Claude 子代理；light 一律 Claude ─────────────────
 // task 裡已含 guard(scope)；scope 是這一步准動的檔；out 是 codex 輸出檔名（只在 editor=codex 時用）。
 // lintMustPass：這一步結束時 lint 必須全部 OK（跨檔修正用）。
 const runEditor = ({ label, ph, task, scope, out, lintMustPass = false }) => {
-  const eff = effort.edit ? { effort: effort.edit } : {}
-  if (editor === 'claude') {
+  const eff = editEffort ? { effort: editEffort } : {}
+  if (editBy === 'claude') {
     return agent(task, { label, phase: ph, schema: RESULT, agentType: 'general-purpose', ...eff })
   }
   return agent(`你的工作是啟動 codex 改檔，等它結束後自己驗證，再整理成結構化回報。**你自己不改任何檔、不替 codex 補改、不加入你自己的意見。**
@@ -156,12 +172,12 @@ ${BACKGROUND}
 ${ask.trim()}
 
 步驟：先讀 ${f}，以及它引用的 01、02、GLOSSARY.md 相關段落；照需求改 ${f}；改完跑 \`${LINT}\` 並回報輸出（別的檔造成的 FAIL 只回報，不要修）。不要順手改需求以外的地方。
-最後列出改了哪些地方，一行一條（檔名＋位置＋改了什麼）。`,
+${LIGHT ? '機械式改動（換詞、改連結、改編號這類）用腳本做（例如 Python re），不要手動逐處改；改完也用腳本驗證（例如 grep 舊說法歸零、新說法的處數對得上）。\n' : ''}最後列出改了哪些地方，一行一條（檔名＋位置＋改了什麼）。`,
   })))
   const bad = edited.map((e, i) => (!e || e.error) ? `${files[i]}：${e?.error ?? '子代理沒有回傳'}` : null).filter(Boolean)
   if (bad.length) {
     log(`改寫失敗：${bad.join('；')}；停在這裡`)
-    return { round, edited, linted: null, review: null, applied: null, consistency: null, polished: null, finalLint: null }
+    return { round, mode, edited, linted: null, review: null, applied: null, consistency: null, polished: null, finalLint: null }
   }
 }
 
@@ -180,7 +196,7 @@ ${GUARDRAILS}
 const linted = await lintAgent('lint', 'lint')
 if (!linted || linted.error) {
   log(`lint 沒有歸零：${linted?.error ?? '子代理沒有回傳'}；停在這裡`)
-  return { round, edited, linted, review: null, applied: null, consistency: null, polished: null, finalLint: null }
+  return { round, mode, edited, linted, review: null, applied: null, consistency: null, polished: null, finalLint: null }
 }
 
 // ───────────────── 審查 → 套用必改（每個檔一條管線） ─────────────────
@@ -205,6 +221,23 @@ ${codex_focus.trim() ? `6. 額外重點：${codex_focus.trim()}` : ''}
 
 輸出 markdown，分「必改」「建議」兩區；每條寫位置（檔名＋行號或標題）、問題、建議、證據（檔名＋行號）。不要客套話。`
 
+// light 的審查：只看這一輪的 diff，重點放在有沒有越界，不做全頁的正確性與易讀性審查
+const lightBriefFor = f => `只讀審查：不要改任何受審的檔。我要的是你的不同意見，不是背書。你不是改這個檔的那個子代理，不要替改稿方辯護。
+
+${BACKGROUND}
+
+這一輪你只審一個檔：${f}（repo 根目錄 ${repo}）。同一輪一起改的其他檔：${files.filter(x => x !== f).join('、') || '（無）'}。
+
+只看這一輪的改動：\`diff -u ${repo}/doc/decisions/_backup/${key(f)}.pre_${round}.md ${repo}/${f}\`（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。diff 以外的舊內容不審。
+${ask.trim() ? `這一輪的改動需求（ask）：\n${ask.trim()}\n` : '這一輪沒有 ask（檔已先改好）。\n'}
+對照讀 ${DECIDED} 的「已定案」區，需要時再讀 docs/contract/01_purpose.md、docs/contract/02_invariants.md、GLOSSARY.md。只查這幾項（有就列必改，fix 寫「還原成…」或具體改法，source 寫定案條號或檔名＋行號）：
+1. 已定案：diff 裡的改動有沒有違反「已定案」區任何一條。
+2. 對外承諾：有沒有改變 01 的承諾、削弱 02 的不變量、或改動 03／04 的對外介面，而 ask 沒有要求。
+3. 做完沒：ask 要求的每一項在 ${f} 該做的部分都做了嗎？漏的列必改。
+4. 連結：diff 裡新增或改動的連結，目標路徑與 #錨點 是不是實際存在（用腳本算 slug 比對，不要目視）。
+${codex_focus.trim() ? `5. 額外重點：${codex_focus.trim()}` : ''}
+其他看到的問題放「建議」。輸出 markdown，分「必改」「建議」兩區；每條寫位置（檔名＋行號或標題）、問題、建議、證據（檔名＋行號）。不要客套話。`
+
 const ITEM = {
   type: 'object',
   properties: { where: { type: 'string' }, what: { type: 'string' }, fix: { type: 'string' }, source: { type: 'string' } },
@@ -224,11 +257,11 @@ const REVIEW = {
 // ───────────────── 審查方：改稿方的另一方 ─────────────────
 const runReviewer = f => {
   const out = logFile(reviewer, key(f))
-  const eff = effort.review ? { effort: effort.review } : {}
+  const eff = reviewEffort ? { effort: reviewEffort } : {}
   if (reviewer === 'claude') {
     return agent(`你負責審查一個檔。硬性規則：不 commit、不 push、不跑任何 git 寫入指令；除了下面的審查輸出檔，不改、不建任何檔。
 
-${briefFor(f)}
+${LIGHT ? lightBriefFor(f) : briefFor(f)}
 
 最後：\`mkdir -p ${repo}/doc/decisions/review_log/claude\`，把上面的 markdown 審查結果寫到 ${out}。回報時「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、證據（放 source 欄）；output_file 填 ${out}。審不下去（例如檔不存在）就兩個陣列回空、error 寫原因。`,
       { label: `審查:${f}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
@@ -264,7 +297,7 @@ ${JSON.stringify(rev.must_fix, null, 2)}
 
 規則：
 - 每一條都要處理；做法照 fix 欄，但要先對照 source 欄的證據確認審查沒看錯。改法若會削弱 02 的不變量、改變 01 的承諾或 03／04 的對外介面，不要改，註明「未改：改到對外承諾，要維護者決定」。動手前先讀 ${DECIDED} 的「已定案」區：改法跟任何一條定案衝突，不要改，註明「未改：跟定案第 N 條衝突」。確認審查看錯的那條不要改，註明「未改：理由」。
-- 必改指到 ${f} 以外的檔：不要改，註明「未改：屬於別的檔，交給跨檔一致性」。
+- 必改指到 ${f} 以外的檔：不要改，註明${LIGHT ? '「未改：屬於別的檔，只回報」（這一輪不跑跨檔一致性）' : '「未改：屬於別的檔，交給跨檔一致性」'}。
 - 只改必改指到的地方，不要順手改別的。
 - 改完跑 \`${LINT}\`；${f} 造成的 FAIL 要修掉，別的檔造成的只回報。
 - 最後逐條列出每一條必改的處理結果，一行一條：「已改：位置＋改了什麼」或「未改：理由」（用上面的固定說法）。`,
@@ -283,7 +316,17 @@ const applied = pairs.map(p => p ? { file: p.f, ...(p.app ?? { changed: [], back
 const applyErr = applied.filter(a => a && a.error)
 if (applyErr.length) {
   log(`套用必改失敗：${applyErr.map(a => `${a.file}：${a.error}`).join('；')}；停在這裡`)
-  return { round, edited, linted, review, applied, consistency: null, polished: null, finalLint: null }
+  return { round, mode, edited, linted, review, applied, consistency: null, polished: null, finalLint: null }
+}
+
+// ───────────────── light：不跑跨檔一致性與潤稿，最後 lint 收尾 ─────────────────
+if (LIGHT) {
+  phase('lint')
+  const finalLint = await lintAgent('最後 lint', 'lint')
+  log(review.errors.length
+    ? `light：Claude 審查有失敗：${review.errors.join('；')}`
+    : `light：Claude 改、Claude 查：必改 ${review.must_fix.length}（已套用；指到別的檔的只回報）、建議 ${review.suggest.length}（只回報）；沒跑跨檔一致性與潤稿`)
+  return { round, mode, edited, linted, review, applied, consistency: null, polished: null, finalLint }
 }
 
 // ───────────────── 跨檔一致性（全部套用完後一次） ─────────────────
@@ -364,7 +407,7 @@ ${JSON.stringify(check.issues, null, 2)}
 }
 if (!consistency || consistency.error) {
   log(`跨檔一致性失敗：${consistency?.error ?? '子代理沒有回傳'}；停在這裡`)
-  return { round, edited, linted, review, applied, consistency, polished: null, finalLint: null }
+  return { round, mode, edited, linted, review, applied, consistency, polished: null, finalLint: null }
 }
 
 // ───────────────── 潤稿（每個檔並行） ─────────────────
@@ -389,7 +432,7 @@ const finalLint = await lintAgent('最後 lint', '潤稿')
 log(review.errors.length
   ? `${reviewer} 審查有失敗：${review.errors.join('；')}`
   : `${editor} 改、${reviewer} 查：必改 ${review.must_fix.length}（已套用或交跨檔一致性）、建議 ${review.suggest.length}（只回報）`)
-return { round, edited, linted, review, applied, consistency, polished, finalLint }
+return { round, mode, edited, linted, review, applied, consistency, polished, finalLint }
 
 // ───────────────── args 範例（可直接貼進 Workflow 的 args） ─────────────────
 // {
@@ -399,4 +442,12 @@ return { round, edited, linted, review, applied, consistency, polished, finalLin
 //   "background": "03 是對外契約頁，規則只標 02 的條號、不重述。",
 //   "codex_focus": "指令清單的寫法要像 apt、git 的 help：用法一行、指令與說明對齊。",
 //   "editor": "codex"
+// }
+//
+// light 範例（機械式或只改幾行的改動）：
+// {
+//   "round": "r91",
+//   "files": ["docs/contract/04_interface.md"],
+//   "ask": "04 裡的「訊息 6-3」全部改成「M3」，連結錨點跟著改。",
+//   "mode": "light"
 // }
