@@ -4,7 +4,13 @@
 
 ## 總則：issue 本文與標題開好後不改
 
-issue 的本文與標題開好後就不再修改；補充、進度、結論一律用 `gh issue comment` 留言。每則留言第一行標明作者（人或哪個 agent）。
+issue 的本文與標題開好後就不再修改；補充、進度、結論一律用 `gh issue comment` 留言。
+
+- **留言標記**：agent 發的留言，本文第一行開頭固定是 `[claude]`、`[codex]` 或 `[agy]`，空一格接標題（例如 `[codex] 第 1 輪複驗`、`[claude] 研究結論`）；沒有標記的留言一律視為維護者本人寫的。
+- `[codex]`、`[agy]` 只貼該工具的原文，Claude 不代寫；太長就拆成多則，每則都帶標記。
+- 舊留言不改，要更正就另發一則。
+- 標籤、assignee、關閉 issue 照常可以用 `gh issue edit`／`gh issue close`；只有本文與標題不改。
+- `gh issue create`、`gh pr create` 一律用 `--body-file`，issue 要帶標籤；不用 `gh issue close --comment`，先留言再關。
 
 ## 為什麼每個 `gh` 都明寫 `-R`
 
@@ -12,17 +18,17 @@ issue 的本文與標題開好後就不再修改；補充、進度、結論一�
 
 ## 慣例
 
-- **建立 issue**：`gh issue create -R ycpss91255-research/vendor_kit --title "..." --body "..."`。多行本文用 heredoc。
+- **建立 issue**：`gh issue create -R ycpss91255-research/vendor_kit --title "..." --body-file <檔> --label "..."`。
 - **讀 issue**：`gh issue view <number> -R ycpss91255-research/vendor_kit --comments`；需要時用 `jq` 過濾留言，並一併抓標籤。
 - **列 issue**：`gh issue list -R ycpss91255-research/vendor_kit --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`，視情況加 `--label`、`--state`。
 - **留言**：`gh issue comment <number> -R ycpss91255-research/vendor_kit --body "..."`
 - **加／移標籤**：`gh issue edit <number> -R ycpss91255-research/vendor_kit --add-label "..."` ／ `--remove-label "..."`
-- **關閉**：`gh issue close <number> -R ycpss91255-research/vendor_kit --comment "..."`
+- **關閉**：先 `gh issue comment <number> -R ycpss91255-research/vendor_kit --body-file <檔>`，再 `gh issue close <number> -R ycpss91255-research/vendor_kit`
 
 ## 語言與內容
 
 - issue、PR、留言一律用中文（指令、識別字、檔名保留原文）。
-- **設計決議寫進 issue 留言**，不是只留在對話裡；本文開好後不改，定案也用留言記錄。
+- **設計決議與定案用留言記錄**（見總則）。
 - 遇到需要維護者拍板的問題（設計取捨、契約要不要改、方案 A 或 B），貼 `needs-triage`（等維護者評估），不要貼 `needs-info`；`needs-info` 只用在等回報者補資料。
 
 ## Pull request 當作需求來源
@@ -49,9 +55,9 @@ GitHub 的 issue 與 PR 共用同一個編號空間，光看 `#42` 分不出是�
 
 給 `/wayfinder` 用。**map** 是一個 issue，**child** issue 是它底下的 ticket。
 
-- **Map**：一個貼 `wayfinder:map` 標籤的 issue，本文只放 Destination 與 Notes，開好後不改。「Decisions so far」不寫在本文：新的定案在 map 留言記錄（一句重點＋連結），決策清單以 GitHub 的 sub-issue 面板為準。`gh issue create -R ycpss91255-research/vendor_kit --label wayfinder:map`。
-- **Child ticket**：以 GitHub sub-issue 連到 map 的 issue（用 `gh api` 打 sub-issues endpoint）。sub-issue 沒開的話，把 child 加進 map 本文的 task list，並在 child 本文最上面寫 `Part of #<map>`。標籤：`wayfinder:<type>`（`research`／`prototype`／`grilling`／`task`）。被認領後，ticket 指派給負責的開發者。
-- **Blocking**：用 GitHub **原生 issue dependencies**，這是正式、UI 看得到的表示法。加一條邊：`gh api --method POST repos/ycpss91255-research/vendor_kit/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`，`<blocker-db-id>` 是 blocker 的數字 **database id**（`gh api repos/ycpss91255-research/vendor_kit/issues/<n> --jq .id`，_不是_ `#number` 也不是 `node_id`）。GitHub 會回報 `issue_dependencies_summary.blocked_by`（只算還開著的 blocker，這就是即時閘門）。dependencies 不可用時，退回在 child 本文最上面寫一行 `Blocked by: #<n>, #<n>`。所有 blocker 都關閉，ticket 才算解除封鎖。
+- **Map**：一個貼 `wayfinder:map` 標籤的 issue，本文只放 Destination 與 Notes，開好後不改。「Decisions so far」不寫在本文：新的定案在 map 留言記錄（一句重點＋連結），決策清單以 GitHub 的 sub-issue 面板為準；「Not yet specified」「Out of scope」等其他節也一樣，更新一律用留言。`gh issue create -R ycpss91255-research/vendor_kit --title "..." --body-file <檔> --label wayfinder:map`。
+- **Child ticket**：以 GitHub sub-issue 連到 map 的 issue（用 `gh api` 打 sub-issues endpoint）。sub-issue 沒開的話，開 child 時就在 child 本文最上面寫 `Part of #<map>`；開好後才要補的，用留言記錄。標籤：`wayfinder:<type>`（`research`／`prototype`／`grilling`／`task`）。被認領後，ticket 指派給負責的開發者。
+- **Blocking**：用 GitHub **原生 issue dependencies**，這是正式、UI 看得到的表示法。加一條邊：`gh api --method POST repos/ycpss91255-research/vendor_kit/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`，`<blocker-db-id>` 是 blocker 的數字 **database id**（`gh api repos/ycpss91255-research/vendor_kit/issues/<n> --jq .id`，_不是_ `#number` 也不是 `node_id`）。GitHub 會回報 `issue_dependencies_summary.blocked_by`（只算還開著的 blocker，這就是即時閘門）。dependencies 不可用時，退回在開 child 時就於本文最上面寫一行 `Blocked by: #<n>, #<n>`；開好後才要補的，用留言記錄。所有 blocker 都關閉，ticket 才算解除封鎖。
 - **Frontier query**：列 map 底下還開著的 child（`gh issue list -R ycpss91255-research/vendor_kit --state open`，限定在 map 的 sub-issue／task list 範圍），剔除有開著的 blocker（`issue_dependencies_summary.blocked_by > 0`，或 `Blocked by` 那行有還開著的 issue）或已有 assignee 的；依 map 順序第一個勝出。
 - **Claim**：`gh issue edit <n> -R ycpss91255-research/vendor_kit --add-assignee @me`，這是該 session 的第一次寫入。
 - **Resolve**：`gh issue comment <n> -R ycpss91255-research/vendor_kit --body "<answer>"`，接著 `gh issue close <n> -R ycpss91255-research/vendor_kit`，再到 map 留言一句重點＋連結。
