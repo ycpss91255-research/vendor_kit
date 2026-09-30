@@ -79,7 +79,7 @@ exit code: 2
   - `code`：原因代碼，從 `VK0001` 起逐列加一，不缺列
   - `status`：`active` 使用中；`retired` 已停用，只留 `code`、`status`、`situation`
   - `level`：`warn`、`error`、`fatal`，對應的結束碼見[結束碼](#結束碼)
-  - `disposition`：處置，`需人處理`、`失敗`或留空；`warn` 一律留空
+  - `disposition`：處置，`需人處理`、`失敗` 或留空；`warn` 一律留空
   - `situation`：什麼情況發出這個代碼，是它唯一的意思
   - `message`：本文，逐字照印，不含前綴；多行診斷在同一格內換行，一行對應印出的一行
   - `next_step`：可以直接複製執行的單一指令，逐字出現在 `message` 裡，占位符都由 VK 換成實際的值；需人處理必填，失敗與沒有指令的留空；做不到的診斷標失敗

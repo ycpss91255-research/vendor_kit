@@ -2,7 +2,8 @@
 
 規則 (1)：括號內容全是 ASCII 用半形括號，半形括號與中文之間空一格；括號內有中文維持全形。
 規則 (2)：中文與英文字母或阿拉伯數字相鄰要空一格；全形標點與英數之間不加空白。
-排除：行內程式碼、程式碼區塊、URL、Markdown 連結目標、HTML 標籤、CSV 的固定欄。
+  行內程式碼與前後的中文相鄰也要空一格；與全形標點相鄰不加空白；連結的 [ 與 ](…) 不算字元。
+排除：行內程式碼的內容、程式碼區塊、URL、Markdown 連結目標、HTML 標籤、CSV 的固定欄。
 
 以黑箱方式跑：把 script/*.py 複製進暫存目錄的 script/，在暫存目錄當 repo 根目錄執行，
 不依賴腳本內部的函式名稱；腳本以 cwd 或自身位置找 repo 根目錄都一樣會對到暫存目錄。
@@ -172,6 +173,51 @@ class SpacingTest(Base):
     def test_every_violation_line_reported(self):
         self.write("README.md", "# VK\n\n第1條\n\n正常的 VK。\n\n第2條\n")
         self.assert_fail(("README.md", 3), ("README.md", 7))
+
+
+class InlineCodeSpacingTest(Base):
+    """規則 (2) 的行內程式碼邊界：反引號包住的整段當一個單位，內容仍不查。"""
+
+    def test_code_then_chinese_fails(self):
+        self.write("README.md", "# VK\n\n以`0`結束。\n")
+        self.assert_fail(("README.md", 3))
+
+    def test_code_then_chinese_fix(self):
+        self.assert_fix("README.md", "# VK\n\n以`0`結束。\n", "# VK\n\n以 `0` 結束。\n")
+
+    def test_chinese_then_code_fix(self):
+        self.assert_fix("README.md", "# VK\n\n印`VK0024`。\n", "# VK\n\n印 `VK0024`。\n")
+
+    def test_code_content_not_touched_by_fix(self):
+        # 只補兩側的空白，反引號內的中英混排一個字都不動
+        self.assert_fix("README.md", "# VK\n\n執行`a的b（c）`之後\n", "# VK\n\n執行 `a的b（c）` 之後\n")
+
+    def test_double_backtick_code_fix(self):
+        self.assert_fix("README.md", "# VK\n\n以``a`b``結束\n", "# VK\n\n以 ``a`b`` 結束\n")
+
+    def test_spaced_code_passes(self):
+        self.write("README.md", "# VK\n\n以 `0` 結束，印 `VK0024` 後停。\n")
+        self.assert_ok()
+
+    def test_fullwidth_punct_no_space_passes(self):
+        # 與全形標點相鄰不加空白；--fix 也不動
+        body = "# VK\n\n`0`，結束碼「`0`」：`VK0024`、`x`；\n"
+        self.write("README.md", body)
+        self.assert_ok()
+        self.run_tool("--fix")
+        self.assertEqual(self.read("README.md"), body)
+
+    def test_link_markers_are_transparent_fix(self):
+        # 隔著 [ 看前面的中文、隔著 ](…) 看後面的中文；空白補在連結記號外側
+        self.assert_fix("README.md", "# VK\n\n見[`x`](a.md)的說明\n", "# VK\n\n見 [`x`](a.md) 的說明\n")
+
+    def test_unclosed_backtick_is_not_code(self):
+        # 沒有結尾的反引號不是行內程式碼，兩側不補空白
+        body = "# VK\n\n單獨的`反引號\n"
+        self.write("README.md", body)
+        self.assert_ok()
+        self.run_tool("--fix")
+        self.assertEqual(self.read("README.md"), body)
 
 
 class ExcludeTest(Base):

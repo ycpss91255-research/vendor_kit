@@ -5,15 +5,18 @@
    「檢查（test）」→「檢查 (test)」。括號內有中文就維持全形括號「（…）」。
 2. 中文與英文字母或阿拉伯數字相鄰時中間空一格：「VK的recipe」→「VK 的 recipe」、
    「第12條」→「第 12 條」。全形標點（，。、：；「」（）等）與英數之間不加空白。
+   行內程式碼（反引號包住的）與前後的中文相鄰時也空一格：「`0`結束」→「`0` 結束」、
+   「印`VK0024`」→「印 `VK0024`」；與全形標點相鄰不加空白。
 
 掃描範圍：README.md、doc/contract/*.md、GLOSSARY.md，以及 doc/contract/*.csv 的文字欄
-（TEXT_FIELDS）。不檢查、不改：行內程式碼（反引號內）、程式碼區塊、HTML 註解、URL、
+（TEXT_FIELDS）。不檢查、不改：行內程式碼的內容（反引號內）、程式碼區塊、HTML 註解、URL、
 Markdown 連結目標（括號裡的路徑與錨點）與參照定義行、HTML 標籤本身、CSV 的固定欄
 （code、status、level）。
 
 HTML 標籤、連結的 [ ] 與 ](目標)、粗體記號 ** 與 __ 不算字元：`<ins>VK</ins>的` 照樣算
-「VK」緊貼「的」，空格補在結束標籤之後、開始標籤之前，標籤不會被拆開。行內程式碼與 URL
-兩側不檢查規則 2；全形括號改成半形時，外側緊貼中文、英數或行內程式碼就補一格空白，
+「VK」緊貼「的」，空格補在結束標籤之後、開始標籤之前，標籤不會被拆開；行內程式碼緊貼連結的
+[ 或 ](目標) 時也一樣，看 [ 前、](目標) 後的字元。URL 兩側不檢查規則 2，行內程式碼兩側只查
+中文（與英數、半形符號相鄰不管）；全形括號改成半形時，外側緊貼中文、英數或行內程式碼就補一格空白，
 緊貼空白、行首行尾或標點就不補。反斜線跳脫的字元（程式碼名詞當連結文字時的寫法
 `[\\<repo\\>](…)` 裡的 `\\<`、`\\>`）不是 HTML 標籤，兩側也不檢查規則 2。
 
@@ -69,6 +72,7 @@ class Tok:
     start: int
     end: int
     ascii_text: str = ""  # 判斷括號內容是否全為 ASCII 時，這段貢獻的文字
+    code: bool = False  # word 是行內程式碼（反引號包住的）
 
 
 @dataclass
@@ -123,7 +127,7 @@ def tokenize(text: str, markdown: bool = True) -> list[Tok]:
         if ch == "`":
             end = _match_backticks(text, i)
             if end is not None:
-                toks.append(Tok("word", i, end, text[i:end]))
+                toks.append(Tok("word", i, end, text[i:end], code=True))
                 i = end
                 continue
             run_end = i + len(text[i:]) - len(text[i:].lstrip("`"))
@@ -326,20 +330,33 @@ def find_issues(text: str, markdown: bool = True) -> list[Issue]:
                 spaced.add(pos)
                 issues.append(Issue("半形括號與中文之間要空一格", [(pos, pos, " ")]))
 
-    # 規則 2：中文與英數相鄰
+    # 規則 2：中文與英數相鄰；中文與行內程式碼相鄰
     for k, t in enumerate(toks):
-        if t.kind != "visible":
+        if not _rule2_side(t):
             continue
         right, gap = _neighbors(toks, k, 1)
-        if right is None or right.kind != "visible":
+        if right is None or not _rule2_side(right):
             continue
-        a, b = text[t.start], text[right.start]
-        if (is_cjk(a) and is_alnum(b)) or (is_alnum(a) and is_cjk(b)):
-            pos = _space_pos(t, gap)
-            if pos not in spaced:
-                spaced.add(pos)
-                issues.append(Issue("中文與英數之間要空一格", [(pos, pos, " ")]))
+        if t.code or right.code:
+            other = right if t.code else t
+            if (t.code and right.code) or not is_cjk(text[other.start]):
+                continue
+            rule = "行內程式碼與中文之間要空一格"
+        else:
+            a, b = text[t.start], text[right.start]
+            if not ((is_cjk(a) and is_alnum(b)) or (is_alnum(a) and is_cjk(b))):
+                continue
+            rule = "中文與英數之間要空一格"
+        pos = _space_pos(t, gap)
+        if pos not in spaced:
+            spaced.add(pos)
+            issues.append(Issue(rule, [(pos, pos, " ")]))
     return issues
+
+
+def _rule2_side(tok: Tok) -> bool:
+    """規則 2 比對的一側：一般字元或行內程式碼。"""
+    return tok.kind == "visible" or tok.code
 
 
 def apply_edits(text: str, edits: list[tuple[int, int, str]]) -> str:

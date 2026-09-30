@@ -140,12 +140,13 @@ python3 script/check_typography.py
 python3 script/check_typography.py --fix
 ```
 
-在 repo 根目錄執行。全過印 `OK` 回 0；有違規逐條印 `<檔>:<行>: <問題與建議寫法>` 回 1。加 `--fix` 直接改檔，只動下面兩條規則涉及的空白與括號，其他字元不動。規則是維護者定案的：
+在 repo 根目錄執行。全過印 `OK` 回 0；有違規逐條印 `<檔>:<行>: <問題與建議寫法>` 回 1。加 `--fix` 直接改檔，只動下面三條規則涉及的空白與括號，其他字元不動。規則是維護者定案的：
 
 - 括號裡全是 ASCII（英文、數字、符號）時用半形括號，半形括號與中文之間空一格：「檢查（test）」寫成「檢查 (test)」。括號裡有中文就維持全形「（…）」。
 - 中文與英文字母或阿拉伯數字相鄰時中間空一格：「VK的recipe」寫成「VK 的 recipe」、「第12條」寫成「第 12 條」。全形標點（，。、：；「」（）等）與英數之間不加空白。
+- 行內程式碼（反引號包住的）與前後的中文相鄰時也空一格：「`0`結束」寫成「`0` 結束」、「印`VK0024`」寫成「印 `VK0024`」。與全形標點相鄰不加空白；隔著連結的 `[` 或 `](…)` 時照上一條，連結記號不算字元。
 
-不查行內程式碼、程式碼區塊、URL、Markdown 連結目標（括號裡的路徑與錨點）與 HTML 標籤。CSV 只查文字欄（`disposition`、`situation`、`message`、`next_step`），`code`、`status`、`level` 是固定值域，不查。`--fix` 改到 CSV 之後再跑 `check_messages.py`，確認 `next_step` 仍逐字出現在 `message` 裡；改到標題時 GitHub 產生的錨點跟著變，連到舊錨點的連結不會自動改，要另外改。
+不查行內程式碼的內容、程式碼區塊、URL、Markdown 連結目標（括號裡的路徑與錨點）與 HTML 標籤。CSV 只查文字欄（`disposition`、`situation`、`message`、`next_step`），`code`、`status`、`level` 是固定值域，不查。`--fix` 改到 CSV 之後再跑 `check_messages.py`，確認 `next_step` 仍逐字出現在 `message` 裡；改到標題時 GitHub 產生的錨點跟著變，連到舊錨點的連結不會自動改，要另外改。
 
 各條規則的正反例與排除範圍在 [check_typography 測試](test/test_check_typography.py)。
 
