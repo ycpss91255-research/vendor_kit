@@ -1,6 +1,6 @@
 # ADR-0008：介面版 P 與檔案版 schema 分開計數；版本組合不合就零寫入回 3
 
-> Serves: 機制（服務不變量 10），不建立不變量——本檔記錄介面版 P 與檔案版 schema 的定義、P 的升版觸發清單、引擎接受的區間與 LABEL 公告、每個 VK 寫的 TOML 的 `schema`／`written_by` 欄位、未知欄位的讀寫規則、遷移方式與不合時的零寫入處置，是[不變量 10「相容性與演進：同一個 X 內不破壞，X 變動才可能不相容且先公告」](../decisions/review/02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)的實現機制。
+> Serves: 機制（服務不變量 10），不建立不變量。本檔記錄介面版 P 與檔案版 schema 的定義、P 的升版觸發清單、引擎接受的區間與 LABEL 公告、每個 VK 寫的 TOML 的 `schema`／`written_by` 欄位、未知欄位的讀寫規則、遷移方式與不合時的零寫入處置，是[不變量 10「相容性與演進：同一個 X 內不破壞，X 變動才可能不相容且先公告」](../decisions/review/02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)的實現機制。
 
 - **Status:** Accepted
 
@@ -59,13 +59,13 @@ P 的升版觸發條件是明列的，任一項 → P+1：
 ### 6. 遷移與檔案版過高
 
 - 跨檔案版直接遷移、不鏈式。
-- 檔案版高於本引擎 → 任何寫入前 3 + [訊息 6-19](../decisions/review/03_messages.md#msg-6-19)。
+- 檔案版高於本引擎 → 任何寫入前 3 + [訊息 6-19](../decisions/review/03_messages.md#訊息)。
 
 從任何一個舊檔案版到現在這一版，都是一條直接的遷移路徑，不把中間版本串起來套用。
 
 ### 7. 降版要先證明讀得回來
 
-- 降版（`upgrade <repo>@<舊 tag>`、`upgrade vendor_kit@<舊 tag>`）只在目標引擎能無損讀現有檔時才做，否則改檔前拒絕 3 + [訊息 6-10](../decisions/review/03_messages.md#msg-6-10)、零寫入。
+- 降版（`upgrade <repo>@<舊 tag>`、`upgrade vendor_kit@<舊 tag>`）只在目標引擎能無損讀現有檔時才做，否則改檔前拒絕 3 + [訊息 6-10](../decisions/review/03_messages.md#訊息)、零寫入。
 
 判斷在改檔之前，所以被拒絕的降版不留下半套狀態。
 

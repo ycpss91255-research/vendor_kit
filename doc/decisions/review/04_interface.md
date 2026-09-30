@@ -40,15 +40,15 @@
 
 版本不足時：
 
-- 在任何寫入之前以[結束碼 `1`](03_messages.md#exit-1)結束
-- just 版本不足時另印下載與安裝指令，訊息見 [03 訊息與錯誤碼總表](03_messages.md#msg-6-23)
+- 在任何寫入之前以[結束碼 `1`](03_messages.md#結束碼)結束
+- just 版本不足時另印下載與安裝指令，見[訊息 6-23](03_messages.md#訊息)
 
 ## registry 與認證
 
 認證由主機與 CI 各自處理，VK 只承諾主機的 docker 拉得到就能用，依 [02 不變量](02_invariants.md#2-一個來源版本鎖定行只有一份進-git) 第 2 條。
 
 - <ins>引擎 image</ins> 公開；<ins>工具 image</ins> 公開或私有，由出貨那個 repo 自己決定
-- 沒有給憑證時，不支援需要認證的版本列舉：對那個工具以[結束碼 `1`](03_messages.md#exit-1)結束，印出兩條路，訊息見 [03 訊息與錯誤碼總表](03_messages.md#msg-6-3)
+- 沒有給憑證時，不支援需要認證的版本列舉：對那個工具以[結束碼 `1`](03_messages.md#結束碼)結束，印出兩條路，見[訊息 6-3](03_messages.md#訊息)
   - 設定 `VENDOR_KIT_REGISTRY_TOKEN`（或 `VENDOR_KIT_REGISTRY_TOKEN_FILE`）
   - 直接指定版本 `@<tag>`
 - 實際測過的只有 GitHub 的 image 伺服器（GHCR）。放在別家（Docker Hub、GitLab、自架）走的是同一套標準，照理也能用，但沒測過，出問題不在承諾內
@@ -98,27 +98,27 @@ VK 對外只有三個入口：
 
 清單裡的名詞見名詞表：
 
-- [工具](../../../CONTEXT.md#term-tool)
-- [`<repo>`](../../../CONTEXT.md#term-repo-name)
-- [安裝目錄](../../../CONTEXT.md#term-install-directory)
-- [鎖定版本](../../../CONTEXT.md#term-locked-version)
-- [版本鎖定行](../../../CONTEXT.md#term-lock-version-line)
-- [tag](../../../CONTEXT.md#term-tag)
-- [工具內容](../../../CONTEXT.md#term-tool-content)
-- [工具 recipe](../../../CONTEXT.md#term-tool-recipe)
+- [工具](../../../CONTEXT.md#工具與出貨)
+- [`<repo>`](../../../CONTEXT.md#工具與出貨)
+- [安裝目錄](../../../CONTEXT.md#工具與出貨)
+- [鎖定版本](../../../CONTEXT.md#版本與來源)
+- [版本鎖定行](../../../CONTEXT.md#版本與來源)
+- [tag](../../../CONTEXT.md#工具與出貨)
+- [工具內容](../../../CONTEXT.md#工具與出貨)
+- [工具 recipe](../../../CONTEXT.md#工具與出貨)
 
 ### 執行位置
 
 依 [02 不變量](02_invariants.md#2-一個來源版本鎖定行只有一份進-git) 第 2 條：
 
-- VK recipe 只准在安裝目錄執行；在別處執行就以[結束碼 `1`](03_messages.md#exit-1)拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外
+- VK recipe 只准在安裝目錄執行；在別處執行就以[結束碼 `1`](03_messages.md#結束碼)拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外
 - 工具 recipe 自動觸發的 `sync` 會先回到安裝目錄再呼叫，所以不受影響；工具自己的 recipe 要不要擋，由那個工具決定
-- `install` 時上層或下層已經有安裝目錄，就以[結束碼 `1`](03_messages.md#exit-1)拒絕：安裝目錄不能巢狀
+- `install` 時上層或下層已經有安裝目錄，就以[結束碼 `1`](03_messages.md#結束碼)拒絕：安裝目錄不能巢狀
 
 ### 命名空間
 
 - 一個工具可以提供多個 <ins>`<ns>` 命名空間</ins>
-- `add` 時 `<ns>` 撞名就以[結束碼 `1`](03_messages.md#exit-1)拒絕，而且在任何寫入之前檢查。比對的對象是：
+- `add` 時 `<ns>` 撞名就以[結束碼 `1`](03_messages.md#結束碼)拒絕，而且在任何寫入之前檢查。比對的對象是：
   - 其他已裝進 repo 的工具
   - 根 `justfile` 既有的 recipe 或 module
   - 保留名 `vendor_kit`
@@ -128,8 +128,8 @@ VK 對外只有三個入口：
 依 [02 不變量](02_invariants.md#8-使用者介面不可取代寫法一致) 第 8 條：
 
 - 每個指令都支援 `-h`／`--help`，印出該指令的用法；沒有 `help` 指令
-- 只輸入 `just vendor_kit`、不帶指令，算錯誤：印出用法，以[結束碼 `1`](03_messages.md#exit-1)結束
-- 缺必要參數也算錯誤：印出用法，以[結束碼 `1`](03_messages.md#exit-1)結束
+- 只輸入 `just vendor_kit`、不帶指令，算錯誤：印出用法，以[結束碼 `1`](03_messages.md#結束碼)結束
+- 缺必要參數也算錯誤：印出用法，以[結束碼 `1`](03_messages.md#結束碼)結束
 - 位置參數只放工具名稱 `<repo>`；其他值都經由選項帶入，例如 `-p <dir>`、`-i <image>`
 - 同一個概念一種寫法：對象是引擎一律寫 `--engine`，本機 image 一律寫 `-i <image>`
 - 選項照 GNU 慣例：
@@ -152,7 +152,7 @@ VK 對外只有三個入口：
 
 `-y` 與 `--dry-run` 只適用於<ins>可寫 recipe</ins>。這一節只定兩個選項的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合：
 
-- `upgrade <repo> -y`：[03 訊息與錯誤碼總表](03_messages.md#msg-6-5)的訊息 6-5 要使用者照打
+- `upgrade <repo> -y`：[訊息 6-5](03_messages.md#訊息) 要使用者照打
 
 其餘哪個指令接受哪個選項，實作時再定。
 
@@ -160,7 +160,7 @@ VK 對外只有三個入口：
   - 照樣印出改了什麼
   - 只省略詢問，不授權覆蓋使用者既有的檔，依 [02 不變量](02_invariants.md#1-使用者寫的內容歸使用者可以建要改先問永不刪永不覆蓋) 第 1 條
   - 不能把已存在、尚未<ins>納管</ins>的檔改成 append 納管，見下面的[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
-  - 不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼 `1`](03_messages.md#exit-1)結束並印出清單，與有沒有 `-y` 無關
+  - 不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼 `1`](03_messages.md#結束碼)結束並印出清單，與有沒有 `-y` 無關
   - 不隱含 CI 模式
 - `--dry-run`：只預覽會做什麼
   - 不寫 <ins>repo 檔</ins>與 <ins>VK 檔</ins>
@@ -172,17 +172,17 @@ VK 對外只有三個入口：
 沒帶 `-y`、又不能互動時（例如在腳本裡），需要詢問的操作：
 
 - 一律不改
-- 以[結束碼 `1`](03_messages.md#exit-1)結束
+- 以[結束碼 `1`](03_messages.md#結束碼)結束
 - 印出該打的指令
 - 讀到輸入結束（EOF）不算同意
 
 ## 各指令專用選項
 
-- `update --exit-code`：查到新版時以[結束碼 `2`](03_messages.md#exit-2)結束，給 CI 或腳本判斷有沒有新版。
+- `update --exit-code`：查到新版時以[結束碼 `2`](03_messages.md#結束碼)結束，給 CI 或腳本判斷有沒有新版。
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
   - `<image>` 可以是已載入的本機 image，或 image tar 檔
   - 寫進的版本鎖定行與線上導入相同
-  - 缺少必要的 <ins>digest</ins> 資訊時以[結束碼 `1`](03_messages.md#exit-1)結束，不退化成只寫 tag
+  - 缺少必要的 <ins>digest</ins> 資訊時以[結束碼 `1`](03_messages.md#結束碼)結束，不退化成只寫 tag
 - `bootstrap.sh -t <repo>[@<tag>]`（長選項 `--tool`）：導入時一併把工具納入。
   - 可重複，一次一個工具
   - 不寫 `@<tag>` 就取最新版
@@ -202,10 +202,11 @@ VK 對外只有三個入口：
 - 其餘進 git 的 VK 檔（版本鎖定行、基準版、納管紀錄、薄殼）內容由 VK 擁有，VK 重寫它們不構成覆蓋。使用者仍可以手改版本鎖定行來升版或退版。薄殼被改過的處置依 [02 不變量](02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義) 第 6 條
 - 執行紀錄與進度檔是 VK 的工作狀態，不是使用者的內容
 
-動到使用者的檔、又不構成覆蓋的寫入，只有這三種明定例外：
+動到使用者的檔、又不構成覆蓋的寫入，只有這四種明定例外：
 
 - 根 `justfile` 加一行 `import`：沒有這個檔就建，有就詢問後 append
 - 根 `.dockerignore` 加四行：同上的 append 規則
+- append 型初始檔第一次導入時向既有檔 append 內容，規則見下面「append 型的初始檔」
 - 已納管初始檔的基準版合併（VK 的設定檔沿用同一套規則）：
   - 使用者沒改過：詢問是否換新版
   - 雙方都改過：詢問是否合併；<ins>合併衝突</ins>留下標記，由使用者解
@@ -251,5 +252,5 @@ append 型的初始檔：
 環境變數 `CI` 有值、而且不是 `0` 或 `false`（不分大小寫）時，就是 CI 模式。CI 模式下：
 
 - 進 git 的檔一律不寫，依 [02 不變量](02_invariants.md#3-自動化只碰不進-git-的東西) 第 3 條。
-- 遇到非寫不可的情況，以[結束碼 `1`](03_messages.md#exit-1)結束並印出清單。
-- 有任何<ins>本機覆寫</ins>（`dev` 造成的）也以[結束碼 `1`](03_messages.md#exit-1)結束，依 [02 不變量](02_invariants.md#2-一個來源版本鎖定行只有一份進-git) 第 2 條。
+- 遇到非寫不可的情況，以[結束碼 `1`](03_messages.md#結束碼)結束並印出清單。
+- 有任何<ins>本機覆寫</ins>（`dev` 造成的）也以[結束碼 `1`](03_messages.md#結束碼)結束，依 [02 不變量](02_invariants.md#2-一個來源版本鎖定行只有一份進-git) 第 2 條。

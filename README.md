@@ -19,7 +19,7 @@ vendor_kit（VK）把一套工具送進很多個 repo，例如開發環境設定
   - 不支援 Podman
 - [Git](https://git-scm.com/)
   - 不設最低版本
-  - VK 不呼叫 git
+  - VK 不在主機上呼叫 git
   - 「安裝目錄在 git repo 裡」由啟動器用 sh 往上找 `.git` 判斷
 - [just](https://github.com/casey/just)
   - 1.33.0 以上

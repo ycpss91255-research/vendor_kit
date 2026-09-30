@@ -1,6 +1,6 @@
 # ADR-0004：VK recipe 一行轉發、寫入邊界，與 CI 模式的封閉紅燈清單
 
-> Serves: 機制（服務不變量 8、3、4），不建立不變量——本檔記錄 VK recipe 的轉發形狀與分組、每個 recipe 能寫什麼（CI 模式判定與五項封閉紅燈清單）、進度檔與入口檔的原子替換順序，以及 `sync` 三種情境的處置，是[不變量 8「使用者介面不可取代、寫法一致」](../decisions/review/02_invariants.md#8-使用者介面不可取代寫法一致)、[不變量 3「自動化只碰不進 git 的東西」](../decisions/review/02_invariants.md#3-自動化只碰不進-git-的東西)與[不變量 4「永不靜默失敗」](../decisions/review/02_invariants.md#4-永不靜默失敗)的共同機制。
+> Serves: 機制（服務不變量 8、3、4），不建立不變量。本檔記錄 VK recipe 的轉發形狀與分組、每個 recipe 能寫什麼（CI 模式判定與五項封閉紅燈清單）、進度檔與入口檔的原子替換順序，以及 `sync` 三種情境的處置，是[不變量 8「使用者介面不可取代、寫法一致」](../decisions/review/02_invariants.md#8-使用者介面不可取代寫法一致)、[不變量 3「自動化只碰不進 git 的東西」](../decisions/review/02_invariants.md#3-自動化只碰不進-git-的東西)與[不變量 4「永不靜默失敗」](../decisions/review/02_invariants.md#4-永不靜默失敗)的共同機制。
 
 - **Status:** Accepted
 
@@ -48,7 +48,7 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
 ### 5. `sync` 的三種情境
 
 - `sync` 有三種情境：
-  - 「未完成導入」→ 1 + [訊息 6-13](../decisions/review/03_messages.md#msg-6-13)，提示 `add`
+  - 「未完成導入」→ 1 + [訊息 6-13](../decisions/review/03_messages.md#訊息)，提示 `add`
   - 「基準版落後版本鎖定行」→ 本機 warn 提示 `upgrade`，CI 下 1
   - 「快取逐檔指紋驗不過」→ 重裝並 warn
 
