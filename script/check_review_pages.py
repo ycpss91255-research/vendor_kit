@@ -2,7 +2,7 @@
 """檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫法規則。
 
 規則見 doc/contract/README.md「寫法規則」與「版本怎麼迭代」：
-1. 不寫「出處：」行：沿用規則時在正文寫「依 [頁名](連結#錨點) 第 N 條」。
+1. 不寫「出處：」行：沿用規則時在正文寫「依 [頁名第 N 條](連結#錨點)」。
 2. 不寫「> 版本 vN」：版本只在 doc/decisions/_marked/ 的檔名。
 3. 每頁有「## 目錄」。
 3a. HTML 只准 <ins>：<a id>、<br> 這類只有部分環境顯示得出來；錨點一律用標題產生。
@@ -79,7 +79,7 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
     for i, line in body_lines(path):
         where = f"{path}:{i}"
         if re.match(r"^\s*(?:[-*]\s*)?出處[:：]", line):
-            errors.append(f"{where}: 對外頁不寫「出處」行；沿用規則時在正文寫「依 [頁名](連結#錨點) 第 N 條」")
+            errors.append(f"{where}: 對外頁不寫「出處」行；沿用規則時在正文寫「依 [頁名第 N 條](連結#錨點)」")
         tags = sorted({t for t in re.findall(r"</?([a-zA-Z][\w-]*)[^>]*>", re.sub(r"`[^`]*`", "", line)) if t != "ins"})
         if tags:
             errors.append(f"{where}: 用了 HTML {tags}：對外頁只准 <ins>（GitHub 與 GitLab 都顯示）；錨點用標題產生")
