@@ -46,6 +46,15 @@
             "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/worktree_guard.py\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/attribution_guard.py\""
+          }
+        ]
       }
     ]
   }
