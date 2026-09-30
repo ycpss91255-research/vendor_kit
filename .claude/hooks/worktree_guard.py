@@ -6,8 +6,7 @@
 - 沒 PR、有 issue：worktree/issue/<編號>
 - 都沒有：worktree/branch/<分支名>
 
-開在 /tmp、scratchpad 或 repo 上一層的其他地方，用完常忘了收，
-2026-09-20 以前在上一層留下幾十個目錄就是這樣來的（維護者 2026-09-30）。
+開在 /tmp、scratchpad 或 repo 上一層的其他地方，用完容易忘了收，上一層會堆滿目錄。
 """
 import json
 import os

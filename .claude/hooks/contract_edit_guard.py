@@ -6,7 +6,6 @@
    （GNU／POSIX、diff、grep、git、Python argparse），附來源；舊文件搬來的內容也要重新檢查。
 2. 對外頁的改動走 doc-edit workflow（它的 codex 審查會逐條對照慣例）。
 
-維護者 2026-09-30：結束碼優先序從舊 02 直接搬、沒查慣例 →「這個不要再犯了，有需要就寫成 hook」。
 不擋：doc-edit 的子代理本身也要改這些檔；強制檢查在 doc-edit 的審查步驟，這裡是第二道提醒。
 """
 import json
