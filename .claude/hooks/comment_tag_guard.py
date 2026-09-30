@@ -15,6 +15,11 @@
 - gh issue create、gh pr create 必須用 --body-file／-F，不准 --body／-b。
 - gh issue create 必須帶 --label／-l。
 
+本機絕對路徑：上面查到的本文（留言、review、create 的 --body-file、gh api 的 body）
+都不准含本機絕對路徑（見 LOCAL_PATHS）。例外：[codex]／[agy] 留言是工具原文不能改寫，
+只要本文第二行以後另有一行以「註：」或「（註」開頭（說明對應 repo 的相對路徑）就放行。
+[claude] 留言與 issue／PR 本文一律不准含。create 的本文檔讀不到時也擋（無法確認）。
+
 指令用 shlex 依 &&、||、;、|、& 與換行切段後逐段比對，串接的指令每段都查。
 相對路徑以 hook 收到的 cwd 為準。
 """
@@ -30,6 +35,23 @@ SEPARATORS = {"&&", "||", ";", "|", "&", "\n", ";;", "|&"}
 BODY_OPTS = {"--body", "-b"}
 FILE_OPTS = {"--body-file", "-F"}
 FIELD_OPTS = {"-f", "-F", "--field", "--raw-field"}
+# 本機絕對路徑的樣式：這些路徑對其他人沒用（別人的機器上不存在），
+# 還會洩漏使用者名稱與本機目錄結構，所以不准出現在發到 GitHub 的內容。
+LOCAL_PATHS = (
+    (re.compile(r"/home/[^/\s]+/"), "/home/<user>/"),
+    (re.compile(r"/Users/[^/\s]+/"), "/Users/<user>/"),
+    (re.compile(r"/tmp/claude-"), "/tmp/claude-"),
+    (re.compile(r"[A-Za-z]:\\Users\\", re.IGNORECASE), "C:\\Users\\"),
+)
+RAW_TAGS = ("[codex]", "[agy]")
+NOTE_PREFIXES = ("註：", "（註")
+PATH_MARK = "本機絕對路徑"
+PATH_RULE = (
+    "發到 GitHub 的內容（留言、review、issue／PR 本文、gh api 的 body）不准含本機絕對路徑"
+    "（/home/<user>/、/Users/<user>/、/tmp/claude-、C:\\Users\\）：對其他人沒用，也會洩漏使用者名稱；"
+    "改寫成 repo 內的相對路徑。[codex]／[agy] 留言是原文不能改，改在第二行以後另起一行，"
+    "以「註：」或「（註」開頭說明，例如「（註：原文含本機路徑，對應 repo 的 script/x.py）」。"
+)
 TAG_RULE = (
     "agent 發的 issue／PR 留言，本文第一行一律以 [claude]、[codex] 或 [agy] 開頭；"
     "沒有標記的留言視為維護者本人寫的。[codex] 只能貼 codex 原文，Claude 不得代寫。"
@@ -97,6 +119,18 @@ def tagged(text: str) -> bool:
     return first.startswith(TAGS)
 
 
+def local_path_problem(text: str, src: str, raw_ok: bool) -> str | None:
+    """text 含本機絕對路徑就回傳問題說明；raw_ok 時 [codex]／[agy] 原文附註解行可放行。"""
+    hits = [label for pat, label in LOCAL_PATHS if pat.search(text)]
+    if not hits:
+        return None
+    lines = text.lstrip().split("\n")
+    if raw_ok and lines[0].startswith(RAW_TAGS) and any(
+            ln.strip().startswith(NOTE_PREFIXES) for ln in lines[1:]):
+        return None
+    return f"{src} 含{PATH_MARK}（{'、'.join(hits)}）"
+
+
 def read(path: str, cwd: Path) -> str | None:
     if not path or path == "-":
         return None
@@ -117,12 +151,18 @@ def body_problem(args: list[str], cwd: Path, required: bool) -> str | None:
     for b in bodies:
         if not tagged(b):
             return "--body 本文第一行沒有 [claude]／[codex]／[agy] 標記"
+        problem = local_path_problem(b, "--body 本文", raw_ok=True)
+        if problem:
+            return problem
     for f in files:
         text = read(f, cwd)
         if text is None:
             return f"讀不到本文檔 {f!r}（stdin 無法確認標記；先寫成檔再用 --body-file）"
         if not tagged(text):
             return f"本文檔 {f} 第一行沒有 [claude]／[codex]／[agy] 標記"
+        problem = local_path_problem(text, f"本文檔 {f}", raw_ok=True)
+        if problem:
+            return problem
     return None
 
 
@@ -176,6 +216,9 @@ def api_problem(args: list[str], cwd: Path) -> str | None:
             return f"讀不到 {src} 的 body，無法確認標記"
         if not tagged(text):
             return f"{src} 第一行沒有 [claude]／[codex]／[agy] 標記"
+        problem = local_path_problem(text, src, raw_ok=True)
+        if problem:
+            return problem
     return None
 
 
@@ -195,6 +238,13 @@ def check(toks: list[str], cwd: Path) -> str | None:
                 return "create 的本文一律用 --body-file 給，不准 --body／-b"
             if kind == "issue" and not has_opt(args, {"--label", "-l"}):
                 return "issue create 必須帶 --label"
+            for f in opt_values(args, FILE_OPTS):
+                text = read(f, cwd)
+                if text is None:
+                    return f"讀不到本文檔 {f!r}，無法確認是否含{PATH_MARK}（先寫成檔再用 --body-file）"
+                problem = local_path_problem(text, f"本文檔 {f}", raw_ok=False)
+                if problem:
+                    return problem
         return None
     if kind == "api":
         return api_problem(toks[2:], cwd)
@@ -218,10 +268,11 @@ def main() -> int:
             bad.append(f"{' '.join(toks[:3])}：{problem}")
     if not bad:
         return 0
+    rule = PATH_RULE + TAG_RULE if any(PATH_MARK in b for b in bad) else TAG_RULE
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "deny",
-        "permissionDecisionReason": f"{'；'.join(bad)}。{TAG_RULE}",
+        "permissionDecisionReason": f"{'；'.join(bad)}。{rule}",
     }}, ensure_ascii=False))
     return 0
 
