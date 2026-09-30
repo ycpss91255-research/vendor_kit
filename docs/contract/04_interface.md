@@ -41,9 +41,10 @@
 
 版本不足時：
 
-- 在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束
-- just 版本不足時另印下載與安裝指令，見[訊息 6-23](03_messages.md#訊息)
-- Docker 版本不足見[訊息 6-40](03_messages.md#訊息)
+- Docker 版本不足：首次導入與已有安裝目錄都由啟動器檢查，在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，見[訊息 6-40](03_messages.md#訊息)
+- just 版本不足，分兩種情況：
+  - 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼 `2`](03_messages.md#結束碼)結束，另印下載與安裝指令，見[訊息 6-23](03_messages.md#訊息)
+  - 已有安裝目錄：just 解析 justfile 時就先拒絕，啟動器沒機會執行，所以不承諾 VK 的訊息與結束碼，也不留執行紀錄
 
 ## registry 與認證
 
@@ -141,9 +142,8 @@ VK 對外只有三個入口：
 - 位置參數只放工具名稱 `<repo>`；其他值都經由選項帶入，例如 `-p <dir>`、`-i <image>`
 - 同一個概念一種寫法：對象是引擎一律寫 `--engine`，本機 image 一律寫 `-i <image>`
 - 選項採 GNU 式的長短選項與 `--`（[GNU Coding Standards](https://www.gnu.org/prep/standards/html_node/Command_002dLine-Interfaces.html)），但有兩點刻意不遵循 [POSIX Utility Syntax Guidelines](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html)：選項放在位置參數之後也可以（不遵循 Guideline 9），`--engine` 的值可帶可不帶（不遵循 Guideline 7）。具體寫法：
-  - 有短也有長：`-h`／`--help`、`-y`／`--yes`、`-i`／`--image`
-  - 只有短：`-p`
-  - 只有長：`--engine`、`--exit-code`
+  - 有短也有長：`-h`／`--help`、`-y`／`--yes`、`-i`／`--image`、`-p`／`--path`
+  - 只有長：`--engine`、`--exit-code`、`--dist`（[CI 檢查腳本](#ci-檢查腳本)）
   - 選項放在位置參數之前或之後都可以，意思相同
   - 單獨的 `--` 結束選項：它之後的參數一律當位置參數，以 `-` 開頭也一樣，例如 `just vendor_kit add -- <repo>`
 - `--engine` 是值可帶可不帶的長選項：不帶值時只表示對象是引擎；要帶值只接受 `=` 形式 `--engine=<tag>`，不接受 `--engine <tag>`，例如 `--engine=v1.2.0`。工具的指定版本維持 `<repo>@<tag>`
@@ -153,14 +153,14 @@ VK 對外只有三個入口：
 `<repo>@<tag>` 與 `--engine=<tag>` 的 [tag](../../GLOSSARY.md#工具與出貨) 照同一套規則：
 
 - 工具與引擎的 tag 只接受 `vX.Y.Z`，不帶 pre-release、build 後綴，不收前導零
-- 最新版是把 X、Y、Z 當非負整數逐欄比數值取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版
+- 最新版是把 X、Y、Z 當非負整數逐欄比數值，取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版
 - 寫出格式不合的 tag 是用法錯誤，以[結束碼 `2`](03_messages.md#結束碼)結束
 - 不加 `init`、`ensure`、`diff`、`accept`、`rollback` 這類別名，也不加 `--purge`（VK 永不刪 repo 檔，這個選項沒有對象）。這些用途各自由既有指令的選項或 git 處理
 - 工具 repo 的命名空間也照這套寫法，例如 base（[base#1192](https://github.com/ycpss91255-docker/base/issues/1192)）
 
 ### 成對與無害
 
-- 做得了就反得回：`add` 與 `remove`、`dev` 與 `undev`、`install` 與 `uninstall` 成對。
+- 做得了就反得回：`add` 與 `remove`、`dev` 與 `undev`、`install` 與 `uninstall` 成對
 - 查與套用分開：
   - `update` 只查
   - 真正換版本的是 `upgrade`：裝新版工具內容、做初始檔的<ins>基準版合併</ins>、更新<ins>基準版</ins>與<ins>納管</ins>紀錄，必要時重產<ins>薄殼</ins>，最後才寫版本鎖定行
