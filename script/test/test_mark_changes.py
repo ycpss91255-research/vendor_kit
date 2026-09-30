@@ -1,11 +1,11 @@
-"""mark_changes.py 的版本號行為：跑法 `python3 -m unittest discover -s test`。"""
+"""mark_changes.py 的版本號行為：跑法 `python3 -m unittest discover -s script/test`。"""
 import os
 import pathlib
 import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "script"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import mark_changes  # noqa: E402
 
 

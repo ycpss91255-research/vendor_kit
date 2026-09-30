@@ -5,6 +5,7 @@
 1. 不寫「出處：」行：沿用規則時在正文寫「依 [頁名](連結#錨點) 第 N 條」。
 2. 不寫「> 版本 vN」：版本只在 doc/decisions/_marked/ 的檔名。
 3. 每頁有「## 目錄」。
+3a. HTML 只准 <ins>：<a id>、<br> 這類只有部分環境顯示得出來；錨點一律用標題產生。
 4. 相對連結的檔案與錨點都存在（錨點照 GitHub 的標題轉換規則算）。
 5. 只能向前依賴：審閱頁 N 不能連到編號比它大的審閱頁。
 6. 03 總表的指令寫法只能用前面頁定義過的：反引號裡 `just vendor_kit …` 的每個選項（-x、--xxx）
@@ -52,8 +53,6 @@ def anchors(path: pathlib.Path) -> set[str]:
         n = seen.get(s, 0)
         out.add(s if n == 0 else f"{s}-{n}")
         seen[s] = n + 1
-    # 手寫的 <a id="…">
-    out |= set(re.findall(r'<a\s+(?:id|name)="([^"]+)"', path.read_text()))
     return out
 
 
@@ -81,6 +80,9 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
         where = f"{path}:{i}"
         if re.match(r"^\s*(?:[-*]\s*)?出處[:：]", line):
             errors.append(f"{where}: 對外頁不寫「出處」行；沿用規則時在正文寫「依 [頁名](連結#錨點) 第 N 條」")
+        tags = sorted({t for t in re.findall(r"</?([a-zA-Z][\w-]*)[^>]*>", re.sub(r"`[^`]*`", "", line)) if t != "ins"})
+        if tags:
+            errors.append(f"{where}: 用了 HTML {tags}：對外頁只准 <ins>（GitHub 與 GitLab 都顯示）；錨點用標題產生")
         if re.match(r"^>\s*版本\s*v\d+\s*$", line):
             errors.append(f"{where}: 正式檔不寫版本號；版本只在 _marked/ 的檔名")
         for target in LINK.findall(line):
