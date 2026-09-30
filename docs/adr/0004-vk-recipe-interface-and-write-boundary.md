@@ -16,7 +16,7 @@
 - `vendor.just` 進 git，fresh clone 直接有入口；代價是改轉發行等於改進 git 的檔，要走 `upgrade --engine` 重產薄殼。
 - CI 模式附加的紅燈規則只有兩條，底下的具名情境可以逐項寫成測試；版本組合不合與一般失敗照結束碼總表，不在這份清單裡。清單外的警告不擋別人的 pipeline，也就不會被 `|| true` 整批關掉。
 - `CI` 由 CI 服務自己設，使用者不必額外配置；本機把 `CI` 留在環境裡的人會拿到 CI 行為。
-- 需要寫進 git 的情境各有固定訊息編號，改號等於改介面。[03 訊息與錯誤碼總表](../contract/03_messages.md)列了未完成導入（[訊息 M5](../contract/03_messages.md#訊息)）、基準版落後（[訊息 M3](../contract/03_messages.md#訊息)）與薄殼不符（[訊息 M8](../contract/03_messages.md#訊息)）。
+- 需要寫進 git 的情境各有固定的訊息與結束碼，改訊息或結束碼等於改介面。[03 訊息與錯誤碼總表](../contract/03_messages.md)列了未完成導入（[訊息 M5](../contract/03_messages.md#訊息)）、基準版落後（[訊息 M3](../contract/03_messages.md#訊息)）與薄殼不符（[訊息 M8](../contract/03_messages.md#訊息)）。
 - 內部機制（之後搬到實作 issue）：
   - 轉發形狀：每個 recipe 一行 `<recipe> *args`，以 `[group('常用')]` 與 `[group('進階')]` 分段；轉發行不解讀參數、不判斷狀態。`vendor.just` 屬於進 git 的薄殼五檔（[不變量 6](../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)）。
   - `check.sh` 自己設 `CI=1`。`update` 在 CI 模式下仍然查 registry：它是唯讀 recipe，查詢就是它的用途。
