@@ -332,6 +332,7 @@ recipe 後面帶的 `-x` 或 `--long` 參數。
 <a id="term-yes-option"></a>
 **`-y`**（yes option）：
 讓使用者預先回答詢問的選項。
+寫法：`-y`，長選項 `--yes`。
 
 <a id="term-ci-mode"></a>
 **CI 模式**（CI mode）：
@@ -358,10 +359,12 @@ VK recipe 結束時回給呼叫方的整數。
 <a id="term-recipe-add-remove"></a>
 **`add` / `remove`**：
 `add` 把一個工具納入這個安裝目錄；`remove` 是它的反向，把那個工具解除。
+寫法：`just vendor_kit add <repo>`、`just vendor_kit remove <repo>`。
 
 <a id="term-recipe-update-upgrade"></a>
 **`update`、`upgrade`**：
 `update` 只查有沒有新版；`upgrade` 把鎖定版本換成新版或指定版本。
+寫法：`just vendor_kit update`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine@<tag>`。
 
 <a id="term-recipe-dev-undev"></a>
 **`dev` / `undev`**：

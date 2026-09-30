@@ -48,6 +48,15 @@ Renovate 一條 regex manager 追 docker datasource。
 
 regex manager 認的正是第 1–3 節定的那個形狀，所以正規形一動，這條 regex 跟著動。
 
+### 修訂（2026-09-30）
+
+- **Amendment status:** Accepted
+- 不變量頁改成只寫概念（維護者 2026-09-30），原本寫在那裡的機制細節移到本檔。決定不變，只補記。
+- 兩份版本真相的例子是 image tag 加上另一個 lock 檔。digest 才鎖內容；tag 只給人與外部版本追蹤工具看。
+- Renovate、`upgrade` 與人手改的都是同一個 `version.toml`。
+- `version.local.toml` 只覆蓋已存在的版本鎖定行，不進 git，不是第二份真相；CI 模式下有任何本機覆寫就以 1 結束。
+- 安裝目錄禁止巢狀：`install` 時上層或下層已有安裝目錄就以 1 拒絕（可觀察的行為見 [04 使用者介面](../decisions/review/04_interface.md#執行位置)）。
+
 ## Consequences
 
 - 得到：啟動器不需要 TOML 解析器，一行 `grep` 加一次命中數檢查就夠；非正規形在引擎讀檔的那一刻就擋掉，不會帶著半套版本資訊往下跑。

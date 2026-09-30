@@ -1,6 +1,6 @@
 # ADR-0004：VK recipe 一行轉發、寫入邊界，與 CI 模式的封閉紅燈清單
 
-> Serves: 機制（服務不變量 8、3、4），不建立不變量——本檔記錄 VK recipe 的轉發形狀與分組、每個 recipe 能寫什麼（CI 模式判定與五項封閉紅燈清單）、進度檔與入口檔的原子替換順序，以及 `sync` 三種情境的處置，是[不變量 8「使用者介面極少、寫法一致；recipe 語意固定」](../decisions/review/02_invariants.md#8-使用者介面極少寫法一致recipe-語意固定)、[不變量 3「自動化只碰不進 git 的東西」](../decisions/review/02_invariants.md#3-自動化只碰不進-git-的東西)與[不變量 4「永不靜默失敗」](../decisions/review/02_invariants.md#4-永不靜默失敗)的共同機制。
+> Serves: 機制（服務不變量 8、3、4），不建立不變量——本檔記錄 VK recipe 的轉發形狀與分組、每個 recipe 能寫什麼（CI 模式判定與五項封閉紅燈清單）、進度檔與入口檔的原子替換順序，以及 `sync` 三種情境的處置，是[不變量 8「使用者介面不可取代、寫法一致；recipe 語意固定」](../decisions/review/02_invariants.md#8-使用者介面不可取代寫法一致recipe-語意固定)、[不變量 3「自動化只碰不進 git 的東西」](../decisions/review/02_invariants.md#3-自動化只碰不進-git-的東西)與[不變量 4「永不靜默失敗」](../decisions/review/02_invariants.md#4-永不靜默失敗)的共同機制。
 
 - **Status:** Accepted
 
@@ -61,8 +61,23 @@ VK 站在每個 repo `just` 指令的最前面。它靜默失敗，錯誤就傳�
 - 說明改由兩件事處理：
   - 每個 recipe 都支援 `-h`／`--help`
   - 不帶指令（只輸入 `just vendor_kit`）與缺必要參數都算錯誤，印出用法並以 1 結束
-- 理由：說明只留一種寫法，不另開一個指令（[不變量 8](../decisions/review/02_invariants.md#8-使用者介面極少寫法一致recipe-語意固定)「說明只用 `-h`／`--help`」）。出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。
+- 理由：說明只留一種寫法，不另開一個指令（[不變量 8](../decisions/review/02_invariants.md#8-使用者介面不可取代寫法一致recipe-語意固定)「一個概念一種寫法」；說明只用 `-h`／`--help` 的具體寫法見 [04 使用者介面](../decisions/review/04_interface.md#說明與用法錯誤)）。出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。
 - 原文保留，不改寫歷史。
+
+### 修訂（2026-09-30）
+
+- **Amendment status:** Accepted
+- 不變量頁改成只寫概念（維護者 2026-09-30），原本寫在那裡的機制細節移到本檔。決定不變，只補記。
+- 可寫 recipe 的時序固定：
+  1. 建執行紀錄。它早於任何寫入、任何拉 image、任何起引擎；只有不寫檔、不拉 image、不起容器的前置檢查可以排在它之前。
+  2. 建進度檔。它早於第一個內容寫入，也就是第一個 repo 檔或 VK 狀態檔的寫入；執行紀錄不算在這一類裡。唯一的例外是 `--dry-run`：它只預覽、不建進度檔。
+  3. 不帶工具名、一次處理多個工具時，先對全部工具做完整預檢。任一項不過就整體不動，以 1 結束並列出每一個不過的原因。
+  4. 寫入。預檢通過之後的寫入階段中途失敗，就照不變量 4 對失敗的規定處理。
+  5. 最後才改版本鎖定行。工具層的可寫 recipe 回 1 時該工具的版本鎖定行不動：鎖定行最後才寫、最後才刪。升引擎是明列例外，見 [ADR-0007](0007-host-thin-layer-and-shell-integrity.md) 的修訂（2026-09-30）第二則。
+- 可寫 recipe 開始前發現未完成的進度檔就先恢復再繼續；唯讀 recipe 只偵測、不自動恢復。
+- `upgrade` 套用的順序：裝新版工具內容、初始檔的基準版合併、推基準版與納管紀錄，必要時重產薄殼，最後才寫版本鎖定行。
+- 工具交付的 `dist/just/<ns>.just` 每檔一個頂層命名空間，數量由工具自決，`<repo>.just` 必須存在；`gen/tools.just` 每個 `<ns>` 一行（一個工具可以多行）。`add` 在任何寫入之前檢查 `<ns>` 撞名，比對對象見 [04 使用者介面](../decisions/review/04_interface.md#命名空間)。
+- 不加的別名與 `--purge` 的清單現在在 [04 使用者介面](../decisions/review/04_interface.md#說明與用法錯誤)。Alternatives 裡「不變量 8 已經把『不加這些』定成性質」，指的是不變量 8 的「每個介面都必須不可取代」。
 
 ## Consequences
 

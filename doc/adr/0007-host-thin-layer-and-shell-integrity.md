@@ -83,6 +83,17 @@ VK 在主機上只留一層很薄的東西：啟動器把事情叫起來，規�
   - 其他 recipe 的 `-h`／`--help` 不在救援路徑內：版本組合不合時照一般 recipe 處理，乾淨回 3 + [6-36](../decisions/review/03_messages.md#msg-6-36)、零寫入
 - 出處：[issue #71](https://github.com/ycpss91255-research/vendor_kit/issues/71)。原文保留，不改寫歷史。
 
+### 修訂（2026-09-30）
+
+- **Amendment status:** Accepted
+- 不變量頁改成只寫概念（維護者 2026-09-30），原本寫在那裡的機制細節移到本檔。決定不變，只補記。
+- 啟動器只做不需要知道規則內容的事，也就是：偵測主機環境；以字串相等比對讀版本鎖定行與印記；驗引擎回傳的執行計畫文法；照那份計畫呼叫 docker；寫執行紀錄；清掉自己建的容器與暫存。
+- 已經有版本鎖定行時，啟動器一律用它指定的那一版引擎：拉不到就是失敗，不得改用啟動器自己內嵌的那一版。內嵌的版本只在還沒有版本鎖定行的第一次導入用得到。
+- 升引擎是「版本鎖定行最後才改」的明列例外：它先改鎖定行再由新引擎接手；中途回 1 時鎖定行已經改了，進度檔記著目標版本，重跑 `upgrade --engine` 續作。
+- 第 2 節「不變量 5 列的基礎 userland」的清單（POSIX sh 與它的內建指令，加上 `grep`、`sed`、`id`、`mktemp`、`mkdir`、`date`、`rm`、`sleep`、`od`、`tr`）現在列在 [04 使用者介面](../decisions/review/04_interface.md#主機需求)，第 2 節讀作那一份。
+- 主機不必為 VK 裝任何第三方 binary，只借主機已有的 docker。合併用的 `git merge-file` 在引擎容器內跑，不是主機依賴，所以與「VK 在主機上不呼叫 git」不衝突。
+- 引擎不讀 `.git`、不碰 index、不做 `git init`；worktree 與 submodule 同樣適用。
+
 ## Consequences
 
 - 主機只要備 Docker、Git、just；版本不足或裝的是 Podman，在第一次寫入之前就停下，錯誤訊息裡有可以照做的指令。
