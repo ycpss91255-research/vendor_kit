@@ -55,7 +55,7 @@
 
 31. 01 目的與承諾（送審 v13）、02 不變量（送審 v14）定案。
 
-32. 除了首次導入的 `bootstrap.sh`，使用者與 CI 一律透過 just：`.vendor_kit/ci/check.sh` 改成 `just vendor_kit check`（工具交付內容用 `check --dist`），CI 模式照舊由環境變數 `CI` 判斷、`check` 自己開啟。依據：不變量 5（主機含 CI 只需 Docker、Git、just）、不變量 8（一個概念一種寫法）。薄殼少掉 `ci/check.sh`；GLOSSARY 的「CI 檢查腳本」改成 `check`。
+32. 除了首次導入的 `bootstrap.sh`，使用者與 CI 一律透過 just：`.vendor_kit/ci/check.sh` 改成 `just vendor_kit test`（只打 `test` 就跑全部檢查；`just vendor_kit test dist` 只檢查工具交付的內容），本機與 CI 用同一個；名稱照動作命名、不叫 `ci`（同 base ADR-00000011）。CI 模式照舊由環境變數 `CI` 判斷。其他子命令實作時再定（第 26 條）。依據：不變量 5（主機含 CI 只需 Docker、Git、just）、不變量 8（一個概念一種寫法）。薄殼少掉 `ci/check.sh`；GLOSSARY 的「CI 檢查腳本」改成 `test`。
 
 ## 待討論
 
