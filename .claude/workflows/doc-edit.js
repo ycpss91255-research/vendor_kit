@@ -192,7 +192,7 @@ ${BACKGROUND}
 ${JSON.stringify(review.must_fix, null, 2)}
 
 規則：
-- 每一條都要處理；做法照 fix 欄，但要先對照 source 欄的證據確認 codex 沒看錯。改法若會削弱 02 的不變量、改變 01 的承諾或 03／04 的對外介面，不要改，寫進 changed 並註明「未改：改到對外承諾，要維護者決定」。確認 codex 看錯的那條不要改，寫進 changed 並註明「未改：理由」。
+- 每一條都要處理；做法照 fix 欄，但要先對照 source 欄的證據確認 codex 沒看錯。改法若會削弱 02 的不變量、改變 01 的承諾或 03／04 的對外介面，不要改，寫進 changed 並註明「未改：改到對外承諾，要維護者決定」。動手前先讀 ${repo}/doc/decisions/review_log/discussion_queue.md 的「已定案」區：改法跟任何一條定案衝突（例如縮小定案過的範圍、刪掉定案保留的連結），不要改，寫進 changed 並註明「未改：跟定案第 N 條衝突」。確認 codex 看錯的那條不要改，寫進 changed 並註明「未改：理由」。
 - 只改必改指到的地方，不要順手改別的。
 - 改完跑 \`${LINT}\`，要全部 OK。`,
     { label: '套用必改', phase: '套用必改', schema: RESULT, agentType: 'general-purpose', ...(effort.edit ? { effort: effort.edit } : {}) })
