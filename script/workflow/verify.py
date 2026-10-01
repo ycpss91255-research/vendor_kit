@@ -6,12 +6,14 @@
 1. docs.yml 每個 job 的每個 `run:`，原樣用 shell 在根目錄執行（單行與 `run: |` 區塊都認）。
 2. 每個 `script/*/test` 目錄的 `python3 -m unittest discover -s <目錄>`；docs.yml 已經跑過同一個目錄就不重跑。
 3. `python3 script/repo/check_script_layout.py`。
-4. `python3 .claude/hooks/test_guard.py`。
+4. `python3 .claude/hooks/test_guard.py`：檔案存在才跑；不存在就跳過，該步標 `"skipped": true`、不算失敗
+   （hooks 的測試改由 `.claude/hooks/test` 跑）。
 
 另外檢查每個 `script/*/test` 都有出現在 docs.yml 裡（CI 跑得到），沒出現的列在 `not_in_ci`，算失敗。
 
 --root 不給時用目前目錄所在 git worktree 的根目錄。輸出一行 JSON：
 {"ok", "root", "steps": [{"source", "cmd", "code", "ok", "output"}], "not_in_ci"}；output 只留最後 40 行。
+跳過的步驟另有 "skipped": true，code 是 null。
 全過結束碼 0，有失敗 1，根目錄或 docs.yml 找不到 2。
 """
 import argparse
@@ -23,6 +25,7 @@ from pathlib import Path
 
 TAIL = 40
 RUN = re.compile(r"^(\s*)(?:-\s+)?run:\s*(.*)$")
+GUARD = ".claude/hooks/test_guard.py"
 
 
 def run_commands(text: str) -> list[str]:
@@ -95,13 +98,17 @@ def verify(root: Path, workflow: str) -> dict:
     dirs = test_dirs(root)
     plan += [("script/*/test", f"python3 -m unittest discover -s {d}") for d in dirs if not covered(d, cmds)]
     plan += [("check_script_layout", "python3 script/repo/check_script_layout.py"),
-             ("hooks test_guard", "python3 .claude/hooks/test_guard.py")]
+             ("hooks test_guard", f"python3 {GUARD}")]
     seen = set()
     steps = []
     for source, cmd in plan:
         if cmd in seen:
             continue
         seen.add(cmd)
+        if source == "hooks test_guard" and not (root / GUARD).is_file():
+            steps.append({"source": source, "cmd": cmd, "code": None, "ok": True, "skipped": True,
+                          "output": f"{GUARD} 不存在，跳過"})
+            continue
         steps.append(execute(root, source, cmd))
     not_in_ci = [d for d in dirs if not covered(d, cmds)]
     return {"ok": all(s["ok"] for s in steps) and not not_in_ci, "root": str(root),

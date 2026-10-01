@@ -91,7 +91,7 @@ python3 script/workflow/pr_target.py <pr> [--repo <主 repo>]
 python3 script/workflow/verify.py [--root <worktree 根目錄>]
 ```
 
-- 依序跑：`.github/workflows/docs.yml` 每個 `run:`（原樣用 shell 跑）、每個 `script/*/test` 的 unittest（docs.yml 已跑的不重跑）、`script/repo/check_script_layout.py`、`.claude/hooks/test_guard.py`。
+- 依序跑：`.github/workflows/docs.yml` 每個 `run:`（原樣用 shell 跑）、每個 `script/*/test` 的 unittest（docs.yml 已跑的不重跑）、`script/repo/check_script_layout.py`、hooks 的守門測試（舊位置 `.claude/hooks/test_guard.py` 還在才跑，不在就標 `skipped`；hooks 的測試由 `.claude/hooks/test` 跑）。
 - 每個 `script/*/test` 都要出現在 docs.yml 裡，沒出現的列在 `not_in_ci`，算失敗：新類別的測試 CI 要跑得到。
 - 輸出一行 JSON：`{"ok", "root", "steps": [{"source", "cmd", "code", "ok", "output"}], "not_in_ci"}`，`output` 只留最後 40 行。全過 0，有失敗 1，找不到根目錄或 docs.yml 2。
 

@@ -111,7 +111,7 @@ ${RULES}
 
 步驟（照順序）：
 1. 修改：照「要做」在 ${t.path} 裡改。
-2. 驗證：\`python3 ${S}/verify.py --root ${t.path}\`。它跑 docs.yml 每個 \`run:\`、每個 \`script/*/test\` 的 unittest、check_script_layout、\`.claude/hooks/test_guard.py\`，並檢查每個 \`script/*/test\` 都在 docs.yml 裡；ok 是 true 才算過。失敗時看 steps 裡 ok 是 false 的 output 自己判斷：是這次改動造成的就修好再重跑一次 verify.py；修不了或跟這次無關就停下，不要 commit，在 error 寫清楚。
+2. 驗證：\`python3 ${S}/verify.py --root ${t.path}\`。它跑 docs.yml 每個 \`run:\`、每個 \`script/*/test\` 的 unittest、check_script_layout、hooks 的守門測試（hooks 的測試由 \`.claude/hooks/test\` 跑），並檢查每個 \`script/*/test\` 都在 docs.yml 裡；ok 是 true 才算過。失敗時看 steps 裡 ok 是 false 的 output 自己判斷：是這次改動造成的就修好再重跑一次 verify.py；修不了或跟這次無關就停下，不要 commit，在 error 寫清楚。
 3. commit 一個：\`git -C ${t.path} add\` 這次改的檔，再 \`git -C ${t.path} commit -m "${q(commit)}" -m "Refs: #${t.issue}"\`。
 4. push：\`git -C ${t.path} push origin ${t.branch}\`。
 5. 等 CI：\`python3 ${S}/wait_ci.py ${pr}\`（預設最多 600 秒）。結束碼 0＝全過；1＝有失敗：看 \`gh run view --log-failed -R ${SLUG}\`，是這次改動造成的就修，再 commit（同樣格式、footer \`Refs: #${t.issue}\`）、push、再等一次，修不了就停；2＝逾時，停下回報。CI 全過就停，不 merge。
