@@ -43,7 +43,7 @@ jobs:
         run: python3 -m unittest discover -s script/github/test -v
       - name: script/git/test（commit 訊息格式檢查的測試）
         run: python3 -m unittest discover -s script/git/test -v
-      - name: script/diagram/test（drawio 頁面讀寫與比對的測試）
+      - name: script/diagram/test（圖面工具的測試）
         run: python3 -m unittest discover -s script/diagram/test -v
 
   # .claude/hooks/ 底下 hook 的測試

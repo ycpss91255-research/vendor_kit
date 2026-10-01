@@ -17,3 +17,13 @@
 - `python3 script/diagram/state.py diff <before.drawio> <after.drawio>`：每頁以 `<diagram id>` 對應，列出新增、刪除、改名的頁與每頁 cell 的增刪改；頁 id 消失或新出現另列在 `id_changes`（名字相同、id 不同的列在 `same_name`）。
 
 頁面網址預設從 workspace 的 `reference/drawio_session.txt` 讀（workspace 是主 worktree 根目錄的上一層），也可以用 `--url <網址>` 或 `--session-file <檔>` 指定；`--timeout` 設 HTTP 逾時秒數。輸出一行 JSON；結束碼 0 過、1 有問題、2 用法錯。測試在 `test/`，用假 HTTP server，不依賴 drawio 服務。
+
+## png.py — 匯出 PNG 的白底與縮圖
+
+drawio MCP `export_diagram` 匯出的 PNG 是透明底（#138）。`png.py` 只用 Python 標準函式庫自己解碼／編碼 PNG，不需要另外安裝影像套件。從 repo 根目錄跑：
+
+- `python3 script/diagram/png.py info <png>`：寬高、位元深度、色彩型態，以及是否支援。
+- `python3 script/diagram/png.py flatten <in.png> <out.png>`：RGBA 合成到白底，輸出 RGB PNG。
+- `python3 script/diagram/png.py resize <in.png> <out.png> [--max-width 1600]`：寬度超過上限才等比縮（最近鄰取樣），色彩型態沿用輸入。
+
+只支援 drawio 實際會輸出的 8-bit RGBA／RGB、非交錯；其他型態回結束碼 2。輸出一行 JSON；結束碼 0 過、1 有問題（讀不到、不是 PNG、內容壞掉）、2 用法錯。測試在 `test/`（`python3 -m unittest discover -s script/diagram/test`）。
