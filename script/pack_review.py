@@ -2,14 +2,15 @@
 """把送審資料夾打包成 review_v<N>.zip，並在 doc/review/versions.json 記下這次送審。
 
 用法（在 repo 根目錄執行）：
-  python3 script/pack_review.py [--out <目錄>] [--note <審閱說明.md>] <頁鍵> [<頁鍵> ...]
+  python3 script/pack_review.py --out <目錄> [--note <審閱說明.md>] <頁鍵> [<頁鍵> ...]
 
 頁鍵的寫法跟 mark_changes.py 相同：審閱頁傳頁名（03_messages），其他檔傳路徑（GLOSSARY.md）。
 標示版照舊由 mark_changes.py 產生；這支只打包 doc/review/<鍵>/ 裡的
 <鍵>.marked.md、<鍵>.md，有 <鍵>.csv 也放進去。repo 裡的檔名不帶版本號，zip 裡的檔名才帶：
 <鍵>.v<N>.marked.md、<鍵>.v<N>.md、<鍵>.v<N>.csv；N 是該鍵最後送審的版號加一（從沒送審過是 1）。
 zip 名是 review_v<review_zip+1>.zip；zip 內檔名不帶目錄，有 --note 時審閱說明排第一個。
-沒給 --out 就放在系統暫存目錄，不寫進 repo。
+--out 必填：送審 zip 是送審版本號的出處，要放在 workspace 裡的固定目錄
+（例如 vendor-kit_ws/reference/review_sent/），不放系統暫存目錄；目錄不存在就建立。
 
 送審的內容要能從 git 取回（下一輪 mark_changes.py 用 git show 當基準），所以先檢查：
 正式檔（與附屬 CSV）沒有未 commit 的改動，送審資料夾的正文副本跟正式檔一致（不一致就是沒重跑
@@ -20,7 +21,6 @@ import argparse
 import pathlib
 import subprocess
 import sys
-import tempfile
 import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -107,12 +107,15 @@ def pack(names: list[str], out: pathlib.Path, note: pathlib.Path | None = None) 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="把送審資料夾打包成 review_v<N>.zip")
-    ap.add_argument("--out", type=pathlib.Path, help="輸出目錄；不給就用系統暫存目錄")
+    ap.add_argument("--out", type=pathlib.Path, help="輸出目錄（必填），例如 vendor-kit_ws/reference/review_sent/")
     ap.add_argument("--note", type=pathlib.Path, help="審閱說明 .md，放在 zip 第一個")
     ap.add_argument("names", nargs="+", help="頁鍵，例如 03_messages 04_interface GLOSSARY.md")
     args = ap.parse_args()
-    out = args.out if args.out is not None else pathlib.Path(tempfile.mkdtemp(prefix="review_"))
-    path, arcnames = pack(args.names, out, args.note)
+    if args.out is None:
+        print("--out 必填：送審 zip 要放在 workspace 裡的固定目錄（例如 vendor-kit_ws/reference/review_sent/），"
+              "不放系統暫存目錄", file=sys.stderr)
+        raise SystemExit(2)
+    path, arcnames = pack(args.names, args.out, args.note)
     print(path)
     for a in arcnames:
         print(f"  {a}")

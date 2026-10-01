@@ -78,7 +78,7 @@ CSV 的逐碼差異：新舊兩版依 `code` 對齊、逐欄比較，每個有�
 python3 script/pack_review.py --note <審閱說明.md> --out <目錄> 03_messages 04_interface GLOSSARY.md
 ```
 
-在 repo 根目錄執行，頁鍵的寫法跟 `mark_changes.py` 相同。每個鍵取 `doc/review/<鍵>/` 裡的 `<鍵>.marked.md`、`<鍵>.md`，有 `<鍵>.csv` 也一起放；zip 內檔名帶版本號：`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.md`、`<鍵>.v<N>.csv`，N 是這個鍵在 `versions.json` 最後送審的版號加一（從沒送審過是 1）。打包前先檢查：正式檔（與附屬 CSV）有未 commit 的改動、送審資料夾的正文副本跟正式檔不一致（沒重跑 `mark_changes.py`）、或缺檔，就停下報錯，不取號、不寫 `versions.json`。都過了才打包，並把 `{"v": N, "commit": HEAD}` 追加進各鍵的紀錄、`review_zip` 加一；zip 的 N 是新的 `review_zip`。zip 內檔名不帶目錄，有 `--note` 時審閱說明排第一個。沒給 `--out` 就放在系統暫存目錄，不寫進 repo。跑完印出 zip 路徑與內容清單。本工具只打包，標示版照舊由 `mark_changes.py` 產生。
+在 repo 根目錄執行，頁鍵的寫法跟 `mark_changes.py` 相同。每個鍵取 `doc/review/<鍵>/` 裡的 `<鍵>.marked.md`、`<鍵>.md`，有 `<鍵>.csv` 也一起放；zip 內檔名帶版本號：`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.md`、`<鍵>.v<N>.csv`，N 是這個鍵在 `versions.json` 最後送審的版號加一（從沒送審過是 1）。打包前先檢查：正式檔（與附屬 CSV）有未 commit 的改動、送審資料夾的正文副本跟正式檔不一致（沒重跑 `mark_changes.py`）、或缺檔，就停下報錯，不取號、不寫 `versions.json`。都過了才打包，並把 `{"v": N, "commit": HEAD}` 追加進各鍵的紀錄、`review_zip` 加一；zip 的 N 是新的 `review_zip`。zip 內檔名不帶目錄，有 `--note` 時審閱說明排第一個。`--out` 必填，沒給就以結束碼 2 停下：送審 zip 是送審版本號唯一的出處（#128），要放在 workspace 裡的固定目錄（例如 `vendor-kit_ws/reference/review_sent/`），不放系統暫存目錄；目錄不存在就建立。跑完印出 zip 路徑與內容清單。本工具只打包，標示版照舊由 `mark_changes.py` 產生。
 
 版號遞增、內容與缺檔報錯由 [pack_review 測試](test/test_pack_review.py) 涵蓋。
 

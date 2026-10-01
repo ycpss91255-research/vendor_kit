@@ -137,6 +137,28 @@ class PackReviewTest(unittest.TestCase):
             pack_review.pack(["04_interface"], self.out, pathlib.Path("nope.md"))
         self.assert_not_bumped()
 
+    def run_main(self, *argv):
+        old = sys.argv
+        sys.argv = ["pack_review.py", *argv]
+        try:
+            pack_review.main()
+        finally:
+            sys.argv = old
+
+    def test_main_without_out_fails(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main("04_interface")
+        self.assertEqual(cm.exception.code, 2)
+        self.assert_not_bumped()
+        self.assertFalse(list(pathlib.Path(".").glob("**/review_v*.zip")))
+
+    def test_main_creates_missing_out_dir(self):
+        out = pathlib.Path("ws/reference/review_sent")
+        self.assertFalse(out.exists())
+        self.run_main("--out", str(out), "04_interface")
+        self.assertTrue((out / "review_v2.zip").is_file())
+        self.assertEqual(self.table()["review_zip"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
