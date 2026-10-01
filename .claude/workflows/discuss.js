@@ -75,14 +75,13 @@ ${JSON.stringify(other)}
 const codexAsk = (q, n, own, other) => agent(`你的工作是啟動 codex 回答一個設計問題，再把輸出整理成結構化回報。不要自己回答、不要改任何檔。
 
 步驟：
-1. \`mkdir -p ${repo}/doc/decisions/review_log/codex\`
-2. 把下面的 brief 原文用 heredoc（'EOF'）寫進你的 scratchpad 暫存檔。
-3. 前景執行（Bash timeout 600000，不要 run_in_background），形狀一字不差：
+1. 把下面的 brief 原文用 Write 工具寫進你的 scratchpad 暫存檔（不要用 heredoc）。
+2. 前景執行（Bash timeout 600000，不要 run_in_background）：
 
-codex exec --skip-git-repo-check -C ${repo} -o ${repo}/doc/decisions/review_log/codex/${round}-${q.id}-r${n}.md "$(cat <暫存檔>)" < /dev/null
+python3 ${repo}/script/workflow/codex_run.py --cd ${repo} --brief <暫存檔> --out ${repo}/doc/decisions/review_log/codex/${round}-${q.id}-r${n}.md
 
-   - \`< /dev/null\` 不可省略；不要帶 --sandbox。
-4. 讀輸出檔，整理成 answer／reasons／risks。codex 失敗或輸出是空的：error 寫原因，其餘欄位留空字串或空陣列，不要編內容。
+   - 腳本自己建輸出目錄、stdin 接 /dev/null、不帶沙箱旗標；不要繞過腳本直接呼叫 codex。
+3. 讀腳本輸出的一行 JSON。ok 為 true：讀輸出檔，整理成 answer／reasons／risks。ok 為 false：error 寫 JSON 的 exit、error 與 stderr_tail，其餘欄位留空字串或空陣列，不要編內容。
 
 brief：
 只讀，不要改任何檔。我要的是你的獨立判斷，不是背書。
