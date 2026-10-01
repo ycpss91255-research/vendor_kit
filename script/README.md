@@ -24,30 +24,30 @@
    python3 script/mark_changes.py README.md
    ```
 
-   不帶後綴時，基準是這個鍵最後一次送審的版本（`doc/review/versions.json` 記的 commit，用 `git show` 取正式檔）；這個鍵從沒送審過就整份標新增。要拿本機的改前快照當基準，在頁名前加後綴，例如 `python3 script/mark_changes.py pre_r65 01_purpose`，讀本機 `doc/decisions/_backup/` 裡照步驟 1 命名的備份（例如 `doc_contract_01_purpose.pre_r65.md`）；本機沒有 `_backup/`（換電腦、新 clone）就報錯。新建的頁沒有舊版，後綴寫 `new`，整份標新增。
+   不帶後綴時，基準是這個鍵在 `doc/review/versions.json` 最後一筆 `replied: true` 的紀錄，也就是維護者最後回覆過的那一版（用 `git show` 從紀錄的 commit 取檔）；沒有這樣的紀錄就整份標新增。要拿本機的改前快照當基準，在頁名前加後綴，例如 `python3 script/mark_changes.py pre_r65 01_purpose`，讀本機 `doc/decisions/_backup/` 裡照步驟 1 命名的備份（例如 `doc_contract_01_purpose.pre_r65.md`）；本機沒有 `_backup/`（換電腦、新 clone）就報錯。新建的頁沒有舊版，後綴寫 `new`，整份標新增。
 
    輸出到送審資料夾 `doc/review/<鍵>/`，檔名固定、不帶版本號，每次產生就覆蓋：
 
    - 標示版 `<鍵>.marked.md`。
    - 正文副本 `<鍵>.md`，內容跟正式檔一樣，只差相對連結。
 
-   版本號不在 repo 的檔名裡、也不寫進檔內，只出現在送審 zip 裡的檔名（`<鍵>.v<N>.…`，見下面的「送審打包」）。`doc/review/versions.json` 記每次送審的版號與 commit，進 git，所以換電腦或新 clone 之後版號不會從 v1 重來。本工具只讀 `versions.json`、不寫、不取號，也不改正式檔。
+   版本號不在 repo 的檔名裡、也不寫進檔內，只出現在送審 zip 裡的檔名（`<鍵>.v<N>.…`，見下面的「送審打包」）。`doc/review/versions.json` 記每次送審的版號與 commit，進 git，所以換電腦或新 clone 之後版號不會從 v1 重來。每筆紀錄有 `v`、`commit`、`replied`（維護者回覆過沒有），選填 `path`／`csv_path`：有這欄時基準改從 `git show <commit>:<path>` 取，用於舊的 `_marked/` 副本，從副本取時相對連結會先改寫回正式檔位置再比對；副本的連結沒改寫過（照正式檔位置寫）時帶 `raw_links: true`。沒寫 `replied` 的紀錄當成還沒回覆。本工具只讀 `versions.json`、不寫、不取號，也不改正式檔。
 
    標示版裡的相對連結會改寫成從送審資料夾出發（正文副本也一樣）：以原檔所在目錄解析成 repo 內的實際路徑，再換成從 `doc/review/<鍵>/` 出發的相對路徑，錨點照留；指到其他審閱頁的連結指正式檔 `doc/contract/<頁>.md`，不指副本。外部網址、純錨點、行內程式碼與程式碼區塊裡的字樣不改，正式檔也不動。
 
-   正式檔名不帶版本號、不改名，其他文件的連結才不會斷。鍵對審閱頁是頁名（例如 `04_interface`），對其他檔是攤平後的路徑（`/` 換成 `_`、去掉 `.md` 與開頭的點，所以 `README.md` 的鍵是 `README`）。
+   正式檔名不帶版本號、不改名，其他文件的連結才不會斷。鍵對審閱頁是頁名（例如 `04_interface`），對其他檔是攤平後的路徑（`/` 換成 `_`、去掉 `.md` 與開頭的點，所以 `README.md` 的鍵是 `README`）。鍵 `README` 一律對到根目錄的 `README.md`；`doc/contract/README.md` 要傳路徑，鍵是 `doc_contract_README`。
 
    基準選擇、輸出檔名與連結改寫這些行為由 [mark_changes 測試](test/test_mark_changes.py) 涵蓋，在 repo 根目錄跑 `python3 -m unittest discover -s script/test`。
 
-4. **基準永遠是審閱者上次看過的那一版**，不是最舊的那一版。不帶後綴時自動取這一頁最後一次送審的版本；要指定別的送審版本（例如維護者回覆的是更早的那一版），用 `--base-version` 指定版號：
+4. **基準永遠是維護者最後回覆過的那一版**，不是最舊的那一版，也不是最後送出、還沒回覆的那一版。不帶後綴時自動取這個鍵最後一筆 `replied: true` 的紀錄；要指定別的送審版本，用 `--base-version` 指定版號（不看 `replied`）：
 
    ```sh
    python3 script/mark_changes.py --base-version 03_messages=13 04_interface=18 GLOSSARY=6
    ```
 
-   基準是 `versions.json` 裡這個鍵版本 `<N>` 記的 commit，用 `git show` 取當時的正式檔，有附屬 CSV 時也一起取；那個 commit 裡沒有那份 CSV 時視為新建、整份標新增。左邊寫頁名、路徑或鍵都行（`GLOSSARY`、`README` 對到根目錄的檔）。任何一個指定版號在 `versions.json` 裡找不到就停下報錯，整批都不產。已經討論完的段落不該再標成新改動，紅綠色只留給他還沒看過的。
+   基準是 `versions.json` 裡這個鍵版本 `<N>` 記的 commit，用 `git show` 取當時的正式檔，有附屬 CSV 時也一起取；那個 commit 裡沒有那份 CSV 時視為新建、整份標新增。左邊寫頁名、路徑或鍵都行（`GLOSSARY`、`README` 對到根目錄的檔；`doc/contract/README.md` 要寫路徑）。任何一個指定版號在 `versions.json` 裡找不到就停下報錯，整批都不產。已經討論完的段落不該再標成新改動，紅綠色只留給他還沒看過的。
 
-5. **用 `pack_review.py` 打包送審**（見下面的「送審打包」）：zip 裡放 `<鍵>.v<N>.md` 與 `<鍵>.v<N>.marked.md`，版本號是打包時取的。不交正式檔。
+5. **用 `pack_review.py` 打包送審**（見下面的「送審打包」）：zip 裡放 `<鍵>.v<N>.md` 與 `<鍵>.v<N>.marked.md`，版本號是打包時取的。不交正式檔。維護者回覆後，用 `python3 script/pack_review.py --replied <鍵>=<N>` 把那一版標成回覆過，下一輪的預設基準才會前進到那一版。
 
 6. **草稿 commit 在討論分支，定案才 merge 進 `main`**。定案之後，下一輪從 `main` 開新的討論分支，再跑 doc-edit workflow，由它自動備份當時的正式檔當基準，不手動從 `main` 取檔建備份。定稿時 `doc/review/<鍵>/` 整個資料夾在同一個 commit 刪掉。
 
@@ -68,7 +68,7 @@
 
 CSV 的逐碼差異：新舊兩版依 `code` 對齊、逐欄比較，每個有改動的代碼寫成一段 `#### VKnnnn`，依新表頭的欄位順序列出這個代碼的各欄。改過的欄寫成紅底舊值 → 綠底新值，沒改的欄照原樣列出、不加標記。新增的代碼在標題下一行註記綠底「（本碼新增）」、各欄標綠；改成 `retired` 的註記紅底「（本碼停用）」；從 CSV 拿掉的列註記紅底「（本列刪除）」、各欄標紅。表頭改了（例如刪掉欄）時，逐碼差異開頭先標出新舊表頭，並逐欄註記紅底「（本欄刪除）」或綠底「（本欄新增）」；新增的欄照新表頭的位置列出，各碼標綠新值並註記綠底「（本欄新增）」，新值是空的不算改動；刪掉的欄排在新表頭各欄之後，列出舊值並標紅，所以只刪欄的代碼也算有改動。沒改動的代碼不成段，最後用一行列出有幾個、是哪些。欄位值裡的 `<`、`>` 會跳脫，占位符照原樣看得到；格內換行改成 `<br>`。
 
-不帶後綴或用 `--base-version` 時，CSV 的基準跟 `.md` 一樣從送審記錄的 commit 取。帶後綴時，CSV 的基準版是本機 `doc/decisions/_backup/doc_contract_03_messages.<後綴>.csv`，攤平規則跟 `.md` 相同，只差副檔名；以下是後綴模式的規則。兩個檔只有一個有基準版時，另一個視為這一輪沒改；CSV 沒有基準版、也不在 git 的 `HEAD` 裡時，視為新建、整份標新增。這兩種情況都會印在輸出，也寫在標示版開頭。兩個都沒有基準版就停下。基準後綴寫 `new` 時，兩個檔都整份標新增。
+不帶後綴或用 `--base-version` 時，CSV 的基準跟 `.md` 一樣從送審紀錄的 commit 取（紀錄有 `csv_path` 就取那個路徑）。帶後綴時，CSV 的基準版是本機 `doc/decisions/_backup/doc_contract_03_messages.<後綴>.csv`，攤平規則跟 `.md` 相同，只差副檔名；以下是後綴模式的規則。兩個檔只有一個有基準版時，另一個視為這一輪沒改；CSV 沒有基準版、也不在 git 的 `HEAD` 裡時，視為新建、整份標新增。這兩種情況都會印在輸出，也寫在標示版開頭。兩個都沒有基準版就停下。基準後綴寫 `new` 時，兩個檔都整份標新增。
 
 ## 送審打包（`pack_review.py`）
 
@@ -78,7 +78,15 @@ CSV 的逐碼差異：新舊兩版依 `code` 對齊、逐欄比較，每個有�
 python3 script/pack_review.py --note <審閱說明.md> --out <目錄> 03_messages 04_interface GLOSSARY.md
 ```
 
-在 repo 根目錄執行，頁鍵的寫法跟 `mark_changes.py` 相同。每個鍵取 `doc/review/<鍵>/` 裡的 `<鍵>.marked.md`、`<鍵>.md`，有 `<鍵>.csv` 也一起放；zip 內檔名帶版本號：`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.md`、`<鍵>.v<N>.csv`，N 是這個鍵在 `versions.json` 最後送審的版號加一（從沒送審過是 1）。打包前先檢查：正式檔（與附屬 CSV）有未 commit 的改動、送審資料夾的正文副本跟正式檔不一致（沒重跑 `mark_changes.py`）、或缺檔，就停下報錯，不取號、不寫 `versions.json`。都過了才打包，並把 `{"v": N, "commit": HEAD}` 追加進各鍵的紀錄、`review_zip` 加一；zip 的 N 是新的 `review_zip`。zip 內檔名不帶目錄，有 `--note` 時審閱說明排第一個。`--out` 必填，沒給就以結束碼 2 停下：送審 zip 是送審版本號唯一的出處（#128），要放在 workspace 裡的固定目錄（例如 `vendor-kit_ws/reference/review_sent/`），不放系統暫存目錄；目錄不存在就建立。跑完印出 zip 路徑與內容清單。本工具只打包，標示版照舊由 `mark_changes.py` 產生。
+在 repo 根目錄執行，頁鍵的寫法跟 `mark_changes.py` 相同。每個鍵取 `doc/review/<鍵>/` 裡的 `<鍵>.marked.md`、`<鍵>.md`，有 `<鍵>.csv` 也一起放；zip 內檔名帶版本號：`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.md`、`<鍵>.v<N>.csv`，N 是這個鍵在 `versions.json` 最後送審的版號加一（從沒送審過是 1）。打包前先檢查：正式檔（與附屬 CSV）有未 commit 的改動、送審資料夾的正文副本跟正式檔不一致（沒重跑 `mark_changes.py`）、或缺檔，就停下報錯，不取號、不寫 `versions.json`。都過了才打包，並把 `{"v": N, "commit": HEAD, "replied": false}` 追加進各鍵的紀錄、`review_zip` 加一；zip 的 N 是新的 `review_zip`。zip 內檔名不帶目錄，有 `--note` 時審閱說明排第一個。`--out` 必填，沒給就以結束碼 2 停下：送審 zip 是送審版本號唯一的出處（#128），要放在 workspace 裡的固定目錄（例如 `vendor-kit_ws/reference/review_sent/`），不放系統暫存目錄；目錄不存在就建立。跑完印出 zip 路徑與內容清單。本工具只打包，標示版照舊由 `mark_changes.py` 產生。
+
+維護者回覆之後，標記他回覆的版本：
+
+```sh
+python3 script/pack_review.py --replied 03_messages=14 README=3
+```
+
+只把 `versions.json` 裡那幾筆的 `replied` 改成 `true`，不打包、不取號，不用給 `--out`。鍵的寫法同 `--base-version`；任何一筆找不到就停下報錯，整批不改。`mark_changes.py` 的預設基準就是各鍵最後一筆 `replied: true` 的紀錄。
 
 版號遞增、內容與缺檔報錯由 [pack_review 測試](test/test_pack_review.py) 涵蓋。
 
