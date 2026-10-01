@@ -14,7 +14,7 @@
 ## 調用方式
 
 ```js
-Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東西 */ } })
+Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東西 */ } })
 ```
 
 - 腳本放這個目錄（`.claude/workflows/`），**檔名去掉 `.js` 就是 `name`**。
@@ -25,127 +25,30 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 
 | 名字 | 用途 | 什麼時候跑 | args 必填 |
 |---|---|---|---|
-| `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
-| `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
-| `doc-edit` | 改文件的固定流程：改寫 → lint 歸零 → codex 只讀審查 → 套用必改 → humanizer-zh-tw 潤稿；codex 的建議只回報 | 改任何現行文件（README、`doc/contract/`、`GLOSSARY.md`、ADR）時；主對話不自己改 | `round`、`files` |
+| `doc-edit` | 改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 只讀審查並套用必改 → 跨檔一致性 → humanizer-zh-tw 潤稿 → lint；預設 codex 改、Claude 查，`editor` 可對調；`mode: "light"` 給機械式或只改幾行的改動，只用 Claude 子代理、不跑跨檔一致性與潤稿；建議只回報。取代已刪除的 `doc-apply` 與 `doc-review` | 改任何現行文件（README、`doc/contract/`、`GLOSSARY.md`、ADR）時；主對話不自己改 | `round`、`files` |
 
 選填欄位：
 
-- `doc-apply`：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`、`verify`、`effort`（`{ apply, verify }`）。
-- `doc-review`：`repo`（同上預設）、`background`、`tracks`、`cross_check`、`effort`（`{ review, cross }`）。
-- `doc-edit`：`repo`（同上預設）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（codex 額外要看的重點）、`effort`（`{ edit, polish, review }`）。
+- `doc-edit`：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（審查額外要看的重點）、`editor`（`codex` 預設｜`claude`）、`mode`（`full` 預設｜`light`）、`effort`（`{ edit, polish, review }`）。
 
-## doc-apply
-
-N 組子代理並行改檔，再跑一組驗證。形狀是「改 + 查」，取代以前每輪手寫的 apply 腳本。
-
-args 欄位：
-
-| 欄位 | 必填 | 說明 |
-|---|---|---|
-| `round` | 是 | 字串，備份檔後綴。`r87` → `doc/decisions/_backup/<路徑攤平>.pre_r87.md` |
-| `tasks` | 是 | 陣列，每項 `{ key, label, ask, files? }`。`ask` 是給子代理的任務描述；`files` 是這組只准動的檔 |
-| `repo` | 否 | 預設 repo 根 |
-| `background` | 否 | 共用背景：已定案的事實、改名史、不要重做的事 |
-| `verify` | 否 | 陣列，每項 `{ key, label, ask }`。**不給**就用內建的預設三組（`links` 壞連結、`residue` 舊說法殘留、`gap` 宣稱 vs `git diff` 落差）；**給空陣列**＝跳過驗證 |
-| `effort` | 否 | `{ apply, verify }`，值為 `low`｜`medium`｜`high`｜`xhigh`｜`max`。`verify` 預設 `low`，`apply` 不給則繼承 session |
-
-回傳 `{ round, applied, verified, unresolved }`。`unresolved` 把「宣稱沒改成的」與「驗證沒過的」併成一份，主對話可以直接轉述。
-
-args 範例：
-
-```json
-{
-  "round": "r87",
-  "background": "已定案的改名：專案→repo、動詞→recipe。這些 _Avoid_ 詞不得出現在現行檔正文（_Avoid_ 行本身除外）。名詞表是根 GLOSSARY.md，審閱頁是 doc/contract/01_purpose.md、doc/contract/02_invariants.md、doc/contract/03_messages.md、doc/contract/04_interface.md。",
-  "tasks": [
-    {
-      "key": "purpose",
-      "label": "01_purpose.md",
-      "ask": "改 doc/contract/01_purpose.md：1. 全檔掃 _Avoid_ 詞，有殘留就改。2. 第 3 行指向名詞表的相對路徑改指根 GLOSSARY.md（驗證過可解再寫）。回報改了哪幾行與掃描結果。",
-      "files": ["doc/contract/01_purpose.md"]
-    },
-    {
-      "key": "adr",
-      "label": "doc/adr/（README、TEMPLATE）",
-      "ask": "改 doc/adr/README.md 與 TEMPLATE.md：把已改名的舊說法換成 recipe，並把兩檔的相對路徑連結驗證一次，壞的修掉。回報每檔改了哪幾行。",
-      "files": ["doc/adr/README.md", "doc/adr/TEMPLATE.md"]
-    }
-  ],
-  "verify": [
-    {
-      "key": "residue",
-      "label": "驗證：_Avoid_ 詞殘留",
-      "ask": "以根 GLOSSARY.md 的 _Avoid_ 行為準，grep 現行 md 的正文（_Avoid_ 行本身除外），列出每個殘留的位置與詞，並回報掃了幾個檔。"
-    }
-  ],
-  "effort": { "verify": "low" }
-}
-```
-
-## doc-review
-
-Claude 軌（多面向並行）與 codex 軌**同時**跑同一批 angle，最後一個代理交叉比對：雙軌共同指出的進 `agreed`；單軌提出但查證成立的分別進 `claude_only`／`codex_only`。
-
-args 欄位：
-
-| 欄位 | 必填 | 說明 |
-|---|---|---|
-| `round` | 是 | 字串，用來命名 codex 的輸出檔 |
-| `angles` | 是 | 陣列，每項 `{ key, label, ask }`，一個 angle 就是一個審查面向 |
-| `repo` | 否 | 預設 repo 根 |
-| `background` | 否 | 已定案的前提，prompt 裡會明寫「不要質疑」 |
-| `tracks` | 否 | 預設 `["claude", "codex"]`。codex 不可用時給 `["claude"]` |
-| `cross_check` | 否 | 預設 `true`。只跑一軌時沒有交叉比對 |
-| `effort` | 否 | `{ review, cross }` |
-
-codex 每個 angle 的原始輸出寫到 `doc/decisions/review_log/codex/<round>-<key>.md`（這是「不動 `review_log/`」的明示例外）。回傳 `{ round, tracks, claude, codex, cross }`；雙軌共同指出的進 `cross.agreed`；單軌提出但查證成立的分別進 `cross.claude_only`／`cross.codex_only`；`rejected` 附駁回理由。
-
-args 範例：
-
-```json
-{
-  "round": "r87",
-  "background": "審閱頁有四頁：01_purpose.md（目的與承諾）、02_invariants.md（不變量）、03_messages.md（訊息與錯誤碼總表）、04_interface.md（使用者介面）；名詞全在根 GLOSSARY.md。",
-  "angles": [
-    {
-      "key": "terms",
-      "label": "GLOSSARY.md 名詞完整性",
-      "ask": "審 GLOSSARY.md：定義是否一兩句、有沒有寫進規則或實作細節、目錄錨點是否都解得開（自己算 slug 比對）。"
-    },
-    {
-      "key": "consistency",
-      "label": "01 與 02 的一致性",
-      "ask": "審 doc/contract/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 GLOSSARY.md 沒定義的詞。"
-    }
-  ]
-}
-```
+`round` 是 `rNN`，取兩者的最大值加一：本機 `doc/decisions/_backup/` 裡最大的 `pre_rNN`，與 git log 裡 `Doc-Edit: rNN` footer 的最大值。`_backup/` 不進 git，只看它會在別台機器或清過本機後重用舊編號。
 
 ## 共用護欄
 
 這幾條**寫在腳本裡**，會組進送給每個子代理的 prompt，不靠每次記得講：
 
 - **不 commit、不 push、不跑任何 git 寫入指令**。唯讀的 `git status`／`git diff` 可以。
-- **改前先備份**到 `doc/decisions/_backup/`，命名 `<路徑攤平>.pre_<round>.<ext>`（例如 `agents_domain.pre_r86.md`），同名已存在就加序號。
-- **不准動** `doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/decisions/_marked/`：這些是歷史快照與本機產物，除非該 task 明說。
+- **改前先備份**到本機的 `doc/decisions/_backup/`（已 gitignore，不進 git），命名 `<鍵>.pre_<round><副檔名>`（例如 `claude_workflows_README.pre_r146.md`；鍵與副檔名的規則跟 `script/mark_changes.py` 同一套），同名已存在就在副檔名前加序號。
+- **不准動** `doc/decisions/_backup/`、`doc/decisions/review_log/`（本機產物，已 gitignore）與送審資料夾 `doc/review/`（由 `script/mark_changes.py`、`script/pack_review.py` 產生），除非該 task 明說。審查結論寫進 issue 留言，不留在 repo。
 - **驗證一律用腳本／grep 算，不要目視**。
-- codex 一律帶 `< /dev/null`：少了它，codex 會停在等 stdin，整條 workflow 卡死。固定的部分是 `codex exec --skip-git-repo-check -C <repo> -o <輸出檔>`、不加沙箱旗標、stdin 接 `/dev/null`。prompt 的傳法兩個 workflow 不同：
+- codex 一律帶 `< /dev/null`：少了它，codex 會停在等 stdin，整條 workflow 卡死。形狀固定：`codex exec --skip-git-repo-check -C <repo> -o <輸出檔>`、不加沙箱旗標、stdin 接 `/dev/null`；brief 先用 heredoc 寫進暫存檔，再用命令替換傳進去：
 
-  - `doc-review`：brief 直接當引號參數傳。
-
-    ```
-    codex exec --skip-git-repo-check -C <repo> -o <輸出檔> "<brief>" < /dev/null
-    ```
-
-  - `doc-edit`：brief 先用 heredoc 寫進暫存檔，再用命令替換傳進去。
-
-    ```
-    codex exec --skip-git-repo-check -C <repo> -o <輸出檔> "$(cat <暫存檔>)" < /dev/null
-    ```
+  ```
+  codex exec --skip-git-repo-check -C <repo> -o <輸出檔> "$(cat <暫存檔>)" < /dev/null
+  ```
 
   不要自己加沙箱旗標：repo 的 `.codex/config.toml` 已設 `danger-full-access`，加了 bubblewrap 會失敗、codex 零修改。
-- 成果進 repo，不留 `/tmp`。
+- 暫存檔放 scratchpad，不留 `/tmp`。
 
 ## 新增 workflow 的規則
 
@@ -168,4 +71,4 @@ args 範例：
 | `diagram-review` | draw.io 圖面雙軌審查（Claude + codex）；架構圖已停在第十五版不再修改 |
 | `diagram-review-claude` | 同上的單軌版（codex 不可用時）；同樣理由停用 |
 | `diagram-review-v2` | 多頁流程圖的三階段審查（機械抽取＋lint 先跑）；同樣理由停用 |
-| `decision-review` | 綁死 agy 前例研究的雙軌分析流程，那條流程已不用，改由 `doc-review` 取代 |
+| `decision-review` | 綁死 agy 前例研究的雙軌分析流程，那條流程已不用，先改由 `doc-review` 取代，`doc-review` 後來也已刪除，由 `doc-edit` 取代 |

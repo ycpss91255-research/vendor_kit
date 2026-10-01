@@ -19,7 +19,7 @@ vendor_kit 要同時做到搬檔、鎖版、初始檔升版不蓋掉使用者改
 
 - **`git subtree`**：把工具的 commit 合進使用者的 repo，工具的 commit 與使用者的 commit 混在一起，正是 vendor_kit 要解的第一個痛點。
 - **`git submodule`**：工具的 commit 不進使用者的 repo，歷史裡只有 gitlink 指標；代價是多一個 repo，也多出初始化與更新的狀態要使用者自己記得，漏掉就拿到空目錄或舊版，而且是靜默的。用 submodule 搬工具、再自寫升級腳本，可以鎖版，但多出來的 repo 與初始化狀態都還在。
-- **vendir**：方向最接近，所以單獨實測過（vendir v0.46.2 linux-amd64、本機 `registry:2`、`FROM scratch` 測試 image，另有[獨立評估](../decisions/review_log/codex_out_vendir_eval.md)）。它的 `image` 來源可以直接展開 `FROM scratch` 純資料 image，不需要 `.imgpkg/` bundle、不經 docker daemon，還能用 `includePaths`／`newRootPath` 只取 `dist/` 的一部分。不採用的理由：
+- **vendir**：方向最接近，所以單獨實測過（vendir v0.46.2 linux-amd64、本機 `registry:2`、`FROM scratch` 測試 image，另有[獨立評估](https://github.com/ycpss91255-research/vendor_kit/blob/7f6ef34/doc/decisions/review_log/codex_out_vendir_eval.md)）。它的 `image` 來源可以直接展開 `FROM scratch` 純資料 image，不需要 `.imgpkg/` bundle、不經 docker daemon，還能用 `includePaths`／`newRootPath` 只取 `dist/` 的一部分。不採用的理由：
   1. `sync` 的模型是「這個目錄整份由我管」：實測時目標目錄裡使用者新增的檔被刪、改過的檔被還原。它先移除目標目錄再整份換上，沒有基準版合併，也沒有「改過就不覆蓋」；`ignorePaths`／`manual` 只是讓某些路徑不歸它管，不是合併。它只適合 `.vendor_kit/cache/<repo>/` 這種 VK 完全擁有、可隨時重建的目錄。
   2. 多架構 index 挑不了平台：內嵌的 imgpkg 要求給具體的 manifest digest，不會依主機平台挑（[imgpkg pull 實作](https://github.com/carvel-dev/imgpkg/blob/v0.48.1/pkg/imgpkg/v1/pull.go#L184-L192)）。改成每個平台各鎖一個 digest，就打破「同一行在任何機器裝到同一份內容」。
   3. 離線接不上：`vendir sync` 沒有從本機 tar／OCI archive 匯入的介面，接不上 `docker save`／`docker load` 的離線路徑；要走 imgpkg 的 air-gap bundle，是另一個 binary、另一種格式。

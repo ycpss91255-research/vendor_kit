@@ -1,6 +1,6 @@
 # doc/decisions — 現況與去向
 
-這個目錄**不在 skill 結構裡**。skill 只要求四樣東西：根 `GLOSSARY.md`（名詞）、`doc/adr/`（難逆轉的取捨）、`doc/agents/`（三個設定檔）、`AGENTS.md`（工作約定與 Agent skills 段）；spec 與需求走 GitHub issue。這個目錄現在放設計原則、範圍文件與審閱用的工作目錄；對外契約與不變量（審閱頁 01～04）已搬到 `doc/contract/`，研究紀錄搬到 `doc/research/`（理由見 `AGENTS.md`「決議與文件流程」）。本檔是這個目錄的地圖，審閱頁也一併列在這裡。
+這個目錄**不在 skill 結構裡**。skill 只要求四樣東西：根 `GLOSSARY.md`（名詞）、`doc/adr/`（難逆轉的取捨）、`doc/agents/`（三個設定檔）、`AGENTS.md`（工作約定與 Agent skills 段）；spec 與需求走 GitHub issue。這個目錄現在放設計原則、範圍文件與審閱用的工作目錄；對外契約與不變量（審閱頁 01～04）已搬到 `doc/contract/`，研究紀錄原本搬到 `doc/research/`，現已移出 git（本機保留、已 gitignore，調查結論寫進 issue 留言；理由見 `AGENTS.md`「決議與文件流程」）。本檔是這個目錄的地圖，審閱頁也一併列在這裡。
 
 三段：**保留** = 現在還在用；**已歸檔** = 原本的 `_legacy` 目錄，已搬出 repo、只留在維護者本機（相對 repo 根目錄是 `../reference/_legacy`），只作參考；**待處理** = 等使用者拍板存廢。
 
@@ -28,9 +28,9 @@
 
 | 目錄 | 是什麼 | 最終去向 |
 |---|---|---|
-| `review_log/` | 審閱頁（01–04）的審閱往返：codex brief／output、Claude 子代理審查紀錄。舊輪次的子目錄已歸檔（跟著原本的 `_legacy` 目錄搬到 repo 外的本機參考目錄）。另有 `versions.json`：`mark_changes.py` 記各鍵版本號的檔，進 git，不屬於審閱往返。 | 審閱往返在審閱頁定案後就沒有讀者，見「待處理」；`versions.json` 在 `mark_changes.py` 還在用時留著。 |
-| `_backup/` | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`），`script/mark_changes.py` 靠它產生改動標示。 | 定案後只有 `mark_changes.py` 還需要最近一輪。見「待處理」。 |
-| `_marked/` | `mark_changes.py` 的輸出：新增綠底 `<mark>`、刪除（被取代或拿掉的舊文字）紅底 `<mark>`，給維護者審閱用。只有對外文件（根目錄 README.md 與審閱頁 01～04）產標示版；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產。已在 `.gitignore`，是產生物。 | 每輪重新產生，不需要保留。 |
+| `review_log/`（已移出 git） | 審閱頁（01–04）的審閱往返：codex brief／output、Claude 子代理審查紀錄。本機保留、已 gitignore；審查結論改寫進 issue 留言。原本在這裡的 `versions.json` 已移到 [doc/review/versions.json](../review/versions.json)。 | 本機參考用，不進 git。 |
+| `_backup/`（已移出 git） | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`）。本機保留、已 gitignore；`script/mark_changes.py` 帶 `<後綴>` 時讀它當基準，doc-edit 取 round 號時也看它。 | 本機用，不進 git。 |
+| [doc/review/](../review/)（送審資料夾，在本目錄外） | 原本的 `_marked/` 已刪，改為 `doc/review/<鍵>/`：`mark_changes.py` 產生固定檔名的 `<鍵>.md`（正文副本）與 `<鍵>.marked.md`（標示版：新增綠底 `<mark>`、刪除紅底 `<mark>`），有 CSV 的頁再加 `<鍵>.csv`，每次產生就覆蓋。版本號不在 repo 檔名裡，只在 `script/pack_review.py` 打包的 zip 內檔名（`<鍵>.v<N>.…`）；`doc/review/versions.json` 記每次送審的版號與 commit。只有對外文件（根目錄 README.md 與審閱頁 01～04）產標示版、送審；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產、不送。 | 進 git；該頁定稿時整個 `<鍵>/` 資料夾在同一個 commit 刪掉。 |
 | `_legacy`（已搬出） | 原本放已歸檔的檔案；已搬到 repo 外、只留維護者本機的 `../reference/_legacy`，不進 git。見下一段。 | 本機參考用，確認清楚之後刪。 |
 
 ## 已歸檔（repo 外的 `../reference/_legacy`）
@@ -61,7 +61,7 @@
 
 ### 2. `script/diagram/`
 
-**是什麼**：圖的產生器與審查工具。19 MB、216 個 `.py`。其中 `_backup/`（17 MB，`gen2`–`gen56`、`make_gen*`、各種 `.v*` 後綴）是歷代痕跡，`_misc/`（900 KB，53 個一次性 patch／診斷腳本）多數假設 cwd 有已不存在的 `v2_only.drawio`。
+**是什麼**：圖的產生器與審查工具。19 MB、216 個 `.py`。其中 `script/diagram/_backup/`（17 MB，已 gitignore；`gen2`–`gen56`、`make_gen*`、各種 `.v*` 後綴）是歷代痕跡，`_misc/`（900 KB，53 個一次性 patch／診斷腳本）多數假設 cwd 有已不存在的 `v2_only.drawio`。
 
 **為什麼卡住**：依賴的圖頁已作廢（跟第 1 項綁在一起）。`verify_r15.py`、`verify_r16.py` 指向 `decisions/review/terms.md`，但這個檔早就不存在（名詞表現在是根 `GLOSSARY.md`，而且不是逐字上圖了），兩支腳本現在跑起來必定失敗。
 
@@ -81,23 +81,17 @@
 
 **選項**：(a) 留在原位；(b) 現在就把設計原則搬成一份 ADR（原則本身就是難逆轉的取捨），`scope_roadmap.md` 的路線圖進 milestone、待拍板項目各開一個 issue；(c) `scope_roadmap.md` 先動（純轉成 issue，沒有依賴），`design_principles.md` 等 ADR。
 
-### 5. `_backup/`
+### 5. `_backup/`（已完成）
 
-**是什麼**：每輪改動前的快照。`script/mark_changes.py` 讀 `_backup/doc_contract_<頁名>.<後綴>.md`（路徑攤平的命名；`docs/` 併進 `doc/` 之前的 `docs_contract_<頁名>`、更早搬目錄前的 `doc_decisions_review_<頁名>` 也認）產生改動標示。
+**是什麼**：每輪改動前的快照（路徑攤平的命名）。
 
-**為什麼卡住**：git 已經有完整歷史，這裡是重複的。但 `mark_changes.py` 的工作流程需要「上一輪的檔」而不是「某個 commit 的檔」，直接刪會讓現在正在用的審閱流程斷掉。
+**結論（#128）**：移出 git，本機保留、已 gitignore。`script/mark_changes.py` 不帶後綴時改用 `doc/review/versions.json` 記的送審 commit 以 `git show` 取基準，`--base-version <鍵>=<N>` 取指定送審版本；只有帶 `<後綴>` 時才讀本機 `_backup/`。（歷史：原本的選項是只留最新快照、改用 `git show` 取舊版，或審閱頁定案後整個刪。）
 
-**選項**：(a) 只留每個檔最新的一份快照，其餘刪；(b) 全部歸檔到 repo 外，並改 `mark_changes.py` 從 `git show <ref>:<path>` 取舊版；(c) 審閱頁 01～04 都定案後整個刪，那時 `mark_changes.py` 也不再需要。
+### 6. `review_log/`（已完成）
 
-### 6. `review_log/`
+**是什麼**：審閱頁（01–04）的審閱往返。
 
-**是什麼**：審閱頁（01–04）的審閱往返。舊輪次的子目錄已搬走。
-
-**為什麼卡住**：裡面有 codex 與 Claude 兩方的完整審查意見，但「哪幾條被採納、為什麼」只散在往返裡，沒有結論檔。直接歸檔會丟掉「這條當初討論過並否決了」這種資訊。
-
-**選項**：(a) 每輪寫一段結論摘要（採納／否決＋一句理由），原始往返歸檔到 repo 外；(b) 全部歸檔到 repo 外，接受「要查就去翻」；(c) 留在原位直到審閱頁定案。
-
-另外：`review_log/` 裡還留著 9/17–9/22 的舊輪次單檔（`codex_policy_*`、`r2_findings.txt`、`review_v2r2`–`review_v2r15_*`、`codex_brief_r16`–`r19`、`claude_r17_terms.md`，其中 `codex_out_r16.md` 一個檔 440 KB）。當時只搬了子目錄，這些單檔沒動；要不要一起歸檔，跟本項一起決定。
+**結論（#128）**：移出 git，本機保留、已 gitignore；審查結論改寫進 issue 留言，不再靠往返檔追「哪幾條被採納、為什麼」。原本在這裡的 `versions.json` 移到 `doc/review/versions.json`。（歷史：9/17–9/22 的舊輪次單檔與子目錄也一併留在本機，不進 git。）
 
 ### 7. proto 的 ADR-0001、0002（已完成）
 

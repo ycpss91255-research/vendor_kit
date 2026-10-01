@@ -27,25 +27,25 @@
 這一節是對外文件審閱的固定流程，新接手的 agent 照這個順序做。出處：維護者 2026-09-30 定案；[issue #64](https://github.com/ycpss91255-research/vendor_kit/issues/64)。
 
 1. **草稿只改在討論分支。** 對外文件是根目錄 [README](../../README.md) 與本目錄的審閱頁（目前 01～04）。草稿一律改在討論分支並開 PR，`main` 上只放定案版。定案之後才 merge 進 `main`，定案的條件見下一節。
-2. **改動一律跑 [doc-edit workflow](../../.claude/workflows/doc-edit.js)**。workflow 在第一次修改前自行把原內容備份到 `doc/decisions/_backup/<鍵>.pre_<round>.md`，不用另外手動備份。round 名稱是 `rNN`：取 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 的編號再加一（例如最大是 `pre_r100`，round 就是 `r101`），用過的不能重用。doc-edit workflow 開跑時會檢查 round 的格式是不是 `rNN`、編號是不是最大編號加一，重用或跳號就直接停。目前最大的編號這樣查：
+2. **改動一律跑 [doc-edit workflow](../../.claude/workflows/doc-edit.js)**。workflow 在第一次修改前自行把原內容備份到本機的 `doc/decisions/_backup/<鍵>.pre_<round>.md`，不用另外手動備份；`_backup/` 只在本機，不進 git（見[忽略清單](../../.gitignore)）。round 名稱是 `rNN`：取本機 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 與 git log 裡 `Doc-Edit: rNN` footer 最大的編號，兩者取大再加一（例如最大是 `r100`，round 就是 `r101`），用過的不能重用。doc-edit workflow 開跑時會檢查 round 的格式是不是 `rNN`、編號是不是最大編號加一，重用或跳號就直接停。目前最大的編號這樣查：
 
    ```sh
-   ls doc/decisions/_backup | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//' | sort -n | tail -1
+   { ls doc/decisions/_backup 2>/dev/null | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//'; git log --format=%B | grep -oE '^Doc-Edit: r[0-9]+' | sed 's/^Doc-Edit: r//'; } | sort -n | tail -1
    ```
 
-3. **產生標示版與帶版本號的副本。** 改完在 repo 根目錄跑 `python3 script/mark_changes.py <基準後綴> <頁>`（[標示版產生器](../../script/mark_changes.py)），基準後綴是這一輪的備份後綴，例如 `pre_r101`。審閱頁傳頁名，例如 `02_invariants`；根目錄 README 傳 `README.md`。每跑一次：
-   - 在 `doc/decisions/_marked/` 產出兩個檔名帶版本號的檔：`<鍵>.vN.marked.md` 是標示版，新增用綠底 `<mark>`、刪除（被取代或拿掉的舊文字）用紅底 `<mark>`；`<鍵>.vN.md` 是同一版的正文副本。產生器會先刪掉同一個鍵的舊版，只留最新一版；每輪把這次刪除與新檔一起 commit。
-   - 版本號只在 `_marked/` 的檔名：正式檔與正文副本內都不寫版本號。正式檔名不帶版本號，也不改名，其他文件的連結才不會斷。
-   - 版本號 N 取 [版本號紀錄](../decisions/review_log/versions.json)（`doc/decisions/review_log/versions.json`，進 git）裡這個鍵的數字加一並寫回，沒有記錄就是 v1。它跟著 git 走，所以換電腦、新 clone 或清掉 `_marked/` 之後不會從 v1 重來。
+3. **產生標示版與正文副本。** 改完在 repo 根目錄跑 `python3 script/mark_changes.py <頁>`（[標示版產生器](../../script/mark_changes.py)）。審閱頁傳頁名，例如 `02_invariants`；根目錄 README 傳 `README.md`。基準有三種：
+   - 不帶後綴：這一頁最後一次送審的版本。維護者已經看過並回覆的內容不再標紅綠，只標之後的改動。
+   - `--base-version <鍵>=<N>`：用[版本號紀錄](../review/versions.json) (`doc/review/versions.json`) 裡這個鍵版本 N 的 commit 當基準。
+   - `<基準後綴>`（例如 `pre_r101`）：讀本機 `_backup/` 裡這一輪的改前快照當基準。
+
+   產出放在送審資料夾 `doc/review/<鍵>/`，檔名固定、每次產生就覆蓋：`<鍵>.md` 是正文副本，`<鍵>.marked.md` 是標示版（新增用綠底 `<mark>`、刪除（被取代或拿掉的舊文字）用紅底 `<mark>`），有 CSV 的頁再加 `<鍵>.csv`。repo 裡的檔名與檔內都不寫版本號；正式檔名不帶版本號，也不改名，其他文件的連結才不會斷。產生器只讀版本號紀錄，不寫、不取號。
 
    鍵對審閱頁是頁名，對其他檔是攤平後的路徑，規則見[工具說明](../../script/README.md)。
-
-   送審的基準是這一頁上一次送審、維護者已回覆的那一版：用 `python3 script/mark_changes.py --base-version <頁>=<版號>` 產標示版，維護者已經看過並回覆的內容不再標紅綠，只標之後的改動。
-4. **送審。** 用 SendUserFile 把 `<鍵>.vN.md` 與 `<鍵>.vN.marked.md` 兩個檔一起傳給維護者。打包用[打包腳本](../../script/pack_review.py)，檔名 `review_vN.zip`。不傳沒帶版本號的正式檔：看檔名就要知道是哪一版，不用打開才知道。
+4. **送審。** 先把正式檔與送審資料夾 commit，再用[打包腳本](../../script/pack_review.py)打包 `doc/review/<鍵>/`，產出 `review_vN.zip`，用 SendUserFile 傳給維護者。版本號只在 zip 裡的檔名（`<鍵>.v<N>.md`、`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.csv`）：看檔名就要知道是哪一版，不用打開才知道。打包腳本送審時把 `{v, commit}` 追加進版本號紀錄、zip 編號加一；正式檔有未 commit 的改動，或送審資料夾的副本跟正式檔不一致（沒重跑產生器），就停下不打包。
 
 內部文件（本檔、[工作約定](../../AGENTS.md)、[工具說明](../../script/README.md)、[ADR 規則](../adr/README.md) 等，也就是對外文件以外的所有文件）改完照樣走步驟 2 (doc-edit)，但不產標示版、不送審；也不准留過時的資訊。
 
-`doc/decisions/_marked/` 進 git，每一輪都把標示版與帶版本號的正文副本 commit。定稿那一輪照步驟 3 產生最終版：產生器會刪掉同一個鍵的舊版並產生最終版，把刪除與新檔放在同一個 commit。`doc/decisions/_backup/` 只在本機，不進 git（見[忽略清單](../../.gitignore)）。
+`doc/review/` 進 git。定稿那一輪把這一頁的送審資料夾 `doc/review/<鍵>/` 整個在同一個 commit 刪掉。審查與調查的結論寫進 issue 留言；`doc/decisions/review_log/` 與 `doc/research/` 跟 `_backup/` 一樣只在本機、不進 git。
 
 ## 怎樣才算定案
 
