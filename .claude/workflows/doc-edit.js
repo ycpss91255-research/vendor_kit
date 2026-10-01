@@ -3,18 +3,18 @@ export const meta = {
   description: '改文件：改寫 → lint → 審查 → 潤稿；mode=light 只改寫、審查',
   whenToUse: '改任何現行文件（README、doc/contract/、GLOSSARY.md、ADR）時；主對話不自己改',
   phases: [
-    { title: '改寫', detail: '先查 round 是不是 _backup 最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過；mode=light 一律由 Claude 子代理改，機械式改動用腳本做並用腳本驗證' },
-    { title: 'lint', detail: '全部改完後一個 Claude 子代理跑 check_terms、check_context、check_review_pages、check_messages，只修 lint 指出的地方；mode=light 最後再跑一次當收尾' },
+    { title: '改寫', detail: '先用 script/doc/round.py 查 round 是不是已用過的最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理用 script/doc/backup.py 備份並驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過；mode=light 一律由 Claude 子代理改，機械式改動用腳本做並用腳本驗證' },
+    { title: 'lint', detail: '全部改完後一個 Claude 子代理跑 script/workflow/verify.py（docs.yml 每一步與工具測試），只修 lint 指出的地方；mode=light 最後再跑一次當收尾' },
     { title: '審查', detail: '每個檔一條並行，由審查方（改稿方的另一方：預設 Claude，editor=claude 時是 codex）只讀審查；先核對 wayfinder map #78 列的已定案決定；審完的檔立刻進入套用必改；mode=light 一律由另一個 Claude 子代理只看這一輪的 diff 審查' },
     { title: '套用必改', detail: '每個檔由改稿方套用自己的必改，逐條寫已改或未改的理由；建議不改，只回報；mode=light 由 Claude 子代理套用，沒有必改就跳過' },
     { title: '跨檔一致性', detail: 'mode=light 不跑。全部套用完後比對各檔之間的結束碼、編號、名詞、連結；預設 Claude 只讀檢查、清單非空再交 codex 修；editor=claude 時一個 Claude 子代理檢查並修' },
-    { title: '潤稿', detail: 'mode=light 不跑。每個檔一個 Claude 子代理並行用 humanizer-zh-tw 潤稿，只准改這一輪改過的行、只修 AI 寫作模式；改完用腳本比對，越界的行還原，這一輪沒改的檔跳過；最後再跑一次 lint' },
+    { title: '潤稿', detail: 'mode=light 不跑。每個檔一個 Claude 子代理並行用 humanizer-zh-tw 潤稿，只准改這一輪改過的行、只修 AI 寫作模式；改完用 script/doc/polish_check.py 比對，越界的行還原，這一輪沒改的檔跳過；最後再跑一次 lint' },
   ],
 }
 
 // args 契約：
 //   repo?        string    預設 '/home/cyc/Desktop/vendor-kit_ws/src'
-//   round        string    必填，格式 rNN，必須是 _backup 裡最大的 pre_rNN 加一；備份與審查輸出檔名用
+//   round        string    必填，格式 rNN，必須是已用過的最大編號加一（script/doc/round.py 算）；備份與審查輸出檔名用
 //   topic?       string    短主題（例如 '#121'），跟 round 一起組成這次執行的識別（log 與子代理 label 用）
 //   files        string[]  必填，這次只准動的檔（相對 repo 根目錄）
 //   ask?         string    要怎麼改；不給就跳過「改寫」
@@ -70,15 +70,21 @@ const reviewer = LIGHT ? 'claude' : (editor === 'codex' ? 'claude' : 'codex')
 const editEffort = effort.edit ?? (LIGHT ? 'low' : undefined)
 const reviewEffort = effort.review ?? (LIGHT ? 'low' : undefined)
 
-// 鍵：去掉 .md 或 .csv、/ 換成 _、去掉開頭的點（跟 script/doc/mark_changes.py 同一套）
+// 機械步驟一律呼叫腳本（#139），子代理只跑指令、讀它印出的 JSON
+const DOC = `${repo}/script/doc`
+const WF = `${repo}/script/workflow`
+// 備份鍵：去掉 .md 或 .csv、/ 換成 _、去掉開頭的點（跟 script/doc/mark_changes.py 同一套）；備份檔名由 backup.py 算
 const key = f => f.replace(/\.(md|csv)$/, '').replace(/\//g, '_').replace(/^\./, '')
-// 備份的副檔名：.csv 檔（例如 doc/contract/03_output.csv，#122）備份成 .csv，其他一律 .md
-const ext = f => (/\.csv$/.test(f) ? '.csv' : '.md')
+// 暫存鍵：備份鍵後面再接 _md 或 _csv，給暫存目錄、子代理 tmp 與 review_log 檔名用。
+// 03_output.md 與 03_output.csv 的備份鍵相同，不分開暫存檔與 review_log 就會互相覆蓋（r163）。
+// 規則以 `python3 script/doc/backup.py key` 輸出的 run_key 為準
+const runKey = f => key(f) + ((m => (m ? `_${m[1]}` : ''))(f.match(/\.(md|csv)$/)))
 // 子代理 label：「<round> 步驟[:檔名]」，檔名只留 basename 去副檔名，例如 r155 改寫:04_interface
 const short = f => f.split('/').pop().replace(/\.[^.]+$/, '')
 const L = (step, f) => `${round} ${step}${f ? `:${short(f)}` : ''}`
-// 這一輪的基準：不帶序號的 <鍵>.pre_<round><副檔名>，一定是這一輪改之前的原檔
-const baseOf = f => `${repo}/doc/decisions/_backup/${key(f)}.pre_${round}${ext(f)}`
+// 這一輪的 diff：基準是不帶序號的 <鍵>.pre_<round> 備份（這一輪改之前的原檔），沒有就退回 HEAD，都沒有就整份算新增
+const diffOf = f => `python3 ${DOC}/backup.py diff --repo ${repo} --round ${round} ${f}`
+const saveOf = scope => `python3 ${DOC}/backup.py save --repo ${repo} --round ${round} ${scope.join(' ')}`
 // 輸出檔依產生者放 review_log/codex/ 或 review_log/claude/
 const logFile = (who, name) => `${repo}/doc/decisions/review_log/${who}/${round}-doc-edit-${name}.md`
 const BACKGROUND = background.trim()
@@ -95,43 +101,44 @@ const run = (prompt, { tmp, ...opts } = {}) => agent(`${prompt}
 暫存檔規則：並行的子代理共用同一個 scratchpad。你的暫存檔（快照、brief、codex 輸出、腳本）一律放 ${tmpDir(tmp ?? opts.label)}/（先 mkdir -p），不要放 scratchpad 根目錄，也不要用別的子代理也可能用的路徑。`, opts)
 
 // ───────────────── 共用護欄（組進每個子代理與 codex 的 prompt） ─────────────────
-const guard = scope => `硬性規則（違反就算這輪失敗）：
+// by：拿到這份護欄的是 Claude 子代理（自己跑 backup.py save）還是 codex（備份已由包裝子代理做好）
+const guard = (scope, by = 'claude') => `硬性規則（違反就算這輪失敗）：
 1. 不 commit、不 push、不跑任何 git 寫入指令（含 add、checkout、reset、stash）。唯讀的 git status／diff 可以。
 2. 只准動這幾個檔：
 ${scope.map(f => `- ${repo}/${f}`).join('\n')}
-3. 改前先備份到 ${repo}/doc/decisions/_backup/，命名 <鍵>.pre_${round}<副檔名>。<鍵>：相對 repo 根目錄的路徑，去掉 .md 或 .csv、/ 換成 _、去掉開頭的點（例如 doc/contract/01_purpose.md → doc_contract_01_purpose、.claude/workflows/README.md → claude_workflows_README、doc/contract/03_output.csv → doc_contract_03_output；跟 script/doc/mark_changes.py 同一套）。<副檔名>：.csv 檔是 .csv（doc_contract_03_output.pre_${round}.csv），其他一律 .md。同名已存在就在副檔名前加序號（.pre_${round}.2.md、.pre_${round}.2.csv）；不帶序號的那份一定是這一輪改之前的原檔。
+${by === 'codex'
+  ? '3. 備份已由 workflow 做好：你不要備份，不要動 doc/decisions/_backup/。'
+  : `3. 改前先備份：跑 \`${saveOf(scope)}\`，讀它印出的 JSON，ok 是 true 才動手。不手動 cp、不自己編序號；備份檔名、序號與「這一輪的基準」的規則以 script/doc/backup.py 為準（不帶序號的那份一定是這一輪改之前的原檔）。`}
 4. 驗證一律用腳本算，不要目視判斷「看起來對」。
 5. 名詞照 ${repo}/GLOSSARY.md；_Avoid_ 詞不准出現。對外文件（根 README 與 doc/contract/01～04）裡的名詞，在每頁第一次出現於正文時連到 GLOSSARY.md 該名詞所在分群的標題錨點，不用 <ins>、<u> 或任何 HTML 標籤（規則照 script/doc/check_terms.py）。CSV 檔（doc/contract/*.csv）不准 HTML 與 Markdown，名詞連結不適用；欄位結構（表頭、欄數、引號跳脫、BOM、LF）照 script/doc/check_messages.py。
 6. 連結要是有名字的超連結（[名字](路徑)），不要把路徑當連結文字；路徑要實際存在。
 7. 同一輪還有別的子代理在並行改這些檔：${files.map(f => f).join('、')}。你只改上面第 2 條列的檔；讀其他檔只為了對照。`
 const GUARDRAILS = guard(files)
 
-// check_messages.py 在 doc/contract/03_output.csv 還不存在時自己跳過
-const LINT = `cd ${repo} && python3 script/doc/check_terms.py && python3 script/doc/check_context.py && python3 script/doc/check_review_pages.py && python3 script/doc/check_messages.py && python3 script/doc/check_typography.py && python3 script/repo/check_script_layout.py`
+// lint 一律用 verify.py：跑 docs.yml 每個 run（check_terms、check_context、check_messages…）、各 script/*/test、
+// check_script_layout 與 hooks 測試，清單以 docs.yml 為準，不在這裡另寫一份
+const LINT = `python3 ${WF}/verify.py --root ${repo}`
+const LINT_READ = '它印出一行 JSON：ok 是 true 才算全過；不過時看 steps 裡 ok 是 false 的 cmd 與 output 判斷是哪個檔造成的'
 
 const RESULT = {
   type: 'object',
   properties: {
     changed: { type: 'array', items: { type: 'string' }, description: '改了哪些地方，一行一條（檔名＋位置＋改了什麼）' },
     backups: { type: 'array', items: { type: 'string' }, description: '備份檔路徑' },
-    lint: { type: 'string', description: '最後一次 lint 的輸出（原文）' },
+    lint: { type: 'string', description: '最後一次 lint（verify.py）輸出的 JSON；ok 是 true 時只寫 ok 那一行即可，不過時保留 ok 是 false 的 steps 原文' },
     error: { type: 'string', description: '失敗原因；成功留空' },
   },
   required: ['changed', 'backups', 'lint'],
 }
 
-// codex 指令形狀固定：`< /dev/null` 不可省（省了 codex 會停在等 stdin）；
-// 不帶 --sandbox（repo 的 .codex/config.toml 已設 danger-full-access）。
-// 外面一律用 bash -c 包起來並印出 codex_exit=：呼叫端的 shell 可能是 fish，
-// 用 $status 或 $? 讀結束碼會因 shell 不同拿到空值。
-const codexRun = out => `前景執行（Bash timeout 600000，不要 run_in_background），形狀一字不差（<暫存檔> 換成你的暫存檔路徑）：
+// codex 一律透過 script/workflow/codex_run.py 呼叫：它固定接 /dev/null、不帶 --sandbox、先建輸出目錄，
+// 結束碼與輸出檔判讀由腳本做（呼叫端的 shell 是 fish 也一樣）。子代理只讀它印出的 JSON。
+const codexRun = out => `前景執行（Bash timeout 600000，不要 run_in_background；<brief 檔> 換成你寫 brief 的暫存檔路徑）：
 
-bash -c 'codex exec --skip-git-repo-check -C ${repo} -o ${out} "$(cat <暫存檔>)" < /dev/null; echo "codex_exit=$?"'
+python3 ${WF}/codex_run.py --cd ${repo} --brief <brief 檔> --out ${out}
 
-   - \`< /dev/null\` 不可省略，省了 codex 會停在等 stdin。
-   - 不要帶 --sandbox：repo 的 .codex/config.toml 已設 danger-full-access。
-   - 外層的 \`bash -c '…'\` 與最後的 \`echo "codex_exit=$?"\` 不可省略，也不要另外用 \`$status\` 或 \`$?\` 讀結束碼：結束碼一律從輸出裡 \`codex_exit=\` 那一行抓。
-   - 輸出沒有 \`codex_exit=\` 那一行、或值不是 0，就是 codex 失敗：error 寫原因（附 codex_exit 的值與 codex 的錯誤輸出）。`
+   - 不要自己呼叫 codex，也不要另外用 \`$status\` 或 \`$?\` 讀結束碼：讀腳本印出的一行 JSON。
+   - JSON 的 ok 是 false 就是 codex 失敗：error 寫原因（附 JSON 的 exit、timed_out、error、stderr_tail）。`
 
 // ───────────────── 改稿方：依 editor 叫 codex（包裝子代理）或 Claude 子代理；light 一律 Claude ─────────────────
 // task 裡已含 guard(scope)；scope 是這一步准動的檔；out 是 codex 輸出檔名（只在 editor=codex 時用）。
@@ -149,19 +156,16 @@ const runEditor = ({ label, tmp, ph, task, scope, out, lintMustPass = false }) =
 ${scope.map(f => `- ${repo}/${f}`).join('\n')}
 同一輪一起改的檔（其他並行子代理會動它們）：${files.join('、')}
 
-步驟：
-1. \`mkdir -p ${repo}/doc/decisions/review_log/codex\`
-2. 改前快照，存進 scratchpad：
-   - \`git -C ${repo} status --short --untracked-files=all\` 的輸出，以及其中每個路徑的 md5sum，再加上上面准動的每個檔的 md5sum。
-   - \`ls ${repo}/doc/decisions/_backup/\` 的輸出。
-3. 把下面的 brief 原文用 heredoc（'EOF'）寫進你的 scratchpad 暫存檔。
+步驟（<暫存目錄> 是下面「暫存檔規則」給你的目錄）：
+1. 改前快照：\`python3 ${DOC}/backup.py snapshot --repo ${repo} --out <暫存目錄>/before.json --files ${scope.join(' ')}\`。讀它印出的 JSON，ok 不是 true 就停，error 寫原因。
+2. 備份（codex 不備份，由你在它動手前做）：\`${saveOf(scope)}\`。ok 不是 true 就停，error 寫原因；記下 results 裡 created 是 true 的 backup。
+3. 用 Write 工具把下面的 brief 原文寫進 <暫存目錄>/brief.md。
 4. ${codexRun(out)}
-5. 驗證（一律用指令算，不要目視）：
-   a. 輸出裡沒有 \`codex_exit=\` 那一行、codex_exit 不是 0、或 ${out} 不存在或是空的：error 寫原因（附 codex_exit 的值與 codex 的錯誤輸出）。
-   b. 備份：准動的檔裡，md5 跟改前快照不同的，每一個都要在 _backup 多出一份 <鍵>.pre_${round}*<副檔名>（<鍵>：相對 repo 根目錄的路徑去掉 .md 或 .csv、/ 換成 _、去掉開頭的點；<副檔名>：.csv 檔是 .csv，其他是 .md）。少了就寫進 error。
-   c. 範圍外：重做一次 git status 與 md5sum 快照，找出新出現或 md5 變了的路徑。不在「同一輪一起改的檔」清單、也不在 doc/decisions/ 底下的，就是 codex 碰到範圍外的檔：列出路徑寫進 error（不要還原，留給主對話處理）。在清單裡但不在這一步准動範圍的變動，是別的並行子代理造成的，不算。
-   d. 跑 \`${LINT}\`，輸出原文放進 lint。${lintMustPass ? '有任何 FAIL 就寫進 error。' : '准動的檔造成的 FAIL 寫進 changed 並註明「lint 未過」；別的檔造成的只回報。'}
-6. 回報：changed 取自 ${out} 裡 codex 的改動摘要（有「已改／未改：理由」就逐條照原文保留），最後加一行 \`git -C ${repo} diff --stat -- ${scope.join(' ')}\` 的結果；backups 填新增的備份檔路徑。codex 失敗就 error 寫原因，**不要假裝成功**。
+5. 驗證（一律用腳本算，不要目視）：
+   a. 第 4 步的 JSON ok 不是 true：error 寫原因（附 exit、timed_out、error、stderr_tail）。
+   b. 備份與範圍外：\`python3 ${DOC}/backup.py verify --repo ${repo} --round ${round} --before <暫存目錄>/before.json --scope ${scope.join(' ')} --round-files ${files.join(' ')}\`，讀它印出的 JSON。backup_problems 不是空的，逐條寫進 error；out_of_scope 不是空的，是 codex 碰到範圍外的檔：列出路徑寫進 error（不要還原，留給主對話處理）。parallel 是別的並行子代理造成的，不算。
+   c. 跑 \`${LINT}\`（${LINT_READ}），結果放進 lint。${lintMustPass ? 'ok 不是 true 就寫進 error。' : '准動的檔造成的失敗寫進 changed 並註明「lint 未過」；別的檔造成的只回報。'}
+6. 回報：changed 取自 ${out} 裡 codex 的改動摘要（有「已改／未改：理由」就逐條照原文保留），最後加一行第 5b 步 JSON 的 diffstat；backups 填第 2 步 created 是 true 的 backup，加上第 5b 步的 new_backups。codex 失敗就 error 寫原因，**不要假裝成功**。
 
 brief：
 ${task}`,
@@ -172,11 +176,15 @@ ${task}`,
 // round 必須是已用過的最大編號再加一：重用舊編號會蓋掉或混淆那一輪的基準版。
 // 已用過的編號有兩個來源：本機 _backup 的 pre_rNN（不進 git，#128），與 git log 的 `Doc-Edit: rNN` footer；
 // 換電腦或新 clone 時 _backup 是空的，靠 footer 才不會重用。
-// 子代理只負責讀出最大編號，比對在腳本裡做，不交給模型判斷。
-const seen = await run(`在 ${repo} 跑這行，照原樣回報輸出的數字（沒有輸出就回 0）；不要做任何其他事：
-{ ls doc/decisions/_backup 2>/dev/null | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//'; git log --format=%B | grep -oE '^Doc-Edit: r[0-9]+' | sed 's/^Doc-Edit: r//'; } | sort -n | tail -1`,
+// 最大編號由 script/doc/round.py 算；子代理只跑它、回報 max，比對在這裡做，不交給模型判斷。
+const seen = await run(`跑這行，回報它印出的 JSON 裡的 max（整數）；不要做任何其他事：
+python3 ${DOC}/round.py next --repo ${repo}
+JSON 的 ok 不是 true 就回報 max 為 -1。`,
   { label: L('輪次檢查'), phase: '改寫', effort: 'low',
     schema: { type: 'object', properties: { max: { type: 'integer' } }, required: ['max'] } })
+if (typeof seen?.max === 'number' && seen.max < 0) {
+  throw new Error(`script/doc/round.py next 失敗（--repo ${repo}），查不到已用過的輪次；停在這裡`)
+}
 const expected = (seen?.max ?? NaN) + 1
 if (Number(round.slice(1)) !== expected) {
   throw new Error(`round ${round} 不對：已用過的最大是 r${seen?.max}（_backup 與 git log 的 Doc-Edit footer），這一輪要用 r${expected}；round 不能重用也不能跳號`)
@@ -187,17 +195,17 @@ let edited = null
 if (ask.trim()) {
   phase('改寫')
   edited = await parallel(files.map(f => () => runEditor({
-    label: L('改寫', f), tmp: `改寫_${key(f)}`, ph: '改寫', scope: [f], out: logFile('codex', `edit-${key(f)}`),
+    label: L('改寫', f), tmp: `改寫_${runKey(f)}`, ph: '改寫', scope: [f], out: logFile('codex', `edit-${runKey(f)}`),
     task: `你負責改文件，這一輪你只負責一個檔：${f}。
 
-${guard([f])}
+${guard([f], editBy)}
 
 ${BACKGROUND}
 
 這一輪的改動需求（涵蓋多個檔；只做跟 ${f} 有關的部分，其他檔由別的子代理處理）：
 ${ask.trim()}
 
-步驟：先讀 ${f}，以及它引用的 01、02、GLOSSARY.md 相關段落；照需求改 ${f}；改完跑 \`${LINT}\` 並回報輸出（別的檔造成的 FAIL 只回報，不要修）。不要順手改需求以外的地方。
+步驟：先讀 ${f}，以及它引用的 01、02、GLOSSARY.md 相關段落；照需求改 ${f}；改完跑 \`${LINT}\`（${LINT_READ}）並回報結果（別的檔造成的失敗只回報，不要修）。不要順手改需求以外的地方。
 ${LIGHT ? '機械式改動（換詞、改連結、改編號這類）用腳本做（例如 Python re），不要手動逐處改；改完也用腳本驗證（例如 grep 舊說法歸零、新說法的處數對得上）。\n' : ''}最後列出改了哪些地方，一行一條（檔名＋位置＋改了什麼）。`,
   })))
   const bad = edited.map((e, i) => (!e || e.error) ? `${files[i]}：${e?.error ?? '子代理沒有回傳'}` : null).filter(Boolean)
@@ -214,9 +222,9 @@ const lintAgent = (label, ph) => run(`你負責讓 lint 歸零。
 ${GUARDRAILS}
 
 步驟：
-1. 跑 \`${LINT}\`。
-2. 全部 OK 就直接回報，changed 回空陣列。
-3. 有 FAIL：只修 lint 指出的那幾行，而且只在上面列的檔裡修；換詞時照 GLOSSARY.md 的正式名詞。修完重跑，直到全部 OK。
+1. 跑 \`${LINT}\`（${LINT_READ}）。
+2. ok 是 true 就直接回報，changed 回空陣列。
+3. 不過：只修 lint 指出的那幾行，而且只在上面列的檔裡修；換詞時照 GLOSSARY.md 的正式名詞。修完重跑，直到 ok 是 true。
 4. lint 指出的問題在列出的檔以外：不要改，寫進 error。`,
   { label, phase: ph, schema: RESULT, agentType: 'general-purpose', effort: 'low' })
 const linted = await lintAgent(L('lint'), 'lint')
@@ -234,7 +242,7 @@ ${BACKGROUND}
 
 先讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md、${f} 引用到的 ADR，以及${DECIDED}。
 
-這一輪的改動：用 \`diff -u ${baseOf(f)} ${repo}/${f}\` 看（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。
+這一輪的改動：跑 \`${diffOf(f)}\`，看它印出的 JSON 裡的 diff（base_kind 是 backup 表示基準是這一輪改之前的原檔；這一輪沒有備份時退回 HEAD，都沒有就整份算新增）。
 ${ask.trim() ? `這一輪的改動需求（ask）：\n${ask.trim()}\n` : '這一輪沒有 ask（檔已先改好）。\n'}
 請回答（只列 ${f} 裡的問題；跨檔不一致也算在 ${f} 身上，寫明對不上的是哪個檔哪一行）：
 0. 已定案（最重要）：逐條對照 map #78 的「Decisions so far」，檢查這一輪的改動有沒有違反任何一條定案；有沒有改變 01 的承諾、削弱 02 的不變量、或改動 03／04 的對外介面而 ask 沒有要求。有就列為必改，fix 寫「還原成…」（附原文），source 寫定案的 child issue（#<child>）或頁名＋行號。
@@ -254,7 +262,7 @@ ${BACKGROUND}
 
 這一輪你只審一個檔：${f}（repo 根目錄 ${repo}）。同一輪一起改的其他檔：${files.filter(x => x !== f).join('、') || '（無）'}。
 
-只看這一輪的改動：\`diff -u ${baseOf(f)} ${repo}/${f}\`（不帶序號的那份是這一輪改之前的原檔）；這份備份不存在就用 \`git -C ${repo} diff HEAD -- ${f}\`。diff 以外的舊內容不審。
+只看這一輪的改動：跑 \`${diffOf(f)}\`，看它印出的 JSON 裡的 diff（base_kind 是 backup 表示基準是這一輪改之前的原檔；這一輪沒有備份時退回 HEAD，都沒有就整份算新增）。diff 以外的舊內容不審。
 ${ask.trim() ? `這一輪的改動需求（ask）：\n${ask.trim()}\n` : '這一輪沒有 ask（檔已先改好）。\n'}
 對照讀${DECIDED}，需要時再讀 doc/contract/01_purpose.md、doc/contract/02_invariants.md、GLOSSARY.md。只查這幾項（有就列必改，fix 寫「還原成…」或具體改法，source 寫定案的 child issue（#<child>）或檔名＋行號）：
 1. 已定案：diff 裡的改動有沒有違反 map #78「Decisions so far」任何一條。
@@ -282,39 +290,38 @@ const REVIEW = {
 
 // ───────────────── 審查方：改稿方的另一方 ─────────────────
 const runReviewer = f => {
-  const out = logFile(reviewer, key(f))
+  const out = logFile(reviewer, runKey(f))
   const eff = reviewEffort ? { effort: reviewEffort } : {}
   if (reviewer === 'claude') {
     return run(`你負責審查一個檔。硬性規則：不 commit、不 push、不跑任何 git 寫入指令；除了下面的審查輸出檔，不改、不建任何檔。
 
 ${LIGHT ? lightBriefFor(f) : briefFor(f)}
 
-最後：\`mkdir -p ${repo}/doc/decisions/review_log/claude\`，把上面的 markdown 審查結果寫到 ${out}。回報時「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、證據（放 source 欄）；output_file 填 ${out}。審不下去（例如檔不存在）就兩個陣列回空、error 寫原因。`,
-      { label: L('審查', f), tmp: `審查_${key(f)}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
+最後：\`mkdir -p ${repo}/doc/decisions/review_log/claude\`，用 Write 工具把上面的 markdown 審查結果寫到 ${out}。回報時「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、證據（放 source 欄）；output_file 填 ${out}。審不下去（例如檔不存在）就兩個陣列回空、error 寫原因。`,
+      { label: L('審查', f), tmp: `審查_${runKey(f)}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
   }
   return run(`你的工作是啟動 codex 做只讀審查，再把輸出整理成結構化回報。**不要自己審、不要改檔、不要加入你自己的意見。**
 
 硬性規則：不 commit、不 push、不跑任何 git 寫入指令；不改任何檔。
 
-步驟：
-1. \`mkdir -p ${repo}/doc/decisions/review_log/codex\`
-2. 把下面的 brief 原文用 heredoc（'EOF'）寫進你的 scratchpad 暫存檔。
-3. ${codexRun(out)}
-4. 讀 ${out}，「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、證據（放 source 欄）。output_file 填 ${out}。
-5. 輸出裡沒有 \`codex_exit=\` 那一行、codex_exit 不是 0、或 ${out} 不存在或是空的：兩個陣列都回空，error 寫原因（附 codex_exit 的值與 codex 的錯誤輸出）。**不要假裝有結果。**
+步驟（<暫存目錄> 是下面「暫存檔規則」給你的目錄）：
+1. 用 Write 工具把下面的 brief 原文寫進 <暫存目錄>/brief.md。
+2. ${codexRun(out)}
+3. 第 2 步的 JSON ok 不是 true：兩個陣列都回空，error 寫原因（附 exit、timed_out、error、stderr_tail）。**不要假裝有結果。**
+4. ok 是 true：讀 ${out}，「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、證據（放 source 欄）。output_file 填 ${out}。
 
 brief：
 ${briefFor(f)}`,
-    { label: L('審查', f), tmp: `審查_${key(f)}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
+    { label: L('審查', f), tmp: `審查_${runKey(f)}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
 }
 
 const applyOne = (rev, f) => {
   if (!rev || rev.error || !rev.must_fix.length) return Promise.resolve(null)
   return runEditor({
-    label: L('套用', f), tmp: `套用_${key(f)}`, ph: '套用必改', scope: [f], out: logFile('codex', `apply-${key(f)}`),
+    label: L('套用', f), tmp: `套用_${runKey(f)}`, ph: '套用必改', scope: [f], out: logFile('codex', `apply-${runKey(f)}`),
     task: `你負責把審查對 ${f} 的「必改」改進檔裡。建議不要改。
 
-${guard([f])}
+${guard([f], editBy)}
 
 ${BACKGROUND}
 
@@ -325,7 +332,7 @@ ${JSON.stringify(rev.must_fix, null, 2)}
 - 每一條都要處理；做法照 fix 欄，但要先對照 source 欄的證據確認審查沒看錯。改法若會削弱 02 的不變量、改變 01 的承諾或 03／04 的對外介面，不要改，註明「未改：改到對外承諾，要維護者決定」。動手前先讀${DECIDED}：改法跟任何一條定案衝突，不要改，註明「未改：跟定案 #<child> 衝突」。確認審查看錯的那條不要改，註明「未改：理由」。
 - 必改指到 ${f} 以外的檔：不要改，註明${LIGHT ? '「未改：屬於別的檔，只回報」（這一輪不跑跨檔一致性）' : '「未改：屬於別的檔，交給跨檔一致性」'}。
 - 只改必改指到的地方，不要順手改別的。
-- 改完跑 \`${LINT}\`；${f} 造成的 FAIL 要修掉，別的檔造成的只回報。
+- 改完跑 \`${LINT}\`（${LINT_READ}）；${f} 造成的失敗要修掉，別的檔造成的只回報。
 - 最後逐條列出每一條必改的處理結果，一行一條：「已改：位置＋改了什麼」或「未改：理由」（用上面的固定說法）。`,
   })
 }
@@ -376,7 +383,7 @@ ${otherFile}
 步驟：
 ${CHECK_STEPS}
 4. 改錯的那邊；判斷不了的不要改，寫進 changed 並註明「未改：無法判斷，要維護者決定」。
-5. 跑 \`${LINT}\`，要全部 OK。`,
+5. 跑 \`${LINT}\`（${LINT_READ}），ok 要是 true。`,
     { label: L('跨檔一致性'), phase: '跨檔一致性', schema: RESULT, agentType: 'general-purpose' })
 } else {
   // codex 改稿：Claude 只讀檢查出清單，清單非空再交 codex 修
@@ -412,7 +419,7 @@ ${CHECK_STEPS}
       label: L('跨檔修正'), ph: '跨檔一致性', scope: files, out: logFile('codex', 'consistency'), lintMustPass: true,
       task: `這一輪各檔是分開並行改的，檢查已找出它們之間對不上的地方，你負責照清單修掉。
 
-${GUARDRAILS}
+${guard(files, editBy)}
 
 ${BACKGROUND}
 
@@ -423,7 +430,7 @@ ${JSON.stringify(check.issues, null, 2)}
 - 每一條先對照 source 欄的證據確認沒看錯；做法照 fix 欄，改 file 欄指的檔。
 - 改法跟${DECIDED}任何一條衝突（註明「未改：跟定案 #<child> 衝突」）、或會改變 01 的承諾、削弱 02 的不變量、改動 03／04 的對外介面：不要改，註明「未改：理由」。
 - 只改清單指到的地方，不要順手改別的。
-- 改完跑 \`${LINT}\`，要全部 OK。
+- 改完跑 \`${LINT}\`（${LINT_READ}），ok 要是 true。
 - 最後逐條列出處理結果，一行一條：「已改：檔名＋位置＋改了什麼」或「未改：理由」。`,
     })
     consistency = fixed
@@ -438,72 +445,38 @@ if (!consistency || consistency.error) {
 
 // ───────────────── 潤稿（每個檔並行） ─────────────────
 // 潤稿只准改這一輪改過的行：範圍是「這一輪的基準（不帶序號的 pre_<round> 備份）→ 潤稿前」的新增或修改行。
-// 越界檢查用下面的腳本算，不交給模型判斷：比潤稿前與潤稿後，變動落在範圍外的就還原成潤稿前的原文。
-// 用法：python3 polish_check.py <基準> <潤稿前> <潤稿後> [--fix]
-const POLISH_CHECK = `import sys, difflib, json
-base, pre, cur = (open(p, encoding='utf-8').read().splitlines(keepends=True) for p in sys.argv[1:4])
-fix = '--fix' in sys.argv[4:]
-allowed = set()
-for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, base, pre, autojunk=False).get_opcodes():
-    if tag in ('replace', 'insert'):
-        allowed.update(range(j1, j2))
-out, bad = [], []
-def keep(i1, i2, j1, j2):
-    ok = all(i in allowed for i in range(i1, i2)) if i2 > i1 else (i1 - 1 in allowed or i1 in allowed)
-    if ok:
-        out.extend(cur[j1:j2])
-    else:
-        bad.append({'pre_lines': [i1 + 1, i2], 'post_lines': [j1 + 1, j2], 'post_text': ''.join(cur[j1:j2])})
-        out.extend(pre[i1:i2])
-for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, pre, cur, autojunk=False).get_opcodes():
-    if tag == 'equal':
-        out.extend(pre[i1:i2])
-    elif tag == 'replace' and i2 - i1 == j2 - j1:
-        for k in range(i2 - i1):
-            keep(i1 + k, i1 + k + 1, j1 + k, j1 + k + 1)
-    else:
-        keep(i1, i2, j1, j2)
-if fix and bad:
-    open(sys.argv[3], 'w', encoding='utf-8').write(''.join(out))
-print(json.dumps({'round_changed_lines': len(allowed), 'violations': bad, 'reverted': bool(fix and bad)}, ensure_ascii=False))
-`
+// 越界檢查由 script/doc/polish_check.py 算，不交給模型判斷：比潤稿前與潤稿後，變動落在範圍外的就還原成潤稿前的原文。
 const POLISH_RESULT = {
   type: 'object',
   properties: {
     ...RESULT.properties,
-    verify: { type: 'string', description: '越界驗證結果：polish_check.py 兩次輸出的原文（還原前、還原後）；跳過就寫「跳過：這一輪沒有改動」' },
+    verify: { type: 'string', description: '越界驗證結果：polish_check.py 每次輸出的 JSON 原文；跳過就寫「跳過：這一輪沒有改動」' },
   },
   required: [...RESULT.required, 'verify'],
 }
 phase('潤稿')
-const polished = await parallel(files.map(f => {
-  const base = baseOf(f)
-  return () => run(`你負責潤稿，只負責 ${f}。
+const polished = await parallel(files.map(f => () => run(`你負責潤稿，只負責 ${f}。
 
 ${guard([f])}
 
 ${BACKGROUND}
 
-**硬規則：只准改這一輪改過的行。** 違反就算這輪失敗。
-- 這一輪的基準是 ${base}（不帶序號的那份就是這一輪改之前的原檔）；它不存在就用 \`git -C ${repo} show HEAD:${f}\` 的輸出（存進 scratchpad）當基準。
-- 先跑 \`diff -u <基準> ${repo}/${f}\` 取得這一輪的改動範圍。只在「新增或修改過的行」（diff 裡 + 開頭的行）內潤稿；diff 以外的行一個字都不准動，連標點都不准。
-- diff 是空的（這一輪沒改這個檔）：直接跳過，不備份、不呼叫 skill、不改任何東西；changed 與 backups 回空陣列，verify 寫「跳過：這一輪沒有改動」。
+**硬規則：只准改這一輪改過的行。** 違反就算這輪失敗。<暫存目錄> 是下面「暫存檔規則」給你的目錄。
+- 先跑 \`${diffOf(f)}\`，讀它印出的 JSON：diff 是這一輪的改動範圍，只在「新增或修改過的行」（diff 裡 + 開頭的行）內潤稿；diff 以外的行一個字都不准動，連標點都不准。
+- JSON 的 empty 是 true（這一輪沒改這個檔）：直接跳過，不備份、不呼叫 skill、不改任何東西；changed 與 backups 回空陣列，verify 寫「跳過：這一輪沒有改動」。
+- 這一輪的基準：base_kind 是 backup 時就是 JSON 的 base（不帶序號的那份，這一輪改之前的原檔）；是 HEAD 時把 \`git -C ${repo} show HEAD:${f}\` 的輸出存成 <暫存目錄>/base；是 none 時建一個空檔 <暫存目錄>/base。
 
 步驟：
-1. 取得上面的 diff；空的就照上面跳過並回報。
-2. 照第 3 條護欄備份 ${f}：不帶序號的那份已經是基準，所以你的備份會帶序號（.pre_${round}.N${ext(f)}，N 取目前最大的加一）。這份是「潤稿前」，記下它的路徑。
+1. 取得上面的 diff；empty 是 true 就照上面跳過並回報。
+2. 照第 3 條護欄跑 \`${saveOf([f])}\`，ok 要是 true。JSON 的 results[0].backup 就是「潤稿前」的備份，記下它的路徑。
 3. 用 Skill 工具呼叫 "humanizer-zh-tw"。只修它列出的 AI 寫作模式，而且只在第 1 步的範圍內修；沒有明確對上某個模式就不改。不做同義替換、語序微調、連接詞增刪這類不改善可讀性的改動（例如「所以 VK 要…」不要改成「VK 因此要…」）。
 4. 另外：不改意思、不加新事實、不刪承諾或「依 [頁名](連結) 第 N 條」的引用；不動程式碼區塊、行內程式碼、路徑、連結目標、數字、條號、表格結構；CSV 只改欄位裡的文字，不動表頭、逗號、引號與欄數；語氣直接，用「你」或省略主詞，不用「我認為」「建議」「也許」這類軟化詞。這一輪不做文字浮水印檢查，skill 最後的浮水印詢問略過。
-5. 跑 \`${LINT}\`；${f} 造成的 FAIL 要修掉，修的時候也只准動第 1 步範圍內的行。
-6. 越界驗證（一律用腳本算）：用 Write 工具把下面的腳本原文存成你 scratchpad 的 polish_check.py，然後跑
-   \`python3 <scratchpad>/polish_check.py <基準> <潤稿前的備份> ${repo}/${f} --fix\`
-   它會找出落在這一輪範圍外的變動，並把那些行還原成潤稿前的原文。有還原（reverted 是 true）就再跑一次同一行指令（不帶 --fix），violations 必須是空的；再跑一次 lint。
-7. 回報：changed 列每一處保留下來的改動（原句 → 新句，太長就寫位置與改法，並寫它修的是 humanizer-zh-tw 的哪個模式）；被腳本還原的不算進 changed；verify 放第 6 步每次腳本輸出的原文；backups 放你的備份路徑。
-
-polish_check.py：
-${POLISH_CHECK}`,
-  { label: L('潤稿', f), tmp: `潤稿_${key(f)}`, phase: '潤稿', schema: POLISH_RESULT, agentType: 'general-purpose', ...(effort.polish ? { effort: effort.polish } : {}) })
-}))
+5. 跑 \`${LINT}\`（${LINT_READ}）；${f} 造成的失敗要修掉，修的時候也只准動第 1 步範圍內的行。
+6. 越界驗證（一律用腳本算）：跑
+   \`python3 ${DOC}/polish_check.py <基準> <潤稿前的備份> ${repo}/${f} --fix\`
+   它會找出落在這一輪範圍外的變動，並把那些行還原成潤稿前的原文。reverted 是 true 就再跑一次同一行指令（不帶 --fix），這次 ok 要是 true、violations 要是空的；有還原就再跑一次 lint。結束碼 2（讀不到檔）就停，error 寫原因。
+7. 回報：changed 列每一處保留下來的改動（原句 → 新句，太長就寫位置與改法，並寫它修的是 humanizer-zh-tw 的哪個模式）；被腳本還原的不算進 changed；verify 放第 6 步每次 polish_check.py 輸出的 JSON 原文；backups 放第 2 步的備份路徑。`,
+  { label: L('潤稿', f), tmp: `潤稿_${runKey(f)}`, phase: '潤稿', schema: POLISH_RESULT, agentType: 'general-purpose', ...(effort.polish ? { effort: effort.polish } : {}) })))
 const finalLint = await lintAgent(L('最後 lint'), '潤稿')
 
 log(review.errors.length
