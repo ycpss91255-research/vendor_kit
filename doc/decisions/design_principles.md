@@ -1,7 +1,7 @@
 # 設計原則與衝突優先序
 
 > 每條原則將來各自併入服務它的 ADR，這份檔是併入前的集中處。
-> 本檔提到的「不變量 N」指 [`doc/decisions/review/02_invariants.md`](review/02_invariants.md) 的第 N 條。
+> 本檔提到的「不變量 N」指 [`doc/contract/02_invariants.md`](../contract/02_invariants.md) 的第 N 條。
 
 ## 設計原則
 
@@ -29,7 +29,7 @@
 
 ### P5. 一條規則一個擁有者
 
-規則在引擎實作一次；啟動器、`check.sh`、工具 just 模組只轉發。兩個必須一致的實作是延遲發作的漂移。
+規則在引擎實作一次；啟動器、`just vendor_kit test`、工具 just 模組只轉發。兩個必須一致的實作是延遲發作的漂移。
 *寫在哪裡：* [`../adr/0007-host-thin-layer-and-shell-integrity.md`](../adr/0007-host-thin-layer-and-shell-integrity.md)、[`../adr/0006-tool-image-as-data-only.md`](../adr/0006-tool-image-as-data-only.md)。*服務：* 不變量 6、4。
 
 ### P6. 母體用推導，不列清單
@@ -61,4 +61,4 @@ Renovate 的 PR 改了宣告、merge 後有人打 `just docker build`。④ 說 
 
 ### 順序排不出時
 
-同一階的兩個性質不由這份清單決定；不變量與任何東西的衝突也不由它決定——不變量不是可以讓步的性質，這正是它叫不變量的原因。一個決議發現自己在拿一條不變量換另一條，它發現的是不變量的缺陷，產物是 [`doc/decisions/review/02_invariants.md`](review/02_invariants.md) 的修訂，不是一份挑贏家的 ADR。
+同一階的兩個性質不由這份清單決定；不變量與任何東西的衝突也不由它決定——不變量不是可以讓步的性質，這正是它叫不變量的原因。一個決議發現自己在拿一條不變量換另一條，它發現的是不變量的缺陷，產物是 [`doc/contract/02_invariants.md`](../contract/02_invariants.md) 的修訂，不是一份挑贏家的 ADR。

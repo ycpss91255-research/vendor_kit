@@ -1,9 +1,10 @@
 files.zip
 .drawio-audit-*/
 __pycache__/
-doc/decisions/review/_marked/
 
-# 改前快照：本地審閱用的工作檔。進 git 之後，改動標示的基準改從 git 取
-# （git show HEAD:<path> > doc/decisions/_backup/<路徑攤平>.pre_rNN.md），見 script/README.md
+# 過程產物只留本機（#128）：改前快照、審查紀錄、研究素材。舊內容在 git 歷史；
+# 送審的標示版與版本表改放 doc/review/（進 git）
 doc/decisions/_backup/
-script/diagram/_backup/
+doc/decisions/review_log/
+doc/research/
+.claude/settings.local.json
