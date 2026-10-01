@@ -4,6 +4,7 @@
 用法（在 repo 根目錄執行）：
   python3 script/doc/pack_review.py --out <目錄> [--note <審閱說明.md>] <頁鍵> [<頁鍵> ...]
   python3 script/doc/pack_review.py --replied <鍵>=<N> [<鍵>=<N> ...]   # 維護者回覆後標記那一版
+  python3 script/doc/pack_review.py --finalized <鍵>=<N> [<鍵>=<N> ...] # 維護者定案後標記並清除送審檔
 
 頁鍵的寫法跟 mark_changes.py 相同：審閱頁傳頁名（03_messages），其他檔傳路徑（GLOSSARY.md）。
 標示版照舊由 mark_changes.py 產生；這支只打包 doc/review/<鍵>/ 裡的
@@ -17,15 +18,23 @@ zip 名是 review_v<review_zip+1>.zip；zip 內檔名不帶目錄，有 --note �
 正式檔（與附屬 CSV）沒有未 commit 的改動，送審資料夾的正文副本跟正式檔一致（不一致就是沒重跑
 mark_changes.py）。任何一項不過或缺檔就停下，不取號、不寫 versions.json。
 都過了才打包，並把 {"v": N, "commit": HEAD, "replied": false} 追加進各鍵的紀錄、review_zip 加一。
+已定案的鍵打包時移除其 finalized 紀錄，回到待審。
 
 維護者回覆後跑 --replied <鍵>=<N>：只把 versions.json 裡那筆的 replied 改成 true，不打包、不取號，
-這時 --out 不用給。mark_changes.py 的預設基準是該鍵最後一筆 replied: true 的紀錄。
+這時 --out 不用給。mark_changes.py 的預設基準：已定案的鍵用定案紀錄，其餘用最後一筆
+replied: true 的紀錄。
 鍵的寫法同上（GLOSSARY 或 GLOSSARY.md 都可以）；任何一筆找不到就整批不改。
+
+維護者定案後跑 --finalized <鍵>=<N>：N 必須是已送審且 replied: true 的版本。全部鍵都驗證通過後，
+在 versions.json 記下該鍵 finalized 的版本與該版本的 commit（紀錄有 path、csv_path、raw_links 也照抄），
+並刪除 doc/review/<鍵>/；不打包、不取號，
+也不用 --out。任何一筆不存在或尚未回覆就整批不改。
 """
 import argparse
 import pathlib
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -105,6 +114,9 @@ def pack(names: list[str], out: pathlib.Path, note: pathlib.Path | None = None) 
             zf.write(f, arc)
     for key, v in versions.items():
         table["pages"].setdefault(key, []).append({"v": v, "commit": head, "replied": False})
+        table.get("finalized", {}).pop(key, None)
+    if not table.get("finalized"):
+        table.pop("finalized", None)
     table[mark_changes.ZIP_KEY] = n
     mark_changes.save_versions(table)
     return path, arcnames
@@ -132,12 +144,55 @@ def mark_replied(pairs: list[tuple[str, int]]) -> list[str]:
     return [f"{key}=v{entry['v']}" for key, entry in entries]
 
 
-def parse_pairs(pairs: list[str]) -> list[tuple[str, int]]:
+def mark_finalized(pairs: list[tuple[str, int]]) -> list[str]:
+    """把已回覆的送審版本標成定案並刪除其送審資料夾；回傳改到的鍵與版號。
+
+    任何一筆找不到或尚未回覆就丟 SystemExit，整批不改。
+    """
+    table = mark_changes.load_versions()
+    entries, errors = [], []
+    for raw, v in pairs:
+        _, key = mark_changes.target(mark_changes.resolve_base_name(raw))
+        entry = mark_changes.sent_version(key, v, table)
+        if entry is None:
+            errors.append(f"{raw}：{mark_changes.VERSIONS} 沒有鍵 {key} 的送審版本 v{v}")
+        elif entry.get("replied") is not True:
+            errors.append(f"{raw}：送審版本 v{v} 尚未標成 replied: true，不能定案")
+        else:
+            entries.append((key, entry))
+    if errors:
+        raise SystemExit("沒有標記定案：\n" + "\n".join(f"  {e}" for e in errors))
+    finalized = table.setdefault("finalized", {})
+    for key, entry in entries:
+        finalized[key] = {
+            field: entry[field]
+            for field in ("v", "commit", "path", "csv_path", "raw_links")
+            if field in entry
+        }
+    moved: list[tuple[pathlib.Path, pathlib.Path]] = []
+    with tempfile.TemporaryDirectory(prefix=".finalizing-", dir=mark_changes.REVIEW_OUT) as tmp:
+        try:
+            for key in dict.fromkeys(key for key, _ in entries):
+                review_dir = mark_changes.out_dir(key)
+                if review_dir.exists():
+                    staged = pathlib.Path(tmp) / key
+                    review_dir.rename(staged)
+                    moved.append((review_dir, staged))
+            mark_changes.save_versions(table)
+        except Exception:
+            for review_dir, staged in reversed(moved):
+                if staged.exists():
+                    staged.rename(review_dir)
+            raise
+    return [f"{key}=v{entry['v']}" for key, entry in entries]
+
+
+def parse_pairs(pairs: list[str], option: str = "--replied") -> list[tuple[str, int]]:
     parsed = []
     for pair in pairs:
         name, sep, num = pair.rpartition("=")
         if not sep or not name or not num.isdigit():
-            raise SystemExit(f"--replied 的參數要寫成 <鍵>=<版號>，例如 03_messages=14：{pair}")
+            raise SystemExit(f"{option} 的參數要寫成 <鍵>=<版號>，例如 03_messages=14：{pair}")
         parsed.append((name, int(num)))
     return parsed
 
@@ -146,13 +201,20 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="把送審資料夾打包成 review_v<N>.zip")
     ap.add_argument("--out", type=pathlib.Path, help="輸出目錄（必填），例如 vendor-kit_ws/reference/review_sent/")
     ap.add_argument("--note", type=pathlib.Path, help="審閱說明 .md，放在 zip 第一個")
-    ap.add_argument("--replied", action="store_true",
-                    help="把 <鍵>=<N> 的送審紀錄標成維護者已回覆；不打包、不取號，不用 --out")
-    ap.add_argument("names", nargs="+", help="頁鍵，例如 03_messages 04_interface GLOSSARY.md；--replied 時寫 <鍵>=<N>")
+    modes = ap.add_mutually_exclusive_group()
+    modes.add_argument("--replied", action="store_true",
+                       help="把 <鍵>=<N> 的送審紀錄標成維護者已回覆；不打包、不取號，不用 --out")
+    modes.add_argument("--finalized", action="store_true",
+                       help="把已回覆的 <鍵>=<N> 標成定案並刪除送審資料夾；不打包、不取號，不用 --out")
+    ap.add_argument("names", nargs="+", help="頁鍵，例如 03_messages 04_interface GLOSSARY.md；--replied、--finalized 時寫 <鍵>=<N>")
     args = ap.parse_args()
     if args.replied:
         for done in mark_replied(parse_pairs(args.names)):
             print(f"replied: {done}")
+        return
+    if args.finalized:
+        for done in mark_finalized(parse_pairs(args.names, "--finalized")):
+            print(f"finalized: {done}")
         return
     if args.out is None:
         print("--out 必填：送審 zip 要放在 workspace 裡的固定目錄（例如 vendor-kit_ws/reference/review_sent/），"

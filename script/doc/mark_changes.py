@@ -4,7 +4,7 @@
 名詞連到 GLOSSARY.md 分群、不用底線；改動也不用底線。
 
 用法：
-    python3 script/doc/mark_changes.py <檔名…>                      # 基準：該鍵維護者最後一次回覆過的版本
+    python3 script/doc/mark_changes.py <檔名…>                      # 基準：該鍵維護者最後一次回覆過的版本；已定案的鍵用定案版（未改就不產檔）
     python3 script/doc/mark_changes.py --base-version 03_messages=13 GLOSSARY=6   # 指定送審版本當基準
     python3 script/doc/mark_changes.py <舊版後綴> <檔名…>           # 本機 _backup 的改前快照當基準
 例：
@@ -23,6 +23,8 @@
 replied: true。這支只讀 versions.json，不寫。
 
 送審資料夾是「維護者要審的」：基準是維護者最後一次回覆過的那一版，看過的內容不再標紅綠，只標之後的改動。
+- 已定案的鍵：正式檔與定案 commit 相同就不產生送審檔，並刪除殘留的該鍵資料夾；
+  定案後又有改動就以定案版為基準重新產生，回到待審。
 - 不帶後綴：versions.json 裡該鍵最後一筆 replied: true 的紀錄；沒有就整份標新增
   （送出後還沒回覆的版本不算，否則重產時會以剛送出的版本自己為基準，紅綠全不見）。
 - --base-version <鍵>=<N>：versions.json 裡該鍵版本 N 的紀錄（不論有沒有回覆）。
@@ -61,12 +63,13 @@ import json
 import os
 import re
 import pathlib
+import shutil
 import sys
 
 REVIEW = pathlib.Path("doc/contract")
 # 本機的改前快照，不進 git（#128）；只有後綴模式讀它
 BACKUP = pathlib.Path("doc/decisions/_backup")
-# 送審資料夾：每個鍵一個子資料夾，進 git，定稿時整個資料夾一個 commit 刪除
+# 送審資料夾：每個鍵一個子資料夾，進 git；定案後不保留該鍵的送審資料
 REVIEW_OUT = pathlib.Path("doc/review")
 # 每個鍵送審過的版號與送審當時的 commit；進 git。只有 pack_review.py 寫它
 VERSIONS = REVIEW_OUT / "versions.json"
@@ -77,7 +80,7 @@ def mark(body: str, tag: str) -> str:
     """新增用綠底 <mark>，刪除（被取代或拿掉的舊文字）用紅底 <mark>。
 
     tag 是 "ins"（新增）或 "del"（刪除），只用來選顏色，輸出一律是 <mark>。
-    GitHub 會濾掉內嵌樣式；標示版進 git，定稿時整個送審資料夾一個 commit 刪除。
+    GitHub 會濾掉內嵌樣式；標示版進 git，定案時刪除該鍵的送審資料夾。
     """
     if tag == "ins":
         return '<mark style="background-color:#c8f0c8">' + body + "</mark>"
@@ -167,10 +170,12 @@ def rewrite_links(text: str, src: pathlib.Path, base: pathlib.Path) -> str:
 
 
 def load_versions() -> dict:
-    """讀 versions.json：{"review_zip": N, "pages": {"<鍵>": [{"v": 16, "commit": "<sha>", "replied": bool}, ...]}}。
+    """讀 versions.json。
 
-    每筆還可以帶 path、csv_path（基準改從那個路徑取）與 raw_links。
-    每個鍵的陣列依版本排序；檔案不存在就當成從沒送審過。沒寫 replied 的紀錄當成還沒回覆。
+    pages.<鍵> 是送審版本陣列；finalized.<鍵> 記定案的 {"v": N, "commit": "<sha>"}，
+    那版紀錄有 path、csv_path、raw_links 時也照抄。
+    每筆版本還可以帶 path、csv_path 與 raw_links。
+    檔案不存在就當成從沒送審過；沒寫 replied 的紀錄當成還沒回覆。
     """
     table = json.loads(VERSIONS.read_text()) if VERSIONS.exists() else {}
     table.setdefault(ZIP_KEY, 0)
@@ -185,21 +190,32 @@ def save_versions(table: dict) -> None:
     VERSIONS.write_text(json.dumps(table, ensure_ascii=False, indent=2) + "\n")
 
 
+def page_versions(key: str, table: dict | None = None) -> list[dict]:
+    """該鍵的送審版本紀錄。"""
+    return (table or load_versions())["pages"].get(key, [])
+
+
+def finalized(key: str, table: dict | None = None) -> dict | None:
+    """該鍵的定案紀錄（至少有 v、commit）；未定案回 None。"""
+    table = table or load_versions()
+    return table.get("finalized", {}).get(key)
+
+
 def last_sent(key: str, table: dict | None = None) -> dict | None:
     """該鍵最後一次送審的紀錄 {"v", "commit"}；從沒送審過回 None。"""
-    entries = (table or load_versions())["pages"].get(key, [])
+    entries = page_versions(key, table)
     return max(entries, key=lambda e: e["v"]) if entries else None
 
 
 def last_replied(key: str, table: dict | None = None) -> dict | None:
     """該鍵最後一筆 replied: true 的紀錄；沒有回 None。"""
-    entries = [e for e in (table or load_versions())["pages"].get(key, []) if e.get("replied") is True]
+    entries = [e for e in page_versions(key, table) if e.get("replied") is True]
     return max(entries, key=lambda e: e["v"]) if entries else None
 
 
 def sent_version(key: str, v: int, table: dict | None = None) -> dict | None:
     """該鍵送審版本 v 的紀錄；沒有回 None。"""
-    for entry in (table or load_versions())["pages"].get(key, []):
+    for entry in page_versions(key, table):
         if entry["v"] == v:
             return entry
     return None
@@ -496,7 +512,7 @@ def write_outputs(name: str, out: list[str], basis: str, notes: list[str]) -> No
     d.mkdir(parents=True, exist_ok=True)
     official = f"/{path.as_posix()}" + ("" if csv_path is None else f" 與 /{csv_path.as_posix()}")
     header = [
-        f"<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定稿時整個送審資料夾一個 commit 刪除；"
+        f"<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；"
         f"{basis}。正式內容看 {official} -->",
         "",
     ]
@@ -572,13 +588,20 @@ def resolve_base_name(name: str) -> str:
 def base_entry(name: str, base: int | None) -> tuple[dict | None, str | None]:
     """回傳（送審紀錄或 None, 錯誤訊息或 None）。
 
-    base 是 None 表示取最後一筆 replied: true 的紀錄；沒有回（None, None），整份標新增。
+    base 是 None 時，已定案的鍵取 finalized，其餘取最後一筆 replied: true 的紀錄；
+    兩者都沒有時回（None, None），整份標新增。
     指定的版號不在 versions.json、或那個 commit 裡沒有基準檔，回錯誤訊息。
     """
     name = resolve_base_name(name)
     path, key = target(name)
     if base is None:
-        entry = last_replied(key)
+        final = finalized(key)
+        if final is not None:
+            entry = sent_version(key, final["v"])
+            if entry is None:
+                return None, f"{name}：{VERSIONS} 沒有鍵 {key} 的定案版本 v{final['v']} 的送審紀錄"
+        else:
+            entry = last_replied(key)
         if entry is None:
             return None, None
     else:
@@ -593,18 +616,49 @@ def base_entry(name: str, base: int | None) -> tuple[dict | None, str | None]:
     return entry, None
 
 
-def build_from_version(name: str, base: int | None = None) -> tuple[int, int]:
+def finalized_content_is_current(name: str, entry: dict) -> bool:
+    """正式檔與定案送審版的內容是否相同；審閱頁旁的 CSV 也一起比。"""
+    path, _ = target(name)
+    _, old = base_text(entry, "path", path)
+    if old is None or old != path.read_text():
+        return False
+    if path.parent != REVIEW:
+        return True
+    csv_path = path.with_suffix(".csv")
+    _, old_csv = base_text(entry, "csv_path", csv_path)
+    current_csv = csv_path.read_text(encoding="utf-8") if csv_path.exists() else None
+    return old_csv == current_csv
+
+
+def clear_finalized_output(name: str) -> None:
+    """刪除已定案鍵殘留的送審資料夾，並輸出處理結果。"""
+    _, key = target(name)
+    d = out_dir(key)
+    if d.exists():
+        shutil.rmtree(d)
+        print(f"{name}: 已定案且正式檔未改，已刪除 {d}，不產生送審檔")
+    else:
+        print(f"{name}: 已定案且正式檔未改，不產生送審檔")
+
+
+def build_from_version(name: str, base: int | None = None) -> tuple[int, int, str | None]:
     """以送審紀錄當基準：versions.json 裡該鍵版本 base 的 commit，用 git show 取正式檔（與 CSV）。
 
-    base 是 None 時取該鍵最後一筆 replied: true 的紀錄；沒有就整份標新增。
+    base 是 None 時，已定案的鍵先比對定案 commit：內容未改就清掉舊送審資料夾且不產檔，
+    定案後又改過就以定案版為基準重新產生。未定案的鍵取最後一筆 replied: true 的紀錄；
+    沒有就整份標新增。
     維護者看過並回覆的那一版不再標紅綠，只標之後的改動。找不到指定版號就停下報錯。
     """
     name = resolve_base_name(name)
     path, key = target(name)
     csv_path = companion_csv(name)
+    final = finalized(key) if base is None else None
     entry, error = base_entry(name, base)
     if error:
         raise SystemExit(error)
+    if final is not None and finalized_content_is_current(name, entry):
+        clear_finalized_output(name)
+        return 0, 0, None
     notes: list[str] = []
     if entry is None:
         old, old_csv = [], None
@@ -619,12 +673,22 @@ def build_from_version(name: str, base: int | None = None) -> tuple[int, int]:
             csv_src, old_csv = base_text(entry, "csv_path", csv_path)
             if old_csv is None:
                 notes.append(f"送審時的 commit {commit[:7]} 裡沒有 {csv_src.as_posix()}：視為新建，整份標新增")
-        state = "維護者回覆過" if entry.get("replied") is True else "維護者還沒回覆"
-        # 版本號不寫進檔內；副本路徑通常帶版號，所以只寫 commit
-        basis = f"基準是{state}的送審 commit {commit[:7]}"
+        if final is not None:
+            notes.append("定案後又有改動，回到待審")
+            basis = f"基準是定案 commit {commit[:7]}"
+        else:
+            state = "維護者回覆過" if entry.get("replied") is True else "維護者還沒回覆"
+            # 版本號不寫進檔內；副本路徑通常帶版號，所以只寫 commit
+            basis = f"基準是{state}的送審 commit {commit[:7]}"
     out, ins, dele = diff_all(old, old_csv, path, csv_path, name)
     write_outputs(name, out, basis, notes)
-    return ins, dele
+    if base is not None:
+        where = f"送審 v{base}"
+    elif final is not None:
+        where = f"定案版 v{final['v']}"
+    else:
+        where = "最後一次回覆過的版本"
+    return ins, dele, where
 
 
 def is_name(arg: str) -> bool:
@@ -638,8 +702,9 @@ def run_from_versions(parsed: list[tuple[str, int | None]]) -> None:
     if errors:
         sys.exit("找不到指定的送審版本，沒有產生任何標示版：\n  " + "\n  ".join(errors))
     for name, base in parsed:
-        ins, dele = build_from_version(name, base)
-        where = "最後一次回覆過的版本" if base is None else f"送審 v{base}"
+        ins, dele, where = build_from_version(name, base)
+        if where is None:
+            continue
         print(f"{name}: {ins} ins, {dele} del（基準 {where}）")
 
 

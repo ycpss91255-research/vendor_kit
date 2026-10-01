@@ -34,20 +34,20 @@
    ```
 
 3. **產生標示版與正文副本。** 改完在 repo 根目錄跑 `python3 script/doc/mark_changes.py <頁>`（[標示版產生器](../../script/doc/mark_changes.py)）。審閱頁傳頁名，例如 `02_invariants`；根目錄 README 傳 `README.md`（鍵是 `README`）；本檔要傳路徑 `doc/contract/README.md`，鍵是 `doc_contract_README`。基準有三種：
-   - 不帶後綴：[版本號紀錄](../review/versions.json) (`doc/review/versions.json`) 裡這個鍵最後一筆 `replied: true` 的紀錄，也就是維護者最後回覆過的版本；回覆過的內容不再標紅綠，只標之後的改動。沒有這種紀錄就整份標新增。
+   - 不帶後綴：[版本號紀錄](../review/versions.json) (`doc/review/versions.json`) 裡這個鍵最後一筆 `replied: true` 的紀錄，也就是維護者最後回覆過的版本；回覆過的內容不再標紅綠，只標之後的改動。沒有這種紀錄就整份標新增。鍵已標成定案時，如果正式檔內容仍與定案版本相同，就不產生送審檔，並刪除仍存在的送審資料夾；如果定案後正式檔又有改動，就以定案版本為基準重新產生，並註明「定案後又有改動，回到待審」。
    - `--base-version <鍵>=<N>`：用版本號紀錄裡這個鍵版本 N 的紀錄當基準，不看 `replied`。
 
-   每筆紀錄有 `v`、`commit`、`replied`，選填 `path`、`csv_path`、`raw_links`。基準用 `git show <commit>:<路徑>` 取：有 `path`（CSV 看 `csv_path`）就取那個路徑，用於舊的 `_marked/` 副本，副本裡的相對連結比對前改寫回正式檔位置；副本連結沒改寫過（照正式檔位置寫）時帶 `raw_links: true`。沒有 `path` 就取正式檔路徑。
+   每筆紀錄有 `v`、`commit`、`replied`，選填 `path`、`csv_path`、`raw_links`；版本號紀錄頂層另有 `finalized`，以鍵為索引記 `{"v": N, "commit": "<sha>"}`：定案版本與該版本紀錄的 commit；那筆送審紀錄有 `path`、`csv_path`、`raw_links` 時一併照抄。沒有任何鍵定案時沒有這個欄位。基準用 `git show <commit>:<路徑>` 取：有 `path`（CSV 看 `csv_path`）就取那個路徑，用於舊的 `_marked/` 副本，副本裡的相對連結比對前改寫回正式檔位置；副本連結沒改寫過（照正式檔位置寫）時帶 `raw_links: true`。沒有 `path` 就取正式檔路徑。
    - `<基準後綴>`（例如 `pre_r101`）：讀本機 `_backup/` 裡這一輪的改前快照當基準。
 
    產出放在送審資料夾 `doc/review/<鍵>/`，檔名固定、每次產生就覆蓋：`<鍵>.md` 是正文副本，`<鍵>.marked.md` 是標示版（新增用綠底 `<mark>`、刪除（被取代或拿掉的舊文字）用紅底 `<mark>`），有 CSV 的頁再加 `<鍵>.csv`。repo 裡的檔名與檔內都不寫版本號；正式檔名不帶版本號，也不改名，其他文件的連結才不會斷。產生器只讀版本號紀錄，不寫、不取號。
 
    鍵對審閱頁是頁名，對其他檔是攤平後的路徑，規則見[工具說明](../../script/doc/README.md)。
-4. **送審。** 先把正式檔與送審資料夾 commit，再用[打包腳本](../../script/doc/pack_review.py)打包 `doc/review/<鍵>/`，產出 `review_vN.zip`，用 SendUserFile 傳給維護者。版本號只在 zip 裡的檔名（`<鍵>.v<N>.md`、`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.csv`）：看檔名就要知道是哪一版，不用打開才知道。打包腳本送審時把 `{v, commit, replied: false}` 追加進版本號紀錄、zip 編號加一；正式檔有未 commit 的改動，或送審資料夾的副本跟正式檔不一致（沒重跑產生器），就停下不打包。維護者回覆後跑 `python3 script/doc/pack_review.py --replied <鍵>=<N> [...]` 把那筆標成 `replied: true`：只改 `replied`，不打包、不取號，不用 `--out`。
+4. **送審與定案。** 先把正式檔與送審資料夾 commit，再用[打包腳本](../../script/doc/pack_review.py)打包 `doc/review/<鍵>/`，產出 `review_vN.zip`，用 SendUserFile 傳給維護者。版本號只在 zip 裡的檔名（`<鍵>.v<N>.md`、`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.csv`）：看檔名就要知道是哪一版，不用打開才知道。打包腳本送審時把 `{v, commit, replied: false}` 追加進版本號紀錄、zip 編號加一；正式檔有未 commit 的改動，或送審資料夾的副本跟正式檔不一致（沒重跑產生器），就停下不打包。維護者回覆後跑 `python3 script/doc/pack_review.py --replied <鍵>=<N> [...]` 把那筆標成 `replied: true`：只改 `replied`，不打包、不取號，不用 `--out`。維護者明確定案後，跑 `python3 script/doc/pack_review.py --finalized <鍵>=<N> [...]`：版本 N 必須已送審且已回覆，否則整批不處理；成功時記錄定案版本及其 commit，並刪除該鍵的送審資料夾，不打包、不取號，也不用 `--out`；接著把版本號紀錄的改動與資料夾刪除一起 commit。定案版就是正式檔，之後隨 PR merge 進 `main`。
 
 內部文件（本檔、[工作約定](../../AGENTS.md)、[工具說明](../../script/README.md)、[ADR 規則](../adr/README.md) 等，也就是對外文件以外的所有文件）改完照樣走步驟 2 (doc-edit)，但不產標示版、不送審；也不准留過時的資訊。
 
-`doc/review/` 進 git。定稿那一輪把這一頁的送審資料夾 `doc/review/<鍵>/` 整個在同一個 commit 刪掉。審查與調查的結論寫進 issue 留言；`doc/decisions/review_log/` 與 `doc/research/` 跟 `_backup/` 一樣只在本機、不進 git。
+`doc/review/` 進 git；只有待審頁保留各自的送審資料夾，已定案頁不保留。定案後正式檔若再改動，重新產生送審檔並照步驟 4 打包，會成為新一輪送審。審查與調查的結論寫進 issue 留言；`doc/decisions/review_log/` 與 `doc/research/` 跟 `_backup/` 一樣只在本機、不進 git。
 
 ## 怎樣才算定案
 

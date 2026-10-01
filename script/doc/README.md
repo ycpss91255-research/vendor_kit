@@ -2,7 +2,7 @@
 
 ## 對外文件的改動標示（`mark_changes.py`）
 
-對外文件（審閱頁 `doc/contract/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增用綠底 `<mark>`，刪除（被取代或拿掉的舊文字）用紅底 `<mark>`。標示版放在送審資料夾 `doc/review/<鍵>/`，只給審閱用，所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；定稿時整個資料夾在同一個 commit 刪掉，只留正式檔。整套審閱流程（討論分支、定案才 merge、送審給哪兩個檔）見[審閱頁說明](../../doc/contract/README.md)「版本怎麼迭代」，這裡只講工具。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
+對外文件（審閱頁 `doc/contract/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增用綠底 `<mark>`，刪除（被取代或拿掉的舊文字）用紅底 `<mark>`。標示版放在送審資料夾 `doc/review/<鍵>/`，只給審閱用，所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；定案後送審資料夾不再保留那一頁，只留正式檔。整套審閱流程（討論分支、定案才 merge、送審給哪兩個檔）見[審閱頁說明](../../doc/contract/README.md)「版本怎麼迭代」，這裡只講工具。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
 
 ### 一輪的流程
 
@@ -24,14 +24,14 @@
    python3 script/doc/mark_changes.py README.md
    ```
 
-   不帶後綴時，基準是這個鍵在 `doc/review/versions.json` 最後一筆 `replied: true` 的紀錄，也就是維護者最後回覆過的那一版（用 `git show` 從紀錄的 commit 取檔）；沒有這樣的紀錄就整份標新增。要拿本機的改前快照當基準，在頁名前加後綴，例如 `python3 script/doc/mark_changes.py pre_r65 01_purpose`，讀本機 `doc/decisions/_backup/` 裡照步驟 1 命名的備份（例如 `doc_contract_01_purpose.pre_r65.md`）；本機沒有 `_backup/`（換電腦、新 clone）就報錯。新建的頁沒有舊版，後綴寫 `new`，整份標新增。
+   不帶後綴時，基準是這個鍵在 `doc/review/versions.json` 最後一筆 `replied: true` 的紀錄，也就是維護者最後回覆過的那一版（用 `git show` 從紀錄的 commit 取檔）；沒有這樣的紀錄就整份標新增。鍵已標成定案而且正式檔仍與定案 commit 相同時，不產生送審檔；若送審資料夾還存在就刪掉並印出。正式檔在定案後又有改動時，改用定案版為基準重新產生，並印出「定案後又有改動，回到待審」。要拿本機的改前快照當基準，在頁名前加後綴，例如 `python3 script/doc/mark_changes.py pre_r65 01_purpose`，讀本機 `doc/decisions/_backup/` 裡照步驟 1 命名的備份（例如 `doc_contract_01_purpose.pre_r65.md`）；本機沒有 `_backup/`（換電腦、新 clone）就報錯。新建的頁沒有舊版，後綴寫 `new`，整份標新增。
 
    輸出到送審資料夾 `doc/review/<鍵>/`，檔名固定、不帶版本號，每次產生就覆蓋：
 
    - 標示版 `<鍵>.marked.md`。
    - 正文副本 `<鍵>.md`，內容跟正式檔一樣，只差相對連結。
 
-   版本號不在 repo 的檔名裡、也不寫進檔內，只出現在送審 zip 裡的檔名（`<鍵>.v<N>.…`，見下面的「送審打包」）。`doc/review/versions.json` 記每次送審的版號與 commit，進 git，所以換電腦或新 clone 之後版號不會從 v1 重來。每筆紀錄有 `v`、`commit`、`replied`（維護者回覆過沒有），選填 `path`／`csv_path`：有這欄時基準改從 `git show <commit>:<path>` 取，用於舊的 `_marked/` 副本，從副本取時相對連結會先改寫回正式檔位置再比對；副本的連結沒改寫過（照正式檔位置寫）時帶 `raw_links: true`。沒寫 `replied` 的紀錄當成還沒回覆。本工具只讀 `versions.json`、不寫、不取號，也不改正式檔。
+   版本號不在 repo 的檔名裡、也不寫進檔內，只出現在送審 zip 裡的檔名（`<鍵>.v<N>.…`，見下面的「送審打包」）。`doc/review/versions.json` 記每次送審的版號與 commit，進 git，所以換電腦或新 clone 之後版號不會從 v1 重來。每筆紀錄有 `v`、`commit`、`replied`（維護者回覆過沒有），選填 `path`／`csv_path`：有這欄時基準改從 `git show <commit>:<path>` 取，用於舊的 `_marked/` 副本，從副本取時相對連結會先改寫回正式檔位置再比對；副本的連結沒改寫過（照正式檔位置寫）時帶 `raw_links: true`。沒寫 `replied` 的紀錄當成還沒回覆。`versions.json` 頂層另有 `finalized` 物件，`finalized.<鍵>` 是 `{"v": N, "commit": "<sha>"}`，那一版的送審紀錄有 `path`、`csv_path`、`raw_links` 時一併照抄；沒有任何鍵定案時沒有這個欄位。`mark_changes.py` 只讀 `versions.json`、不寫、不取號，也不改正式檔。
 
    標示版裡的相對連結會改寫成從送審資料夾出發（正文副本也一樣）：以原檔所在目錄解析成 repo 內的實際路徑，再換成從 `doc/review/<鍵>/` 出發的相對路徑，錨點照留；指到其他審閱頁的連結指正式檔 `doc/contract/<頁>.md`，不指副本。外部網址、純錨點、行內程式碼與程式碼區塊裡的字樣不改，正式檔也不動。
 
@@ -39,7 +39,7 @@
 
    基準選擇、輸出檔名與連結改寫這些行為由 [mark_changes 測試](test/test_mark_changes.py) 涵蓋，在 repo 根目錄跑 `python3 -m unittest discover -s script/doc/test`。
 
-4. **基準永遠是維護者最後回覆過的那一版**，不是最舊的那一版，也不是最後送出、還沒回覆的那一版。不帶後綴時自動取這個鍵最後一筆 `replied: true` 的紀錄；要指定別的送審版本，用 `--base-version` 指定版號（不看 `replied`）：
+4. **基準是維護者最後回覆過的那一版；定案後又有改動時是定案版**，不是最舊的那一版，也不是最後送出、還沒回覆的那一版。不帶後綴時自動選擇；要指定別的送審版本，用 `--base-version` 指定版號（不看 `replied`）：
 
    ```sh
    python3 script/doc/mark_changes.py --base-version 03_messages=13 04_interface=18 GLOSSARY=6
@@ -47,9 +47,9 @@
 
    基準是 `versions.json` 裡這個鍵版本 `<N>` 記的 commit，用 `git show` 取當時的正式檔，有附屬 CSV 時也一起取；那個 commit 裡沒有那份 CSV 時視為新建、整份標新增。左邊寫頁名、路徑或鍵都行（`GLOSSARY`、`README` 對到根目錄的檔；`doc/contract/README.md` 要寫路徑）。任何一個指定版號在 `versions.json` 裡找不到就停下報錯，整批都不產。已經討論完的段落不該再標成新改動，紅綠色只留給他還沒看過的。
 
-5. **用 `pack_review.py` 打包送審**（見下面的「送審打包」）：zip 裡放 `<鍵>.v<N>.md` 與 `<鍵>.v<N>.marked.md`，版本號是打包時取的。不交正式檔。維護者回覆後，用 `python3 script/doc/pack_review.py --replied <鍵>=<N>` 把那一版標成回覆過，下一輪的預設基準才會前進到那一版。
+5. **用 `pack_review.py` 打包送審**（見下面的「送審打包」）：zip 裡放 `<鍵>.v<N>.md` 與 `<鍵>.v<N>.marked.md`，版本號是打包時取的。不交正式檔。維護者回覆後，用 `python3 script/doc/pack_review.py --replied <鍵>=<N>` 把那一版標成回覆過，下一輪的預設基準才會前進到那一版。定案後又有改動的鍵照常取下一個版號；再次打包時清掉這個鍵的 `finalized`，回到待審。
 
-6. **草稿 commit 在討論分支，定案才 merge 進 `main`**。定案之後，下一輪從 `main` 開新的討論分支，再跑 doc-edit workflow，由它自動備份當時的正式檔當基準，不手動從 `main` 取檔建備份。定稿時 `doc/review/<鍵>/` 整個資料夾在同一個 commit 刪掉。
+6. **草稿 commit 在討論分支，定案才 merge 進 `main`**。維護者定案後，用 `python3 script/doc/pack_review.py --finalized <鍵>=<N>` 記下定案版本並刪除該鍵的送審資料夾；定案版就是正式檔，之後隨 PR merge 進 `main`。下一輪從 `main` 開新的討論分支，再跑 doc-edit workflow，由它自動備份當時的正式檔，不手動從 `main` 取檔建備份。
 
 ### 標示規則
 
@@ -78,7 +78,7 @@ CSV 的逐碼差異：新舊兩版依 `code` 對齊、逐欄比較，每個有�
 python3 script/doc/pack_review.py --note <審閱說明.md> --out <目錄> 03_messages 04_interface GLOSSARY.md
 ```
 
-在 repo 根目錄執行，頁鍵的寫法跟 `mark_changes.py` 相同。每個鍵取 `doc/review/<鍵>/` 裡的 `<鍵>.marked.md`、`<鍵>.md`，有 `<鍵>.csv` 也一起放；zip 內檔名帶版本號：`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.md`、`<鍵>.v<N>.csv`，N 是這個鍵在 `versions.json` 最後送審的版號加一（從沒送審過是 1）。打包前先檢查：正式檔（與附屬 CSV）有未 commit 的改動、送審資料夾的正文副本跟正式檔不一致（沒重跑 `mark_changes.py`）、或缺檔，就停下報錯，不取號、不寫 `versions.json`。都過了才打包，並把 `{"v": N, "commit": HEAD, "replied": false}` 追加進各鍵的紀錄、`review_zip` 加一；zip 的 N 是新的 `review_zip`。zip 內檔名不帶目錄，有 `--note` 時審閱說明排第一個。`--out` 必填，沒給就以結束碼 2 停下：送審 zip 是送審版本號唯一的出處（#128），要放在 workspace 裡的固定目錄（例如 `vendor-kit_ws/reference/review_sent/`），不放系統暫存目錄；目錄不存在就建立。跑完印出 zip 路徑與內容清單。本工具只打包，標示版照舊由 `mark_changes.py` 產生。
+在 repo 根目錄執行，頁鍵的寫法跟 `mark_changes.py` 相同。每個鍵取 `doc/review/<鍵>/` 裡的 `<鍵>.marked.md`、`<鍵>.md`，有 `<鍵>.csv` 也一起放；zip 內檔名帶版本號：`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.md`、`<鍵>.v<N>.csv`，N 是這個鍵在 `versions.json` 最後送審的版號加一（從沒送審過是 1）。打包前先檢查：正式檔（與附屬 CSV）有未 commit 的改動、送審資料夾的正文副本跟正式檔不一致（沒重跑 `mark_changes.py`）、或缺檔，就停下報錯，不取號、不寫 `versions.json`。都過了才打包，並把 `{"v": N, "commit": HEAD, "replied": false}` 追加進各鍵的紀錄、`review_zip` 加一；這個鍵若已定案，同時刪掉它的 `finalized` 紀錄。zip 的 N 是新的 `review_zip`。zip 內檔名不帶目錄，有 `--note` 時審閱說明排第一個。`--out` 必填，沒給就以結束碼 2 停下：送審 zip 是送審版本號唯一的出處（#128），要放在 workspace 裡的固定目錄（例如 `vendor-kit_ws/reference/review_sent/`），不放系統暫存目錄；目錄不存在就建立。跑完印出 zip 路徑與內容清單。本工具只打包，標示版照舊由 `mark_changes.py` 產生。
 
 維護者回覆之後，標記他回覆的版本：
 
@@ -86,9 +86,17 @@ python3 script/doc/pack_review.py --note <審閱說明.md> --out <目錄> 03_mes
 python3 script/doc/pack_review.py --replied 03_messages=14 README=3
 ```
 
-只把 `versions.json` 裡那幾筆的 `replied` 改成 `true`，不打包、不取號，不用給 `--out`。鍵的寫法同 `--base-version`；任何一筆找不到就停下報錯，整批不改。`mark_changes.py` 的預設基準就是各鍵最後一筆 `replied: true` 的紀錄。
+只把 `versions.json` 裡那幾筆的 `replied` 改成 `true`，不打包、不取號，不用給 `--out`。鍵的寫法同 `--base-version`；任何一筆找不到就停下報錯，整批不改。`mark_changes.py` 的預設基準：已定案的鍵用定案版本，其餘用各鍵最後一筆 `replied: true` 的紀錄。
 
-版號遞增、內容與缺檔報錯由 [pack_review 測試](test/test_pack_review.py) 涵蓋。
+維護者定案之後，標記定案版本並移除該頁的送審資料夾：
+
+```sh
+python3 script/doc/pack_review.py --finalized 03_messages=14 README=3
+```
+
+指定的版本必須已送審且已標成 `replied: true`；任何一筆不存在或尚未回覆就停下，整批不改、不刪。成功時在各鍵記下 `finalized` 的版本與該版本紀錄的 commit（紀錄有 `path`、`csv_path`、`raw_links` 也照抄），並刪除 `doc/review/<鍵>/`。這個模式不打包、不取號、不用給 `--out`。正式檔若之後又有改動，`mark_changes.py` 會以這個定案版本為基準重建送審資料夾；再次打包時照常取下一個版號，並清掉這個鍵的 `finalized`，回到待審。
+
+版號遞增、內容、缺檔報錯與定案處理由 [pack_review 測試](test/test_pack_review.py) 涵蓋。
 
 ## 訊息表自檢（`check_messages.py`）
 

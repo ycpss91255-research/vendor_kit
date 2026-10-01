@@ -1,4 +1,6 @@
 """mark_changes.py 的標記格式、輸出位置與基準：跑法 `python3 -m unittest discover -s script/doc/test`。"""
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -34,10 +36,13 @@ def commit_all(msg="c"):
     return git("rev-parse", "HEAD")
 
 
-def write_versions(pages, review_zip=0):
+def write_versions(pages, review_zip=0, finalized=None):
     path = pathlib.Path("doc/review/versions.json")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"review_zip": review_zip, "pages": pages}))
+    table = {"review_zip": review_zip, "pages": pages}
+    if finalized is not None:
+        table["finalized"] = finalized
+    path.write_text(json.dumps(table))
 
 class MarkFormatTest(unittest.TestCase):
     GREEN = '<mark style="background-color:#c8f0c8">'
@@ -532,7 +537,7 @@ class BaseVersionTest(unittest.TestCase):
 
     def test_same_content_has_no_marks(self):
         # 正式檔與送審時相同：沒有紅綠，連結照新深度改寫
-        ins, dele = mark_changes.build_from_version("03_messages", 13)
+        ins, dele, _ = mark_changes.build_from_version("03_messages", 13)
         self.assertEqual((ins, dele), (0, 0))
         text = self.marked()
         self.assertNotIn("<mark", text.split("-->", 1)[1])
@@ -540,9 +545,47 @@ class BaseVersionTest(unittest.TestCase):
         self.assertIn(self.v13[:7], text)
         self.assertNotRegex(text, r"v1[34]")
 
+    def test_finalized_unchanged_removes_review_folder_and_writes_nothing(self):
+        # 已定案且正式檔仍與定案 commit 相同：不留送審資料。
+        mark_changes.build_from_version("03_messages", 13)
+        self.assertTrue(out("03_messages").exists())
+        write_versions(
+            {"03_messages": [{"v": 13, "commit": self.v13, "replied": True}]},
+            finalized={"03_messages": {"v": 13, "commit": self.v13}},
+        )
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            mark_changes.build_from_version("03_messages")
+        self.assertFalse(pathlib.Path("doc/review/03_messages").exists())
+        self.assertIn("已定案", stdout.getvalue())
+        self.assertIn("刪除", stdout.getvalue())
+
+    def test_finalized_changed_uses_finalized_commit_and_returns_to_review(self):
+        # 即使後來又有 replied 版本，回到待審時仍以定案 commit 為基準。
+        finalized = {"03_messages": {"v": 13, "commit": self.v13}}
+        self.change()
+        v14 = commit_all("v14")
+        pathlib.Path("doc/contract/03_messages.md").write_text(
+            self.PAGE.replace("不變的段落", "定案後再改的段落")
+        )
+        write_versions(
+            {"03_messages": [
+                {"v": 13, "commit": self.v13, "replied": True},
+                {"v": 14, "commit": v14, "replied": True},
+            ]},
+            finalized=finalized,
+        )
+        mark_changes.build_from_version("03_messages")
+        text = self.marked()
+        self.assertIn(self.RED + "不變的段落</mark>", text)
+        self.assertIn(self.GREEN + "定案後再改的段落</mark>", text)
+        self.assertNotIn(self.RED + "改過的段落</mark>", text)
+        self.assertIn("定案後又有改動，回到待審", text)
+        self.assertIn(self.v13[:7], text)
+
     def test_only_later_changes_marked(self):
         self.change()
-        ins, dele = mark_changes.build_from_version("03_messages", 13)
+        ins, dele, _ = mark_changes.build_from_version("03_messages", 13)
         text = self.marked()
         self.assertIn(self.GREEN + "改過的段落</mark>", text)
         self.assertIn(self.RED + "不變的段落</mark>", text)
@@ -556,15 +599,19 @@ class BaseVersionTest(unittest.TestCase):
         v14 = commit_all("v14")
         write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True},
                                         {"v": 14, "commit": v14, "replied": False}]}, 3)
-        self.assertEqual(mark_changes.build_from_version("03_messages", 13), (2, 2))
-        self.assertEqual(mark_changes.build_from_version("03_messages", 14), (0, 0))
+        result = mark_changes.build_from_version("03_messages", 13)
+        self.assertEqual(result[:2], (2, 2))
+        self.assertEqual(result[2], "送審 v13")
+        self.assertEqual(mark_changes.build_from_version("03_messages", 14)[:2], (0, 0))
 
     def test_default_base_is_last_replied(self):
         self.change()
         v14 = commit_all("v14")
         write_versions({"03_messages": [{"v": 14, "commit": v14, "replied": True},
                                         {"v": 13, "commit": self.v13, "replied": True}]}, 3)
-        self.assertEqual(mark_changes.build_from_version("03_messages"), (0, 0))
+        result = mark_changes.build_from_version("03_messages")
+        self.assertEqual(result[:2], (0, 0))
+        self.assertEqual(result[2], "最後一次回覆過的版本")
 
     def test_default_base_skips_unreplied(self):
         # v14 送出後維護者還沒回覆：基準仍是回覆過的 v13，v13 之後的改動照樣標紅綠
@@ -572,11 +619,11 @@ class BaseVersionTest(unittest.TestCase):
         v14 = commit_all("v14")
         write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True},
                                         {"v": 14, "commit": v14, "replied": False}]}, 3)
-        self.assertEqual(mark_changes.build_from_version("03_messages"), (2, 2))
+        self.assertEqual(mark_changes.build_from_version("03_messages")[:2], (2, 2))
         self.assertIn(self.GREEN + "改過的段落</mark>", self.marked())
         self.assertIn(self.v13[:7], self.marked())
         # 指定版號時不看 replied
-        self.assertEqual(mark_changes.build_from_version("03_messages", 14), (0, 0))
+        self.assertEqual(mark_changes.build_from_version("03_messages", 14)[:2], (0, 0))
 
     def test_missing_replied_field_counts_as_unreplied(self):
         write_versions({"03_messages": [{"v": 13, "commit": self.v13}]})
@@ -585,7 +632,7 @@ class BaseVersionTest(unittest.TestCase):
 
     def test_never_sent_is_all_new(self):
         write_versions({})
-        ins, dele = mark_changes.build_from_version("03_messages")
+        ins, dele, _ = mark_changes.build_from_version("03_messages")
         text = self.marked()
         self.assertGreater(ins, 0)
         self.assertEqual(dele, 0)
@@ -596,7 +643,7 @@ class BaseVersionTest(unittest.TestCase):
     def test_no_replied_entry_is_all_new(self):
         # 送過但都還沒回覆：整份標新增
         write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": False}]})
-        ins, dele = mark_changes.build_from_version("03_messages")
+        ins, dele, _ = mark_changes.build_from_version("03_messages")
         text = self.marked()
         self.assertEqual(dele, 0)
         self.assertIn("沒有維護者回覆過的版本", text)
@@ -645,9 +692,9 @@ class BaseVersionTest(unittest.TestCase):
         commit = commit_all("raw copy")
         entry = {"v": 13, "commit": commit, "replied": True, "path": "doc/decisions/_marked/03_messages.v13.md"}
         write_versions({"03_messages": [dict(entry, raw_links=True)]})
-        self.assertEqual(mark_changes.build_from_version("03_messages"), (0, 0))
+        self.assertEqual(mark_changes.build_from_version("03_messages")[:2], (0, 0))
         write_versions({"03_messages": [entry]})
-        self.assertNotEqual(mark_changes.build_from_version("03_messages"), (0, 0))
+        self.assertNotEqual(mark_changes.build_from_version("03_messages")[:2], (0, 0))
 
     def test_missing_path_in_commit_fails(self):
         write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True,
@@ -680,7 +727,9 @@ class BaseVersionTest(unittest.TestCase):
 
     def test_root_file_by_key(self):
         write_versions({"GLOSSARY": [{"v": 6, "commit": self.v13}]})
-        self.assertEqual(mark_changes.build_from_version("GLOSSARY", 6), (0, 0))
+        result = mark_changes.build_from_version("GLOSSARY", 6)
+        self.assertEqual(result[:2], (0, 0))
+        self.assertEqual(result[2], "送審 v6")
         self.assertTrue(out("GLOSSARY").exists())
 
     def test_root_readme_key_wins_over_contract_readme(self):

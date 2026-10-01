@@ -185,6 +185,58 @@ class PackReviewTest(unittest.TestCase):
             self.run_main("--replied", "04_interface")
         self.assertIn("<鍵>=<版號>", str(cm.exception))
 
+    def test_finalized_records_version_commit_and_removes_review_dir(self):
+        self.run_main("--replied", "04_interface=17")
+        before = self.table()
+
+        self.run_main("--finalized", "04_interface=17")
+
+        table = self.table()
+        self.assertEqual(table["finalized"]["04_interface"],
+                         {"v": 17, "commit": self.first})
+        self.assertEqual(table["review_zip"], before["review_zip"])
+        self.assertEqual(table["pages"], before["pages"])
+        self.assertFalse(pathlib.Path("doc/review/04_interface").exists())
+        self.assertFalse(self.out.exists())
+
+    def test_finalized_batch_fails_if_any_version_is_not_replied(self):
+        self.run_main("--replied", "04_interface=17")
+        before = VERSIONS.read_text()
+
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main("--finalized", "04_interface=17", "03_messages=12")
+
+        self.assertIn("replied: true", str(cm.exception))
+        self.assertEqual(VERSIONS.read_text(), before)
+        self.assertTrue(pathlib.Path("doc/review/04_interface").is_dir())
+        self.assertTrue(pathlib.Path("doc/review/03_messages").is_dir())
+
+    def test_finalized_rejects_version_that_was_not_sent(self):
+        before = VERSIONS.read_text()
+
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main("--finalized", "04_interface=99")
+
+        self.assertIn("v99", str(cm.exception))
+        self.assertEqual(VERSIONS.read_text(), before)
+        self.assertTrue(pathlib.Path("doc/review/04_interface").is_dir())
+
+    def test_pack_changed_finalized_page_as_new_review_round(self):
+        self.run_main("--replied", "04_interface=17")
+        self.run_main("--finalized", "04_interface=17")
+        pathlib.Path("doc/contract/04_interface.md").write_text("# 04\n\n定案後改了\n")
+        changed = self.commit()
+        mark_changes.build_from_version("04_interface")
+
+        path, arcnames = pack_review.pack(["04_interface"], self.out)
+
+        self.assertEqual(path.name, "review_v2.zip")
+        self.assertEqual(arcnames, ["04_interface.v18.marked.md", "04_interface.v18.md"])
+        table = self.table()
+        self.assertEqual(table["pages"]["04_interface"][-1],
+                         {"v": 18, "commit": changed, "replied": False})
+        self.assertNotIn("finalized", table)
+
     def test_main_creates_missing_out_dir(self):
         out = pathlib.Path("ws/reference/review_sent")
         self.assertFalse(out.exists())
