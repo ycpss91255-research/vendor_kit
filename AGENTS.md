@@ -14,7 +14,7 @@ repo 上一層的 `vendor-kit_ws/` 是工作區：`src/` 是這個 repo，只放
 
 ## 決議與文件流程
 
-- **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
+- **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-spec` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md` 留在 repo，跑 `to-spec` 之類的 skill 時不要把它們搬進 issue。
 - 每個設計決議先在 issue 討論（中文）；定案後才寫 ADR。
 - **issue 本文與標題開好後不改，一律留言。** 這是刻意偏離 skill 的預設（wayfinder 會改 map 本文的「Decisions so far」）：新定案改在 map 留言記錄，map 本文的 Decisions so far、Not yet specified、Out of scope 等節的更新也一律留言，決策清單看 GitHub 的 sub-issue 面板。改本文、標題，或 agent 留言沒帶 `[claude]`／`[codex]`／`[agy]` 標記，會被 `.claude/hooks/` 的 hook 擋下。做法見 [issue tracker 約定](doc/agents/issue-tracker.md)。
 - ADR 放 `doc/adr/NNNN-<slug>.md`，檔案系統即登錄，不另立索引；必要段落由 lint 管，規則見 `doc/adr/README.md`。

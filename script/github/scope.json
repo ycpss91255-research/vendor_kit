@@ -8,7 +8,7 @@
     {"pattern": "^\\.claude/workflows/README\\.md$", "scope": "workflow:README", "attach": "any"},
     {"pattern": "^\\.claude/workflows/(?P<name>[^/]+)\\.js$", "scope": "workflow:{name}"},
     {"pattern": "^\\.claude/skills$", "scope": "skill:link"},
-    {"pattern": "^\\.agents/skills/(?P<name>[^/]+)/", "scope": "skill:{name}"},
+    {"pattern": "^\\.agents/skills/", "scope": "skills:upstream", "_why": "從上游 mattpocock/skills 同步的整包，整個目錄算一個範圍（#229）"},
     {"pattern": "^\\.codex/", "scope": "codex:config"},
     {"pattern": "^\\.github/workflows/docs\\.yml$", "scope": "ci:docs", "attach": "any"},
     {"pattern": "^\\.github/workflows/(?P<name>[^/]+)\\.ya?ml$", "scope": "ci:{name}"},
