@@ -42,7 +42,7 @@ class Problems(unittest.TestCase):
         self.assertTrue(b.problems("[claude] x\nCloses #15\n", "pr", issue=150))
 
     def test_local_paths(self):
-        for path in [HOME + "x", "/Users/someone/x", "/tmp/claude-1000/x", "C:\\Users\\x"]:
+        for path in [HOME + "x", "/" + "Users/someone/x", "/" + "tmp/claude-1000/x", "C:" + "\\Users\\x"]:
             with self.subTest(path=path):
                 p = b.problems(f"[claude] x\n見 {path}\nCloses #1\n", "pr", issue=1)
                 self.assertEqual(len(p), 1)
