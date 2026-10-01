@@ -2,7 +2,7 @@
 """檢查根 GLOSSARY.md：照 domain-modeling skill 的格式（.claude/skills/domain-modeling/CONTEXT-FORMAT.md）。
 
 - `## Language` 底下用 `### 分群` 分群，名詞一行 `**名詞** (english)：`（舊寫法 `**名詞**（英文）：` 也認），下一行起是定義，可接 `_Avoid_:`。
-- 不寫目錄、不寫 HTML 錨點：skill 沒有這些；HTML 只准 `<ins>`（GitHub 與 GitLab 都顯示）。
+- 不寫目錄、不寫 HTML 錨點：skill 沒有這些；不准任何 HTML 標籤（`<ins>` 也不放行；名詞改連到 GLOSSARY.md 分群）。
 - `_Avoid_` 詞不得出現在正文。
 
 用法：python3 script/check_context.py [GLOSSARY.md]
@@ -41,9 +41,9 @@ def main(path: Path) -> int:
             continue
         if fence:
             continue
-        bad = sorted({name for _, name in TAG.findall(bare(ln)) if name != "ins"})
+        bad = sorted({name for _, name in TAG.findall(bare(ln))})
         if bad:
-            errs.append(f"第 {i} 行用了 HTML {bad}：只准 <ins>；錨點用標題產生")
+            errs.append(f"第 {i} 行用了 HTML {bad}：不准任何 HTML 標籤；名詞連到 GLOSSARY.md，錨點用標題產生")
     if any(ln.strip() == "## 目錄" for ln in lines):
         errs.append("有「## 目錄」：skill 的格式沒有目錄，分群標題本身就是大綱")
 

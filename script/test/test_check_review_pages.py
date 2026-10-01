@@ -53,13 +53,13 @@ class RulesTest(unittest.TestCase):
         for want in ("只能向前依賴", "不寫「出處」", "不寫版本號", "錨點不存在"):
             self.assertIn(want, out)
 
-    def test_html_other_than_ins_fails(self):
+    def test_any_html_fails_including_ins(self):
         self.write("01_a.md", "# 01\n\n## 目錄\n\n<a id=\"x\"></a>名詞 <ins>底線</ins>，第一行<br>第二行，`<repo>` 是占位符\n")
         code, out = self.run_main()
         self.assertEqual(code, 1)
         self.assertIn("'a'", out)
         self.assertIn("'br'", out)
-        self.assertNotIn("'ins'", out)
+        self.assertIn("'ins'", out)
         self.assertNotIn("'repo'", out)
 
     def test_messages_page_commands_must_be_defined_earlier(self):

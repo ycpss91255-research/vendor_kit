@@ -54,5 +54,19 @@ class MainTest(unittest.TestCase):
         self.assertIn("格式不認得", out)
 
 
+class HtmlTest(unittest.TestCase):
+    HEAD = "# G\n\n## Language\n\n### 群\n\n**甲** (alpha)：\n"
+
+    def test_ins_fails(self):
+        # r144 起名詞改連到 GLOSSARY 分群，<ins> 不再放行
+        rc, out = run(self.HEAD + "定義<ins>甲</ins>。\n")
+        self.assertEqual(rc, 1)
+        self.assertIn("ins", out)
+
+    def test_inline_code_and_fence_not_html(self):
+        rc, out = run(self.HEAD + "定義 `<ins>` 與 `<repo>`。\n\n```\n<ins>甲</ins>\n```\n")
+        self.assertEqual(rc, 0, out)
+
+
 if __name__ == "__main__":
     unittest.main()

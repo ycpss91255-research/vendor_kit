@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """產生審閱頁的標示版：新增用綠底 <mark>，刪除（被取代或拿掉的舊文字）用紅底 <mark>。
 
-底線 <ins> 是名詞標記，所以改動不用底線，避免兩種意思混在一起。
+名詞連到 GLOSSARY.md 分群、不用底線；改動也不用底線。
 
 用法：
     python3 script/mark_changes.py <舊版後綴> <檔名…>
@@ -54,7 +54,7 @@ import sys
 REVIEW = pathlib.Path("doc/contract")
 BACKUP = pathlib.Path("doc/decisions/_backup")
 MARKED = pathlib.Path("doc/decisions/_marked")
-# 各鍵最後產出的版本號；進 git（_marked/ 不進 git）
+# 各鍵最後產出的版本號；進 git（_marked/ 也進 git，定稿時一個 commit 刪除）
 VERSIONS = pathlib.Path("doc/decisions/review_log/versions.json")
 
 
@@ -62,7 +62,7 @@ def mark(body: str, tag: str) -> str:
     """新增用綠底 <mark>，刪除（被取代或拿掉的舊文字）用紅底 <mark>。
 
     tag 是 "ins"（新增）或 "del"（刪除），只用來選顏色，輸出一律是 <mark>。
-    GitHub 會濾掉內嵌樣式；標示版只在本地 review 用、不進 git。
+    GitHub 會濾掉內嵌樣式；標示版進 git，定稿時一個 commit 刪除。
     """
     if tag == "ins":
         return '<mark style="background-color:#c8f0c8">' + body + "</mark>"
@@ -445,7 +445,7 @@ def build(name: str, suffix: str) -> tuple[int, int]:
     MARKED.mkdir(parents=True, exist_ok=True)
     official = f"/{path.as_posix()}" + ("" if csv_path is None else f" 與 /{csv_path.as_posix()}")
     header = [
-        f"<!-- 標示版 v{rev}：綠底 <mark> 是新增、紅底 <mark> 是刪除；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
+        f"<!-- 標示版 v{rev}：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定稿時一個 commit 刪除；"
         f"基準 {suffix}。正式內容看 {official} -->",
         "",
     ]
@@ -518,7 +518,7 @@ def build_from_version(name: str, base: int) -> tuple[int, int]:
     rev = next_rev(key)
     official = f"/{path.as_posix()}" + ("" if csv_path is None else f" 與 /{csv_path.as_posix()}")
     header = [
-        f"<!-- 標示版 v{rev}：綠底 <mark> 是新增、紅底 <mark> 是刪除；底線 <ins> 是名詞標記；本檔只供本地 review，不進 git；"
+        f"<!-- 標示版 v{rev}：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定稿時一個 commit 刪除；"
         f"基準是已送審的 v{base}。正式內容看 {official} -->",
         "",
     ]

@@ -5,7 +5,7 @@ r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫�
 1. 不寫「出處：」行：沿用規則時在正文寫「依 [頁名第 N 條](連結#錨點)」。
 2. 不寫「> 版本 vN」：版本只在 doc/decisions/_marked/ 的檔名。
 3. 每頁有「## 目錄」。
-3a. HTML 只准 <ins>：<a id>、<br> 這類只有部分環境顯示得出來；錨點一律用標題產生。
+3a. 不准任何 HTML 標籤（<ins> 也不行；名詞改連到 GLOSSARY.md 分群）：<a id>、<br> 這類只有部分環境顯示得出來；錨點一律用標題產生。
     反斜線跳脫的 \<repo\> 是字面文字，不算標籤。
 4. 相對連結的檔案與錨點都存在（錨點照 GitHub 的標題轉換規則算）。
 5. 只能向前依賴：審閱頁 N 不能連到編號比它大的審閱頁。
@@ -18,7 +18,7 @@ r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫�
    「[訊息](03_messages.csv) `VK0028`」；行內程式碼裡的連結例子不算。
    程式碼名詞本身當連結時直接寫名詞，例如「[dist/](…)」。
 9. 連結文字裡的 <…> 要跳脫：寫「[\<repo\>](../../GLOSSARY.md#工具與出貨)」；沒跳脫的 <repo> 會被當成
-   HTML 標籤吃掉。<ins> 不算。
+   HTML 標籤吃掉。<ins> 也一樣要跳脫。
 
 用法：python3 script/check_review_pages.py（在 repo 根目錄跑；有問題以 1 結束）
 """
@@ -38,7 +38,7 @@ OLD_CITE = re.compile(r"\]\([^)]+\)\s*第\s*\d+\s*條")
 LINK_TEXT = re.compile(r"\[([^\[\]]*)\]\([^)\s]+\)")
 # HTML 標籤；前面有反斜線的 \<repo\> 是跳脫過的字面文字，不算
 TAG = re.compile(r"(?<!\\)</?([a-zA-Z][\w-]*)[^>]*>")
-# 連結文字裡沒跳脫的 <…>（<ins> 另外放行）
+# 連結文字裡沒跳脫的 <…>
 RAW_ANGLE = re.compile(r"(?<!\\)<(/?)([^<>]*)>")
 
 
@@ -75,13 +75,12 @@ def backtick_link_texts(line: str) -> list[str]:
 
 
 def raw_angle_link_texts(line: str) -> list[tuple[str, str]]:
-    """連結文字裡有沒跳脫的 <…> 的連結：（整段原文, 第一個 <…>）；<ins>、</ins> 不算。"""
+    """連結文字裡有沒跳脫的 <…> 的連結：（整段原文, 第一個 <…>）。"""
     out = []
     for link, text in link_texts(line):
-        for m in RAW_ANGLE.finditer(text):
-            if m.group(2) != "ins":
-                out.append((link, m.group(0)))
-                break
+        m = RAW_ANGLE.search(text)
+        if m:
+            out.append((link, m.group(0)))
     return out
 
 
@@ -91,7 +90,7 @@ def pages() -> list[pathlib.Path]:
 
 def slug(text: str) -> str:
     """GitHub 的標題錨點：小寫、去掉標點（保留文字、數字、_、-、空白），空白換成 -。"""
-    text = re.sub(r"(?<!\\)<[^>]+>", "", text)   # <ins> 之類的標籤；跳脫的 \<repo\> 留著，反斜線下面當標點去掉
+    text = re.sub(r"(?<!\\)<[^>]+>", "", text)   # HTML 標籤；跳脫的 \<repo\> 留著，反斜線下面當標點去掉
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)  # 連結只留文字
     text = text.replace("`", "").lower()
     text = re.sub(r"[^\w\- ]", "", text)
@@ -140,9 +139,9 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
         where = f"{path}:{i}"
         if re.match(r"^\s*(?:[-*]\s*)?出處[:：]", line):
             errors.append(f"{where}: 對外頁不寫「出處」行；沿用規則時在正文寫「依 [頁名第 N 條](連結#錨點)」")
-        tags = sorted({t for t in TAG.findall(re.sub(r"`[^`]*`", "", line)) if t != "ins"})
+        tags = sorted({t for t in TAG.findall(re.sub(r"`[^`]*`", "", line))})
         if tags:
-            errors.append(f"{where}: 用了 HTML {tags}：對外頁只准 <ins>（GitHub 與 GitLab 都顯示）；錨點用標題產生")
+            errors.append(f"{where}: 用了 HTML {tags}：對外頁不准任何 HTML 標籤（<ins> 也不行；名詞改連到 GLOSSARY.md 分群）；錨點用標題產生")
         if OLD_CITE.search(re.sub(r"`[^`]*`", "", line)):
             errors.append(f"{where}: 引用條目的舊寫法「[名字](連結) 第 N 條」；改成「依 [頁名第 N 條](連結#錨點)」")
         for link in backtick_link_texts(line):
