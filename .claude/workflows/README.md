@@ -27,9 +27,10 @@ Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東�
 |---|---|---|---|
 | `doc-edit` | 改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 只讀審查並套用必改 → 跨檔一致性 → humanizer-zh-tw 潤稿 → lint；預設 codex 改、Claude 查，`editor` 可對調；`mode: "light"` 給機械式或只改幾行的改動，只用 Claude 子代理、不跑跨檔一致性與潤稿；建議只回報。取代已刪除的 `doc-apply` 與 `doc-review` | 改任何現行文件（README、`doc/contract/`、`GLOSSARY.md`、ADR）時；主對話不自己改 | `round`、`files` |
 | `discuss` | codex 與 Claude 各自回答、最多 3 輪比對，未收斂交維護者 | 問維護者之前；結果回報主對話，貼到 #78 對應的 child issue | `round`、`questions`（每項 `{ id, question, context }`） |
+| `research` | agy 查 → codex 核對 → Claude 整合 → 貼 issue。brief 放 workspace 的 `reference/research/<issue>/<id>_brief.md`，輸出也放那裡，不放 `/tmp`；整合結論寫到 `claude_review_<id1>_<id2>….md`（依 `briefs` 順序串接 id），同一 issue 換一批 brief 再跑不會覆蓋；agy 一律用最新的 gemini flash-high 模型（自動選），可用 `agyModel` 指定 | 要找外部前例或資料當決策依據時；brief 先寫好 | `issue`、`topic`、`briefs`（每項 `{ id, label }`） |
 | `pr` | 依序把每一項做成一個 PR：開 issue 掛成 sub-issue、開 worktree、修改、驗證、commit、開 PR、等 CI，可選 merge | 要開一個或多個「一個 issue 一個 PR」的改動時 | `parent`、`items` |
 
-`doc-edit` 的選填欄位：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（審查額外要看的重點）、`editor`（`codex` 預設｜`claude`）、`mode`（`full` 預設｜`light`）、`effort`（`{ edit, polish, review }`）、`topic`（短主題，例如 `"#121"`）。`discuss` 的選填欄位：`background`（已定案前提）、`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`；要用 PR worktree 時明確帶）。`pr` 的參數見下面。
+`doc-edit` 的選填欄位：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（審查額外要看的重點）、`editor`（`codex` 預設｜`claude`）、`mode`（`full` 預設｜`light`）、`effort`（`{ edit, polish, review }`）、`topic`（短主題，例如 `"#121"`）。`discuss` 的選填欄位：`background`（已定案前提）、`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`；要用 PR worktree 時明確帶）。`research` 的選填欄位：`dir`（預設 `/home/cyc/Desktop/vendor-kit_ws/reference/research/<issue>`）、`background`（已定案前提）、`post`（預設 `true`；`false` 就只產檔、不貼 issue）、`agyModel`（指定 agy 模型名；不給就自動選最新的 gemini flash-high 模型）。`research` 每次執行開頭印出識別 `research #<issue>`，子代理的 label 也帶 `#<issue>` 前綴。`pr` 的參數見下面。
 
 ## doc-edit
 
