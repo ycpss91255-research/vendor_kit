@@ -1,48 +1,72 @@
 # script/doc — 文件工具
 
-## 審閱頁的改動標示（`mark_changes.py`）
+## 對外文件的改動標示（`mark_changes.py`）
 
-審閱頁（`doc/decisions/review/0N_*.md`）每改一輪，就產一份標示版讓人只看差異：新文字用 `<mark>` 螢光、被取代的舊文字用 `<del>` 刪除線。標示版只在本地 review 用、不進 git（`_marked/` 在 `.gitignore` 裡），所以可以用 GitHub 會濾掉的 `<mark>`；review 完只留最終版。
+對外文件（審閱頁 `doc/contract/0N_*.md` 與根目錄 `README.md`）每改一輪，就產一份標示版讓人只看差異：新增用綠底 `<mark>`，刪除（被取代或拿掉的舊文字）用紅底 `<mark>`。標示版放在送審資料夾 `doc/review/<鍵>/`，只給審閱用，所以可以用 GitHub 會濾掉的 `<mark>` 內嵌樣式；定案後送審資料夾不再保留那一頁，只留正式檔。整套審閱流程（討論分支、定案才 merge、送審給哪兩個檔）見[審閱頁說明](../../doc/contract/README.md)「版本怎麼迭代」，這裡只講工具。內部文件（本檔、`AGENTS.md`、各目錄的 README、ADR 規則等）改完不產標示版、不送審。
 
 ### 一輪的流程
 
-1. **改之前先備份**。每輪一個後綴，依序遞增：
+1. **改之前先備份**。改動一律走 doc-edit workflow，由 workflow 在第一次修改前自動備份，不手動建 `*.pre_rNN.md`：手動建的檔會被當成已用掉的 round，也可能蓋掉 workflow 保證為「修改前原檔」的那份備份。`_backup/` 已移出 git（#128），只留在本機、已 gitignore。workflow 中途失敗就換下一個 round 重跑，不手動補備份。每輪一個 round，寫成 `rNN`：取本機 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 與 git log 裡 `Doc-Edit: rNN` footer 兩者的最大編號再加一，不能重用；doc-edit workflow 開跑時會檢查 round 的格式是不是 `rNN`、編號是不是這個最大值加一，重用或跳號就直接停。這一輪的基準後綴（也就是備份尾碼）是 `pre_<round>`，例如 round `r65` 的基準後綴是 `pre_r65`。
+
+   備份檔名是 `<鍵>.pre_<round>.md`，鍵是**把路徑攤平**（去掉 `.md`、`/` 換成 `_`、去掉開頭的點）。所有檔都用這套命名，不限審閱頁。審閱頁 `doc/contract/01_purpose.md` 的備份是 `doc_contract_01_purpose.pre_<round>.md`；`docs/` 併進 `doc/` 之前的備份是舊鍵 `docs_contract_…`（歷史），`mark_changes.py` 兩種都認。
+
+2. **改**：由 [doc-edit workflow](../../.claude/workflows/doc-edit.js) 的改寫階段派子代理修改（各 workflow 的說明見 [workflow 說明](../../.claude/workflows/README.md)）；本工具不改內容，只在修改完成後產生標示版。
+
+3. **產標示版與正文副本**：
 
    ```sh
-   cp doc/decisions/review/02_invariants.md \
-      doc/decisions/_backup/doc_decisions_review_02_invariants.pre_r65.md
+   python3 script/doc/mark_changes.py 01_purpose 02_invariants
    ```
 
-   備份檔名是**把路徑攤平**（`/` 換成 `_`）加上 `.pre_<後綴>`。同一套命名用在所有檔，不只審閱頁，`doc-apply` workflow 的護欄也是這個規則。
-
-   `doc/decisions/_backup/` 已移出 git，只留在本機、已 gitignore；舊內容在 git 歷史與 tag `archive/pr-59`。
-
-2. **改**（派子代理做，主對話只協調）。
-
-3. **產標示版**：
+   要在 repo 根目錄執行。審閱頁傳頁名（不含 `.md`）；根目錄 README 傳相對 repo 根目錄的路徑 `README.md`：
 
    ```sh
-   python3 script/doc/mark_changes.py pre_r65 01_purpose 02_invariants
+   python3 script/doc/mark_changes.py README.md
    ```
 
-   輸出到 `doc/decisions/review/_marked/<頁名>.v<N>.marked.md`，`<N>` 每跑一次加一（版本號記在 `_marked/.<頁名>.rev`），舊的那份會被刪掉，所以交出去的永遠是最新版、而且看檔名就分得出新舊。後綴就是步驟 1 用的那個，決定「跟哪一版比」。
+   不帶後綴時，基準是這個鍵在 `doc/review/versions.json` 最後一筆 `replied: true` 的紀錄，也就是維護者最後回覆過的那一版（用 `git show` 從紀錄的 commit 取檔）；沒有這樣的紀錄就整份標新增，`versions.json` 還不存在時也一樣，而且不會建立這個檔。鍵已標成定案而且正式檔仍與定案 commit 相同時，不產生送審檔；若送審資料夾還存在就刪掉並印出。正式檔在定案後又有改動時，改用定案版為基準重新產生，並印出「定案後又有改動，回到待審」。要拿本機的改前快照當基準，在頁名前加後綴，例如 `python3 script/doc/mark_changes.py pre_r65 01_purpose`，讀本機 `doc/decisions/_backup/` 裡照步驟 1 命名的備份（例如 `doc_contract_01_purpose.pre_r65.md`）；本機沒有 `_backup/`（換電腦、新 clone）就報錯。新建的頁沒有舊版，後綴寫 `new`，整份標新增。
 
-4. **基準永遠是審閱者上次看過的那一版**，不是最舊的那一版。他看過並回饋之後，下一輪的後綴就換成他讀的那一版 —— 已經討論完的段落不該再標成新改動，紅綠色只留給他還沒看過的。
+   輸出到送審資料夾 `doc/review/<鍵>/`，檔名固定、不帶版本號，每次產生就覆蓋：
 
-5. **只把標示版交給審閱者**。定案之後才給完整檔。
+   - 標示版 `<鍵>.marked.md`。
+   - 正文副本 `<鍵>.md`，內容跟正式檔一樣，只差相對連結。
 
-6. **定案就 commit**。commit 之後下一輪的比較基準改成 git：
+   版本號不在 repo 的檔名裡、也不寫進檔內，只出現在送審 zip 裡的檔名（`<鍵>.v<N>.…`）。`doc/review/versions.json` 記每次送審的版號與 commit，進 git，所以換電腦或新 clone 之後版號不會從 v1 重來。每筆紀錄有 `v`、`commit`、`replied`（維護者回覆過沒有），選填 `path`／`csv_path`：有這欄時基準改從 `git show <commit>:<path>` 取，用於舊的 `_marked/` 副本，從副本取時相對連結會先改寫回正式檔位置再比對；副本的連結沒改寫過（照正式檔位置寫）時帶 `raw_links: true`。沒寫 `replied` 的紀錄當成還沒回覆。正式檔改過名時（`mark_changes.py` 的 `RENAMED`：`03_messages` 改名為 `03_output`，#137），鍵跟著改名，舊紀錄不補 `path`：沒寫 `path`／`csv_path` 而紀錄的 commit 裡還沒有新路徑時，基準改取改名前的路徑；所有基準（含其他頁、本機備份）裡連到改名前路徑的連結也先換成新路徑再比對，只因改名而不同的行不標成改動。`versions.json` 頂層另有 `finalized` 物件，`finalized.<鍵>` 是 `{"v": N, "commit": "<sha>"}`，那一版的送審紀錄有 `path`、`csv_path`、`raw_links` 時一併照抄；沒有任何鍵定案時沒有這個欄位。`mark_changes.py` 只讀 `versions.json`、不寫、不取號，也不改正式檔。
+
+   標示版裡的相對連結會改寫成從送審資料夾出發（正文副本也一樣）：以原檔所在目錄解析成 repo 內的實際路徑，再換成從 `doc/review/<鍵>/` 出發的相對路徑，錨點照留；指到其他審閱頁的連結指正式檔 `doc/contract/<頁>.md`，不指副本。外部網址、純錨點、行內程式碼與程式碼區塊裡的字樣不改，正式檔也不動。
+
+   正式檔名不帶版本號、不改名，其他文件的連結才不會斷。鍵對審閱頁是頁名（例如 `04_interface`），對其他檔是攤平後的路徑（`/` 換成 `_`、去掉 `.md` 與開頭的點，所以 `README.md` 的鍵是 `README`）。鍵 `README` 一律對到根目錄的 `README.md`；`doc/contract/README.md` 要傳路徑，鍵是 `doc_contract_README`。
+
+   基準選擇、輸出檔名與連結改寫這些行為由 [mark_changes 測試](test/test_mark_changes.py) 涵蓋，在 repo 根目錄跑 `python3 -m unittest discover -s script/doc/test`。
+
+4. **基準是維護者最後回覆過的那一版；定案後又有改動時是定案版**，不是最舊的那一版，也不是最後送出、還沒回覆的那一版。不帶後綴時自動選擇；要指定別的送審版本，用 `--base-version` 指定版號（不看 `replied`）：
 
    ```sh
-   git show HEAD:doc/decisions/review/02_invariants.md \
-     > doc/decisions/_backup/doc_decisions_review_02_invariants.pre_r66.md
+   python3 script/doc/mark_changes.py --base-version 03_output=13 04_interface=18 GLOSSARY=6
    ```
+
+   基準是 `versions.json` 裡這個鍵版本 `<N>` 記的 commit，用 `git show` 取當時的正式檔，有附屬 CSV 時也一起取；那個 commit 裡沒有那份 CSV 時視為新建、整份標新增。左邊寫頁名、路徑或鍵都行（`GLOSSARY`、`README` 對到根目錄的檔；`doc/contract/README.md` 要寫路徑）。任何一個指定版號在 `versions.json` 裡找不到就停下報錯，整批都不產。已經討論完的段落不該再標成新改動，紅綠色只留給他還沒看過的。
+
+5. **草稿 commit 在討論分支，定案才 merge 進 `main`**。定案版就是正式檔，之後隨 PR merge 進 `main`。下一輪從 `main` 開新的討論分支，再跑 doc-edit workflow，由它自動備份當時的正式檔，不手動從 `main` 取檔建備份。
 
 ### 標示規則
 
 - 表格列在儲存格內標記，不把整列包起來。整列包住會讓那一列不再是合法的表格列，GitHub 與 VS Code 都會把表格切斷。
-- 標題、清單、引言的行首記號留在標籤外（`## <ins>目錄</ins>`），否則標題會變成普通文字。
-- 粗體留給結構標籤、底線留給名詞標記、螢光與刪除線留給改動，三者互不衝突。
+- 標題行（`#` 開頭）保持原樣、不加任何標籤：檢視器用標題文字產生錨點，標籤混進去錨點就變了，目錄連結跳不過去。新增的標題在下一行註記綠底「（本節新增）」；改過的標題在下一行標紅底「舊標題：<舊文字>」，再接一行綠底「（標題已修改）」；刪掉的標題去掉 `#`，以紅底呈現在普通文字行，不產生錨點。
+- 清單、引言的行首記號留在標籤外，否則會變成普通文字。
+- 粗體留給結構標籤、名詞第一次出現於正文時連到 `GLOSSARY.md` 的所屬分群、綠底與紅底的 `<mark>` 留給改動，三者互不衝突。
+
+### 審閱頁旁的 CSV（`03_output`）
+
+審閱頁旁邊有同名的 CSV（`doc/contract/03_output.csv`）時，傳頁名 `03_output`（或路徑 `doc/contract/03_output.csv`，效果相同）會一起處理 `.md` 與 `.csv`，兩個檔共用 `versions.json` 裡同一個鍵 `03_output`，送審時一次只加一號。在 `doc/review/03_output/` 輸出三個檔：
+
+- `03_output.md`：03 頁的正文副本（03 頁這一輪沒改也照樣輸出）。
+- `03_output.csv`：CSV 的副本，逐位元組照抄（BOM、LF 都保留）。
+- `03_output.marked.md`：合併的標示版。前半是 03 頁的逐行差異，規則同上；後半是「03_output.csv 的逐碼差異」。
+
+CSV 的逐碼差異：新舊兩版依 `code` 對齊、逐欄比較，每個有改動的代碼寫成一段 `#### VKnnnn`，依新表頭的欄位順序列出這個代碼的各欄。改過的欄寫成紅底舊值 → 綠底新值，沒改的欄照原樣列出、不加標記。新增的代碼在標題下一行註記綠底「（本碼新增）」、各欄標綠；改成 `retired` 的註記紅底「（本碼停用）」；從 CSV 拿掉的列註記紅底「（本列刪除）」、各欄標紅。表頭改了（例如刪掉欄）時，逐碼差異開頭先標出新舊表頭，並逐欄註記紅底「（本欄刪除）」或綠底「（本欄新增）」；新增的欄照新表頭的位置列出，各碼標綠新值並註記綠底「（本欄新增）」，新值是空的不算改動；刪掉的欄排在新表頭各欄之後，列出舊值並標紅，所以只刪欄的代碼也算有改動。沒改動的代碼不成段，最後用一行列出有幾個、是哪些。欄位值裡的 `<`、`>` 會跳脫，占位符照原樣看得到；格內換行改成 `<br>`。
+
+不帶後綴或用 `--base-version` 時，CSV 的基準跟 `.md` 一樣從送審紀錄的 commit 取（紀錄有 `csv_path` 就取那個路徑）。帶後綴時，CSV 的基準版是本機 `doc/decisions/_backup/doc_contract_03_output.<後綴>.csv`，攤平規則跟 `.md` 相同，只差副檔名；以下是後綴模式的規則。兩個檔只有一個有基準版時，另一個視為這一輪沒改；CSV 沒有基準版、也不在 git 的 `HEAD` 裡時，視為新建、整份標新增。這兩種情況都會印在輸出，也寫在標示版開頭。兩個都沒有基準版就停下。基準後綴寫 `new` 時，兩個檔都整份標新增。
 
 ## 名詞表自檢（`check_context.py`）
 
