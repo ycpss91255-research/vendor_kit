@@ -197,7 +197,8 @@ class FieldTest(Base):
     def test_exit_code_matches_level(self):
         for level, exit_code in (("warn", "1"), ("error", "2"), ("fatal", "3")):
             with self.subTest(level=level):
-                self.edit(1, level=level, exit_code=exit_code, disposition="")
+                disposition = "" if level == "warn" else "失敗"
+                self.edit(1, level=level, exit_code=exit_code, disposition=disposition)
                 self.assert_ok()
 
     def test_wrong_exit_code(self):
@@ -214,8 +215,16 @@ class FieldTest(Base):
         self.edit(1, disposition="—")
         self.assert_fail("VK0002:disposition: 只准")
 
-    def test_empty_disposition_on_error_ok(self):
+    def test_empty_disposition_on_non_usage_error_fails(self):
         self.edit(1, disposition="")
+        self.assert_fail("VK0002:disposition: 只有 warn 與用法錯誤可留空")
+
+    def test_empty_disposition_on_usage_error_ok(self):
+        self.edit(1, disposition="", situation="用法錯誤：缺少必要參數")
+        self.assert_ok()
+
+    def test_empty_disposition_on_warn_ok(self):
+        self.edit(2, disposition="")
         self.assert_ok()
 
     def test_warn_disposition_empty(self):
@@ -255,7 +264,8 @@ class FieldTest(Base):
         )
         for message, next_step in cases:
             with self.subTest(message=message):
-                self.edit(1, message=message, next_step=next_step, disposition="")
+                disposition = "需人處理" if next_step else "失敗"
+                self.edit(1, message=message, next_step=next_step, disposition=disposition)
                 self.assert_ok()
 
     def test_html(self):

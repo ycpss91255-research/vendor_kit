@@ -182,10 +182,10 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 寫法：`-y`，長選項 `--yes`。
 
 **診斷** (diagnostic)：
-VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。
+VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。
 
-**level** (log level)：
-診斷的嚴重程度，只有 info、warn、error、fatal，依序對應結束碼 0、1、2、3；info 不印前綴。
+**嚴重度** (level)：
+診斷的嚴重程度。本版使用的值是 `info`、`warn`、`error`、`fatal`；stderr 的診斷只用 `warn`、`error`、`fatal`，`info` 只用在成功的結果與結構化紀錄，不印成診斷。結束碼和嚴重度的對應見[結束碼](doc/contract/03_messages.md#結束碼)。
 
 **正常輸出** (normal output)：
 成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。
@@ -197,7 +197,7 @@ VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊�
 診斷的處置屬性，表示這次執行沒有做完；不承諾可執行的修法，但可以附一般建議。
 
 **警告** (warning)：
-指出可能有問題、需要人確認的 warn 診斷；與其他 warn 結果的區分見[結束碼](doc/contract/03_messages.md#結束碼)。
+這次指令承諾的結果已做完，但有要使用者知道或確認的事的 `warn` 診斷；可以附下一步指令。
 
 **原因代碼** (reason code)：
 每條診斷的固定識別碼；格式與生命週期見[訊息](doc/contract/03_messages.md#訊息)。

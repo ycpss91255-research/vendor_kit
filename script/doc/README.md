@@ -104,7 +104,7 @@ python3 script/doc/check_messages.py
 - 代碼：`VK` 加四位數字，從 `VK0001` 起逐列加一，所以唯一、遞增、不缺列；停用的代碼留列。
 - `status` 只准 `active`、`retired`。`retired` 列只留 `code`、`status`、`situation`，其餘欄要空白。
 - `active` 列：`level` 只准 `warn`、`error`、`fatal`；`exit_code` 必須依序對應 `1`、`2`、`3`；`situation`、`message`、`description` 必填。
-- `disposition` 只准「需人處理」「失敗」或空白；`warn` 一律空白；「需人處理」必有 `next_step`；「失敗」的 `next_step` 必須空白。
+- `disposition` 只准「需人處理」「失敗」或空白；`warn` 一律空白，只有 `warn` 與 `situation` 以「用法錯誤：」開頭的列可留空，其他 `error`、`fatal` 的 `active` 列必填；「需人處理」必有 `next_step`；「失敗」的 `next_step` 必須空白。
 - `message` 不准含中文字元（中文說明放 `description`）。
 - `next_step` 有值時，必須逐字出現在 `message` 裡。
 - 欄位不准 HTML（有屬性的標籤、結束標籤、`<ins>`、`<br>` 這類常見標籤名、`<!--`）與 Markdown（反引號、粗體、刪除線、連結、行首的標題、清單或引言記號）；不帶屬性的 `<…>`（例如 `<repo>`、`<P>`）算占位符。`<`、`>` 要成對、不巢狀。
