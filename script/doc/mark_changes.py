@@ -4,9 +4,9 @@
 底線 <u> 是名詞標記，所以改動不用底線，避免兩種意思混在一起。
 
 用法：
-    python3 script/mark_changes.py <舊版後綴> <檔名…>
+    python3 script/doc/mark_changes.py <舊版後綴> <檔名…>
 例：
-    python3 script/mark_changes.py pre_r63 01_purpose 02_invariants
+    python3 script/doc/mark_changes.py pre_r63 01_purpose 02_invariants
 
 舊版讀 doc/decisions/_backup/doc_decisions_review_<name>.<後綴>.md，
 新版讀 doc/decisions/review/<name>.md，
@@ -81,7 +81,7 @@ def backup_path(name: str, suffix: str) -> pathlib.Path:
             return candidate
     raise SystemExit(
         f"找不到 {name} 的基準版。試過：\n  {flat}\n  {nested}\n"
-        f"改檔之前要先備份，命名見 script/README.md。"
+        f"改檔之前要先備份，命名見 script/doc/README.md。"
     )
 
 
