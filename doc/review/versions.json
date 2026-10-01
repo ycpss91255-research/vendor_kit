@@ -1,0 +1,41 @@
+{
+  "review_zip": 3,
+  "pages": {
+    "01_purpose": [
+      {
+        "v": 16,
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+      }
+    ],
+    "02_invariants": [
+      {
+        "v": 18,
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+      }
+    ],
+    "03_messages": [
+      {
+        "v": 14,
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+      }
+    ],
+    "04_interface": [
+      {
+        "v": 19,
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+      }
+    ],
+    "GLOSSARY": [
+      {
+        "v": 7,
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+      }
+    ],
+    "README": [
+      {
+        "v": 7,
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+      }
+    ]
+  }
+}

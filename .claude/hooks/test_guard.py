@@ -53,7 +53,7 @@ codex exec --skip-git-repo-check -C /x -o /y.md "brief\""""
 
 CASES = [
     # (說明, tool_name, tool_input, 預期)
-    ("Workflow 帶 name", "Workflow", {"name": "doc-apply", "args": {}}, None),
+    ("Workflow 帶 name", "Workflow", {"name": "discuss", "args": {}}, None),
     ("Workflow 帶 scriptPath", "Workflow", {"scriptPath": "/tmp/x.js"}, None),
     ("inline script、乾淨", "Workflow", {"script": SCRIPT_OK}, "allow"),
     ("prompt 字串裡有禁用 API 與 TS 詞", "Workflow", {"script": SCRIPT_OK}, "allow"),
@@ -130,8 +130,8 @@ def main():
                           "tool_input": {"script": SCRIPT_OK}})
     proc = subprocess.run([sys.executable, GUARD], input=payload, capture_output=True, text=True, timeout=20)
     ctx = json.loads(proc.stdout).get("hookSpecificOutput", {}).get("additionalContext", "") if proc.stdout.strip() else ""
-    ok = "命名 workflow" in ctx and "doc-apply" in ctx
-    print(f"{'PASS' if ok else 'FAIL'}  inline 腳本的提醒有注入且列出 doc-apply")
+    ok = "命名 workflow" in ctx and "discuss" in ctx
+    print(f"{'PASS' if ok else 'FAIL'}  inline 腳本的提醒有注入且列出 discuss")
     if not ok:
         failed.append("inline 提醒")
 

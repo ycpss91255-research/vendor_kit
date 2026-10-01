@@ -3,7 +3,7 @@ r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫�
 
 規則見 doc/contract/README.md「寫法規則」與「版本怎麼迭代」：
 1. 不寫「出處：」行：沿用規則時在正文寫「依 [頁名第 N 條](連結#錨點)」。
-2. 不寫「> 版本 vN」：版本只在 doc/decisions/_marked/ 的檔名。
+2. 不寫「> 版本 vN」：版本只記在 doc/review/versions.json，只出現在送審 zip 內的檔名。
 3. 每頁有「## 目錄」。
 3a. 不准任何 HTML 標籤（<ins> 也不行；名詞改連到 GLOSSARY.md 分群）：<a id>、<br> 這類只有部分環境顯示得出來；錨點一律用標題產生。
     反斜線跳脫的 \<repo\> 是字面文字，不算標籤。
@@ -150,7 +150,7 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
             fixed = "\\<" + raw[1:-1] + "\\>"
             errors.append(f"{where}: 連結文字裡的 {raw} 沒跳脫：{link}；改成 {fixed}，例如「[\\<repo\\>](../../GLOSSARY.md#工具與出貨)」")
         if re.match(r"^>\s*版本\s*v\d+\s*$", line):
-            errors.append(f"{where}: 正式檔不寫版本號；版本只在 _marked/ 的檔名")
+            errors.append(f"{where}: 正式檔不寫版本號；版本只記在 doc/review/versions.json 與送審 zip 的檔名")
         for target in LINK.findall(line):
             if re.match(r"^[a-z]+:", target):
                 continue
