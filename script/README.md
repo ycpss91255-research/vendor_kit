@@ -11,6 +11,7 @@
 | `workflow/` | 命名 workflow 的機械步驟，各腳本見該類別的 README | [workflow 腳本說明](workflow/README.md) |
 | `diagram/` | 圖面工具：drawio 圖頁的抽取與檢查 | [圖面工具說明](diagram/README.md) |
 | `github/` | GitHub 相關工具：盯動靜 `watch_github.sh`、PR 規則檢查 `check_pr_rules.py`（範圍表 `scope.json`） | [GitHub 工具說明](github/README.md) |
+| `git/` | git 相關工具：commit 訊息格式檢查 `check_commit_msg.py` | [git 工具說明](git/README.md) |
 
 ## 新增腳本
 
