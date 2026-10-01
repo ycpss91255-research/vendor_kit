@@ -32,6 +32,7 @@
   ],
   "groups": [
     {"name": "hook:pr_rules_guard", "scopes": ["hook:pr_rules_guard", "script:github"], "_why": "hook 呼叫 script/github/check_pr_rules.py 與這份範圍表"},
-    {"name": "hook:monitor_guard", "scopes": ["hook:monitor_guard", "script:github"], "_why": "hook 擋下 Monitor 時指向 script/github/watch_github.sh（#175）"}
+    {"name": "hook:monitor_guard", "scopes": ["hook:monitor_guard", "script:github"], "_why": "hook 擋下 Monitor 時指向 script/github/watch_github.sh（#175）"},
+    {"name": "claude:settings", "scopes": ["claude:settings", "hook:settings_hooks"], "_why": "test_settings_hooks 檢查的就是 settings.json 註冊的 hook"}
   ]
 }
