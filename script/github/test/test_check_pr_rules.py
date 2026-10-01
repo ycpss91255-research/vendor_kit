@@ -124,5 +124,85 @@ class CliTest(unittest.TestCase):
         self.assertIn("讀不到輸入", json.loads(r.stdout)["problems"][0])
 
 
+def git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+
+
+def commit_file(repo, path, text, msg):
+    f = Path(repo) / path
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text, encoding="utf-8")
+    git(repo, "add", path)
+    git(repo, "commit", "-q", "-m", msg)
+
+
+class GitDiffTest(unittest.TestCase):
+    """暫存 git repo：分支開出後 main 又往前，三點 diff 只取分支自己的改動。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        git(self.repo, "init", "-q", "-b", "main")
+        git(self.repo, "config", "user.email", "t@example.com")
+        git(self.repo, "config", "user.name", "t")
+        commit_file(self.repo, "README.md", "x\n", "init")
+        git(self.repo, "checkout", "-q", "-b", "feat")
+        commit_file(self.repo, "script/doc/check_terms.py", "x\n", "feat")
+        git(self.repo, "checkout", "-q", "main")
+        commit_file(self.repo, "CONTEXT.md", "x\n", "main moves on")
+        git(self.repo, "checkout", "-q", "feat")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_three_dot_excludes_main_progress(self):
+        self.assertEqual(c.git_diff_files("main", self.repo), ["script/doc/check_terms.py"])
+
+    def test_bad_base_raises(self):
+        with self.assertRaises(ValueError):
+            c.git_diff_files("nonexistent", self.repo)
+
+    def run_cli(self, *args):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        b = Path(d.name) / "body.md"
+        b.write_text("Closes #5\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, str(SCRIPT), "--body-file", str(b), *args],
+                           cwd=self.repo, capture_output=True, text=True)
+        return r.returncode, json.loads(r.stdout)
+
+    def test_cli_git_diff(self):
+        code, out = self.run_cli("--git-diff", "main")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["scopes"], ["script:doc"])
+
+    def test_cli_git_diff_default_base_is_origin_main(self):
+        code, out = self.run_cli("--git-diff")
+        self.assertEqual(code, 1)
+        self.assertIn("origin/main...HEAD", out["problems"][0])
+
+    def test_cli_git_diff_and_files_from_exclusive(self):
+        r = subprocess.run([sys.executable, str(SCRIPT), "--body-file", "x", "--git-diff", "--files-from", "-"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+
+
+class PrBodyTest(unittest.TestCase):
+    def test_uses_gh_with_repo(self):
+        calls = []
+
+        def fake(cmd, cwd=None):
+            calls.append(cmd)
+            return "Closes #7\n"
+
+        self.assertEqual(c.pr_body(12, run=fake), "Closes #7\n")
+        self.assertEqual(calls, [["gh", "pr", "view", "12", "-R", c.REPO, "--json", "body", "-q", ".body"]])
+
+    def test_body_file_and_pr_exclusive(self):
+        r = subprocess.run([sys.executable, str(SCRIPT), "--body-file", "x", "--pr", "1"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

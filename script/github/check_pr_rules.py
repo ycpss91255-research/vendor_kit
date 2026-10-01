@@ -8,7 +8,13 @@
 - 規則 B（epic／sub-issue）只是指引，這裡不檢查。
 
 用法：
-  python3 script/github/check_pr_rules.py --body-file <本文檔> [--files-from <改動檔清單，一行一個；- 表示 stdin>] [--table <範圍表>]
+  python3 script/github/check_pr_rules.py (--body-file <本文檔> | --pr <N>)
+      [--git-diff [<base>] | --files-from <改動檔清單，一行一個；- 表示 stdin>] [--table <範圍表>]
+
+- `--git-diff [<base>]`：自己跑 `git diff --name-only <base>...HEAD`（三點，<base> 預設 origin/main）取改動檔。
+  三點只算分支自己的改動；兩點會把 main 在分支開出之後的改動也算進來，誤判成多個範圍。
+- `--pr <N>`：本文用 `gh pr view <N> -R <repo>` 取，不用先寫成檔。
+- 原本的 `--body-file`、`--files-from` 照舊可用。
 
 輸出一行 JSON：{"ok", "issues": [...], "scopes": [...], "problems": [...]}；全過結束碼 0，有違規 1。
 本機 hook .claude/hooks/pr_rules_guard.py 與之後的 CI 都呼叫這支，不另寫一份規則。
@@ -16,10 +22,13 @@
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 TABLE = Path(__file__).resolve().parent / "scope.json"
+REPO = "ycpss91255-research/vendor_kit"
+DEFAULT_BASE = "origin/main"
 ISSUE_LINK = re.compile(r"(?i)\b(?:refs|closes|fixes|resolves):?\s+#(\d+)\b")
 
 
@@ -79,15 +88,40 @@ def check(body: str, files: list[str], table: dict | None = None) -> dict:
     return {"ok": not problems, "issues": issues, "scopes": scopes, "problems": problems}
 
 
+def _run(cmd: list[str], cwd=None) -> str:
+    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise ValueError(f"{' '.join(cmd)} 失敗：{r.stderr.strip()}")
+    return r.stdout
+
+
+def git_diff_files(base: str = DEFAULT_BASE, cwd=None) -> list[str]:
+    """分支自己的改動檔：`git diff --name-only <base>...HEAD`（三點，從 merge-base 算起）。"""
+    return _run(["git", "diff", "--name-only", f"{base}...HEAD"], cwd).splitlines()
+
+
+def pr_body(number: int, repo: str = REPO, run=_run) -> str:
+    """用 gh 取 PR 本文。"""
+    return run(["gh", "pr", "view", str(number), "-R", repo, "--json", "body", "-q", ".body"])
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="PR 規則檢查：連 issue 與一個範圍")
-    p.add_argument("--body-file", required=True)
-    p.add_argument("--files-from", help="改動檔清單，一行一個；- 表示 stdin")
+    body_src = p.add_mutually_exclusive_group(required=True)
+    body_src.add_argument("--body-file")
+    body_src.add_argument("--pr", type=int, help="用 gh pr view 取這個 PR 的本文")
+    files_src = p.add_mutually_exclusive_group()
+    files_src.add_argument("--files-from", help="改動檔清單，一行一個；- 表示 stdin")
+    files_src.add_argument("--git-diff", nargs="?", const=DEFAULT_BASE, metavar="BASE",
+                           help=f"自己跑 git diff --name-only BASE...HEAD（三點）取改動檔；BASE 預設 {DEFAULT_BASE}")
+    p.add_argument("--repo", default=REPO, help=f"--pr 用的 repo，預設 {REPO}")
     p.add_argument("--table", default=str(TABLE))
     a = p.parse_args(argv)
     try:
-        body = Path(a.body_file).read_text(encoding="utf-8")
-        if a.files_from is None:
+        body = pr_body(a.pr, a.repo) if a.pr is not None else Path(a.body_file).read_text(encoding="utf-8")
+        if a.git_diff is not None:
+            files = git_diff_files(a.git_diff)
+        elif a.files_from is None:
             files = []
         elif a.files_from == "-":
             files = sys.stdin.read().splitlines()
