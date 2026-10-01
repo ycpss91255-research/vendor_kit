@@ -122,3 +122,27 @@ python3 script/doc/check_messages.py
 CSV 的 `situation`、`message`、`next_step` 裡的指令寫法（`just vendor_kit …`）不在這支的範圍，目前沒有工具檢查。
 
 各條規則的正反例在 [check_messages 測試](test/test_check_messages.py)。
+
+## 對外頁寫法自檢（`check_review_pages.py`）
+
+改了根目錄 `README.md`、`doc/contract/0N_*.md` 或 03 的 CSV 就跑，CI 的 docs-lint job 也跑這支：
+
+```sh
+python3 script/doc/check_review_pages.py
+```
+
+在 repo 根目錄執行。全過印 `OK: 掃 N 個對外文件` 回 0；有違規逐條印 `<檔>:<行>: <問題>` 回 1，CSV 的位置報 `<檔>:<代碼>:<欄名>`。掃描範圍是根目錄 `README.md` 與 `doc/contract/0N_*.md`，另掃 `doc/contract/03_*.csv` 的指令欄。檔案還不存在就少掃那些，不算錯誤。查這幾件事：
+
+- 每頁有 `## 目錄`；不寫「出處：」行，也不寫 `> 版本 vN`。
+- 不准任何 HTML 標籤，`<ins>`、`<a id>`、`<br>` 也不行；行內程式碼裡的、反斜線跳脫的 `\<repo\>` 不算。
+- 相對連結的檔案與錨點都要存在，錨點照 GitHub 的標題轉換規則算；不准以 `/` 開頭。
+- 引用別頁條目寫「依 [頁名第 N 條](連結#錨點)」，不寫舊寫法「[名字](連結) 第 N 條」。
+- 連結文字不得含反引號：碼放在連結外，例如「[結束碼](03_output.md#結束碼) `2`」。連結文字裡的 `<…>` 要跳脫成 `\<…\>`。
+- **L1**：01、02 不准原因代碼 `VKnnnn`，行內程式碼照掃，程式碼區塊不掃。
+- **L2**：01、02 的「結束碼」前後 10 字內不准反引號包住的單位數字，也不准 `exit code <數字>`。
+- **L3**：內容只能往前依賴，導覽可以往後指。審閱頁 N 以「依」或「依照」連到後面的頁就擋；README 是入口不是第 0 頁，以「依」連到審閱頁也擋。只是導覽就寫「詳見」。
+- **L4**：README 與 03 的行內程式碼、03 CSV 的 `situation`、`message`、`next_step` 欄，以 VK recipe 名或 `just vendor_kit <recipe>` 開頭的片段，用到的選項 token（含單獨的 `--` 與 `@<tag>`）都要先在 `GLOSSARY.md`、01、02 的行內程式碼出現過，逐 token 完整比對。還沒有 `GLOSSARY.md` 時整條跳過。
+
+頂端的 `TEMP_ALLOWLIST` 放暫時豁免的個別錯誤（整行原文完全相同才放行），目前是空的；輸出第一行會印筆數與命中數，悄悄長大看得見。
+
+各條規則的正反例在 [check_review_pages 測試](test/test_check_review_pages.py)。
