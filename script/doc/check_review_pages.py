@@ -20,7 +20,7 @@ r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫�
 9. 連結文字裡的 <…> 要跳脫：寫「[\<repo\>](../../GLOSSARY.md#工具與出貨)」；沒跳脫的 <repo> 會被當成
    HTML 標籤吃掉。<ins> 也一樣要跳脫。
 
-用法：python3 script/check_review_pages.py（在 repo 根目錄跑；有問題以 1 結束）
+用法：python3 script/doc/check_review_pages.py（在 repo 根目錄跑；有問題以 1 結束）
 """
 import csv
 import pathlib

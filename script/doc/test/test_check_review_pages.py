@@ -1,4 +1,4 @@
-"""check_review_pages.py 的規則：跑法 `python3 -m unittest discover -s script/test`。"""
+"""check_review_pages.py 的規則：跑法 `python3 -m unittest discover -s script/doc/test`。"""
 import contextlib
 import io
 import os

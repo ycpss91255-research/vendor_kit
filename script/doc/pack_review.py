@@ -2,8 +2,8 @@
 """把送審資料夾打包成 review_v<N>.zip，並在 doc/review/versions.json 記下這次送審。
 
 用法（在 repo 根目錄執行）：
-  python3 script/pack_review.py --out <目錄> [--note <審閱說明.md>] <頁鍵> [<頁鍵> ...]
-  python3 script/pack_review.py --replied <鍵>=<N> [<鍵>=<N> ...]   # 維護者回覆後標記那一版
+  python3 script/doc/pack_review.py --out <目錄> [--note <審閱說明.md>] <頁鍵> [<頁鍵> ...]
+  python3 script/doc/pack_review.py --replied <鍵>=<N> [<鍵>=<N> ...]   # 維護者回覆後標記那一版
 
 頁鍵的寫法跟 mark_changes.py 相同：審閱頁傳頁名（03_messages），其他檔傳路徑（GLOSSARY.md）。
 標示版照舊由 mark_changes.py 產生；這支只打包 doc/review/<鍵>/ 裡的

@@ -1,6 +1,6 @@
 name: docs
 
-# 文件類的檢查都放這支，一種檢查一個 job。文件工具自己的測試（script/test）也在這支；VK 程式碼的 lint 放 lint.yml、測試（根目錄 test/）放 test.yml。
+# 文件類的檢查都放這支，一種檢查一個 job。文件工具自己的測試（script/doc/test、script/repo/test）也在這支；VK 程式碼的 lint 放 lint.yml、測試（根目錄 test/）放 test.yml。
 # 不加 paths 過濾：這些 job 會設成 ruleset 的必過檢查，被過濾跳過的必過檢查會一直停在 Pending，PR 就 merge 不了。
 on:
   pull_request:
@@ -16,20 +16,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: check_terms（_Avoid_ 詞、<u>）
-        run: python3 script/check_terms.py
+        run: python3 script/doc/check_terms.py
       - name: check_context（GLOSSARY.md 格式）
-        run: python3 script/check_context.py
+        run: python3 script/doc/check_context.py
       - name: check_review_pages（對外文件寫法：只准 <ins>、錨點、只能向前依賴）
-        run: python3 script/check_review_pages.py
+        run: python3 script/doc/check_review_pages.py
       - name: check_messages（訊息表 03_messages.csv：格式、代碼、欄位規則、引用）
-        run: python3 script/check_messages.py
+        run: python3 script/doc/check_messages.py
       - name: check_typography（排版：ASCII 括號用半形、中文與英數之間空一格）
-        run: python3 script/check_typography.py
+        run: python3 script/doc/check_typography.py
+      - name: check_script_layout（script/ 依類型分子目錄：頂層只准 README.md、類別名小寫英數與連字號、每類要有 README.md）
+        run: python3 script/repo/check_script_layout.py
 
-  # 文件工具（script/ 底下的 lint 與產生器）自己的測試；VK 程式碼的測試放根目錄 test/ 與 test.yml，不混在這裡
+  # script/ 底下工具（文件 lint 與產生器、repo 結構檢查）自己的測試；VK 程式碼的測試放根目錄 test/ 與 test.yml，不混在這裡
   docs-tool-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: script/test（文件工具測試）
-        run: python3 -m unittest discover -s script/test -v
+      - name: script/doc/test（文件工具測試）
+        run: python3 -m unittest discover -s script/doc/test -v
+      - name: script/repo/test（repo 結構檢查的測試）
+        run: python3 -m unittest discover -s script/repo/test -v

@@ -1,11 +1,11 @@
-"""check_typography.py 的排版規則（正反例與排除範圍）：跑法 `python3 -m unittest discover -s script/test`。
+"""check_typography.py 的排版規則（正反例與排除範圍）：跑法 `python3 -m unittest discover -s script/doc/test`。
 
 規則 (1)：括號內容全是 ASCII 用半形括號，半形括號與中文之間空一格；括號內有中文維持全形。
 規則 (2)：中文與英文字母或阿拉伯數字相鄰要空一格；全形標點與英數之間不加空白。
   行內程式碼與前後的中文相鄰也要空一格；與全形標點相鄰不加空白；連結的 [ 與 ](…) 不算字元。
 排除：行內程式碼的內容、程式碼區塊、URL、Markdown 連結目標、HTML 標籤、CSV 的固定欄。
 
-以黑箱方式跑：把 script/*.py 複製進暫存目錄的 script/，在暫存目錄當 repo 根目錄執行，
+以黑箱方式跑：把 script/doc/*.py 複製進暫存目錄的 script/doc/，在暫存目錄當 repo 根目錄執行，
 不依賴腳本內部的函式名稱；腳本以 cwd 或自身位置找 repo 根目錄都一樣會對到暫存目錄。
 """
 import csv
@@ -53,9 +53,9 @@ class Base(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self._tmp.name)
-        (self.root / "script").mkdir()
+        (self.root / "script/doc").mkdir(parents=True)
         for p in SCRIPT_DIR.glob("*.py"):
-            shutil.copy(p, self.root / "script" / p.name)
+            shutil.copy(p, self.root / "script/doc" / p.name)
         (self.root / "doc/contract").mkdir(parents=True)
         self.write("README.md", "# VK\n\nVK 的 recipe 說明。\n")
         self.write("GLOSSARY.md", "# 名詞\n\n用 VK 管理 recipe。\n")
@@ -76,7 +76,7 @@ class Base(unittest.TestCase):
 
     def run_tool(self, *args):
         p = subprocess.run(
-            [sys.executable, "script/check_typography.py", *args],
+            [sys.executable, "script/doc/check_typography.py", *args],
             cwd=self.root, capture_output=True, text=True, encoding="utf-8",
         )
         return p.returncode, p.stdout + p.stderr

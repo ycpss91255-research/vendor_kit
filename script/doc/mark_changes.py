@@ -4,13 +4,13 @@
 名詞連到 GLOSSARY.md 分群、不用底線；改動也不用底線。
 
 用法：
-    python3 script/mark_changes.py <檔名…>                      # 基準：該鍵維護者最後一次回覆過的版本
-    python3 script/mark_changes.py --base-version 03_messages=13 GLOSSARY=6   # 指定送審版本當基準
-    python3 script/mark_changes.py <舊版後綴> <檔名…>           # 本機 _backup 的改前快照當基準
+    python3 script/doc/mark_changes.py <檔名…>                      # 基準：該鍵維護者最後一次回覆過的版本
+    python3 script/doc/mark_changes.py --base-version 03_messages=13 GLOSSARY=6   # 指定送審版本當基準
+    python3 script/doc/mark_changes.py <舊版後綴> <檔名…>           # 本機 _backup 的改前快照當基準
 例：
-    python3 script/mark_changes.py 01_purpose 02_invariants README.md
-    python3 script/mark_changes.py pre_r63 01_purpose 02_invariants
-    python3 script/mark_changes.py new doc/contract/README.md   # 新建的檔：整份標新增
+    python3 script/doc/mark_changes.py 01_purpose 02_invariants README.md
+    python3 script/doc/mark_changes.py pre_r63 01_purpose 02_invariants
+    python3 script/doc/mark_changes.py new doc/contract/README.md   # 新建的檔：整份標新增
 
 審閱頁傳頁名（新版讀 doc/contract/<name>.md），其他檔傳路徑；--base-version 左邊也可以直接寫鍵
 （GLOSSARY 對到根目錄的 GLOSSARY.md）。鍵：審閱頁是頁名，其他檔是攤平後的路徑。
@@ -297,7 +297,7 @@ def backup_path(name: str, suffix: str, ext: str = ".md") -> pathlib.Path:
     if found is None:
         raise SystemExit(
             f"找不到 {name} 的基準版。試過：\n  " + "\n  ".join(map(str, tried))
-            + "\n改檔之前要先備份，命名見 script/README.md。"
+            + "\n改檔之前要先備份，命名見 script/doc/README.md。"
         )
     return found
 
@@ -537,7 +537,7 @@ def build(name: str, suffix: str) -> tuple[int, int]:
             raise SystemExit(
                 f"找不到 {name} 的基準版（.md 與 .csv 都沒有）。試過：\n  "
                 + "\n  ".join(map(str, md_tried + csv_tried))
-                + "\n改檔之前要先備份，命名見 script/README.md。"
+                + "\n改檔之前要先備份，命名見 script/doc/README.md。"
             )
         if md_backup is None:
             old = new

@@ -25,7 +25,7 @@
 指令寫法（CSV 的 situation、message、next_step 裡的 `just vendor_kit …`）由 check_review_pages.py 檢查。
 錯誤位置報 `<檔>:<代碼>:<欄名>`，不報實體行號。CSV 還不存在時跳過並印 OK。
 
-用法：python3 script/check_messages.py（在 repo 根目錄跑；有問題以 1 結束）
+用法：python3 script/doc/check_messages.py（在 repo 根目錄跑；有問題以 1 結束）
 """
 import csv
 import io

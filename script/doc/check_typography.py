@@ -23,9 +23,9 @@ HTML 標籤、連結的 [ ] 與 ](目標)、粗體記號 ** 與 __ 不算字元�
 錯誤位置：.md 報 `<檔>:<行>`，CSV 照 check_messages.py 報 `<檔>:<代碼>:<欄名>`。
 
 用法（在 repo 根目錄跑）：
-  python3 script/check_typography.py            檢查；有問題逐筆印出並以 1 結束
-  python3 script/check_typography.py --fix      就地修正（只動上面兩條規則的字元），再檢查一次
-  python3 script/check_typography.py [--fix] 檔...   只處理指定的檔
+  python3 script/doc/check_typography.py            檢查；有問題逐筆印出並以 1 結束
+  python3 script/doc/check_typography.py --fix      就地修正（只動上面兩條規則的字元），再檢查一次
+  python3 script/doc/check_typography.py [--fix] 檔...   只處理指定的檔
 CSV 修正後若 next_step 不再逐字出現在 message 裡，照樣報錯（check_messages.py 的規則 6）。
 """
 import argparse

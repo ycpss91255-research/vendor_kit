@@ -5,14 +5,14 @@
 - 不寫目錄、不寫 HTML 錨點：skill 沒有這些；不准任何 HTML 標籤（`<ins>` 也不放行；名詞改連到 GLOSSARY.md 分群）。
 - `_Avoid_` 詞不得出現在正文。
 
-用法：python3 script/check_context.py [GLOSSARY.md]
+用法：python3 script/doc/check_context.py [GLOSSARY.md]
 成功印 OK 並回 0；有問題逐條印出並回 1。
 """
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 # 英文注名兩種寫法都認：全形「**X**（y）：」與半形「**X** (y)：」（括號內全 ASCII 時用半形並空一格）。
 TERM = re.compile(r"^\*\*(.+?)\*\*(（[^）]*）| \([^)]*\))?[:：]\s*$")
 # 看起來像名詞行（粗體開頭、冒號結尾）卻不合 TERM：寫法改了而 regex 沒跟上時會靜默少算，所以報錯。

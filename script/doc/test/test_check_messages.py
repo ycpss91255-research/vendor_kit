@@ -1,4 +1,4 @@
-"""check_messages.py 的規則（每條一正一反）：跑法 `python3 -m unittest discover -s script/test`。"""
+"""check_messages.py 的規則（每條一正一反）：跑法 `python3 -m unittest discover -s script/doc/test`。"""
 import contextlib
 import csv
 import io

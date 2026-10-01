@@ -1,4 +1,4 @@
-"""pack_review.py 的版號、zip 內檔名、versions.json 紀錄與檢查：跑法 `python3 -m unittest discover -s script/test`。"""
+"""pack_review.py 的版號、zip 內檔名、versions.json 紀錄與檢查：跑法 `python3 -m unittest discover -s script/doc/test`。"""
 import json
 import os
 import pathlib

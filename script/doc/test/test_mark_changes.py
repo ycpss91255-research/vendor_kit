@@ -1,4 +1,4 @@
-"""mark_changes.py 的標記格式、輸出位置與基準：跑法 `python3 -m unittest discover -s script/test`。"""
+"""mark_changes.py 的標記格式、輸出位置與基準：跑法 `python3 -m unittest discover -s script/doc/test`。"""
 import json
 import os
 import pathlib

@@ -1,4 +1,4 @@
-"""check_context.py 的名詞行解析：跑法 `python3 -m unittest discover -s script/test`。"""
+"""check_context.py 的名詞行解析：跑法 `python3 -m unittest discover -s script/doc/test`。"""
 import contextlib
 import io
 import pathlib
