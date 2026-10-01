@@ -13,13 +13,12 @@ export const meta = {
 //   round      string  必填，codex 輸出檔名用，例如 'q-exit-codes'；每輪的檔是 <round>-<id>-r<輪>.md
 //   questions  array   必填，每題 { id, question, context }：id 用在檔名；context 寫現況、事實與已定案前提
 //   background string  可省，所有題共用的已定案前提，不要質疑
-const { round, questions, background = '' } = args ?? {}
+const { round, questions, background = '', repo = '/home/cyc/Desktop/vendor-kit_ws/worktree/pr/59' } = args ?? {}
 if (typeof round !== 'string' || !round.trim()) throw new Error('args.round 必填')
 if (!Array.isArray(questions) || questions.length === 0) throw new Error('args.questions 必填')
 
-const repo = '/home/cyc/Desktop/vendor-kit_ws/src'
 const BG = background.trim() ? `已定案前提（不要質疑）：\n${background.trim()}` : ''
-const READ = '先讀 GLOSSARY.md、doc/contract/01_purpose.md、doc/contract/02_invariants.md，以及題目提到的檔。已定案的決定記在 wayfinder map issue：跑 `gh issue view 78 -R ycpss91255-research/vendor_kit` 讀本文的「Decisions so far」；要某條決定的細節，跑 `gh issue view <child> -R ycpss91255-research/vendor_kit --comments` 讀該 child issue 的留言（結論在留言裡）。只讀，不要發 issue 或留言。結論跟任何一條定案衝突時要明講是哪一條（#<child>）。結論要附證據（檔名＋行號、外部文件網址或 repo 內實例），沒有證據的主張標明是推論。'
+const READ = '先讀 GLOSSARY.md、doc/contract/01_purpose.md、doc/contract/02_invariants.md，以及題目提到的檔。已定案的決定記在 wayfinder map issue：跑 `gh issue view 78 -R ycpss91255-research/vendor_kit --comments`，本文的「Decisions so far」凍結不改、之後的新決定在留言，兩者都讀；要某條決定的細節，跑 `gh issue view <child> -R ycpss91255-research/vendor_kit --comments` 讀該 child issue 的留言（結論在留言裡）。只讀，不要發 issue 或留言。結論跟任何一條定案衝突時要明講是哪一條（#<child>）。結論要附證據（檔名＋行號、外部文件網址或 repo 內實例），沒有證據的主張標明是推論。'
 
 const ANSWER = {
   type: 'object',
