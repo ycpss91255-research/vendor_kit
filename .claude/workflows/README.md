@@ -68,7 +68,7 @@ args 欄位：
 | `items` | 是 | 陣列，每項 `{ no, branch, title, content, commit, label? }`：編號、分支、issue 標題、要做的內容、commit 訊息（第一行也當 PR 標題）、issue 標籤（預設 `enhancement`） |
 | `merge` | 否 | 預設 `false`。`true`＝CI 全過後 `gh pr merge --merge`，再 pull 主 repo、移除 worktree 與本機分支 |
 | `parallel` | 否 | 預設 `false`。`true`＝items 同時跑、互不影響。這時 `merge` 必須是 `false`，否則 throw：多個 PR 同時 merge 會互相衝突，交給主對話依序 merge。各項的 `branch` 不能重複 |
-| `repoRoot` | 否 | 主 repo，預設 `/home/cyc/Desktop/vendor-kit_ws/src`。worktree 開在它上一層的 `worktree/branch/<branch>`，本文檔暫放上一層的 `reference/research/pr/` |
+| `repoRoot` | 否 | 主 repo。不給就先派 effort low 的子代理跑 `git rev-parse --path-format=absolute --git-common-dir`，取它的上一層（在 linked worktree 裡跑也會回到主 repo）；查不到就 throw。worktree 開在它上一層的 `worktree/branch/<branch>`，本文檔暫放上一層的 `reference/research/pr/` |
 
 每一項的步驟：
 
