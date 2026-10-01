@@ -12,9 +12,8 @@ HOOKS_DIR = Path(__file__).resolve().parents[1]
 PROJECT_DIR = HOOKS_DIR.parents[1]
 SETTINGS = PROJECT_DIR / ".claude" / "settings.json"
 
-# 不是 hook、不註冊的檔：repo_paths.py 是給 hook import 的共用模組；
-# test_guard.py 是 guard.py 的測試，還沒搬進 test/（搬走後從這裡拿掉）
-NOT_HOOKS = {"repo_paths.py", "test_guard.py"}
+# 不是 hook、不註冊的檔：repo_paths.py 是給 hook import 的共用模組
+NOT_HOOKS = {"repo_paths.py"}
 
 PREFIXES = ("${CLAUDE_PROJECT_DIR}/", "$CLAUDE_PROJECT_DIR/")
 
