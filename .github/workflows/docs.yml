@@ -39,3 +39,11 @@ jobs:
         run: python3 -m unittest discover -s script/repo/test -v
       - name: script/workflow/test（workflow 機械步驟腳本的測試）
         run: python3 -m unittest discover -s script/workflow/test -v
+
+  # .claude/hooks/ 底下 hook 的測試
+  hooks-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: .claude/hooks/test（hook 測試）
+        run: python3 -m unittest discover -s .claude/hooks/test
