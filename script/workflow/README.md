@@ -77,9 +77,23 @@ python3 script/workflow/verify.py [--root <worktree 根目錄>]
 - 每個 `script/*/test` 都要出現在 docs.yml 裡，沒出現的列在 `not_in_ci`，算失敗：新類別的測試 CI 要跑得到。
 - 輸出一行 JSON：`{"ok", "root", "steps": [{"source", "cmd", "code", "ok", "output"}], "not_in_ci"}`，`output` 只留最後 40 行。全過 0，有失敗 1，找不到根目錄或 docs.yml 2。
 
+## codex_run.py
+
+呼叫 codex 執行一份 brief，結束碼由腳本直接讀，呼叫端的 shell 是 bash 還是 fish 都一樣。
+
+```sh
+python3 script/workflow/codex_run.py --cd <dir> --brief <brief 檔> --out <輸出檔> [--timeout 570] [--delete-brief]
+```
+
+- 執行 `codex exec --skip-git-repo-check -C <dir> -o <out> <brief 全文>`：stdin 固定接 /dev/null（不接 codex 會停在等 stdin），不帶任何 `--sandbox` 旗標；先建 `<out>` 的上層目錄。brief 用 Write 工具寫檔即可，不必用 heredoc。
+- `--timeout` 預設 570 秒，前景 Bash 的 600000 毫秒上限內一定回得來；到了就砍掉 codex。`--delete-brief`：結束後刪掉 brief 檔，不論成敗。
+- 輸出一行 JSON：`{"ok", "exit", "out", "out_bytes", "timed_out", "elapsed_s", "stderr_tail", "error"}`；`exit` 是 codex 的結束碼（沒跑起來或逾時是 null），`stderr_tail` 是 codex stderr 的最後 2000 字元。
+- 結束碼：成功（codex 結束碼 0 且輸出檔存在、非空）0；codex 結束碼非 0 或跑不起來 1；輸出檔不存在或是空的 2；逾時 3；brief 檔不存在或用法錯 4。
+- codex 執行檔可用環境變數 `CODEX_BIN` 換掉（測試用）。
+
 ## 測試
 
-測試在 [test/](test/)，用暫存的 git repo、暫存的根目錄與假的 `gh`（環境變數 `WAIT_CI_GH`、`PR_TARGET_GH`），不打 GitHub。跑法：
+測試在 [test/](test/)，用暫存的 git repo、暫存的根目錄與假的 `gh`、`codex`（環境變數 `WAIT_CI_GH`、`PR_TARGET_GH`、`CODEX_BIN`），不打 GitHub。跑法：
 
 ```sh
 python3 -m unittest discover -s script/workflow/test
