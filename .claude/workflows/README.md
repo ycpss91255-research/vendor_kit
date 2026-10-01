@@ -58,17 +58,17 @@ args 範例在 `doc-edit.js` 檔尾，可以直接貼進 `args`。
 
 ## pr
 
-每一項一個子代理，從開 issue 做到等 CI（`merge: true` 時再 merge 與清理）。預設依序執行，任何一步失敗就停下：不 merge，後面的項目也不開始。`parallel: true` 時各項彼此獨立、同時跑，每項各自開 issue、worktree、PR、等 CI，一項失敗不影響其他項。開始時印出 `pr #<parent> <no 清單>`（並行時加註「並行」），每個子代理的 label 是 `#<parent>-<no>`。
+每一項一個子代理，從開 issue 做到等 CI（`merge: true` 時再 merge 與清理）。預設依序執行，任何一步失敗就停下：不 merge，後面的項目也不開始。`parallel: true` 時各項彼此獨立、同時跑，每項各自開 issue、worktree、PR、等 CI，一項失敗不影響其他項；父題不同的項目也能同時跑，不用另寫腳本包多次 `pr`。開始時印出 `pr #<parent> <no 清單>`（多個父題時以「；」分隔各組，並行時加註「並行」），每個子代理的 label 是 `#<parent>-<no>`，`<parent>` 是該項自己的父題。
 
 args 欄位：
 
 | 欄位 | 必填 | 說明 |
 |---|---|---|
-| `parent` | 是 | 父題的 issue 編號。新 issue 第一行 `Part of #<parent>`，並掛成它的 sub-issue |
-| `items` | 是 | 陣列，每項 `{ no, branch, title, content, commit, label? }`：編號、分支、issue 標題、要做的內容、commit 訊息（第一行也當 PR 標題）、issue 標籤（預設 `enhancement`） |
+| `parent` | 否 | 預設的父題 issue 編號，給沒帶 `parent` 的項目用。新 issue 第一行 `Part of #<parent>`，並掛成它的 sub-issue。每個項目都帶 `parent` 時可省；最後有項目沒有父題就 throw |
+| `items` | 是 | 陣列，每項 `{ no, branch, title, content, commit, parent?, label? }`：編號、分支、issue 標題、要做的內容、commit 訊息（第一行也當 PR 標題）、這一項的父題（正整數，不給就用最上層的 `parent`）、issue 標籤（預設 `enhancement`）。同一父題內 `no` 不能重複 |
 | `merge` | 否 | 預設 `false`。`true`＝CI 全過後 `gh pr merge --merge`，再 pull 主 repo、移除 worktree 與本機分支 |
 | `parallel` | 否 | 預設 `false`。`true`＝items 同時跑、互不影響。這時 `merge` 必須是 `false`，否則 throw：多個 PR 同時 merge 會互相衝突，交給主對話依序 merge。各項的 `branch` 不能重複 |
-| `repoRoot` | 否 | 主 repo。不給就先派 effort low 的子代理跑 `git rev-parse --path-format=absolute --git-common-dir`，取它的上一層（在 linked worktree 裡跑也會回到主 repo）；查不到就 throw。worktree 開在它上一層的 `worktree/branch/<branch>`，本文檔暫放上一層的 `reference/research/pr/` |
+| `repoRoot` | 否 | 主 repo。不給就先派 effort low 的子代理跑 `git rev-parse --path-format=absolute --git-common-dir`，取它的上一層（在 linked worktree 裡跑也會回到主 repo）；查不到就 throw。worktree 開在它上一層的 `worktree/branch/<branch>` |
 
 每一項的步驟：
 
@@ -77,17 +77,19 @@ args 欄位：
 3. 照 `content` 修改。
 4. 驗證：`script/workflow/verify.py --root <worktree>`，跑 docs.yml 每個 `run:`、每個 `script/*/test` 的 unittest、`check_script_layout.py`、hooks 的測試，並檢查每個 `script/*/test` 都在 docs.yml 裡；輸出的 `ok` 是 true 才算過。
 5. commit（footer `Refs: #<issue>`，不加 Claude 署名）、push。
-6. 開 PR：本文第一行 `[claude] `、含 `Closes #<issue>`，自檢後 `gh pr create --body-file`。
+6. 開 PR：本文第一行 `[claude] `、含 `Closes #<issue>`，用 `body.py check` 自檢，再跑 `script/github/check_pr_rules.py --body-file <本文> --git-diff`（改動檔由腳本自己以 `origin/main...HEAD` 取，子代理不自己組清單），都過才 `gh pr create --body-file`。
 7. `script/workflow/wait_ci.py <pr>` 等 CI。
 8. `merge: true` 且 CI 全過才 merge，之後 `worktree.py remove <branch>` 清理。
+
+子代理的暫存檔（commit 訊息、issue／PR 本文、一次性腳本）一律放 scratchpad 下的 `pr/<parent>-<no>/`：並行的子代理共用同一個 scratchpad，固定檔名會互相覆蓋（#234、#235 互蓋過，#241）。
 
 `pr` 本來就要 commit、push 與開 PR，所以不套下面「共用護欄」的不寫 git 與備份兩條；它自己的規則（只 push 自己的分支、本文先寫檔自檢、不加署名等）同樣組進每個子代理的 prompt。
 
 分工：機械步驟呼叫 [`script/workflow/`](../../script/workflow/README.md) 的腳本；會寫入 GitHub 的 `gh` 指令不包進腳本，由子代理逐一下，hook 才看得到。子代理自己判斷的只有怎麼修改、驗證失敗時要修還是停下。
 
-回傳 `{ parent, merge, parallel, results, stopped, failed, skipped }`：`results` 每項有 `no`、`branch`、`issue`、`pr`、`pr_url`、`ci_pass`、`merged`、`cleaned`、`summary`、`error`。依序模式下 `stopped` 是停在哪一項與原因，`skipped` 是沒開始的編號；並行模式下 `stopped` 是 `null`、`skipped` 是空陣列，沒完成的項目列在 `failed`（每項 `{ no, reason }`）。
+回傳 `{ parent, parents, merge, parallel, results, stopped, failed, skipped }`：`parent` 是最上層的 `parent`（沒給是 `null`），`parents` 是實際用到的父題清單；`results` 每項有 `no`、`parent`、`branch`、`issue`、`pr`、`pr_url`、`ci_pass`、`merged`、`cleaned`、`summary`、`error`。依序模式下 `stopped` 是停在哪一項與原因，`skipped` 是沒開始的編號；並行模式下 `stopped` 是 `null`、`skipped` 是空陣列，沒完成的項目列在 `failed`（每項 `{ no, parent, reason }`）。
 
-args 範例：
+args 範例（各自父題、同時跑的範例在 `pr.js` 檔尾）：
 
 ```json
 {

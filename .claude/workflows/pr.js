@@ -1,6 +1,6 @@
 export const meta = {
   name: 'pr',
-  description: '把每一項做成一個 PR：開 issue 掛成 sub-issue、開 worktree、修改、verify.py 驗證、commit、開 PR、等 CI，可選 merge 與清理；預設依序，parallel 時同時跑',
+  description: '把每一項做成一個 PR（每項可各自指定父題）：開 issue 掛成 sub-issue、開 worktree、修改、verify.py 驗證、commit、開 PR、等 CI，可選 merge 與清理；預設依序，parallel 時同時跑',
   whenToUse: '要開一個或多個「一個 issue 一個 PR」的改動時；依序模式任何一步失敗就停、後面的項目不做，parallel 模式各項獨立、互不影響',
   phases: [
     { title: '準備', detail: '沒給 repoRoot 時，派 effort low 的子代理用 git rev-parse --git-common-dir 查出主 repo' },
@@ -9,9 +9,10 @@ export const meta = {
 }
 
 // args: {
-//   parent: number,       // 必填，父題的 issue 編號；新 issue 用 `Part of #<parent>` 開並掛成它的 sub-issue
-//   items: {              // 必填；預設依序執行，parallel 時同時跑
-//     no: number|string,  // 這一項的編號，用於識別與 label
+//   parent?: number,      // 預設的父題 issue 編號；新 issue 用 `Part of #<parent>` 開並掛成它的 sub-issue。每個 item 都帶 parent 時可省
+//   items: {              // 必填；預設依序執行，parallel 時同時跑（不同父題的項目也可以）
+//     no: number|string,  // 這一項的編號，用於識別、label 與暫存目錄；同一父題內不能重複
+//     parent?: number,    // 這一項的父題，不給就用最上層的 parent
 //     branch: string,     // 分支名，worktree 開在 <repoRoot 上一層>/worktree/branch/<branch>
 //     title: string,      // issue 標題
 //     content: string,    // 要做的內容（給子代理的任務描述）
@@ -31,11 +32,23 @@ const {
 } = args ?? {}
 
 // ───────────────── 參數檢查 ─────────────────
-if (!Number.isInteger(parent) || parent <= 0) {
-  throw new Error('args.parent 必填：父題的 issue 編號（正整數），新 issue 會用 `Part of #<parent>` 開並掛成它的 sub-issue')
+const isIssueNo = n => Number.isInteger(n) && n > 0
+if (parent !== undefined && !isIssueNo(parent)) {
+  throw new Error('args.parent 要是正整數：預設的父題 issue 編號，新 issue 會用 `Part of #<parent>` 開並掛成它的 sub-issue')
 }
 if (!Array.isArray(items) || items.length === 0) {
-  throw new Error('args.items 必填：至少一項 { no, branch, title, content, commit, label? }')
+  throw new Error('args.items 必填：至少一項 { no, branch, title, content, commit, parent?, label? }')
+}
+const badParents = items
+  .map((it, i) => ({ i, p: it?.parent }))
+  .filter(x => x.p !== undefined && !isIssueNo(x.p))
+if (badParents.length) {
+  throw new Error(`args.items 的 parent 要是正整數：${badParents.map(x => `第 ${x.i + 1} 項是 ${JSON.stringify(x.p)}`).join('；')}`)
+}
+const parentOf = it => it?.parent ?? parent
+const orphans = items.map((it, i) => i).filter(i => !isIssueNo(parentOf(items[i])))
+if (orphans.length) {
+  throw new Error(`第 ${orphans.map(i => i + 1).join('、')} 項沒有父題：在該項帶 parent，或給最上層的 args.parent（不給的項目用它）`)
 }
 const badItems = items
   .map((it, i) => ({
@@ -65,6 +78,12 @@ const dupBranches = [...new Set(items.map(it => it.branch).filter((b, i, a) => a
 if (dupBranches.length) {
   throw new Error(`args.items 的 branch 不能重複：${dupBranches.join('、')}`)
 }
+// 暫存目錄以 <父題>-<no> 命名，同一父題的 no 重複就會共用目錄、互相覆蓋
+const tagOf = it => `${parentOf(it)}-${String(it.no).trim()}`
+const dupTags = [...new Set(items.map(tagOf).filter((t, i, a) => a.indexOf(t) !== i))]
+if (dupTags.length) {
+  throw new Error(`同一父題內 items 的 no 不能重複：${dupTags.map(t => `#${t}`).join('、')}`)
+}
 
 const SLUG = 'ycpss91255-research/vendor_kit'
 
@@ -88,15 +107,18 @@ if (!repoRoot) {
 repoRoot = repoRoot.replace(/\/+$/, '')
 
 const ws = repoRoot.replace(/\/+$/, '').replace(/\/[^/]+$/, '')
-const bodyDir = `${ws}/reference/research/pr`
 const S = `${repoRoot}/script/workflow`   // worktree 開好之前用主 repo 的腳本
-const nos = items.map(it => it.no).join(',')
-log(`pr #${parent} ${nos}${concurrent ? '（並行）' : ''}`)
+const parents = [...new Set(items.map(parentOf))]
+const heading = parents
+  .map(p => `#${p} ${items.filter(it => parentOf(it) === p).map(it => it.no).join(',')}`)
+  .join('；')
+log(`pr ${heading}${concurrent ? '（並行）' : ''}`)
 
 // ───────────────── 共用規則：組進每個子代理的 prompt ─────────────────
 const RULES = `硬性規則（違反就算這一項失敗）：
 - 會寫入 GitHub 的動作（gh issue create、sub_issues API、gh pr create、gh pr merge、留言）一律自己逐一下 gh 指令，每個指令都帶 \`-R ${SLUG}\`；不要把它們包進腳本或用 && 串在一起。
-- issue 與 PR 的本文一律先寫成檔（放 ${bodyDir}/），先跑 \`python3 ${S}/body.py check …\` 自檢通過，再用 \`--body-file <絕對路徑>\` 送出，送出後刪掉本文檔。本文裡不准有本機絕對路徑，提到檔案用 repo 相對路徑。
+- issue 與 PR 的本文一律先寫成檔（放這一項的暫存目錄，見下一條），先跑 \`python3 ${S}/body.py check …\` 自檢通過，再用 \`--body-file <絕對路徑>\` 送出，送出後刪掉本文檔。本文裡不准有本機絕對路徑，提到檔案用 repo 相對路徑。
+- 暫存檔（commit 訊息、issue／PR 本文、一次性腳本、輸出紀錄）一律放這一項自己的暫存目錄（步驟裡寫的 \`<你的 scratchpad>/pr/<父題>-<編號>/\`，先 mkdir -p），\`<你的 scratchpad>\` 換成你 scratchpad 的絕對路徑；不要放 scratchpad 根目錄，也不要用別的子代理也可能用的檔名：同時可能有其他項目的子代理在跑，並行的子代理共用同一個 scratchpad，固定檔名會互相覆蓋（#234、#235 互蓋過）。
 - 一個 PR 剛好連一個 issue，只改一類範圍；不要順手改別的東西。
 - commit 照 repo 格式（\`type(scope): 摘要\`），footer 帶 \`Refs: #<issue>\`；不加 Claude 署名、Co-Authored-By 或 session 連結。
 - 只准 push 到這一項自己的分支；不准 push main、不准 force push main。這一項的分支跟 main 衝突時可以 \`git fetch origin && git rebase origin/main\` 後 \`git push --force-with-lease\`（只限自己的分支）。
@@ -120,12 +142,16 @@ const RES = {
 
 // 跑一項：回傳子代理的結果，加上 no 與 branch
 async function runItem(it) {
+  const parent = parentOf(it)
   const label = it.label ?? 'enhancement'
-  const tag = `#${parent}-${it.no}`
+  const tag = `#${tagOf(it)}`
   const wt = `${ws}/worktree/branch/${it.branch}`
   const W = `${wt}/script/workflow`   // worktree 開好之後用它自己的腳本
-  const issueFile = `${bodyDir}/${parent}-${it.no}-issue.md`
-  const prFile = `${bodyDir}/${parent}-${it.no}-pr.md`
+  // 並行的子代理共用同一個 scratchpad：暫存檔一律放以 <父題>-<no> 命名的子目錄（#241）
+  const tmp = `<你的 scratchpad>/pr/${tagOf(it).replace(/[\/\s:]+/g, '_')}`
+  const issueFile = `${tmp}/issue.md`
+  const prFile = `${tmp}/pr.md`
+  const msgFile = `${tmp}/commit-msg.txt`
   const q = x => x.replace(/["\\$`]/g, m => '\\' + m)   // 放進 shell 雙引號用
   const prTitle = q(it.commit.split('\n')[0])
   const issueTitle = q(it.title)
@@ -145,23 +171,24 @@ async function runItem(it) {
 ${it.commit}
 \`\`\`
 - 要做的內容：${it.content}
+- 暫存目錄：${tmp}/
 
 ${RULES}
 
 步驟（照順序）：
-1. 開 issue：本文寫成檔 ${issueFile}（目錄不存在就建），第一行 \`Part of #${parent}\`，接著寫「要做的」與「完成條件」。自檢 \`python3 ${S}/body.py check ${issueFile} --kind issue --parent ${parent}\`，ok 才繼續。用另一個指令 \`gh issue create -R ${SLUG} --title "${issueTitle}" --label ${label} --body-file ${issueFile}\`，記下編號 N。刪掉 ${issueFile}。
+1. 開 issue：本文寫成檔 ${issueFile}（先 \`mkdir -p ${tmp}\`），第一行 \`Part of #${parent}\`，接著寫「要做的」與「完成條件」。自檢 \`python3 ${S}/body.py check ${issueFile} --kind issue --parent ${parent}\`，ok 才繼續。用另一個指令 \`gh issue create -R ${SLUG} --title "${issueTitle}" --label ${label} --body-file ${issueFile}\`，記下編號 N。刪掉 ${issueFile}。
 2. 掛成 sub-issue：\`gh api repos/${SLUG}/issues/N -q .id\` 取 id，再用另一個指令 \`gh api -X POST repos/${SLUG}/issues/${parent}/sub_issues -F sub_issue_id=<id>\`。
 3. 開 worktree：\`python3 ${S}/worktree.py add ${it.branch} --repo ${repoRoot}\`（會先 fetch、從 origin/main 開在 ${wt}；已存在會報錯，報錯就停）。之後都在 ${wt} 裡做。
 4. 修改：照「要做的內容」改。
 5. 驗證：\`python3 ${W}/verify.py --root ${wt}\`。它跑 docs.yml 每個 \`run:\`、每個 \`script/*/test\` 的 unittest、check_script_layout、hooks 的測試，並檢查每個 \`script/*/test\` 都在 docs.yml 裡；輸出 JSON 的 ok 是 true 才算過。失敗時看 steps 裡 ok 是 false 的 output 自己判斷：是這次改動造成的就修好再重跑一次 verify.py；修不了或跟這次無關就停下，不要 commit，在 error 寫清楚。
-6. commit 一個（訊息照上面，最後空一行加 footer \`Refs: #N\`），\`git push -u origin ${it.branch}\`。
-7. 開 PR：本文寫成檔 ${prFile}，第一行 \`[claude] \` 開頭寫一句摘要，接著「做了什麼」「為什麼」「驗證」（列實際跑的指令與結果），最後一行 \`Closes #N\`。自檢 \`python3 ${W}/body.py check ${prFile} --kind pr --issue N\`，ok 才送。用另一個指令 \`gh pr create -R ${SLUG} --base main --head ${it.branch} --title "${prTitle}" --body-file ${prFile}\`。刪掉 ${prFile}。
+6. commit 一個：訊息照上面，最後空一行加 footer \`Refs: #N\`，寫成檔 ${msgFile} 後 \`git commit -F ${msgFile}\`；\`git push -u origin ${it.branch}\`。
+7. 開 PR：本文寫成檔 ${prFile}，第一行 \`[claude] \` 開頭寫一句摘要，接著「做了什麼」「為什麼」「驗證」（列實際跑的指令與結果），最後一行 \`Closes #N\`。自檢 \`python3 ${W}/body.py check ${prFile} --kind pr --issue N\`，再查 PR 規則 \`cd ${wt} && python3 ${wt}/script/github/check_pr_rules.py --body-file ${prFile} --git-diff\`（改動檔由腳本自己用 \`origin/main...HEAD\` 取，不要自己組清單），兩個的 ok 都是 true 才送。用另一個指令 \`gh pr create -R ${SLUG} --base main --head ${it.branch} --title "${prTitle}" --body-file ${prFile}\`。刪掉 ${prFile}。
    等 CI：\`python3 ${W}/wait_ci.py <PR>\`（預設最多 600 秒）。結束碼 0＝全過；1＝有失敗：看 \`gh run view --log-failed -R ${SLUG}\`，是這次改動造成的就修、commit、push 後再等一次，修不了就停；2＝逾時，停下回報；跟 main 衝突時照規則 rebase。
 ${finish}
 
 回報：issue、pr 編號、pr_url、ci_pass（最後一次 wait_ci 是否全過）、merged、cleaned、summary（改了什麼、驗證結果、特別處理）、error（失敗時寫停在哪一步、為什麼）。`, { label: tag, phase: 'PR', schema: RES })
 
-  return { no: it.no, branch: it.branch, ...r }
+  return { no: it.no, parent, branch: it.branch, ...r }
 }
 
 const done = o => !!(o && o.ci_pass && (!merge || o.merged))
@@ -176,19 +203,19 @@ if (concurrent) {
     try {
       return await runItem(it)
     } catch (e) {
-      return { no: it.no, branch: it.branch, ci_pass: false, merged: false, summary: '', error: `子代理失敗：${e?.message ?? e}` }
+      return { no: it.no, parent: parentOf(it), branch: it.branch, ci_pass: false, merged: false, summary: '', error: `子代理失敗：${e?.message ?? e}` }
     }
   }))
   out.push(...rs)
-  failed = out.filter(o => !done(o)).map(o => ({ no: o.no, reason: reasonOf(o) }))
-  for (const f of failed) log(`#${parent}-${f.no} 沒有完成：${f.reason}`)
+  failed = out.filter(o => !done(o)).map(o => ({ no: o.no, parent: o.parent, reason: reasonOf(o) }))
+  for (const f of failed) log(`#${f.parent}-${f.no} 沒有完成：${f.reason}`)
 } else {
   for (const it of items) {
     const o = await runItem(it)
     out.push(o)
     if (!done(o)) {
-      stopped = { no: it.no, reason: reasonOf(o) }
-      log(`#${parent}-${it.no} 沒有完成，停下；後面的項目不做`)
+      stopped = { no: it.no, parent: o.parent, reason: reasonOf(o) }
+      log(`#${o.parent}-${it.no} 沒有完成，停下；後面的項目不做`)
       break
     }
   }
@@ -196,7 +223,7 @@ if (concurrent) {
 
 log(`完成：${out.filter(done).length}/${items.length} 項${stopped ? `，停在 ${stopped.no}` : ''}${failed.length ? `，失敗 ${failed.map(f => f.no).join(',')}` : ''}`)
 
-return { parent, merge, parallel: concurrent, results: out, stopped, failed, skipped: items.slice(out.length).map(it => it.no) }
+return { parent: parent ?? null, parents, merge, parallel: concurrent, results: out, stopped, failed, skipped: items.slice(out.length).map(it => it.no) }
 
 // ───────────────── args 範例（可直接貼進 Workflow 的 args） ─────────────────
 // {
@@ -212,5 +239,14 @@ return { parent, merge, parallel: concurrent, results: out, stopped, failed, ski
 //       "commit": "feat(doc): check_links 檢查 md 的相對連結",
 //       "label": "enhancement"
 //     }
+//   ]
+// }
+//
+// 各自父題、同時跑（最上層 parent 可省）：
+// {
+//   "parallel": true,
+//   "items": [
+//     { "no": 1, "parent": 140, "branch": "feat/a", "title": "…", "content": "…", "commit": "feat(doc): …" },
+//     { "no": 1, "parent": 241, "branch": "feat/b", "title": "…", "content": "…", "commit": "feat(workflow): …" }
 //   ]
 // }
