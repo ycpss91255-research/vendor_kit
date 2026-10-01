@@ -2,7 +2,7 @@
 
 這個目錄**不在 skill 結構裡**。skill 只要求四樣東西：根 `CONTEXT.md`（名詞）、`doc/adr/`（難逆轉的取捨）、`doc/agents/`（三個設定檔）、`AGENTS.md`（工作約定與 Agent skills 段）；spec 與需求走 GitHub issue。這裡的每一份檔都是過渡產物，各自有一條退場路線。本檔就是那張地圖。
 
-三段：**保留** = 現在還在用；**已歸檔** = 搬進 `_legacy/`，只作參考；**待處理** = 等使用者拍板存廢。
+三段：**保留** = 現在還在用；**已歸檔** = 原本的 `_legacy/`，已移出 git、只留在維護者本機（相對 repo 根目錄是 `../reference/_legacy`），只作參考；**待處理** = 等使用者拍板存廢。舊內容在 git 歷史與 tag `archive/pr-59`。
 
 ## 保留
 
@@ -26,14 +26,14 @@
 
 | 目錄 | 是什麼 | 最終去向 |
 |---|---|---|
-| `review_log/` | 這輪（01–02）的審閱往返：codex brief／output、Claude 子代理審查紀錄。1.3 MB，48 個檔。舊輪次的子目錄已搬進 `_legacy/review_log/`。 | 兩頁分流完就沒有讀者。見「待處理」。 |
-| `_backup/` | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`），`script/mark_changes.py` 靠它產生改動標示。56 個檔，2.5 MB。 | 定案後只有 `mark_changes.py` 還需要最近一輪。見「待處理」。 |
+| `review_log/`（已移出 git） | 審閱頁的審閱往返：codex brief／output、Claude 子代理審查紀錄。本機保留、已 gitignore。 | 本機參考用，不進 git。見「待處理」第 6 項。 |
+| `_backup/`（已移出 git） | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`），`script/mark_changes.py` 靠它產生改動標示。本機保留、已 gitignore。 | 本機用，不進 git。見「待處理」第 5 項。 |
 | `review/_marked/` | `mark_changes.py` 的輸出：新增綠底、被取代的舊文字紅底，給使用者逐頁審閱用。已在 `.gitignore`，是產生物。 | 每輪重新產生，不需要保留。 |
-| `_legacy/` | 見下一段。 | 確認清楚之後刪。 |
+| `_legacy/`（已移出 git） | 原本放已歸檔的檔案；只留維護者本機的 `../reference/_legacy`。見下一段。 | 本機參考用，確認清楚之後刪。 |
 
-## 已歸檔（`_legacy/`）
+## 已歸檔（repo 外的 `../reference/_legacy`）
 
-`_legacy/README.md` 已經寫了「引用這裡的事實之前先確認它還成立」與舊詞→新詞對照表。這裡只說分類。共 103 MB。
+這些檔已從 git 移除，只留在維護者本機，下面的路徑都相對那個目錄。它的 `README.md` 已經寫了「引用這裡的事實之前先確認它還成立」與舊詞→新詞對照表。這裡只說分類。共 103 MB。
 
 | 分類 | 內容 | 為什麼不再用 |
 |---|---|---|
@@ -83,23 +83,17 @@
 
 **選項**：(a) 留在原位，等改 `> Serves:` 規則時一併處理；(b) 現在就把設計原則搬成一份 ADR（原則本身就是難逆轉的取捨），`scope_roadmap.md` 的路線圖進 milestone、待拍板項目各開一個 issue；(c) `scope_roadmap.md` 先動（純轉成 issue，沒有依賴），`design_principles.md` 等 ADR。
 
-### 5. `_backup/`
+### 5. `_backup/` —— 已完成
 
-**是什麼**：每輪改動前的快照，56 檔 2.5 MB。`script/mark_changes.py` 讀 `_backup/doc_decisions_review_<頁名>.<後綴>.md`（路徑攤平的命名）產生改動標示。
+**是什麼**：每輪改動前的快照（路徑攤平的命名）。
 
-**為什麼卡住**：git 已經有完整歷史，這裡是重複的。但 `mark_changes.py` 的工作流程需要「上一輪的檔」而不是「某個 commit 的檔」，直接刪會讓現在正在用的審閱流程斷掉。
+**結論（#142）**：移出 git，本機保留、已 gitignore；舊內容在 git 歷史與 tag `archive/pr-59`。`script/mark_changes.py` 照舊讀本機的 `_backup/`。（歷史：原本的選項是只留最新快照、改用 `git show` 取舊版，或審閱頁定案後整個刪。）
 
-**選項**：(a) 只留每個檔最新的一份快照，其餘刪；(b) 全部進 `_legacy/`，並改 `mark_changes.py` 從 `git show <ref>:<path>` 取舊版；(c) 兩頁定案後整個刪，那時 `mark_changes.py` 也不再需要。
+### 6. `review_log/` —— 已完成
 
-### 6. `review_log/`
+**是什麼**：審閱頁的審閱往返。
 
-**是什麼**：這輪的審閱往返。舊輪次搬走後剩 1.3 MB、48 個檔（原本 60 MB）。
-
-**為什麼卡住**：裡面有 codex 與 Claude 兩方的完整審查意見，但「哪幾條被採納、為什麼」只散在往返裡，沒有結論檔。直接歸檔會丟掉「這條當初討論過並否決了」這種資訊。
-
-**選項**：(a) 每輪寫一段結論摘要（採納／否決＋一句理由），原始往返進 `_legacy/`；(b) 全部進 `_legacy/`，接受「要查就去翻」；(c) 留在原位直到兩頁分流完成。
-
-另外：`review_log/` 剩下的 48 個檔裡，有 21 個是 9/17–9/22 的舊輪次（`codex_policy_*`、`r2_findings.txt`、`review_v2r2`–`review_v2r15_*`、`codex_brief_r16`–`r19`、`claude_r17_terms.md`，其中 `codex_out_r16.md` 一個檔 440 KB）。這輪只搬了子目錄，這些單檔沒動。要不要一起歸檔，一併決定。
+**結論（#142）**：移出 git，本機保留、已 gitignore；舊內容在 git 歷史與 tag `archive/pr-59`。（歷史：原本的選項是每輪寫結論摘要、全部歸檔，或留在原位直到兩頁分流完成。）
 
 ### 7. proto 的 ADR-0001、0002 —— 已完成
 
