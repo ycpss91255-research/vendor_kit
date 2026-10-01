@@ -3,6 +3,7 @@ export const meta = {
   description: 'codex 與 Claude 各自回答、最多 3 輪比對，未收斂交維護者',
   whenToUse: '問維護者之前；結果回報主對話，貼到 #78 對應的 child issue',
   phases: [
+    { title: '準備', detail: '沒給 repo 時，派一個子代理用 git rev-parse --git-common-dir 查出主 repo 根目錄' },
     { title: '各自回答', detail: '第 1 輪：每題 codex（只讀）與 Claude 子代理各答一次，互不知道對方的答案' },
     { title: '回應', detail: '第 2、3 輪：上一輪不一致的題，把對方最新立場交給雙方各自回應，證據成立才改立場；最多 3 輪，未收斂交給維護者' },
     { title: '比對', detail: '每輪比對兩份最新答案：一致就給結論與證據，該題結束；不一致列出分歧，未到第 3 輪就進下一輪。最多 3 輪，未收斂交給維護者，任一方都不得自行選邊。最後整理成 issue_note（「一致的結論」與「要維護者決定」兩段）給主對話貼到 issue（workflow 不直接發 issue）' },
@@ -13,10 +14,35 @@ export const meta = {
 //   round      string  必填，codex 輸出檔名用，例如 'q-exit-codes'；每輪的檔是 <round>-<id>-r<輪>.md
 //   questions  array   必填，每題 { id, question, context }：id 用在檔名；context 寫現況、事實與已定案前提
 //   background string  可省，所有題共用的已定案前提，不要質疑
-const { round, questions, background = '', repo = '/home/cyc/Desktop/vendor-kit_ws/src' } = args ?? {}
+//   repo       string  可省，主 repo 根目錄（絕對路徑）；不給就由第一個子代理查出，要用 PR worktree 時明確帶
+const { round, questions, background = '', repo: repoArg = '' } = args ?? {}
 if (typeof round !== 'string' || !round.trim()) throw new Error('args.round 必填')
 if (!Array.isArray(questions) || questions.length === 0) throw new Error('args.questions 必填')
 log(`discuss ${round}`)
+
+// repo 不寫死本機路徑：沒給就在子代理的工作目錄查 git common dir，取它的上一層
+// （在 linked worktree 也會回到主 repo）
+const REPO = {
+  type: 'object',
+  properties: {
+    repo: { type: 'string', description: '主 repo 根目錄的絕對路徑' },
+    error: { type: 'string', description: '失敗原因；成功留空' },
+  },
+  required: ['repo'],
+}
+let repo = typeof repoArg === 'string' ? repoArg.trim().replace(/\/+$/, '') : ''
+if (!repo) {
+  phase('準備')
+  const r = await agent(`只跑一個指令，不要改任何檔。在你的工作目錄執行：
+
+\`git rev-parse --path-format=absolute --git-common-dir\`
+
+它印出主 repo 的 .git 目錄（絕對路徑）。repo 回報它的上一層目錄（去掉最後的 /.git），不要加結尾斜線。指令失敗或輸出不是以 /.git 結尾的絕對路徑時，repo 留空字串，error 照抄輸出，不要自己補救。`,
+    { label: `${round} 準備 repo`, phase: '準備', schema: REPO, agentType: 'general-purpose', effort: 'low' })
+  repo = typeof r?.repo === 'string' ? r.repo.trim().replace(/\/+$/, '') : ''
+  if (!repo.startsWith('/')) throw new Error(`查不到主 repo：${r?.error || '子代理沒有回報絕對路徑'}`)
+}
+log(`discuss ${round} repo ${repo}`)
 
 const BG = background.trim() ? `已定案前提（不要質疑）：\n${background.trim()}` : ''
 const READ = '先讀 GLOSSARY.md、doc/contract/01_purpose.md、doc/contract/02_invariants.md，以及題目提到的檔。已定案的決定記在 wayfinder map issue：跑 `gh issue view 78 -R ycpss91255-research/vendor_kit --comments`，本文的「Decisions so far」凍結不改、之後的新決定在留言，兩者都讀；要某條決定的細節，跑 `gh issue view <child> -R ycpss91255-research/vendor_kit --comments` 讀該 child issue 的留言（結論在留言裡）。只讀，不要發 issue 或留言。結論跟任何一條定案衝突時要明講是哪一條（#<child>）。結論要附證據（檔名＋行號、外部文件網址或 repo 內實例），沒有證據的主張標明是推論。'
