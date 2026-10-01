@@ -3,6 +3,7 @@ export const meta = {
   description: '把每一項做成一個 PR：開 issue 掛成 sub-issue、開 worktree、修改、verify.py 驗證、commit、開 PR、等 CI，可選 merge 與清理；預設依序，parallel 時同時跑',
   whenToUse: '要開一個或多個「一個 issue 一個 PR」的改動時；依序模式任何一步失敗就停、後面的項目不做，parallel 模式各項獨立、互不影響',
   phases: [
+    { title: '準備', detail: '沒給 repoRoot 時，派 effort low 的子代理用 git rev-parse --git-common-dir 查出主 repo' },
     { title: 'PR', detail: '每一項一個子代理，預設依序、parallel 時同時跑；機械步驟呼叫 script/workflow/ 的腳本（worktree 開好後用 worktree 自己的），會寫入 GitHub 的 gh 指令由子代理逐一下' },
   ],
 }
@@ -19,14 +20,14 @@ export const meta = {
 //   }[],
 //   merge?: boolean,      // CI 全過後是否 merge 並清理，預設 false
 //   parallel?: boolean,   // true＝items 彼此獨立、同時跑，一項失敗不影響其他項；只能配 merge: false。預設 false＝依序、失敗即停
-//   repoRoot?: string,    // 主 repo，預設 '/home/cyc/Desktop/vendor-kit_ws/src'
+//   repoRoot?: string,    // 主 repo；不給就由子代理跑 `git rev-parse --path-format=absolute --git-common-dir` 取上一層（linked worktree 也回到主 repo）
 // }
 const {
   parent,
   items,
   merge = false,
   parallel: concurrent = false,   // 改名：parallel 是 workflow 內建的並行函式
-  repoRoot = '/home/cyc/Desktop/vendor-kit_ws/src',
+  repoRoot: repoArg,
 } = args ?? {}
 
 // ───────────────── 參數檢查 ─────────────────
@@ -57,12 +58,35 @@ if (typeof concurrent !== 'boolean') {
 if (concurrent && merge) {
   throw new Error('args.parallel 為 true 時 args.merge 必須是 false：多個 PR 同時 merge 會互相衝突，交給主對話依序 merge')
 }
+if (repoArg !== undefined && (typeof repoArg !== 'string' || !repoArg.trim())) {
+  throw new Error('args.repoRoot 要是非空字串（主 repo 的絕對路徑）；不給就由子代理查出')
+}
 const dupBranches = [...new Set(items.map(it => it.branch).filter((b, i, a) => a.indexOf(b) !== i))]
 if (dupBranches.length) {
   throw new Error(`args.items 的 branch 不能重複：${dupBranches.join('、')}`)
 }
 
 const SLUG = 'ycpss91255-research/vendor_kit'
+
+// ───────────────── 準備：沒給 repoRoot 就由子代理查出主 repo ─────────────────
+let repoRoot = repoArg?.trim()
+if (!repoRoot) {
+  phase('準備')
+  const found = await agent(`在你的工作目錄跑 \`git rev-parse --path-format=absolute --git-common-dir\`，只跑這一個指令，不要改任何東西。
+它印出主 repo 的 .git 目錄（在 linked worktree 裡跑也一樣是主 repo 的）。回報：ok（指令成功且輸出是以 /.git 結尾的絕對路徑）、git_dir（輸出原樣）、error（失敗時照抄錯誤訊息）。`,
+    { label: '查 repoRoot', phase: '準備', schema: {
+      type: 'object',
+      properties: { ok: { type: 'boolean' }, git_dir: { type: 'string' }, error: { type: 'string' } },
+      required: ['ok'],
+    }, agentType: 'general-purpose', effort: 'low' })
+  const gd = (found?.git_dir ?? '').trim().replace(/\/+$/, '')
+  if (!found?.ok || !gd.startsWith('/') || !gd.endsWith('/.git')) {
+    throw new Error(`查不到 repoRoot：${found?.error || `git-common-dir 輸出不是 <repo>/.git：${gd || '（空）'}`}；請明確帶 args.repoRoot`)
+  }
+  repoRoot = gd.replace(/\/\.git$/, '')
+}
+repoRoot = repoRoot.replace(/\/+$/, '')
+
 const ws = repoRoot.replace(/\/+$/, '').replace(/\/[^/]+$/, '')
 const bodyDir = `${ws}/reference/research/pr`
 const S = `${repoRoot}/script/workflow`   // worktree 開好之前用主 repo 的腳本
