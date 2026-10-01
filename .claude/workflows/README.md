@@ -27,8 +27,9 @@ Workflow({ name: "doc-apply", args: { /* 這份 JSON 是每次唯一要換的東
 |---|---|---|---|
 | `doc-apply` | 分組並行套用文件改動，然後驗證（含備份與禁止 git 寫入的護欄） | 一輪審查定案後要動多個檔時；單一檔的小改不用 | `round`、`tasks` |
 | `doc-review` | Claude 與 codex 雙軌審查文件，交叉比對後只留一致的結論 | 對外契約、名詞表、不變量這類文件改完之後、定案之前 | `round`、`angles` |
+| `pr` | 依序把每一項做成一個 PR：開 issue 掛成 sub-issue、開 worktree、修改、驗證、commit、開 PR、等 CI，可選 merge | 要開一個或多個「一個 issue 一個 PR」的改動時 | `parent`、`items` |
 
-兩個都有選填的 `repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`（共用背景／已定案前提）與 `effort`。
+`doc-apply`、`doc-review` 都有選填的 `repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`background`（共用背景／已定案前提）與 `effort`；`pr` 的參數見下面。
 
 ## doc-apply
 
@@ -112,6 +113,55 @@ args 範例：
       "key": "consistency",
       "label": "01 與 02 的一致性",
       "ask": "審 doc/decisions/review/01_purpose.md 與 02_invariants.md：01 每條承諾在 02 是否有對應性質；兩頁有沒有用 CONTEXT.md 沒定義的詞。"
+    }
+  ]
+}
+```
+
+## pr
+
+清單依序執行，每一項一個子代理，從開 issue 做到等 CI（`merge: true` 時再 merge 與清理）。任何一步失敗就停下：不 merge，後面的項目也不開始。開始時印出 `pr #<parent> <no 清單>`，每個子代理的 label 是 `#<parent>-<no>`。
+
+args 欄位：
+
+| 欄位 | 必填 | 說明 |
+|---|---|---|
+| `parent` | 是 | 父題的 issue 編號。新 issue 第一行 `Part of #<parent>`，並掛成它的 sub-issue |
+| `items` | 是 | 陣列，每項 `{ no, branch, title, content, commit, label? }`：編號、分支、issue 標題、要做的內容、commit 訊息（第一行也當 PR 標題）、issue 標籤（預設 `enhancement`） |
+| `merge` | 否 | 預設 `false`。`true`＝CI 全過後 `gh pr merge --merge`，再 pull 主 repo、移除 worktree 與本機分支 |
+| `repoRoot` | 否 | 主 repo，預設 `/home/cyc/Desktop/vendor-kit_ws/src`。worktree 開在它上一層的 `worktree/branch/<branch>`，本文檔暫放上一層的 `reference/research/pr/` |
+
+每一項的步驟：
+
+1. 開 issue（本文先寫成檔、`body.py check` 自檢、`gh issue create --body-file`），再用 sub_issues API 掛到父題。
+2. `script/workflow/worktree.py add <branch>` 從 origin/main 開 worktree。
+3. 照 `content` 修改。
+4. 驗證：`.github/workflows/docs.yml` 列的每一步原樣跑、每個 `script/*/test` 的 unittest、`check_script_layout.py`、`.claude/hooks/test_guard.py`，全部要過。
+5. commit（footer `Refs: #<issue>`，不加 Claude 署名）、push。
+6. 開 PR：本文第一行 `[claude] `、含 `Closes #<issue>`，自檢後 `gh pr create --body-file`。
+7. `script/workflow/wait_ci.py <pr>` 等 CI。
+8. `merge: true` 且 CI 全過才 merge，之後 `worktree.py remove <branch>` 清理。
+
+`pr` 本來就要 commit、push 與開 PR，所以不套下面「共用護欄」的不寫 git 與備份兩條；它自己的規則（只 push 自己的分支、本文先寫檔自檢、不加署名等）同樣組進每個子代理的 prompt。
+
+分工：機械步驟呼叫 [`script/workflow/`](../../script/workflow/README.md) 的腳本；會寫入 GitHub 的 `gh` 指令不包進腳本，由子代理逐一下，hook 才看得到。子代理自己判斷的只有怎麼修改、驗證失敗時要修還是停下。
+
+回傳 `{ parent, merge, results, stopped, skipped }`：`results` 每項有 `issue`、`pr`、`pr_url`、`ci_pass`、`merged`、`cleaned`、`summary`、`error`；`stopped` 是停在哪一項與原因，`skipped` 是沒開始的編號。
+
+args 範例：
+
+```json
+{
+  "parent": 140,
+  "merge": false,
+  "items": [
+    {
+      "no": 1,
+      "branch": "feat/check-links",
+      "title": "script/doc/check_links.py：檢查 md 的相對連結",
+      "content": "新增 script/doc/check_links.py：掃 git ls-files 的 .md，相對連結的目標檔與錨點要解得開；附 script/doc/test/ 的 unittest；docs.yml 的 docs-lint 加一步跑它；script/doc/README.md 補一節。",
+      "commit": "feat(doc): check_links 檢查 md 的相對連結",
+      "label": "enhancement"
     }
   ]
 }
