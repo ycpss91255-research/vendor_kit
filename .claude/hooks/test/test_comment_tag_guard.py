@@ -11,6 +11,12 @@ from pathlib import Path
 
 HOOK = Path(__file__).resolve().parents[1] / "comment_tag_guard.py"
 API = "repos/ycpss91255-research/vendor_kit/issues/5/comments"
+# 本機路徑樣式拆開寫，避免這個測試檔本身被當成含本機路徑
+HOME = "/" + "home/alice/"
+USERS = "/" + "Users/"
+TMP = "/" + "tmp/claude-"
+WIN = "C:\\" + "Users\\"
+WIN_LOWER = "c:\\" + "users\\"
 
 
 class CommentTagGuardTest(unittest.TestCase):
@@ -23,15 +29,15 @@ class CommentTagGuardTest(unittest.TestCase):
         (cls.dir / "bad.md").write_text("已處理\n[claude] 不在第一行\n")
         (cls.dir / "ok.json").write_text(json.dumps({"body": "[agy] 看過了"}))
         (cls.dir / "bad.json").write_text(json.dumps({"body": "看過了"}))
-        (cls.dir / "path_claude.md").write_text("[claude] 見 /home/alice/repo/x.py\n")
-        (cls.dir / "path_codex.md").write_text("[codex] 改了 /home/alice/repo/x.py\n")
+        (cls.dir / "path_claude.md").write_text(f"[claude] 見 {HOME}repo/x.py\n")
+        (cls.dir / "path_codex.md").write_text(f"[codex] 改了 {HOME}repo/x.py\n")
         (cls.dir / "path_codex_note.md").write_text(
-            "[codex] 改了 /home/alice/repo/x.py\n（註：原文含本機路徑，對應 repo 的 x.py）\n")
-        (cls.dir / "path_body.md").write_text("暫存在 /tmp/claude-1000/abc/out.txt\n")
+            f"[codex] 改了 {HOME}repo/x.py\n（註：原文含本機路徑，對應 repo 的 x.py）\n")
+        (cls.dir / "path_body.md").write_text(f"暫存在 {TMP}1000/abc/out.txt\n")
         (cls.dir / "rel_body.md").write_text("見 script/x.py 與 /home/ 目錄說明\n")
         (cls.dir / "path.json").write_text(json.dumps({"body": "[claude] C:\\Users\\bob\\x"}))
         (cls.dir / "path_note.json").write_text(
-            json.dumps({"body": "[agy] /Users/bob/x\n註：對應 repo 的 x"}))
+            json.dumps({"body": f"[agy] {USERS}bob/x\n註：對應 repo 的 x"}))
 
     @classmethod
     def tearDownClass(cls):
@@ -176,27 +182,27 @@ class CommentTagGuardTest(unittest.TestCase):
 
     # 本機絕對路徑
     def test_local_path_claude_denied(self):
-        self.assertDeny("gh issue comment 5 --body '[claude] 見 /home/alice/repo/x.py'")
-        self.assertDeny("gh pr comment 3 --body '[claude] 見 /Users/alice/x'")
-        self.assertDeny("gh issue comment 5 --body '[claude] 見 /tmp/claude-1000/x'")
-        self.assertDeny(r"gh issue comment 5 --body '[claude] 見 C:\Users\bob\x'")
-        self.assertDeny(r"gh issue comment 5 --body '[claude] 見 c:\users\bob\x'")
-        self.assertDeny("gh pr review 3 --comment -b '[claude] /home/alice/x'")
+        self.assertDeny(f"gh issue comment 5 --body '[claude] 見 {HOME}repo/x.py'")
+        self.assertDeny(f"gh pr comment 3 --body '[claude] 見 {USERS}alice/x'")
+        self.assertDeny(f"gh issue comment 5 --body '[claude] 見 {TMP}1000/x'")
+        self.assertDeny(rf"gh issue comment 5 --body '[claude] 見 {WIN}bob\x'")
+        self.assertDeny(rf"gh issue comment 5 --body '[claude] 見 {WIN_LOWER}bob\x'")
+        self.assertDeny(f"gh pr review 3 --comment -b '[claude] {HOME}x'")
 
     def test_local_path_claude_with_note_still_denied(self):
-        self.assertDeny("gh issue comment 5 --body '[claude] /home/alice/x\n註：對應 x'")
+        self.assertDeny(f"gh issue comment 5 --body '[claude] {HOME}x\n註：對應 x'")
 
     def test_relative_path_allowed(self):
         self.assertAllow("gh issue comment 5 --body '[claude] 見 script/x.py 與 home/alice/x'")
         self.assertAllow("gh issue comment 5 --body '[claude] 放在 /tmp/foo 與 /home/ 下'")
 
     def test_local_path_codex_needs_note(self):
-        self.assertDeny("gh issue comment 5 --body '[codex] 改了 /home/alice/x'")
-        self.assertDeny("gh issue comment 5 --body '[agy] 改了 /home/alice/x'")
-        self.assertAllow("gh issue comment 5 --body '[codex] 改了 /home/alice/x\n（註：對應 repo 的 x）'")
-        self.assertAllow("gh issue comment 5 --body '[agy] 改了 /home/alice/x\n  註：對應 repo 的 x'")
+        self.assertDeny(f"gh issue comment 5 --body '[codex] 改了 {HOME}x'")
+        self.assertDeny(f"gh issue comment 5 --body '[agy] 改了 {HOME}x'")
+        self.assertAllow(f"gh issue comment 5 --body '[codex] 改了 {HOME}x\n（註：對應 repo 的 x）'")
+        self.assertAllow(f"gh issue comment 5 --body '[agy] 改了 {HOME}x\n  註：對應 repo 的 x'")
         # 註解行不能是第一行本身
-        self.assertDeny("gh issue comment 5 --body '[codex] 註：/home/alice/x'")
+        self.assertDeny(f"gh issue comment 5 --body '[codex] 註：{HOME}x'")
 
     def test_local_path_body_file(self):
         self.assertDeny("gh issue comment 5 --body-file path_claude.md")
@@ -213,16 +219,16 @@ class CommentTagGuardTest(unittest.TestCase):
         self.assertDeny("gh pr create --title t --body-file -")
 
     def test_local_path_api(self):
-        self.assertDeny(f"gh api {API} -f body='[claude] /home/alice/x'")
+        self.assertDeny(f"gh api {API} -f body='[claude] {HOME}x'")
         self.assertDeny(f"gh api {API} -F body=@path_claude.md")
         self.assertAllow(f"gh api {API} -F body=@path_codex_note.md")
         self.assertDeny(f"gh api {API} --input path.json")
         self.assertAllow(f"gh api {API} --input path_note.json")
 
     def test_local_path_deny_message(self):
-        r = self.run_hook("Bash", {"command": "gh issue comment 5 --body '[claude] /home/alice/x'"})
+        r = self.run_hook("Bash", {"command": f"gh issue comment 5 --body '[claude] {HOME}x'"})
         reason = r["permissionDecisionReason"]
-        for s in ("本機絕對路徑", "/home/<user>/", "洩漏使用者名稱", "相對路徑", "註：", "（註"):
+        for s in ("本機絕對路徑", "/" + "home/<user>/", "洩漏使用者名稱", "相對路徑", "註：", "（註"):
             self.assertIn(s, reason)
         r = self.run_hook("Bash", {"command": "gh issue comment 5 --body x"})
         self.assertNotIn("本機絕對路徑", r["permissionDecisionReason"])
