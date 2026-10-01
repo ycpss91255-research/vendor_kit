@@ -13,7 +13,8 @@ export const meta = {
 }
 
 // args 契約：
-//   repo?        string    預設 '/home/cyc/Desktop/vendor-kit_ws/src'
+//   repo?        string    repo 根目錄的絕對路徑；不給就由第一個子代理跑
+//                          `git rev-parse --path-format=absolute --git-common-dir`，取其上一層（在 worktree 裡也指回主 repo）
 //   round        string    必填，格式 rNN，必須是已用過的最大編號加一（script/doc/round.py 算）；備份與審查輸出檔名用
 //   topic?       string    短主題（例如 '#121'），跟 round 一起組成這次執行的識別（log 與子代理 label 用）
 //   files        string[]  必填，這次只准動的檔（相對 repo 根目錄）
@@ -33,7 +34,7 @@ export const meta = {
 //                          polish：潤稿子代理（只准改這一輪改過的行，越界的由腳本還原；這一輪沒改的檔跳過）
 //                          mode=light 時 edit（含套用必改）與 review 不給就是 'low'；polish 用不到
 const {
-  repo = '/home/cyc/Desktop/vendor-kit_ws/src',
+  repo: repoArg,
   round,
   topic = '',
   files,
@@ -61,6 +62,9 @@ if (mode !== 'full' && mode !== 'light') {
 if (typeof topic !== 'string') {
   throw new Error(`args.topic 只能是字串（收到 ${JSON.stringify(topic)}）：短主題，例如 "#121"`)
 }
+if (repoArg !== undefined && (typeof repoArg !== 'string' || !repoArg.startsWith('/'))) {
+  throw new Error(`args.repo 只能是絕對路徑字串（收到 ${JSON.stringify(repoArg)}）；不給就自動查出`)
+}
 const LIGHT = mode === 'light'
 // 這次執行的識別：meta.name 只能是固定文字，所以每次執行先印出輪次＋主題，子代理 label 也加上輪次（#131）
 log(`doc-edit ${round}${topic.trim() ? ` ${topic.trim()}` : ''}${LIGHT ? ' light' : ''}`)
@@ -69,6 +73,20 @@ const editBy = LIGHT ? 'claude' : editor
 const reviewer = LIGHT ? 'claude' : (editor === 'codex' ? 'claude' : 'codex')
 const editEffort = effort.edit ?? (LIGHT ? 'low' : undefined)
 const reviewEffort = effort.review ?? (LIGHT ? 'low' : undefined)
+
+// repo 不寫死本機路徑（#240）：不給就派子代理查 git common dir，取其上一層當 repo 根目錄
+const repo = repoArg ? repoArg.replace(/\/+$/, '') : await (async () => {
+  const r = await agent(`跑這行，回報它印出的那一行（去掉頭尾空白）到 git_common_dir；不要做任何其他事：
+git rev-parse --path-format=absolute --git-common-dir
+指令失敗就 git_common_dir 回空字串、error 寫它印出的錯誤。`, { label: `${round} 查 repo`, phase: '改寫', agentType: 'general-purpose', effort: 'low',
+    schema: { type: 'object', properties: { git_common_dir: { type: 'string' }, error: { type: 'string' } }, required: ['git_common_dir'] } })
+  const dir = String(r?.git_common_dir ?? '').trim().replace(/\/+$/, '')
+  if (!dir.startsWith('/') || !dir.endsWith('/.git')) {
+    throw new Error(`查不到 repo 根目錄：git rev-parse --git-common-dir 回 ${JSON.stringify(dir)}${r?.error ? `（${r.error}）` : ''}；請明確帶 args.repo`)
+  }
+  return dir.slice(0, -'/.git'.length)
+})()
+log(`repo ${repo}`)
 
 // 機械步驟一律呼叫腳本（#139），子代理只跑指令、讀它印出的 JSON
 const DOC = `${repo}/script/doc`
