@@ -2,6 +2,7 @@
 
 測試資料裡的本機路徑一律拆開拼，避免這個測試檔本身被當成含本機路徑。
 """
+import importlib.util
 import json
 import pathlib
 import shutil
@@ -91,10 +92,74 @@ class Check(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertEqual(res["stale_allow"], ["a.md", "gone.md"])
 
-    def test_every_allow_entry_has_reason(self):
-        for f, why in c.ALLOW.items():
+
+
+class LoadAllow(unittest.TestCase):
+    """白名單資料檔：repo 裡那份讀得到，格式錯就 RuntimeError。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def write_allow(self, text):
+        p = self.root / c.ALLOW_FILE
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+
+    def test_repo_allow_file_loads_with_reasons(self):
+        allow = c.load_allow(REPO)
+        self.assertTrue(allow)
+        for f, why in allow.items():
             with self.subTest(file=f):
                 self.assertTrue(why.strip())
+
+    def test_reads_path_and_reason(self):
+        self.write_allow(json.dumps({"allow": [{"path": "a.md", "reason": "理由"}]}))
+        self.assertEqual(c.load_allow(self.root), {"a.md": "理由"})
+
+    def test_missing_file_raises(self):
+        with self.assertRaisesRegex(RuntimeError, "找不到白名單檔"):
+            c.load_allow(self.root)
+
+    def test_bad_entries_raise(self):
+        for text in ["{", "[]", "{}", '{"allow": {}}',
+                     '{"allow": [{"path": "a.md"}]}',
+                     '{"allow": [{"path": "a.md", "reason": " "}]}',
+                     '{"allow": [{"path": "", "reason": "理由"}]}',
+                     '{"allow": ["a.md"]}',
+                     '{"allow": [{"path": "a.md", "reason": "x"}, {"path": "a.md", "reason": "y"}]}']:
+            with self.subTest(text=text):
+                self.write_allow(text)
+                with self.assertRaises(RuntimeError):
+                    c.load_allow(self.root)
+
+
+def load_pr_rules():
+    """用路徑載入 script/github/check_pr_rules.py（不加進 sys.path，比照腳本載入 hook 的做法）。"""
+    spec = importlib.util.spec_from_file_location("check_pr_rules", REPO / "script/github/check_pr_rules.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class AllowFileScope(unittest.TestCase):
+    """白名單資料檔在範圍表是附屬檔：跟被放行的檔一起改算一個範圍（#264）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pr = load_pr_rules()
+        cls.table = cls.pr.load_table()
+
+    def test_attaches_to_fixed_hook_test(self):
+        s, p = self.pr.scopes_of([".claude/hooks/test/test_comment_tag_guard.py", str(c.ALLOW_FILE)], self.table)
+        self.assertEqual((s, p), (["hook:comment_tag_guard"], []))
+
+    def test_alone_is_script_repo(self):
+        s, p = self.pr.scopes_of([str(c.ALLOW_FILE)], self.table)
+        self.assertEqual((s, p), (["script:repo"], []))
 
 
 class EndToEnd(unittest.TestCase):
@@ -109,7 +174,13 @@ class EndToEnd(unittest.TestCase):
         shutil.copy(REPO / c.HOOK, hook)
         (self.root / "a.md").write_text("見 " + HOME + "x\n", encoding="utf-8")
         (self.root / "untracked.md").write_text(HOME + "x\n", encoding="utf-8")
+        self.write_allow([])
         subprocess.run(["git", "-C", str(self.root), "add", "a.md", str(c.HOOK)], check=True)
+
+    def write_allow(self, entries):
+        p = self.root / c.ALLOW_FILE
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"allow": entries}, ensure_ascii=False), encoding="utf-8")
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -128,6 +199,22 @@ class EndToEnd(unittest.TestCase):
         files = {h["file"] for h in out["hits"]}
         self.assertIn("a.md", files)
         self.assertNotIn("untracked.md", files)
+
+    def test_allow_file_skips_and_stale_fails(self):
+        allow = [{"path": "a.md", "reason": "理由"}, {"path": str(c.HOOK), "reason": "規則定義"}]
+        self.write_allow(allow)
+        code, out = self.run_main()
+        self.assertEqual((code, out), (0, {"ok": True, "hits": [], "stale_allow": []}))
+        self.write_allow(allow + [{"path": "gone.md", "reason": "理由"}])
+        code, out = self.run_main()
+        self.assertEqual((code, out["stale_allow"]), (1, ["gone.md"]))
+
+    def test_missing_allow_file_exit_2(self):
+        (self.root / c.ALLOW_FILE).unlink()
+        code, out = self.run_main()
+        self.assertEqual(code, 2)
+        self.assertFalse(out["ok"])
+        self.assertIn("local_paths_allow.json", out["error"])
 
     def test_missing_hook_exit_2(self):
         (self.root / c.HOOK).unlink()
