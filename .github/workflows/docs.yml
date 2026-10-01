@@ -1,6 +1,6 @@
 name: docs
 
-# 文件類的檢查都放這支，一種檢查一個 job。script/ 底下工具自己的測試（script/doc/test、script/repo/test、script/workflow/test、script/github/test）也在這支；VK 程式碼的 lint 放 lint.yml、測試（根目錄 test/）放 test.yml。
+# 文件類的檢查都放這支，一種檢查一個 job。script/ 底下工具自己的測試（script/doc/test、script/repo/test、script/workflow/test、script/github/test、script/git/test）也在這支；VK 程式碼的 lint 放 lint.yml、測試（根目錄 test/）放 test.yml。
 # 不加 paths 過濾：這些 job 會設成 ruleset 的必過檢查，被過濾跳過的必過檢查會一直停在 Pending，PR 就 merge 不了。
 on:
   pull_request:
@@ -41,6 +41,8 @@ jobs:
         run: python3 -m unittest discover -s script/workflow/test -v
       - name: script/github/test（PR 規則檢查與範圍表的測試）
         run: python3 -m unittest discover -s script/github/test -v
+      - name: script/git/test（commit 訊息格式檢查的測試）
+        run: python3 -m unittest discover -s script/git/test -v
 
   # .claude/hooks/ 底下 hook 的測試
   hooks-test:
