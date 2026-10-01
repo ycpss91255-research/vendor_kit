@@ -1,6 +1,6 @@
 # 04 使用者介面
 
-[使用者](../../GLOSSARY.md#角色與情境)與自動化都透過 `just vendor_kit` 指令跟 [VK](../../GLOSSARY.md#角色與情境) 打交道；只有首次[導入](../../GLOSSARY.md#角色與情境)，以及[薄殼](../../GLOSSARY.md#vk-組件)被改到不啟動引擎時的檢查，用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、選項：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。VK 不讀取環境變數 `CI`；同一個 recipe 不論在哪裡執行，行為都一樣。
+[使用者](../../GLOSSARY.md#角色與情境)與自動化都透過 `just vendor_kit` 指令跟 [VK](../../GLOSSARY.md#角色與情境) 打交道；只有首次[導入](../../GLOSSARY.md#角色與情境)，以及[薄殼](../../GLOSSARY.md#vk-組件)的檢查與明確要求的修復，用 `sh bootstrap.sh`。這一頁列出全部指令與必要的參數、選項：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。VK 不讀取環境變數 `CI`；同一個 recipe 不論在哪裡執行，行為都一樣。
 
 - 必須永遠成立的規則以 [02 不變量](02_invariants.md) 為準，這一頁只補使用者看得到的介面行為
 - [結束碼](../../GLOSSARY.md#執行與結果)的意思與每條訊息見 [03 輸出](03_output.md)
@@ -11,6 +11,7 @@
 - [主機需求](#主機需求)
 - [registry 與認證](#registry-與認證)
 - [入口](#入口)
+- [bootstrap.sh](#bootstrapsh)
 - [指令](#指令)
 - [共同選項](#共同選項)
 - [各指令專用選項](#各指令專用選項)
@@ -53,17 +54,73 @@
 
 VK 對外只有兩個入口：
 
-- `bootstrap.sh`
-  - 第一次導入時用
-  - 在既有安裝目錄執行時，先檢查薄殼；不符就列出差異，印出 [訊息](03_output.csv) `VK0006` [診斷](../../GLOSSARY.md#執行與結果)，以[結束碼](03_output.md#結束碼) `2` 結束，除執行紀錄外不動 repo 檔與其他 [VK 檔](../../GLOSSARY.md#repo-內的檔與狀態)
-  - 先從 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)下載 `bootstrap.sh`，再到要裝 VK 的那個目錄執行
-  - 這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](02_invariants.md#3-自動化不寫追蹤檔)
-  - 這時 repo 裡還沒有 VK，所以由它下載[引擎](../../GLOSSARY.md#vk-組件)，再呼叫 `install`
-  - 再跑一次就是修復
+- `sh bootstrap.sh`
+  - 首次導入、檢查與修復薄殼，見下方的 [bootstrap.sh](#bootstrapsh)
+  - 先從 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)下載，再到要裝 VK 或已有 VK 的目錄執行
   - 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，Release 頁上目前還沒有這個檔
 - `just vendor_kit …`
   - 日常使用的全部指令；CI 也用它，見下面的[檢查 (test)](#檢查-test)
   - 都收在 `vendor_kit` 這個命名空間底下，不佔用 [repo](../../GLOSSARY.md#工具與出貨) 自己的頂層指令名
+
+## bootstrap.sh
+
+`bootstrap.sh` 是啟動器之一；首次導入時取得內嵌那一版[引擎](../../GLOSSARY.md#vk-組件)，再呼叫 `install`（把 VK 裝進目前目錄）。在既有安裝目錄則依[版本鎖定行](../../GLOSSARY.md#版本與來源)指定的引擎模板，檢查或重產薄殼。它不執行 repo 內的薄殼，也不從薄殼讀取版本或模板；薄殼內容只用於逐檔比對。
+
+```text
+用法：sh bootstrap.sh [選項]
+
+  （不帶參數）         尚非安裝目錄：首次導入；已是安裝目錄：只檢查薄殼
+  -i, --image <image>   使用本機 image 作為引擎來源
+  --repair             用鎖定引擎的模板重產薄殼
+  -y, --yes            首次導入時傳給 install，代替原本允許的詢問
+  -h, --help           單獨使用時印出用法
+```
+
+不收位置參數，也沒有 `--version`。短長選項意思相同，選項順序不限；`--repair` 只有長選項。`-h`／`--help` 只准單獨使用，不印內嵌引擎版本；與任何其他參數並用都算用法錯誤。
+
+目前目錄有 `.vendor_kit/` 就是安裝目錄；沒有才首次導入。有這個目錄卻讀不出恰好一行有效的引擎版本鎖定行時，停下報錯，不猜版本，也不改走首次導入。既有安裝目錄一律使用版本鎖定行那一版引擎；`-i` 指定的 image，它的 [image 引用](../../GLOSSARY.md#工具與出貨)（含 [digest](../../GLOSSARY.md#工具與出貨)）必須與引擎版本鎖定行完全相同。
+
+### 依情況的行為
+
+表中的[原因代碼](../../GLOSSARY.md#執行與結果)見 [03 訊息](03_output.csv)；表中的[診斷](../../GLOSSARY.md#執行與結果)都是 `error`、結束碼 `2`，印到 stderr，stdout 不印診斷；處置（[待處理](../../GLOSSARY.md#執行與結果)、[失敗](../../GLOSSARY.md#執行與結果)、用法錯誤）見[訊息表](03_output.csv)。成功的用法、差異與結果印到 stdout，不加診斷前綴。
+
+| 情況 | 行為 | 結束碼 | 原因代碼 | stdout／stderr |
+|---|---|---|---|---|
+| 單獨帶 `-h`／`--help` | 只印用法，不做主機檢查、不寫檔 | `0` | — | stdout：用法 |
+| 不認得的選項、多出位置參數，或 `-h`／`--help` 與其他參數並用 | 用法錯誤，不寫檔 | `2` | `VK0026` | stderr：診斷與簡短用法 |
+| `-i`／`--image` 缺值 | 用法錯誤，不寫檔 | `2` | `VK0025` | stderr：診斷與簡短用法 |
+| 既有安裝目錄帶 `-y`／`--yes`，或帶 `--repair -y` | 用法錯誤，不寫檔 | `2` | `VK0026` | stderr：診斷與簡短用法 |
+| 找不到 docker | 主機前置檢查失敗 | `2` | `VK0033` | stderr：診斷 |
+| 偵測到 Podman | 主機前置檢查失敗 | `2` | `VK0011` | stderr：診斷 |
+| Docker 低於 19.03 | 主機前置檢查失敗 | `2` | `VK0012` | stderr：診斷 |
+| 首次導入找不到 just | 主機前置檢查失敗，附安裝指令 | `2` | `VK0034` | stderr：診斷與安裝指令 |
+| 首次導入 just 低於 1.33.0 | 主機前置檢查失敗，附下載與安裝指令 | `2` | `VK0005` | stderr：診斷與下載、安裝指令 |
+| 往上找不到 `.git` | 不寫檔，也不建立 repo | `2` | `VK0035` | stderr：診斷 |
+| 非安裝目錄帶 `--repair` | 停下，不改走首次導入、不寫檔 | `2` | `VK0039` | stderr：診斷 |
+| 有 `.vendor_kit/`，但讀不出恰好一行有效的引擎版本鎖定行 | 停下，不改走首次導入 | `2` | `VK0037` | stderr：診斷 |
+| 既有安裝目錄帶 `-i`，image 與鎖定行不同 | 停下，不用這個 image | `2` | `VK0038` | stderr：診斷 |
+| 只檢查或 `--repair`，建不出執行紀錄 | 停下，不拉 image、不寫檔 | `2` | `VK0010` | stderr：診斷 |
+| 取不到要用的引擎 image | 停下，不改用其他版本 | `2` | `VK0036` | stderr：診斷 |
+| 首次導入帶 `-i`，缺必要的 digest 資訊 | 停下，不退化成只寫 [tag](../../GLOSSARY.md#工具與出貨) | `2` | `VK0031` | stderr：診斷 |
+| 首次導入，上層或下層已有安裝目錄 | 拒絕巢狀安裝，不寫檔 | `2` | `VK0029` | stderr：診斷 |
+| 首次導入需要詢問，沒帶 `-y` 且不能互動 | 除執行紀錄外不修改；建紀錄後已有 `.vendor_kit/`，但尚無引擎版本鎖定行，恢復方式待維護者於本頁完成後一併確認 | `2` | `VK0002` | stderr：診斷；下一步指令待上述確認 |
+| 首次導入，其餘情況 | 取得內嵌那版引擎並呼叫 `install` | 照 `install` | 照 `install` | 照 `install` |
+| 既有安裝目錄，不帶 `--repair`，薄殼一致 | 只檢查 | `0` | — | stdout：一致 |
+| 既有安裝目錄，不帶 `--repair`，薄殼被改過或與模板不符 | 停下，不重產 | `2` | `VK0006` | stderr：診斷與逐檔差異續行 |
+| `--repair`，薄殼一致 | 不重產 | `0` | — | stdout：已一致，未重產 |
+| `--repair`，薄殼不符 | 不詢問；寫入前逐檔列差異，再重產並報告結果 | `0` | — | stdout：差異與完成報告 |
+
+先判用法，再做主機前置檢查。首次導入、只檢查與修復都檢查 docker；just 只在首次導入檢查，另外兩種模式不經過 just。VK 不在主機呼叫 git，只用 sh 往上找 `.git`；它是目錄或檔都算。
+
+### 寫入範圍與其他指令的關係
+
+- 首次導入的寫入範圍、詢問與輸出照 `install`，見[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)。`-y` 只在首次導入傳給 `install`，語意照[共同選項](#共同選項)
+- 只檢查與 `--repair` 都先建[執行紀錄](../../GLOSSARY.md#repo-內的檔與狀態)，再拉 image、起引擎與比對；用法錯誤或主機前置檢查失敗時不建紀錄、不寫檔。執行紀錄規則見 [02 不變量第 4 條](02_invariants.md#4-永不靜默失敗)
+- 只檢查除執行紀錄外不寫檔。`--repair` 除執行紀錄外只重產 `.vendor_kit/` 下的四檔：`entry.just`、`vendor.just`、`log.sh`、`.gitignore`；已一致則不重產
+- 檢查與修復不改版本鎖定行或其他檔，包括 VK 的設定檔、[metadata](../../GLOSSARY.md#初始檔與合併)、[基準版](../../GLOSSARY.md#初始檔與合併)、[納管](../../GLOSSARY.md#初始檔與合併)紀錄、[印記](../../GLOSSARY.md#repo-內的檔與狀態)、[cache/](../../GLOSSARY.md#repo-內的檔與狀態)、[gen/](../../GLOSSARY.md#repo-內的檔與狀態)、[本機覆寫](../../GLOSSARY.md#版本與來源)、[進度檔](../../GLOSSARY.md#repo-內的檔與狀態)、根 `justfile`、根 `.dockerignore`、使用者檔與 `bootstrap.sh` 本身
+- `--repair` 不經過 `install`，不建立安裝目錄，也不補做其他安裝步驟；它只恢復鎖定引擎的薄殼，不更換引擎版本
+- 首次導入的 `-i <image>` 照[離線導入共通規則](#各指令專用選項)；既有安裝目錄帶相符的 image 時，照原本的檢查或修復行為執行
+- [救援路徑](../../GLOSSARY.md#介面版與契約)分兩類：版本組合不合時用[說明與用法錯誤](#說明與用法錯誤)列出的 just 呼叫；薄殼被改過時用 `sh bootstrap.sh` 檢查、`sh bootstrap.sh --repair` 修復
 
 ## 指令
 
@@ -124,7 +181,7 @@ VK 對外只有兩個入口：
 
 依 [02 不變量第 8 條](02_invariants.md#8-使用者介面不可取代寫法一致)：
 
-- 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](03_output.md#結束碼) `0` 結束；沒有 `help` 指令。只有[救援路徑](../../GLOSSARY.md#介面版與契約)在[薄殼](../../GLOSSARY.md#vk-組件)、[VK 檔](../../GLOSSARY.md#repo-內的檔與狀態)與引擎的版本組合不相符時仍可用，也就是 `install`、`upgrade --engine`、`sync` 的不符判定，以及四種印用法的呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）；這些呼叫照各自原本的行為執行。版本組合不相符時，救援路徑以外的呼叫即使帶 `-h`／`--help`，也以結束碼 `3` 結束：stderr 印出 `fatal` 診斷並附救援指令，stdout 不印用法
+- 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](03_output.md#結束碼) `0` 結束；沒有 `help` 指令。只有救援路徑中的 just 呼叫在[薄殼](../../GLOSSARY.md#vk-組件)、[VK 檔](../../GLOSSARY.md#repo-內的檔與狀態)與引擎的版本組合不相符時仍可用，也就是 `install`、`upgrade --engine`、`sync` 的不符判定，以及四種印用法的呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）；這些呼叫照各自原本的行為執行。薄殼被改過時的檢查與修復見 [bootstrap.sh](#bootstrapsh)。版本組合不相符時，救援路徑以外的呼叫即使帶 `-h`／`--help`，也以結束碼 `3` 結束：stderr 印出 `fatal` 診斷並附救援指令，stdout 不印用法
 - 只打 `just vendor_kit`、不帶指令是用法錯誤，stderr 依序印版本行、[訊息](03_output.csv) `VK0024` 診斷與簡短用法，以[結束碼](03_output.md#結束碼) `2` 結束：
 
   ```text
@@ -157,7 +214,7 @@ VK 對外只有兩個入口：
   exit code: 2
 
   $ just vendor_kit sync --bogus
-  stderr: vendor_kit: error[VK0026]: Unknown option or extra argument: --bogus.
+  stderr: vendor_kit: error[VK0026]: Unknown, extra, or disallowed argument: --bogus.
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
 
@@ -215,7 +272,7 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 
 ## 共同選項
 
-`-y` 只適用於[可寫 recipe](../../GLOSSARY.md#執行與結果)。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合是 `upgrade <repo> -y`；其餘哪個指令接受 `-y`，實作時再定。
+`-y` 只適用於[可寫 recipe](../../GLOSSARY.md#執行與結果)。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已定的組合是 `upgrade <repo> -y` 與 `install -y`；首次導入由 [bootstrap.sh](#bootstrapsh) 傳入。其餘哪個指令接受 `-y`，實作時再定。
 
 - [-y](../../GLOSSARY.md#執行與結果)：可代替原本允許的[詢問](../../GLOSSARY.md#執行與結果)
   - 照樣把改了什麼印到 stdout，不加前綴
@@ -250,7 +307,7 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
   ```
 
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
-- `bootstrap.sh -i <image>`：離線導入，用本機 image 當引擎來源。
+- `sh bootstrap.sh -i <image>`：用本機 image 當引擎來源，行為見 [bootstrap.sh](#bootstrapsh)。
 - 兩種離線導入共通：
   - `<image>` 可以是已載入的本機 image，或 image tar 檔
   - 寫進的版本鎖定行與線上導入相同

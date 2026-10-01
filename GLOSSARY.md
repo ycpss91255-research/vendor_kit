@@ -31,7 +31,7 @@ _Avoid_: 接入
 `.vendor_kit/` 內由引擎產生、隨 repo 進 git、供使用者呼叫 VK 的一組檔。
 
 **啟動器** (launcher)：
-從主機啟動引擎的入口；薄殼內的 POSIX sh 片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。
+從主機啟動引擎的入口；薄殼內的 POSIX sh 片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。後者用於首次導入，以及既有安裝目錄的薄殼檢查與修復。
 
 ### 工具與出貨
 
@@ -204,7 +204,7 @@ _Avoid_: 待續、需人處理、needs human
 每條診斷的固定識別碼；格式與生命週期見[訊息](doc/contract/03_output.md#訊息)。
 
 **結束碼** (exit code)：
-VK recipe 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見[結束碼](doc/contract/03_output.md#結束碼)。
+VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見[結束碼](doc/contract/03_output.md#結束碼)。
 
 ### VK recipe 與用途
 
@@ -242,7 +242,7 @@ VK recipe 結束時回給呼叫方、表示整體結果的整數；各碼語意�
 VK 寫入檔案時用來標示該檔資料格式的整數版號。
 
 **救援路徑** (rescue path)：
-版本組合不相符時仍可用來升級或修復的幾種呼叫；完整清單見[說明與用法錯誤](doc/contract/04_interface.md#說明與用法錯誤)。
+版本組合不相符或薄殼被改過時，仍可用來檢查、升級或修復的呼叫；兩類的清單見[寫入範圍與其他指令的關係](doc/contract/04_interface.md#寫入範圍與其他指令的關係)。
 
 **契約** (contract)：
 VK 對使用者承諾不會隨意改變的那組介面；引擎內部實作不屬契約。
