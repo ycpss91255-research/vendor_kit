@@ -10,15 +10,17 @@
 範圍：git ls-files 列出的檔（只看追蹤中的）。符號連結、已刪未 stage 的檔、
 二進位檔（含 NUL 位元組或不是 UTF-8）跳過。
 
-白名單：ALLOW，以檔為單位，每條寫理由。白名單上的檔若已經掃不到本機路徑（或檔不見了），
-算過時，一樣以 1 結束，提醒把那條刪掉。
+白名單：資料檔 script/repo/local_paths_allow.json，以檔為單位，每條 path 與 reason。
+白名單上的檔若已經掃不到本機路徑（或檔不見了），算過時，一樣以 1 結束，提醒把那條刪掉。
+白名單放資料檔、不寫在腳本內：它是附屬檔（scope.json 設 attach any），修好被放行的檔時
+可以在同一個 PR 刪掉那條，不必連腳本一起改而跨兩個範圍（#264）。
 
 用法：python3 script/repo/check_local_paths.py [--root <repo 根目錄>]
 
 輸出一行 JSON：
   {"ok": true|false, "hits": [{"file", "line", "rule"}...], "stale_allow": [檔...]}
 rule 是 LOCAL_PATHS 每條樣式附的標籤。有 hits 或 stale_allow 時以 1 結束；
-載不到 hook 規則時印 {"ok": false, "error": ...} 並以 2 結束。
+載不到 hook 規則或白名單檔時印 {"ok": false, "error": ...} 並以 2 結束。
 """
 import argparse
 import importlib.util
@@ -30,21 +32,31 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 HOOK = Path(".claude/hooks/comment_tag_guard.py")
 
-# 檔 → 理由。只放「這個檔必須寫出樣式」或「這個 PR 不能改、另開 issue 處理」的檔。
-ALLOW = {
-    ".claude/hooks/comment_tag_guard.py":
-        "LOCAL_PATHS 的定義本身，以及擋下時給使用者看的說明，必須寫出要擋的樣式",
-    "script/workflow/prepare_comment.py":
-        "REPLACE 是把本機路徑改寫成相對寫法的替換樣式，必須寫出同樣的路徑前綴",
-    "script/workflow/body.py":
-        "docstring 列出自檢擋哪些樣式（用 <user> 佔位），不是真路徑",
-    ".claude/hooks/test/test_comment_tag_guard.py":
-        "hook 測試資料刻意含本機路徑；改成拆字串寫法要動 hook 範圍，不在 #255（一個 PR 一類範圍），改完刪這條",
-    "script/workflow/test/test_body.py":
-        "body.py 測試資料刻意含本機路徑，部分還沒拆字串；改要動 script/workflow 範圍，不在 #255，改完刪這條",
-    ".codex/config.toml":
-        "真違規：drawio MCP 路徑寫死本機 npx 快取，另開 #257 修，修完刪這條",
-}
+ALLOW_FILE = Path("script/repo/local_paths_allow.json")
+
+
+def load_allow(root: Path) -> dict[str, str]:
+    """讀 ALLOW_FILE，回傳 {檔: 理由}；檔不見、格式錯、缺理由或重複就 raise RuntimeError。"""
+    path = root / ALLOW_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise RuntimeError(f"找不到白名單檔：{ALLOW_FILE}") from None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"白名單檔讀不了：{ALLOW_FILE}：{e}") from e
+    entries = data.get("allow") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise RuntimeError(f"白名單檔 {ALLOW_FILE} 要有 allow 清單")
+    allow: dict[str, str] = {}
+    for i, entry in enumerate(entries):
+        f = entry.get("path") if isinstance(entry, dict) else None
+        why = entry.get("reason") if isinstance(entry, dict) else None
+        if not isinstance(f, str) or not f.strip() or not isinstance(why, str) or not why.strip():
+            raise RuntimeError(f"白名單檔 {ALLOW_FILE} 第 {i + 1} 條要有非空的 path 與 reason")
+        if f in allow:
+            raise RuntimeError(f"白名單檔 {ALLOW_FILE} 重複列了 {f}")
+        allow[f] = why
+    return allow
 
 
 def load_rules(root: Path):
@@ -120,10 +132,11 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root.resolve()
     try:
         rules = load_rules(root)
+        allow = load_allow(root)
     except RuntimeError as e:
         print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
         return 2
-    result = check(root, rules, tracked_files(root), ALLOW)
+    result = check(root, rules, tracked_files(root), allow)
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result["ok"] else 1
 

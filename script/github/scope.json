@@ -19,6 +19,7 @@
     {"pattern": "^CONTEXT\\.md$", "scope": "context"},
     {"pattern": "^script/README\\.md$", "scope": "script", "attach": "any"},
     {"pattern": "^script/github/scope\\.json$", "scope": "script:github", "attach": "any"},
+    {"pattern": "^script/repo/local_paths_allow\\.json$", "scope": "script:repo", "attach": "any", "_why": "比照 scope.json：白名單條目跟被放行的檔一起改（#264）"},
     {"pattern": "^script/(?P<cat>[^/]+)/test/", "scope": "script:{cat}", "attach": "same"},
     {"pattern": "^script/(?P<cat>[^/]+)/README\\.md$", "scope": "script:{cat}", "attach": "any"},
     {"pattern": "^script/(?P<cat>[^/]+)/", "scope": "script:{cat}"},
