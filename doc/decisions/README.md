@@ -49,21 +49,17 @@
 
 ## 待處理（等使用者拍板）
 
-### 1. 兩個 `.drawio` 主檔
+### 1. 兩個 `.drawio` 主檔 —— 已完成
 
-**是什麼**：`dist_distribution.drawio`（主圖 12 頁，457 KB）與 `discussion.drawio`（77 頁，3.4 MB）。
+**是什麼**：`dist_distribution.drawio`（主圖 12 頁）與 `discussion.drawio`（77 頁），畫的是舊模型。
 
-**為什麼卡住**：畫的是舊模型（舊名「三方角色」、「專案根」、「動詞」）。01／02 兩頁與根 `CONTEXT.md` 已改用新名詞，圖沒跟上。`AGENTS.md` 寫「架構圖不是插圖，是測試的依據……模組邊界與泳道由 lint 強制」，但那個 lint 還沒寫，所以現在圖與文字沒有任何機制擋住脫鉤。
+**結論（#35，#164 執行）**：舊圖不進 git，副本留在 workspace 的 `reference/diagram_legacy/`；舊內容也在 git 歷史。只有最新的一份（原 `research/diagram_proposals/proposal_claude_v3.drawio`）進 git，放在 `doc/diagram/architecture.drawio`，以舊模型畫成，之後依新名詞重畫（#138）。`research/diagram_proposals/` 的其他 proposal 一併移出，`research/` 因此移除。
 
-**選項**：(a) 依新名詞重畫（成本高：77 頁討論圖是產生器輸出，得先改產生器）；(b) 廢掉兩個檔，等實作階段需要時重畫需要的那幾頁；(c) 留在原位當歷史，檔頭標「舊模型，不要引用」，並把 `AGENTS.md` 那條「圖是測試依據」降級為「待重畫後生效」。
+### 2. `script/diagram/` —— 已完成
 
-### 2. `script/diagram/`
+**是什麼**：圖的產生器與審查工具。
 
-**是什麼**：圖的產生器與審查工具。一次性產物（`_backup/`、`_misc/`、`r12_codex/`、`r13_codex/`、`r15_codex/`、`push_*.py`、`verify_r15/16.py`、`finish_r15.py`、`review_v2_README.md`）已刪（#144），舊內容在 git 歷史與 tag `archive/pr-59`。現在只剩舊圖的產生器（`gen57.py`、`gen_disc.py`、`disc_v1_*.py`）、可重用的工具（`check_overflow.py`、`check_overlap.py`、`lint_pages.py`、`extract_pages.py`、`shrink_png.py`、`drawio_common.py`）與 `README.md`、`STYLE.md`。
-
-**為什麼卡住**：產生器依賴的圖頁已作廢（跟第 1 項綁在一起），等 #35 決定舊圖放哪裡、#138 重做時再處理。
-
-**選項**：(a) 整個 `script/diagram/` 進 `_legacy/`；(b) 只留可重用的工具，產生器歸檔——注意 `diagram-review-v2` workflow 的前置步驟就是跑 `extract_pages.py`、`lint_pages.py`、`shrink_png.py`，留著它們才不會把它弄壞；(c) 全留。
+**結論（#35，#164 執行）**：舊圖的產生器（`gen57.py`、`gen_disc.py`、`disc_v1_*.py`）跟舊圖放在一起，移出 git，副本在 workspace 的 `reference/diagram_legacy/script_diagram/`。可重用的工具（`check_overflow.py`、`check_overlap.py`、`lint_pages.py`、`extract_pages.py`、`shrink_png.py`、`drawio_common.py`）與 `README.md`、`STYLE.md` 留著，等 #138 重做時處理。
 
 `script/doc/mark_changes.py` 不在此列，它是現在每輪都在用的工具，留。
 
@@ -105,6 +101,6 @@
 
 ### 8. `doc/agents/domain.md` 的檔案結構區塊 —— 已完成
 
-`domain.md` 原本有一個 `## 檔案結構` 區塊，用樹狀圖列出 agent 該讀的檔，每次搬檔都會過時。已採選項 (b)：樹狀圖整段移除，只留「動手之前先讀這些」那四個檔。原先記的三處不對也隨之消失——`dist_distribution_notes.md` 那一行連同樹一起沒了；`CONTEXT.md` 現在不提 `discussion.drawio` 的頁數，`script/diagram/README.md` 的「77 頁」跟檔案實際頁數一致。
+`domain.md` 原本有一個 `## 檔案結構` 區塊，用樹狀圖列出 agent 該讀的檔，每次搬檔都會過時。已採選項 (b)：樹狀圖整段移除，只留「動手之前先讀這些」那四個檔。原先記的三處不對也隨之消失——`dist_distribution_notes.md` 那一行連同樹一起沒了；`CONTEXT.md` 現在不提 `discussion.drawio` 的頁數，`script/diagram/README.md` 的「77 頁」那行已隨舊圖移出 git 刪除（#164）。
 
 編號保留，不重排 1–7。剩下的只有一個沒拍板的餘項：要不要寫一支 lint 檢查文件裡的路徑都存在（原選項 (c)），掛進 `just test`。目前 `AGENTS.md`、`issue-tracker.md`、`triage-labels.md`、`doc/adr/*` 的路徑引用都對得上。
