@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse hook（matcher: Bash）：git worktree 只准開在固定位置。
 
-位置是 repo 上一層的 worktree/，依序判斷：
+位置是主 worktree 上一層的 worktree/（session 開在 linked worktree 時，從 .git 檔回推主 worktree），依序判斷：
 - 有 PR：worktree/pr/<編號>
 - 沒 PR、有 issue：worktree/issue/<編號>
 - 都沒有：worktree/branch/<分支名>
@@ -15,13 +15,10 @@ import shlex
 import sys
 from pathlib import Path
 
+from repo_paths import worktree_root
+
 VALUE_OPTS = {"-b", "-B", "--reason", "--orphan"}
 ALLOWED = re.compile(r"^(pr|issue)/\d+$|^branch/.+$")
-
-
-def worktree_root() -> Path:
-    project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or ".").resolve()
-    return project.parent / "worktree"
 
 
 def add_paths(command: str) -> list[str]:

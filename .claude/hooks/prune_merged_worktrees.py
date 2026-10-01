@@ -16,12 +16,13 @@ gh 或 git fetch 失敗（沒網路等）就什麼都不刪。整體限時 20 �
 """
 import json
 import os
-import re
 import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from repo_paths import main_dir
 
 REPO = "ycpss91255-research/vendor_kit"
 BUDGET = 20.0
@@ -32,19 +33,6 @@ class Abort(Exception):
     """gh／fetch 失敗或超時：什麼都不刪。"""
 
 
-def main_dir() -> Path:
-    project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or ".").resolve()
-    dotgit = project / ".git"
-    if dotgit.is_file():
-        # linked worktree：.git 內容是 gitdir: <主 worktree>/.git/worktrees/<名>
-        m = re.match(r"gitdir:\s*(.+)", dotgit.read_text(errors="ignore").strip())
-        if m:
-            gitdir = Path(m.group(1))
-            gitdir = gitdir if gitdir.is_absolute() else project / gitdir
-            gitdir = gitdir.resolve()
-            if gitdir.parent.name == "worktrees":
-                return gitdir.parent.parent.parent
-    return project
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:

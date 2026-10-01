@@ -24,6 +24,8 @@ import shlex
 import sys
 from pathlib import Path
 
+from repo_paths import main_dir
+
 SPLIT = re.compile(r"&&|\|\||;|\||\n")
 EXEMPT_DIRS = (".claude/hooks/", ".claude/workflows/")
 EXEMPT_FILES = {".claude/settings.json", ".claude/settings.local.json"}
@@ -37,19 +39,6 @@ HINT = (
 )
 
 
-def main_dir() -> Path:
-    project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or ".").resolve()
-    dotgit = project / ".git"
-    if dotgit.is_file():
-        # linked worktree：.git 內容是 gitdir: <主 worktree>/.git/worktrees/<名>
-        m = re.match(r"gitdir:\s*(.+)", dotgit.read_text(errors="ignore").strip())
-        if m:
-            gitdir = Path(m.group(1))
-            gitdir = gitdir if gitdir.is_absolute() else project / gitdir
-            gitdir = gitdir.resolve()
-            if gitdir.parent.name == "worktrees":
-                return gitdir.parent.parent.parent
-    return project
 
 
 def resolve(raw: str, base: Path) -> Path:
