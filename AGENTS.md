@@ -29,3 +29,4 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 
 - 架構圖與流程圖用 drawio MCP 編輯與匯出，**不要為此引入容器或要求主機裝第三方工具** —— 那會讓這個 repo 變複雜。注意「主機只需 Docker、Git、just」是 VK 對它的使用者的承諾（不變量 5），不是這個 repo 作者流程的限制，兩者不要混。
 - 圖的持久鍵是 `<diagram id>`，不是頁名也不是頁序。
+- drawio MCP 的頁面持有、HTTP 讀寫與匯出限制見 [drawio 使用規則](doc/agents/drawio.md)。
