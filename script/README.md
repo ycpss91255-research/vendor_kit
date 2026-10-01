@@ -1,4 +1,4 @@
-# script — 審閱與圖面工具
+# script — 審閱工具
 
 ## 對外文件的改動標示（`mark_changes.py`）
 
@@ -143,7 +143,7 @@ python3 script/check_terms.py
 - **禁止名詞底線**：上述對外文件不准出現 HTML `u` 或 `ins` 標籤；名詞改用連結，不再用 HTML 底線標記。
 
 - **詞從哪裡來**：每次跑都從根 `GLOSSARY.md` 的 `_Avoid_:` 行現抽，不寫死清單。名詞表會長大，寫死的清單幾次改名之後就跟名詞表脫鉤，而且是靜默的。
-- **掃哪些檔**：`git ls-files -co --exclude-standard` 取得的現行 `.md` 檔，加上 `doc/contract/*.csv` 的文字欄（`situation`、`message`、`description`、`next_step`）。`doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/research/` 已 gitignore，本來就不在清單裡。排除 `doc/review/`（送審資料夾的正文副本與標示版，正式檔另外掃）、`.claude/skills/`（vendored 的第三方 skill）、`script/diagram/` 與 `discussion.drawio`（架構圖已凍結，裡面的舊詞是歷史），以及 index 裡還留著但已刪除的檔。
+- **掃哪些檔**：`git ls-files -co --exclude-standard` 取得的現行 `.md` 檔，加上 `doc/contract/*.csv` 的文字欄（`situation`、`message`、`description`、`next_step`）。`doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/research/` 已 gitignore，本來就不在清單裡。排除 `doc/review/`（送審資料夾的正文副本與標示版，正式檔另外掃）、`.claude/skills/`（vendored 的第三方 skill），以及 index 裡還留著但已刪除的檔。
 - **不算殘留的行**：`_Avoid_:` 行本身；以及帶「舊名」「已廢止」「已移除」「之名作廢」「舊審閱頁」「改名」這類引述標記的行，因為講改名史本來就得同時寫出新舊兩個詞。標記清單是 `check_terms.py` 頂端的 `QUOTE_MARKERS` 常數，要放行新的講法就加在那裡。
 - **逐行白名單**：已定案要保留舊詞的**個別一行**登記在 `check_terms.py` 頂端的 `WHITELIST`，每筆是 `(檔案路徑, 該行必須包含的字串, 理由)`。三個欄位都要對上才放行，而且只放行「那段字串裡面」的舊詞：把字串從該行挖掉之後還搜得到舊詞，照樣算殘留。所以同一個檔的其他行、同一行的其他位置、別的檔抄同一段字，全都還是會被抓到。只比對詞會讓那個詞全域失效、只比對檔案會讓整個檔失效，白名單就成了漏洞，所以這兩種寫法刻意不做。白名單筆數印在 `OK`／`FAIL` 那行，悄悄長大會看得見。
 - **目前沒有登記**：`WHITELIST` 是空的。（歷史：過去登記過 01 審閱頁的舊標題與 `doc/decisions/README.md` 引用它的那一列；維護者 2026-09-30 定案把標題改成「01 目的與承諾」後，這兩筆已拿掉。）
@@ -167,7 +167,3 @@ python3 script/check_typography.py --fix
 不查行內程式碼的內容、程式碼區塊、URL、Markdown 連結目標（括號裡的路徑與錨點）與 HTML 標籤。CSV 只查文字欄（`situation`、`message`、`description`、`next_step`），`code`、`status`、`level`、`exit_code`、`disposition` 是固定值域，不查；英文的 `message` 與 `next_step` 仍會掃描，但不會因英文排版本身誤報。`--fix` 改到 CSV 之後再跑 `check_messages.py`，確認 `next_step` 仍逐字出現在 `message` 裡；改到標題時 GitHub 產生的錨點跟著變，連到舊錨點的連結不會自動改，要另外改。
 
 各條規則的正反例與排除範圍在 [check_typography 測試](test/test_check_typography.py)。
-
-## 圖面工具
-
-見[圖面工具說明](diagram/README.md)。

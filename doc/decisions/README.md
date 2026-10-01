@@ -2,7 +2,7 @@
 
 這個目錄**不在 skill 結構裡**。skill 只要求四樣東西：根 `GLOSSARY.md`（名詞）、`doc/adr/`（難逆轉的取捨）、`doc/agents/`（三個設定檔）、`AGENTS.md`（工作約定與 Agent skills 段）；spec 與需求走 GitHub issue。這個目錄現在放設計原則、範圍文件與審閱用的工作目錄；對外契約與不變量（審閱頁 01～04）已搬到 `doc/contract/`，研究紀錄原本搬到 `doc/research/`，現已移出 git（本機保留、已 gitignore，調查結論寫進 issue 留言；理由見 `AGENTS.md`「決議與文件流程」）。本檔是這個目錄的地圖，審閱頁也一併列在這裡。
 
-三段：**保留** = 現在還在用；**已歸檔** = 原本的 `_legacy` 目錄，已搬出 repo、只留在維護者本機（相對 repo 根目錄是 `../reference/_legacy`），只作參考；**待處理** = 等使用者拍板存廢。
+三段：**保留** = 現在還在用；**已歸檔** = 原本的 `_legacy` 目錄，已搬出 repo、只留在維護者本機（相對 repo 根目錄是 `../reference/_legacy`），只作參考；**待處理** = 等使用者拍板存廢（已完成的項目保留結論，標「已完成」）。
 
 ## 保留
 
@@ -51,21 +51,25 @@
 
 ## 待處理（等使用者拍板）
 
-### 1. 兩個 `.drawio` 主檔
+### 1. 兩個 `.drawio` 主檔（已完成）
 
 **是什麼**：`dist_distribution.drawio`（主圖 12 頁，457 KB）與 `discussion.drawio`（77 頁，3.4 MB）。
 
 **為什麼卡住**：畫的是舊模型（舊名「三方角色」、「專案根」、「動詞」）。審閱頁 01～04 與根 `GLOSSARY.md` 已改用新名詞，圖沒跟上。`AGENTS.md` 寫「架構圖不是插圖，是測試的依據……模組邊界與泳道由 lint 強制」，但那個 lint 還沒寫，所以現在圖與文字沒有任何機制擋住脫鉤。
 
-**選項**：(a) 依新名詞重畫（成本高：77 頁討論圖是產生器輸出，得先改產生器）；(b) 廢掉兩個檔，等實作階段需要時重畫需要的那幾頁；(c) 留在原位當歷史，檔頭標「舊模型，不要引用」，並把 `AGENTS.md` 那條「圖是測試依據」降級為「待重畫後生效」。
+**結論（#128）**：兩個檔連同圖的提案草稿移出 repo，歸檔到 workspace 的 `reference/diagram_legacy/`（不在 git；舊內容在 git 歷史，commit 2b4662b 之前）。之後需要圖時依新名詞重畫，不沿用舊產生器；`AGENTS.md` 那條「圖是測試依據」改為適用於重畫後的圖，lint 重畫時一起實作。
 
-### 2. `script/diagram/`
+（歷史：以上「是什麼」「為什麼卡住」是當時的狀況。原本的選項是）(a) 依新名詞重畫（成本高：77 頁討論圖是產生器輸出，得先改產生器）；(b) 廢掉兩個檔，等實作階段需要時重畫需要的那幾頁；(c) 留在原位當歷史，檔頭標「舊模型，不要引用」，並把 `AGENTS.md` 那條「圖是測試依據」降級為「待重畫後生效」。
+
+### 2. `script/diagram/`（已完成）
 
 **是什麼**：圖的產生器與審查工具。19 MB、216 個 `.py`。其中 `script/diagram/_backup/`（17 MB，已 gitignore；`gen2`–`gen56`、`make_gen*`、各種 `.v*` 後綴）是歷代痕跡，`_misc/`（900 KB，53 個一次性 patch／診斷腳本）多數假設 cwd 有已不存在的 `v2_only.drawio`。
 
 **為什麼卡住**：依賴的圖頁已作廢（跟第 1 項綁在一起）。`verify_r15.py`、`verify_r16.py` 指向 `decisions/review/terms.md`，但這個檔早就不存在（名詞表現在是根 `GLOSSARY.md`，而且不是逐字上圖了），兩支腳本現在跑起來必定失敗。
 
-**選項**：(a) 整個 `script/diagram/` 歸檔（移到 repo 外的本機參考目錄）；(b) 只留通用的四支（`extract_pages.py`、`lint_pages.py`、`shrink_png.py`、`drawio_common.py`）加 `review_v2_README.md`，其餘歸檔。已歸檔的 `diagram-review-v2` workflow 當時的前置步驟就是跑前三支；(c) 全留，只刪 `verify_r15/16.py` 這類明確壞掉的。
+**結論（#128）**：整個 `script/diagram/`（含本機的 `_backup/`、`_misc/`）移出 repo，跟舊圖放在一起，歸檔到 workspace 的 `reference/diagram_legacy/`（不在 git；舊內容在 git 歷史，commit 2b4662b 之前）。之後重畫不沿用這些產生器。
+
+（歷史：以上「是什麼」「為什麼卡住」是當時的狀況。原本的選項是）(a) 整個 `script/diagram/` 歸檔（移到 repo 外的本機參考目錄）；(b) 只留通用的四支（`extract_pages.py`、`lint_pages.py`、`shrink_png.py`、`drawio_common.py`）加 `review_v2_README.md`，其餘歸檔。已歸檔的 `diagram-review-v2` workflow 當時的前置步驟就是跑前三支；(c) 全留，只刪 `verify_r15/16.py` 這類明確壞掉的。
 
 `script/mark_changes.py` 不在此列，它是現在每輪都在用的工具，留。
 
@@ -103,6 +107,6 @@
 
 ### 8. `doc/agents/domain.md` 的檔案結構區塊（已完成）
 
-`domain.md` 原本有一個 `## 檔案結構` 區塊，用樹狀圖列出 agent 該讀的檔，每次搬檔都會過時。已採選項 (b)：樹狀圖整段移除，只留「動手之前先讀這些」那四個檔。原先記的三處不對也隨之消失：`dist_distribution_notes.md` 那一行連同樹一起沒了；`GLOSSARY.md` 現在不提 `discussion.drawio` 的頁數，`script/diagram/README.md` 的「77 頁」跟檔案實際頁數一致。
+`domain.md` 原本有一個 `## 檔案結構` 區塊，用樹狀圖列出 agent 該讀的檔，每次搬檔都會過時。已採選項 (b)：樹狀圖整段移除，只留「動手之前先讀這些」那四個檔。原先記的三處不對也隨之消失：`dist_distribution_notes.md` 那一行連同樹一起沒了；`GLOSSARY.md` 現在不提 `discussion.drawio` 的頁數。（歷史：當時 `script/diagram/README.md` 的「77 頁」跟檔案實際頁數一致；這兩者後來都已歸檔出 repo，見待處理第 1、2 項。）
 
 編號保留，不重排 1–7。剩下的只有一個沒拍板的餘項：要不要寫一支 lint 檢查文件裡的路徑都存在（原選項 (c)），掛進 `just test`。目前 `AGENTS.md`、`issue-tracker.md`、`triage-labels.md`、`doc/adr/*` 的路徑引用都對得上。

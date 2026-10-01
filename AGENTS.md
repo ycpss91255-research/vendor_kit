@@ -26,7 +26,7 @@ repo 上一層的 `vendor-kit_ws/` 是工作區：`src/` 是這個 repo；`workt
 - 其他都是內部文件（本檔、[工具說明](script/README.md)、[決議目錄說明](doc/decisions/README.md)、[workflow 說明](.claude/workflows/README.md)、[審閱頁說明](doc/contract/README.md)、[ADR 說明](doc/adr/README.md) 等）：改完照樣走 doc-edit workflow，但不產標示版、不送審，而且不准留過時的資訊（已不用的做法、已不存在的檔）。只記錄歷史的句子可以留，但要寫明是歷史。
 - ADR 放 `doc/adr/NNNN-<slug>.md`，格式照 domain-modeling skill 的 [ADR 格式](.agents/skills/domain-modeling/ADR-FORMAT.md)（見 [ADR 說明](doc/adr/README.md)）。只有三項都成立才寫 ADR：難逆轉、沒背景會令人意外、確實取捨過。
 - 分工固定：ADR 記決定與理由；不變量頁只記「它必須永遠成立」。
-- 架構圖（`.drawio`）不是插圖，預定成為測試的依據：圖上畫的模組邊界與泳道會由 lint（import-linter、鏡射、黑箱）強制，目前尚未實作。lint 落地前，不得把圖當成已受強制、與現況一致的依據。沒有被測試強制的圖，幾次修改後就會靜默地跟程式脫鉤。
+- 架構圖（`.drawio`）不是插圖，是測試的依據：repo 裡目前沒有架構圖（舊模型的圖已移出 repo）；之後依新名詞重畫的圖，圖上畫的模組邊界與泳道由 lint（import-linter、鏡射、黑箱）強制，lint 在重畫時一起實作。沒有被測試強制的圖，幾次修改後就會靜默地跟程式脫鉤。
 - 決議改動架構圖時，同一個 PR 一起更新圖。
 
 ## git 慣例
