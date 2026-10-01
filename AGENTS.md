@@ -9,6 +9,9 @@ issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss9
 ### Domain docs
 單一語境：對外契約與承諾見 `doc/decisions/review/01_purpose.md`、名詞見根目錄 `CONTEXT.md`、不變量見 `doc/decisions/review/02_invariants.md`、ADR 見 `doc/adr/`。見 `doc/agents/domain.md`。
 
+### 工作區
+repo 上一層的 `vendor-kit_ws/` 是工作區：`src/` 是這個 repo，只放最新的 `main`，改動一律在 worktree 做；`worktree/` 放 git worktree（`pr/<N>`、`issue/<N>`、`branch/<名>`）；`reference/`、`demo/` 是本機參考資料，不進 git。
+
 ## 決議與文件流程
 
 - **對外契約放 `doc/decisions/review/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
