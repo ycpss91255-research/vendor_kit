@@ -134,10 +134,19 @@ VK 對外只有兩個入口：
   exit code: 2
   ```
 
-- 沒有頂層的 `just vendor_kit -h` 與 `just vendor_kit --version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱去找，參數到不了 VK
+- `vendor_kit` 後面接的不是 [VK recipe](../../GLOSSARY.md#執行與結果) 名稱，或直接接 `-h`、`--version`，例如 `just vendor_kit foo`、`just vendor_kit -h`，都會被 just 當成 recipe 名稱去找，參數到不了 VK，不在 VK 的承諾內。這時由 just 自己印出不帶 `vendor_kit:` 前綴的錯誤訊息，以結束碼 `1` 結束；只承諾訊息來自 just 與結束碼是 `1`，不承諾訊息原文。以下是 just 1.33.0 的輸出；原文會隨 just 版本改變：
+
+  ```text
+  $ just vendor_kit foo
+  stderr: error: Justfile does not contain recipe `vendor_kit foo`.
+  exit code: 1
+  ```
+
+  這個 `1` 是 just 回的，不是 VK 回的，因此不表示 VK 的 `warn`，也不和 [03 的結束碼規則](03_messages.md#結束碼)衝突。
+- 不支援 just 的 `--allow-missing` 或 `JUST_ALLOW_MISSING`；它們會讓不認得的 recipe 靜默以 `0` 成功，違反 [02 不變量第 4 條](02_invariants.md#4-永不靜默失敗)
 - 用法錯誤：先在 stderr 印出 `error` [診斷](../../GLOSSARY.md#執行與結果)，再接著印簡短用法，以[結束碼](03_messages.md#結束碼) `2` 結束。算用法錯誤的有：
   - 缺必要參數：[訊息](03_messages.csv) `VK0025`
-  - 不認得的指令或選項：[訊息](03_messages.csv) `VK0026`
+  - VK recipe 帶了不認得的選項或多出的參數：[訊息](03_messages.csv) `VK0026`
   - tag 格式不合：[訊息](03_messages.csv) `VK0027`，見下面的[指定版本](#指定版本)
 
   ```text
@@ -146,8 +155,8 @@ VK 對外只有兩個入口：
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
 
-  $ just vendor_kit upgrde base
-  stderr: vendor_kit: error[VK0026]: Unknown command or option: upgrde.
+  $ just vendor_kit sync --bogus
+  stderr: vendor_kit: error[VK0026]: Unknown command or option: --bogus.
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
 

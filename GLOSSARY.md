@@ -166,7 +166,7 @@ _Avoid_: 三方合併
 
 **VK recipe**：
 VK 自己的指令，寫法 `just vendor_kit <recipe>`。
-_Avoid_: 動詞、子命令
+_Avoid_: 動詞、子命令、子指令
 
 **可寫 recipe** (writing recipe)：
 會動到追蹤檔或進度檔的 VK recipe。
