@@ -147,14 +147,14 @@ args 欄位：
 | `pages` | 是 | 只准改的頁的 `<diagram id>` 陣列（圖的持久鍵，不是頁名也不是頁序） |
 | `task` | 是 | 要改什麼 |
 | `round` | 否 | `rNN`，跟 doc-edit 共用編號。不給就用 `script/doc/round.py next` 取，給了就用 `round.py check` 檢查 |
-| `repo` | 否 | 預設同 doc-edit |
-| `workspace` | 否 | 放 PNG 的 workspace，預設 `repo` 的上一層；`repo` 是 worktree 時要明確帶 |
+| `repo` | 否 | 主 repo。不給就在準備的第一步由子代理（effort low）跑 `git rev-parse --path-format=absolute --git-common-dir`，取其上一層；在 worktree 裡跑也會得到主 repo |
+| `workspace` | 否 | 放 PNG 的 workspace，預設 `repo` 的上一層；明確帶的 `repo` 是 worktree 時要明確帶 |
 
 步驟與腳本（子代理只跑一行指令、回報它印出的 JSON，成敗在 workflow 裡判斷）：
 
 | 步驟 | 做法 |
 |---|---|
-| 準備 | `script/doc/round.py next`／`check`；`script/doc/backup.py save`（鍵含副檔名，例如 `doc_diagram_architecture.drawio`）；`script/diagram/state.py check`，失效就停下，請維護者在主對話重新取得頁面；`state.py put` 載入檔案，並確認 `pages` 的 id 都在檔裡 |
+| 準備 | 沒給 `repo` 就先用 `git rev-parse --path-format=absolute --git-common-dir` 查出主 repo；`script/doc/round.py next`／`check`；`script/doc/backup.py save`（鍵含副檔名，例如 `doc_diagram_architecture.drawio`）；`script/diagram/state.py check`，失效就停下，請維護者在主對話重新取得頁面；`state.py put` 載入檔案，並確認 `pages` 的 id 都在檔裡 |
 | 改圖 | Claude 子代理用 MCP 的 `list_pages`、`get_diagram`、`edit_diagram`（一律帶 `page_id`）只改指定頁；改完由 `state.py get` 存回檔案 |
 | lint | `script/diagram/lint.py <file> --base <備份>`。指定頁的違規與 `page-id` 違規交回改圖子代理修，最多 3 輪，還不行就停；其他頁的違規只回報 |
 | 匯出 PNG | 子代理用 MCP `export_diagram` 每頁一張，存到 `<workspace>/reference/diagram_review/<round>/`；再用 `script/diagram/png.py flatten` 與 `resize --max-width 1600` 改白底、縮圖 |
@@ -162,7 +162,7 @@ args 欄位：
 | 套用必改 | 必改交回改圖子代理，存回後重跑 lint 與匯出 PNG；建議只回報 |
 | 收尾檢查 | 再跑一次 `lint.py` 與 `state.py diff`：不准新增或刪除頁、`<diagram id>` 不准變、只有 `pages` 的頁有改動或改名 |
 
-任何一步失敗就停，回傳值的 `stopped` 是停在哪一步、`error` 是原因。回傳 `{ round, file, pages, backup, edits, lint, png, review, applied, diff, stopped, error }`：`lint` 有 `blocking`（指定頁）與 `outside`（其他頁，只回報），`png` 是最後一次匯出的 PNG 路徑，`review.suggest` 是給維護者的建議。
+任何一步失敗就停，回傳值的 `stopped` 是停在哪一步、`error` 是原因。回傳 `{ round, repo, file, pages, backup, edits, lint, png, review, applied, diff, stopped, error }`：`lint` 有 `blocking`（指定頁）與 `outside`（其他頁，只回報），`png` 是最後一次匯出的 PNG 路徑，`review.suggest` 是給維護者的建議。
 
 args 範例在 `diagram-edit.js` 檔尾。
 
