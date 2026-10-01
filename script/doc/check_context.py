@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """檢查根 CONTEXT.md：目錄／錨點／名詞三者一致，且 _Avoid_ 詞沒出現在正文。
 
-用法：python3 script/check_context.py [CONTEXT.md]
+用法：python3 script/doc/check_context.py [CONTEXT.md]
 成功印 OK 並回 0；有問題逐條印出並回 1。
 """
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def main(path: Path) -> int:

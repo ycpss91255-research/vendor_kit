@@ -27,7 +27,7 @@
 | 目錄 | 是什麼 | 最終去向 |
 |---|---|---|
 | `review_log/`（已移出 git） | 審閱頁的審閱往返：codex brief／output、Claude 子代理審查紀錄。本機保留、已 gitignore。 | 本機參考用，不進 git。見「待處理」第 6 項。 |
-| `_backup/`（已移出 git） | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`），`script/mark_changes.py` 靠它產生改動標示。本機保留、已 gitignore。 | 本機用，不進 git。見「待處理」第 5 項。 |
+| `_backup/`（已移出 git） | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`），`script/doc/mark_changes.py` 靠它產生改動標示。本機保留、已 gitignore。 | 本機用，不進 git。見「待處理」第 5 項。 |
 | `review/_marked/` | `mark_changes.py` 的輸出：新增綠底、被取代的舊文字紅底，給使用者逐頁審閱用。已在 `.gitignore`，是產生物。 | 每輪重新產生，不需要保留。 |
 | `_legacy/`（已移出 git） | 原本放已歸檔的檔案；只留維護者本機的 `../reference/_legacy`。見下一段。 | 本機參考用，確認清楚之後刪。 |
 
@@ -42,7 +42,7 @@
 | 定案流水帳 | `grilling.md` | 逐題追問與定案紀錄。Q 編號只在檔內有意義；要引用當初的定案，寫日期加定案內容。 |
 | agy／codex 原始輸出 | `agy/`、`log/`、`review/codex_*`、`review_log/`（舊輪次：`codex_r2`–`codex_r9`、`codex_review`、`r12_codex`、`r13_codex`、`r15_codex`、`review_v1`，共 152 檔 59 MB） | 9/17–9/21 的雙軌審查往返，對象是已作廢的圖頁與舊版名詞。 |
 | 舊審閱頁 | `review/01-03_名詞與縮寫.md`、`review/04-05_不變量與角色.md`、`review/terms_moved.md`、`review/invariants_roles.md`、`review/verbs.md`、`review/CONTEXT.draft.md`、`review/legend_page.md`、`review/02_terms.md` | 前七份被現在的 01／02 兩頁取代；`02_terms.md`（名詞與縮寫）的內容已重寫進根 `CONTEXT.md`，本檔隨即退場。 |
-| 本輪剛歸檔 | `review/_changes_r63.md`（手寫對照表，已被 `script/mark_changes.py` 取代，內文用「導入根」舊名）、`review/_variants/`（承諾關係三種呈現草稿，已擇一定案）、`dist_distribution_notes.md`（主圖討論紀錄，用三方模型舊名詞） | 見括號。 |
+| 本輪剛歸檔 | `review/_changes_r63.md`（手寫對照表，已被 `script/doc/mark_changes.py` 取代，內文用「導入根」舊名）、`review/_variants/`（承諾關係三種呈現草稿，已擇一定案）、`dist_distribution_notes.md`（主圖討論紀錄，用三方模型舊名詞） | 見括號。 |
 | issue 草稿 | `issues/`（`close_*.md`、`d11`–`d13`、`reframe_14.md`）、`issue_deploy_split*.md` | 已貼上 GitHub，本地副本不同步。 |
 | 外部參考 | `wf/`（20 個上游 repo 的 GitHub Actions workflow）、`verify/`（ADR 抓取與 issue JSON） | 一次性取樣，要用再抓。 |
 | 圖檔審查產物 | `drawio_audit/`（9 個 `.drawio-audit-*` 目錄 + `files.zip`，35 MB） | draw.io 編輯期間的自動快照。**注意：`.gitignore` 的 `.drawio-audit-*/` 與 `files.zip` 兩條在新位置仍然生效，所以它們沒進 git，只留在工作區。** |
@@ -65,7 +65,7 @@
 
 **選項**：(a) 整個 `script/diagram/` 進 `_legacy/`；(b) 只留可重用的工具，產生器歸檔——注意 `diagram-review-v2` workflow 的前置步驟就是跑 `extract_pages.py`、`lint_pages.py`、`shrink_png.py`，留著它們才不會把它弄壞；(c) 全留。
 
-`script/mark_changes.py` 不在此列，它是現在每輪都在用的工具，留。
+`script/doc/mark_changes.py` 不在此列，它是現在每輪都在用的工具，留。
 
 ### 3. `doc/decisions/` 這個目錄本身
 
@@ -87,7 +87,7 @@
 
 **是什麼**：每輪改動前的快照（路徑攤平的命名）。
 
-**結論（#142）**：移出 git，本機保留、已 gitignore；舊內容在 git 歷史與 tag `archive/pr-59`。`script/mark_changes.py` 照舊讀本機的 `_backup/`。（歷史：原本的選項是只留最新快照、改用 `git show` 取舊版，或審閱頁定案後整個刪。）
+**結論（#142）**：移出 git，本機保留、已 gitignore；舊內容在 git 歷史與 tag `archive/pr-59`。`script/doc/mark_changes.py` 照舊讀本機的 `_backup/`。（歷史：原本的選項是只留最新快照、改用 `git show` 取舊版，或審閱頁定案後整個刪。）
 
 ### 6. `review_log/` —— 已完成
 

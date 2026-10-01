@@ -4,7 +4,7 @@
 `check_context.py` 只管 CONTEXT.md 自己；這支管其他所有文件。改名改到一半、
 舊詞留在某一頁，靠人逐輪目視一定會漏，所以寫成腳本擋掉。
 
-用法：python3 script/check_terms.py
+用法：python3 script/doc/check_terms.py
 已定案要保留舊詞的個別行寫在 WHITELIST（逐行、逐字串登記）。
 全乾淨印 OK 回 0；有殘留逐筆印出回 1。
 """
@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 # 這些路徑不掃：歷史快照、本地產物、外部素材原文、vendored 的第三方 skill、已凍結的架構圖。
 # 共同點是「文字不是我們寫的，或不是現行規範」，拿我們的名詞規範去掃它只會產生假警報。
