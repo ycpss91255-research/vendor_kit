@@ -1,5 +1,5 @@
 {
-  "review_zip": 5,
+  "review_zip": 6,
   "pages": {
     "01_purpose": [
       {
@@ -21,6 +21,11 @@
       {
         "v": 18,
         "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0",
+        "replied": true
+      },
+      {
+        "v": 19,
+        "commit": "33877cc7c1f04d6197d03d2a76493e65780ea500",
         "replied": true
       }
     ],
@@ -44,6 +49,11 @@
       {
         "v": 20,
         "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0",
+        "replied": true
+      },
+      {
+        "v": 21,
+        "commit": "33877cc7c1f04d6197d03d2a76493e65780ea500",
         "replied": true
       }
     ],
@@ -144,8 +154,12 @@
   },
   "finalized": {
     "01_purpose": {
-      "v": 18,
-      "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0"
+      "v": 19,
+      "commit": "33877cc7c1f04d6197d03d2a76493e65780ea500"
+    },
+    "02_invariants": {
+      "v": 21,
+      "commit": "33877cc7c1f04d6197d03d2a76493e65780ea500"
     }
   }
 }
