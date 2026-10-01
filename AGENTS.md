@@ -4,7 +4,7 @@
 issue 記在 GitHub `ycpss91255-research/vendor_kit`（`gh` 一律帶 `-R ycpss91255-research/vendor_kit`，讓指令自己說出目標 repo，不依賴當下目錄的 remote 設定，也不會打到 fork）；外部 PR 不當需求來源。見 `doc/agents/issue-tracker.md`。
 
 ### Triage labels
-五個標準狀態 = 同名標籤；另有 `needs-decision`（等維護者拍板）。見 `doc/agents/triage-labels.md`。
+五個標準狀態 = 同名標籤，沒有其他狀態標籤；要維護者拍板的貼 `needs-triage`（等維護者評估）。見 [triage 標籤](doc/agents/triage-labels.md)。
 
 ### Domain docs
 單一語境：對外契約與承諾見 `doc/decisions/review/01_purpose.md`、名詞見根目錄 `CONTEXT.md`、不變量見 `doc/decisions/review/02_invariants.md`、ADR 見 `doc/adr/`。見 `doc/agents/domain.md`。
