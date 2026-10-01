@@ -80,7 +80,7 @@ class RulesTest(unittest.TestCase):
             "\ufeffcode,status,level,exit_code,disposition,situation,message,description,next_step\n"
             "VK0001,active,warn,1,,開發模式中執行 just vendor_kit undev …,"
             "Run just vendor_kit upgrade --engine and retry.,中文說明,just vendor_kit upgrade --engine\n"
-            "VK0002,active,error,2,待續,執行 just vendor_kit add --bad 也不行,"
+            "VK0002,active,error,2,待處理,執行 just vendor_kit add --bad 也不行,"
             "Run just vendor_kit upgrade <repo> -z and retry.,中文說明 just vendor_kit test --description-only,"
             "just vendor_kit upgrade <repo> -z\n",
             encoding="utf-8",

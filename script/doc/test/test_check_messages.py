@@ -20,7 +20,7 @@ def row(**kw):
 
 def good_rows():
     return [
-        row(code="VK0001", status="active", level="error", exit_code="2", disposition="待續",
+        row(code="VK0001", status="active", level="error", exit_code="2", disposition="待處理",
             situation="要確認但不能互動", message="Run again with -y: <original command with -y>",
             description="請加上 -y 重新執行。", next_step="<original command with -y>"),
         row(code="VK0002", status="active", level="error", exit_code="2", disposition="失敗",
@@ -233,7 +233,7 @@ class FieldTest(Base):
 
     def test_action_required_requires_next_step(self):
         self.edit(0, next_step="")
-        self.assert_fail("VK0001:next_step: 待續必有下一步")
+        self.assert_fail("VK0001:next_step: 待處理必有下一步")
 
     def test_failure_has_no_next_step(self):
         self.edit(1, next_step="請重試")
@@ -264,7 +264,7 @@ class FieldTest(Base):
         )
         for message, next_step in cases:
             with self.subTest(message=message):
-                disposition = "待續" if next_step else "失敗"
+                disposition = "待處理" if next_step else "失敗"
                 self.edit(1, message=message, next_step=next_step, disposition=disposition)
                 self.assert_ok()
 

@@ -10,8 +10,8 @@
 3. status 只准 active、retired；retired 列除 code、status、situation 外都要空白。
 4. active 列：level 只准 warn、error、fatal；exit_code 必須分別是 1、2、3；
    situation、message、description 必填，message 不准含中文字元。
-5. disposition 只准「待續」「失敗」或空白；只有 warn 與 situation 以「用法錯誤：」開頭的列可留空；
-   待續必有 next_step；失敗的 next_step 必須空白。
+5. disposition 只准「待處理」「失敗」或空白；只有 warn 與 situation 以「用法錯誤：」開頭的列可留空；
+   待處理必有 next_step；失敗的 next_step 必須空白。
 6. next_step 有值時必須逐字出現在 message 裡。
 7. 欄位不准 HTML 與 Markdown；不帶屬性的 <…> 算占位符；< 與 > 要成對。
 8. 引用：README.md、doc/contract/*.md、GLOSSARY.md 裡的每個 VKnnnn 都要在 CSV 且是 active；
@@ -44,7 +44,7 @@ FIELDS = [
 STATUS = {"active", "retired"}
 LEVELS = {"warn", "error", "fatal"}
 EXIT_CODES = {"warn": "1", "error": "2", "fatal": "3"}
-DISPOSITIONS = {"待續", "失敗", ""}
+DISPOSITIONS = {"待處理", "失敗", ""}
 RETIRED_KEEP = {"code", "status", "situation"}
 CODE = re.compile(r"^VK\d{4}$")
 CODE_ANY = re.compile(r"(?<![A-Za-z0-9])VK\d{4}(?!\d)")
@@ -192,13 +192,13 @@ def check_rows(rows: list[dict[str, str]], errors: list[str]) -> dict[str, dict[
         if CHINESE.search(row["message"]):
             errors.append(f"{at}:message: 不准含中文字元；中文說明放 description")
         if disp not in DISPOSITIONS:
-            errors.append(f"{at}:disposition: 只准「待續」「失敗」或空白")
+            errors.append(f"{at}:disposition: 只准「待處理」「失敗」或空白")
         if level == "warn" and disp:
             errors.append(f"{at}:disposition: warn 一律空白")
         if status == "active" and not disp and level != "warn" and not row["situation"].startswith("用法錯誤："):
             errors.append(f"{at}:disposition: 只有 warn 與用法錯誤可留空")
-        if disp == "待續" and not row["next_step"]:
-            errors.append(f"{at}:next_step: 待續必有下一步")
+        if disp == "待處理" and not row["next_step"]:
+            errors.append(f"{at}:next_step: 待處理必有下一步")
         if disp == "失敗" and row["next_step"]:
             errors.append(f"{at}:next_step: 失敗的 next_step 必須空白")
         if row["next_step"] and row["next_step"] not in row["message"]:

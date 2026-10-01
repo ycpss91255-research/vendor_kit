@@ -31,7 +31,7 @@ def row(**kw):
 
 def good_rows():
     return [
-        row(code="VK0001", status="active", level="error", exit_code="2", disposition="待續",
+        row(code="VK0001", status="active", level="error", exit_code="2", disposition="待處理",
             situation="要確認但不能互動", message="Run again with -y: <original command with -y>",
             description="請加上 -y 重新執行。", next_step="<original command with -y>"),
         row(code="VK0002", status="active", level="warn", exit_code="1", situation="第 2 次重試",
