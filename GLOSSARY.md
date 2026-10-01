@@ -185,7 +185,7 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。
 
 **嚴重度** (level)：
-診斷的嚴重程度。本版使用的值是 `info`、`warn`、`error`、`fatal`；stderr 的診斷只用 `warn`、`error`、`fatal`，`info` 只用在成功的結果與結構化紀錄，不印成診斷。結束碼和嚴重度的對應見[結束碼](doc/contract/03_messages.md#結束碼)。
+診斷的嚴重程度；可用的值以及它和結束碼的對應見[結束碼](doc/contract/03_messages.md#結束碼)。
 
 **正常輸出** (normal output)：
 成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。
