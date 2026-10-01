@@ -36,7 +36,7 @@ def main() -> int:
         "permissionDecision": "deny",
         "permissionDecisionReason": (
             "對外文件要傳檔名帶版本號的副本，不傳正式檔：" + "、".join(bad) + "。"
-            "改傳 doc/decisions/_marked/<鍵>.vN.md 與 <鍵>.vN.marked.md（先跑 script/mark_changes.py）。"
+            "改傳 doc/decisions/_marked/<鍵>.vN.md 與 <鍵>.vN.marked.md（先跑 script/doc/mark_changes.py）。"
             "流程見 doc/contract/README.md「版本怎麼迭代」。"
         ),
     }}, ensure_ascii=False))
