@@ -19,6 +19,8 @@ jobs:
         run: python3 script/doc/check_terms.py
       - name: check_context（CONTEXT.md 格式）
         run: python3 script/doc/check_context.py
+      - name: check_messages（訊息表 03_output.csv：格式、代碼、欄位規則、引用）
+        run: python3 script/doc/check_messages.py
       - name: check_typography（排版：ASCII 括號用半形、中文與英數之間空一格）
         run: python3 script/doc/check_typography.py
       - name: check_script_layout（script/ 依類型分子目錄：頂層只准 README.md、類別名小寫英數與連字號、每類要有 README.md）
