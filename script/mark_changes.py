@@ -4,7 +4,7 @@
 名詞連到 GLOSSARY.md 分群、不用底線；改動也不用底線。
 
 用法：
-    python3 script/mark_changes.py <檔名…>                      # 基準：該鍵最後一次送審的版本
+    python3 script/mark_changes.py <檔名…>                      # 基準：該鍵維護者最後一次回覆過的版本
     python3 script/mark_changes.py --base-version 03_messages=13 GLOSSARY=6   # 指定送審版本當基準
     python3 script/mark_changes.py <舊版後綴> <檔名…>           # 本機 _backup 的改前快照當基準
 例：
@@ -19,12 +19,16 @@
 輸出到送審資料夾 doc/review/<鍵>/，檔名固定、不帶版本號，每次產生就覆蓋：
 <鍵>.md（正文副本）、<鍵>.marked.md（標示版），有同名 CSV 的審閱頁再加 <鍵>.csv。
 版本號不寫在檔名或檔內：送審的版號與送審當時的 commit 記在 doc/review/versions.json，
-由 pack_review.py 打包時取號並寫進 zip 內的檔名。這支只讀 versions.json，不寫。
+由 pack_review.py 打包時取號並寫進 zip 內的檔名；維護者回覆後用 pack_review.py --replied 把那筆標成
+replied: true。這支只讀 versions.json，不寫。
 
-基準：
-- 不帶後綴：versions.json 裡該鍵最後一次送審的版本；該鍵從沒送審過就整份標新增。
-- --base-version <鍵>=<N>：versions.json 裡該鍵版本 N 的 commit。
-  兩種都用 git show <commit>:<正式檔路徑>（CSV 也一樣）取基準；維護者看過的內容不再標紅綠，只標之後的改動。
+送審資料夾是「維護者要審的」：基準是維護者最後一次回覆過的那一版，看過的內容不再標紅綠，只標之後的改動。
+- 不帶後綴：versions.json 裡該鍵最後一筆 replied: true 的紀錄；沒有就整份標新增
+  （送出後還沒回覆的版本不算，否則重產時會以剛送出的版本自己為基準，紅綠全不見）。
+- --base-version <鍵>=<N>：versions.json 裡該鍵版本 N 的紀錄（不論有沒有回覆）。
+  兩種都用 git show <commit>:<路徑> 取基準：紀錄有 path 就取那個路徑（例如當時進 git 的正文副本），
+  沒有就取正式檔路徑；CSV 同理，看 csv_path。副本裡的相對連結是從副本所在目錄寫的，比對前先改寫回
+  正式檔的位置；紀錄帶 raw_links: true 表示副本的連結照正式檔位置寫、不改寫。
   基準 commit 裡沒有那份 CSV 時視為新建、整份標新增。找不到指定版號就停下報錯，整批不產。
 - <舊版後綴>：讀本機 doc/decisions/_backup/doc_contract_<name>.<後綴>.md（docs/ 併進 doc/ 之前的
   docs_contract_<name>、更早的 doc_decisions_review_<name> 也認）。_backup/ 不進 git，本機沒有就報錯。
@@ -163,9 +167,10 @@ def rewrite_links(text: str, src: pathlib.Path, base: pathlib.Path) -> str:
 
 
 def load_versions() -> dict:
-    """讀 versions.json：{"review_zip": N, "pages": {"<鍵>": [{"v": 16, "commit": "<sha>"}, ...]}}。
+    """讀 versions.json：{"review_zip": N, "pages": {"<鍵>": [{"v": 16, "commit": "<sha>", "replied": bool}, ...]}}。
 
-    每個鍵的陣列依版本排序；檔案不存在就當成從沒送審過。
+    每筆還可以帶 path、csv_path（基準改從那個路徑取）與 raw_links。
+    每個鍵的陣列依版本排序；檔案不存在就當成從沒送審過。沒寫 replied 的紀錄當成還沒回覆。
     """
     table = json.loads(VERSIONS.read_text()) if VERSIONS.exists() else {}
     table.setdefault(ZIP_KEY, 0)
@@ -186,6 +191,12 @@ def last_sent(key: str, table: dict | None = None) -> dict | None:
     return max(entries, key=lambda e: e["v"]) if entries else None
 
 
+def last_replied(key: str, table: dict | None = None) -> dict | None:
+    """該鍵最後一筆 replied: true 的紀錄；沒有回 None。"""
+    entries = [e for e in (table or load_versions())["pages"].get(key, []) if e.get("replied") is True]
+    return max(entries, key=lambda e: e["v"]) if entries else None
+
+
 def sent_version(key: str, v: int, table: dict | None = None) -> dict | None:
     """該鍵送審版本 v 的紀錄；沒有回 None。"""
     for entry in (table or load_versions())["pages"].get(key, []):
@@ -203,6 +214,20 @@ def git_show(commit: str, path: pathlib.Path) -> str | None:
     if proc.returncode != 0:
         return None
     return proc.stdout.decode("utf-8")
+
+
+def base_text(entry: dict, field: str, official: pathlib.Path) -> tuple[pathlib.Path, str | None]:
+    """紀錄的基準內容：回傳（取用的路徑, git show 的內容或 None）。
+
+    field 是 path 或 csv_path：紀錄有這欄就從那個路徑取，沒有就取正式檔路徑。
+    從副本取的 .md 先把相對連結改寫回正式檔的位置（副本的連結是從副本所在目錄寫的），
+    否則每一行連結都會被當成改動；紀錄帶 raw_links: true 時副本照正式檔位置寫，不改寫。
+    """
+    src = pathlib.Path(entry[field]) if entry.get(field) else official
+    text = git_show(entry["commit"], src)
+    if text is not None and src != official and official.suffix == ".md" and not entry.get("raw_links"):
+        text = rewrite_links(text, src, official.parent)
+    return src, text
 
 
 def normalize(name: str) -> str:
@@ -499,7 +524,7 @@ def build(name: str, suffix: str) -> tuple[int, int]:
     if suffix != "new" and not BACKUP.is_dir():
         raise SystemExit(
             f"後綴模式要讀本機的 {BACKUP}/，但它不存在（它不進 git，換電腦或新 clone 就沒有）。\n"
-            "改用送審紀錄當基準：不帶後綴（最後一次送審的版本），或 --base-version <鍵>=<N>。"
+            "改用送審紀錄當基準：不帶後綴（最後一次回覆過的版本），或 --base-version <鍵>=<N>。"
         )
     if suffix == "new":
         old = []
@@ -534,12 +559,12 @@ def build(name: str, suffix: str) -> tuple[int, int]:
 def resolve_base_name(name: str) -> str:
     """參數裡的名字 → mark_changes 的名字。
 
-    審閱頁照舊傳頁名；其他檔可傳路徑，也可以直接傳鍵：頁名對不到 doc/contract/<名>.md、
-    但 repo 根目錄有 <名>.md 時（例如 GLOSSARY、README），當成那個根目錄檔。
+    審閱頁照舊傳頁名；其他檔可傳路徑，也可以直接傳鍵：repo 根目錄有 <名>.md 時（例如 GLOSSARY、README），
+    當成那個根目錄檔。根目錄檔優先：鍵 README 是根目錄的 README.md，doc/contract/README.md 的鍵是
+    doc_contract_README（傳路徑），兩者不能共用一個鍵。
     """
     name = normalize(name)
-    if "/" not in name and not name.endswith(".md") and not (REVIEW / f"{name}.md").exists() \
-            and pathlib.Path(f"{name}.md").exists():
+    if "/" not in name and not name.endswith(".md") and pathlib.Path(f"{name}.md").exists():
         return f"{name}.md"
     return name
 
@@ -547,28 +572,31 @@ def resolve_base_name(name: str) -> str:
 def base_entry(name: str, base: int | None) -> tuple[dict | None, str | None]:
     """回傳（送審紀錄或 None, 錯誤訊息或 None）。
 
-    base 是 None 表示取最後一次送審的版本；從沒送審過回（None, None），整份標新增。
-    指定的版號不在 versions.json、或那個 commit 裡沒有正式檔，回錯誤訊息。
+    base 是 None 表示取最後一筆 replied: true 的紀錄；沒有回（None, None），整份標新增。
+    指定的版號不在 versions.json、或那個 commit 裡沒有基準檔，回錯誤訊息。
     """
     name = resolve_base_name(name)
     path, key = target(name)
     if base is None:
-        entry = last_sent(key)
+        entry = last_replied(key)
         if entry is None:
             return None, None
     else:
         entry = sent_version(key, base)
         if entry is None:
             return None, f"{name}：{VERSIONS} 沒有鍵 {key} 的送審版本 v{base}"
-    if git_show(entry["commit"], path) is None:
-        return None, f"{name}：commit {entry['commit']} 裡沒有 {path.as_posix()}（v{entry['v']} 的基準）"
+    src, text = base_text(entry, "path", path)
+    if text is None:
+        return None, f"{name}：commit {entry['commit']} 裡沒有 {src.as_posix()}（v{entry['v']} 的基準）"
+    if entry.get("csv_path") and git_show(entry["commit"], pathlib.Path(entry["csv_path"])) is None:
+        return None, f"{name}：commit {entry['commit']} 裡沒有 {entry['csv_path']}（v{entry['v']} 的 CSV 基準）"
     return entry, None
 
 
 def build_from_version(name: str, base: int | None = None) -> tuple[int, int]:
     """以送審紀錄當基準：versions.json 裡該鍵版本 base 的 commit，用 git show 取正式檔（與 CSV）。
 
-    base 是 None 時取該鍵最後一次送審的版本；從沒送審過就整份標新增。
+    base 是 None 時取該鍵最後一筆 replied: true 的紀錄；沒有就整份標新增。
     維護者看過並回覆的那一版不再標紅綠，只標之後的改動。找不到指定版號就停下報錯。
     """
     name = resolve_base_name(name)
@@ -580,17 +608,20 @@ def build_from_version(name: str, base: int | None = None) -> tuple[int, int]:
     notes: list[str] = []
     if entry is None:
         old, old_csv = [], None
-        basis = "基準：從沒送審過，整份標新增"
-        notes.append(f"{key} 從沒送審過：整份標新增")
+        basis = "基準：沒有維護者回覆過的版本，整份標新增"
+        notes.append(f"{key} 沒有維護者回覆過的版本：整份標新增")
     else:
         commit = entry["commit"]
-        old = git_show(commit, path).splitlines()
+        src, text = base_text(entry, "path", path)
+        old = text.splitlines()
         old_csv = None
         if csv_path is not None:
-            old_csv = git_show(commit, csv_path)
+            csv_src, old_csv = base_text(entry, "csv_path", csv_path)
             if old_csv is None:
-                notes.append(f"送審時的 commit {commit[:7]} 裡沒有 {csv_path.as_posix()}：視為新建，整份標新增")
-        basis = f"基準是送審時的 commit {commit[:7]}"
+                notes.append(f"送審時的 commit {commit[:7]} 裡沒有 {csv_src.as_posix()}：視為新建，整份標新增")
+        state = "維護者回覆過" if entry.get("replied") is True else "維護者還沒回覆"
+        # 版本號不寫進檔內；副本路徑通常帶版號，所以只寫 commit
+        basis = f"基準是{state}的送審 commit {commit[:7]}"
     out, ins, dele = diff_all(old, old_csv, path, csv_path, name)
     write_outputs(name, out, basis, notes)
     return ins, dele
@@ -608,7 +639,7 @@ def run_from_versions(parsed: list[tuple[str, int | None]]) -> None:
         sys.exit("找不到指定的送審版本，沒有產生任何標示版：\n  " + "\n  ".join(errors))
     for name, base in parsed:
         ins, dele = build_from_version(name, base)
-        where = "最後一次送審" if base is None else f"送審 v{base}"
+        where = "最後一次回覆過的版本" if base is None else f"送審 v{base}"
         print(f"{name}: {ins} ins, {dele} del（基準 {where}）")
 
 

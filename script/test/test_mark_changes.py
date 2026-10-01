@@ -516,7 +516,7 @@ class BaseVersionTest(unittest.TestCase):
         pathlib.Path("doc/contract/03_messages.csv").write_text(self.CSV, encoding="utf-8")
         pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n[03](doc/contract/03_messages.md)\n")
         self.v13 = commit_all("v13")
-        write_versions({"03_messages": [{"v": 13, "commit": self.v13}]}, review_zip=2)
+        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True}]}, review_zip=2)
 
     def tearDown(self):
         os.chdir(self._cwd)
@@ -554,15 +554,34 @@ class BaseVersionTest(unittest.TestCase):
         # v14 送審在後面的 commit；指定 v13 時基準仍是 v13 的 commit
         self.change()
         v14 = commit_all("v14")
-        write_versions({"03_messages": [{"v": 13, "commit": self.v13}, {"v": 14, "commit": v14}]}, 3)
+        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True},
+                                        {"v": 14, "commit": v14, "replied": False}]}, 3)
         self.assertEqual(mark_changes.build_from_version("03_messages", 13), (2, 2))
         self.assertEqual(mark_changes.build_from_version("03_messages", 14), (0, 0))
 
-    def test_default_base_is_last_sent(self):
+    def test_default_base_is_last_replied(self):
         self.change()
         v14 = commit_all("v14")
-        write_versions({"03_messages": [{"v": 14, "commit": v14}, {"v": 13, "commit": self.v13}]}, 3)
+        write_versions({"03_messages": [{"v": 14, "commit": v14, "replied": True},
+                                        {"v": 13, "commit": self.v13, "replied": True}]}, 3)
         self.assertEqual(mark_changes.build_from_version("03_messages"), (0, 0))
+
+    def test_default_base_skips_unreplied(self):
+        # v14 送出後維護者還沒回覆：基準仍是回覆過的 v13，v13 之後的改動照樣標紅綠
+        self.change()
+        v14 = commit_all("v14")
+        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True},
+                                        {"v": 14, "commit": v14, "replied": False}]}, 3)
+        self.assertEqual(mark_changes.build_from_version("03_messages"), (2, 2))
+        self.assertIn(self.GREEN + "改過的段落</mark>", self.marked())
+        self.assertIn(self.v13[:7], self.marked())
+        # 指定版號時不看 replied
+        self.assertEqual(mark_changes.build_from_version("03_messages", 14), (0, 0))
+
+    def test_missing_replied_field_counts_as_unreplied(self):
+        write_versions({"03_messages": [{"v": 13, "commit": self.v13}]})
+        mark_changes.build_from_version("03_messages")
+        self.assertIn("沒有維護者回覆過的版本", self.marked())
 
     def test_never_sent_is_all_new(self):
         write_versions({})
@@ -570,9 +589,73 @@ class BaseVersionTest(unittest.TestCase):
         text = self.marked()
         self.assertGreater(ins, 0)
         self.assertEqual(dele, 0)
-        self.assertIn("從沒送審過", text)
+        self.assertIn("沒有維護者回覆過的版本", text)
         self.assertIn(self.GREEN + "不變的段落</mark>", text)
         self.assertIn(f"#### VK0001\n{self.GREEN}（本碼新增）</mark>", text)
+
+    def test_no_replied_entry_is_all_new(self):
+        # 送過但都還沒回覆：整份標新增
+        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": False}]})
+        ins, dele = mark_changes.build_from_version("03_messages")
+        text = self.marked()
+        self.assertEqual(dele, 0)
+        self.assertIn("沒有維護者回覆過的版本", text)
+        self.assertIn(self.GREEN + "不變的段落</mark>", text)
+        self.assertIn(f"#### VK0001\n{self.GREEN}（本碼新增）</mark>", text)
+
+    def copy_commit(self):
+        """把送審當時的正文副本（連結從副本目錄寫）與 CSV 副本放進 git，正式檔之後再改。"""
+        d = pathlib.Path("doc/decisions/_marked")
+        d.mkdir(parents=True)
+        page = self.PAGE.replace("不變的段落", "副本裡的段落")
+        (d / "03_messages.v13.md").write_text(
+            mark_changes.rewrite_links(page, pathlib.Path("doc/contract/03_messages.md"), d))
+        (d / "03_messages.v13.csv").write_text(self.CSV.replace("Message text.", "Copy text."), encoding="utf-8")
+        return commit_all("copies"), page
+
+    def test_path_overrides_official(self):
+        commit, page = self.copy_commit()
+        write_versions({"03_messages": [{"v": 13, "commit": commit, "replied": True,
+                                         "path": "doc/decisions/_marked/03_messages.v13.md"}]})
+        mark_changes.build_from_version("03_messages")
+        text = self.marked()
+        # 基準是副本：副本的段落標紅；副本的連結改寫回正式檔位置，連結行不算改動
+        self.assertIn(self.RED + "副本裡的段落</mark>", text)
+        self.assertIn(self.GREEN + "不變的段落</mark>", text)
+        self.assertNotIn(self.GREEN + "見 [名詞表]", text)
+        self.assertNotIn(self.RED + "見 [名詞表]", text)
+        # 沒有 csv_path：CSV 基準取正式檔路徑，跟現在一樣
+        self.assertNotIn("Copy text.", text)
+        self.assertNotIn("#### VK0001", text)
+
+    def test_csv_path_overrides_official(self):
+        commit, _ = self.copy_commit()
+        write_versions({"03_messages": [{"v": 13, "commit": commit, "replied": True,
+                                         "csv_path": "doc/decisions/_marked/03_messages.v13.csv"}]})
+        mark_changes.build_from_version("03_messages")
+        text = self.marked()
+        self.assertIn(self.RED + "Copy text.</mark> → " + self.GREEN + "Message text.</mark>", text)
+        # 沒有 path：.md 基準取正式檔，沒有改動
+        self.assertNotIn("副本裡的段落", text)
+
+    def test_raw_links_copy_not_rewritten(self):
+        d = pathlib.Path("doc/decisions/_marked")
+        d.mkdir(parents=True)
+        (d / "03_messages.v13.md").write_text(self.PAGE)  # 連結照正式檔位置寫
+        commit = commit_all("raw copy")
+        entry = {"v": 13, "commit": commit, "replied": True, "path": "doc/decisions/_marked/03_messages.v13.md"}
+        write_versions({"03_messages": [dict(entry, raw_links=True)]})
+        self.assertEqual(mark_changes.build_from_version("03_messages"), (0, 0))
+        write_versions({"03_messages": [entry]})
+        self.assertNotEqual(mark_changes.build_from_version("03_messages"), (0, 0))
+
+    def test_missing_path_in_commit_fails(self):
+        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True,
+                                         "path": "doc/decisions/_marked/nope.md"}]})
+        with self.assertRaises(SystemExit) as cm:
+            mark_changes.build_from_version("03_messages")
+        self.assertIn("nope.md", str(cm.exception))
+        self.assertFalse(out("03_messages").exists())
 
     def test_csv_missing_in_commit_is_new(self):
         pathlib.Path("doc/contract/03_messages.csv").unlink()
@@ -600,6 +683,17 @@ class BaseVersionTest(unittest.TestCase):
         self.assertEqual(mark_changes.build_from_version("GLOSSARY", 6), (0, 0))
         self.assertTrue(out("GLOSSARY").exists())
 
+    def test_root_readme_key_wins_over_contract_readme(self):
+        # doc/contract/README.md 也存在時，鍵 README 仍是根目錄的 README.md
+        pathlib.Path("README.md").write_text("# 根目錄\n")
+        pathlib.Path("doc/contract/README.md").write_text("# 審閱頁\n")
+        self.assertEqual(mark_changes.resolve_base_name("README"), "README.md")
+        commit = commit_all("readme")
+        write_versions({"README": [{"v": 6, "commit": commit, "replied": True}]})
+        mark_changes.build_from_version("README")
+        self.assertIn("/README.md -->", out("README").read_text())
+        self.assertEqual(out("README", ".md").read_text(), "# 根目錄\n")
+
     def run_cli(self, *args):
         argv = sys.argv
         sys.argv = ["mark_changes.py", *args]
@@ -612,12 +706,12 @@ class BaseVersionTest(unittest.TestCase):
         self.run_cli("--base-version", "03_messages=13")
         self.assertTrue(out("03_messages").exists())
 
-    def test_cli_names_only_uses_last_sent(self):
+    def test_cli_names_only_uses_last_replied(self):
         self.change()
         self.run_cli("03_messages", "GLOSSARY.md")
         self.assertIn(self.GREEN + "改過的段落</mark>", self.marked())
         # GLOSSARY 從沒送審過：整份標新增
-        self.assertIn("從沒送審過", out("GLOSSARY").read_text())
+        self.assertIn("沒有維護者回覆過的版本", out("GLOSSARY").read_text())
 
     def test_cli_first_arg_not_a_file_is_suffix(self):
         # 第一個參數對不到檔就當成後綴；本機沒有 _backup/ 時清楚報錯

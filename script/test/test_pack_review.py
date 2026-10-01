@@ -78,8 +78,8 @@ class PackReviewTest(unittest.TestCase):
         table = self.table()
         self.assertEqual(table["review_zip"], 2)
         self.assertEqual(table["pages"]["03_messages"],
-                         [{"v": 12, "commit": self.first}, {"v": 13, "commit": self.head}])
-        self.assertEqual(table["pages"]["GLOSSARY"], [{"v": 1, "commit": self.head}])
+                         [{"v": 12, "commit": self.first}, {"v": 13, "commit": self.head, "replied": False}])
+        self.assertEqual(table["pages"]["GLOSSARY"], [{"v": 1, "commit": self.head, "replied": False}])
         self.assertEqual(table["pages"]["04_interface"], [{"v": 17, "commit": self.first}])
 
     def test_version_increments(self):
@@ -151,6 +151,39 @@ class PackReviewTest(unittest.TestCase):
         self.assertEqual(cm.exception.code, 2)
         self.assert_not_bumped()
         self.assertFalse(list(pathlib.Path(".").glob("**/review_v*.zip")))
+
+    def test_replied_marks_only_that_entry(self):
+        pack_review.pack(["04_interface"], self.out)
+        before = self.table()
+        self.run_main("--replied", "04_interface=18", "04_interface=17")
+        table = self.table()
+        self.assertEqual(table["pages"]["04_interface"],
+                         [{"v": 17, "commit": self.first, "replied": True},
+                          {"v": 18, "commit": self.head, "replied": True}])
+        # 不打包、不取號：review_zip 與其他鍵不變，也沒有新 zip
+        self.assertEqual(table["review_zip"], before["review_zip"])
+        self.assertEqual(table["pages"]["03_messages"], before["pages"]["03_messages"])
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["review_v2.zip"])
+
+    def test_replied_accepts_root_file_key(self):
+        pack_review.pack(["GLOSSARY.md"], self.out)
+        self.run_main("--replied", "GLOSSARY=1")
+        self.assertEqual(self.table()["pages"]["GLOSSARY"][0]["replied"], True)
+
+    def test_replied_missing_entry_fails_and_changes_nothing(self):
+        before = VERSIONS.read_text()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main("--replied", "04_interface=17", "04_interface=99")
+        self.assertIn("v99", str(cm.exception))
+        self.assertEqual(VERSIONS.read_text(), before)
+        with self.assertRaises(SystemExit):
+            self.run_main("--replied", "nope=1")
+        self.assertEqual(VERSIONS.read_text(), before)
+
+    def test_replied_rejects_bad_pair(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main("--replied", "04_interface")
+        self.assertIn("<鍵>=<版號>", str(cm.exception))
 
     def test_main_creates_missing_out_dir(self):
         out = pathlib.Path("ws/reference/review_sent")

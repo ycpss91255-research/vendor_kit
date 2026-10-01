@@ -3,38 +3,82 @@
   "pages": {
     "01_purpose": [
       {
+        "v": 15,
+        "commit": "ccde94fd39901ff745ef5de4de01310d404a5aee",
+        "replied": true,
+        "path": "doc/decisions/_marked/01_purpose.v15.md"
+      },
+      {
         "v": 16,
-        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8",
+        "replied": false
       }
     ],
     "02_invariants": [
       {
+        "v": 17,
+        "commit": "ccde94fd39901ff745ef5de4de01310d404a5aee",
+        "replied": true,
+        "path": "doc/decisions/_marked/02_invariants.v17.md"
+      },
+      {
         "v": 18,
-        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8",
+        "replied": false
       }
     ],
     "03_messages": [
       {
+        "v": 13,
+        "commit": "ccde94fd39901ff745ef5de4de01310d404a5aee",
+        "replied": true,
+        "path": "doc/decisions/_marked/03_messages.v13.md",
+        "csv_path": "doc/decisions/_marked/03_messages.v13.csv"
+      },
+      {
         "v": 14,
-        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8",
+        "replied": false
       }
     ],
     "04_interface": [
       {
+        "v": 18,
+        "commit": "ccde94fd39901ff745ef5de4de01310d404a5aee",
+        "replied": true,
+        "path": "doc/decisions/_marked/04_interface.v18.md"
+      },
+      {
         "v": 19,
-        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8",
+        "replied": false
       }
     ],
     "GLOSSARY": [
       {
+        "v": 6,
+        "commit": "ccde94fd39901ff745ef5de4de01310d404a5aee",
+        "replied": true,
+        "path": "doc/decisions/_marked/GLOSSARY.v6.md"
+      },
+      {
         "v": 7,
-        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8",
+        "replied": false
       }
     ],
     "README": [
       {
+        "v": 6,
+        "commit": "ccde94fd39901ff745ef5de4de01310d404a5aee",
+        "replied": true,
+        "path": "doc/decisions/_marked/README.v6.md",
+        "raw_links": true
+      },
+      {
         "v": 7,
-        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8"
+        "commit": "7f6ef34343d6bf50f73b56484b89b6709ce23ab8",
+        "replied": false
       }
     ]
   }
