@@ -22,7 +22,7 @@ sh script/github/watch_github.sh [間隔秒數，預設 60] [--once]
 [check_pr_rules.py](check_pr_rules.py) 檢查一個 PR 合不合規則（#140）：
 
 - 規則 A：本文至少連一個 issue（`Refs #N`、`Refs: #N`、`Closes`／`Fixes`／`Resolves #N`）。不設豁免，連多個允許。
-- 一個邏輯目的：每個改動檔照範圍表 [scope.json](scope.json) 對到一個範圍，扣掉附屬檔（測試、README 段、docs.yml 步驟、AGENTS 一句）後只准一個範圍；表上沒列到的檔算違規，要先補表。
+- 一個邏輯目的：每個改動檔照範圍表 [scope.json](scope.json) 對到一個範圍，扣掉附屬檔（測試、README 段、docs.yml 步驟、AGENTS 一句、hook 在 `.claude/settings.json` 的註冊與 `test_settings_hooks.py` 的白名單）後只准一個範圍；表上沒列到的檔算違規，要先補表。
 - 規則 B（大題與 sub-issue）只是指引，不檢查。
 
 範圍表只寫在 `scope.json` 一處：本機 hook `.claude/hooks/pr_rules_guard.py`（攔 `gh pr create`）與之後的 CI 都呼叫這支。
