@@ -31,7 +31,7 @@ _Avoid_: 接入
 `.vendor_kit/` 內由引擎產生、隨 repo 進 git、供使用者呼叫 VK 的一組檔。
 
 **啟動器** (launcher)：
-從主機啟動引擎的入口；薄殼內的 POSIX sh 片段與首次導入用的 `bootstrap.sh` 都是啟動器。
+從主機啟動引擎的入口；薄殼內的 POSIX sh 片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。
 
 ### 工具與出貨
 
@@ -119,7 +119,7 @@ _Avoid_: 簽章、信任來源
 `cache/` 內每個檔的 sha256，記在印記裡。
 
 **自描述標頭** (self-describing header)：
-薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼一致性檢查，見[檢查](doc/contract/04_interface.md#檢查-test)。
+薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼被改過時的檢查，見[不變量第 6 條](doc/contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)。
 
 **執行紀錄** (run log)：
 記錄一次 VK 執行以供事後追溯的 VK 檔。
@@ -190,8 +190,9 @@ VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊�
 **正常輸出** (normal output)：
 成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。
 
-**需人處理** (needs human)：
-診斷的處置屬性，表示這次執行沒有做完，而且 VK 知道使用者接下來要做什麼；必須附上可直接複製的下一步指令。
+**待續** (action required)：
+診斷的處置屬性，表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令。
+_Avoid_: 需人處理、needs human
 
 **失敗** (failure)：
 診斷的處置屬性，表示這次執行沒有做完；不承諾可執行的修法，但可以附一般建議。

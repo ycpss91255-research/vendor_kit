@@ -1,6 +1,6 @@
 # 04 使用者介面
 
-[使用者](../../GLOSSARY.md#角色與情境)與自動化都透過 `just vendor_kit` 指令跟 [VK](../../GLOSSARY.md#角色與情境) 打交道；只有首次[導入](../../GLOSSARY.md#角色與情境)用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、選項：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。VK 不讀取環境變數 `CI`；同一個 recipe 不論在哪裡執行，行為都一樣。
+[使用者](../../GLOSSARY.md#角色與情境)與自動化都透過 `just vendor_kit` 指令跟 [VK](../../GLOSSARY.md#角色與情境) 打交道；只有首次[導入](../../GLOSSARY.md#角色與情境)，以及[薄殼](../../GLOSSARY.md#vk-組件)被改到不啟動引擎時的檢查，用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、選項：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。VK 不讀取環境變數 `CI`；同一個 recipe 不論在哪裡執行，行為都一樣。
 
 - 必須永遠成立的規則以 [02 不變量](02_invariants.md) 為準，這一頁只補使用者看得到的介面行為
 - [結束碼](../../GLOSSARY.md#執行與結果)的意思與每條訊息見 [03 訊息與錯誤碼總表](03_messages.md)
@@ -55,6 +55,7 @@ VK 對外只有兩個入口：
 
 - `bootstrap.sh`
   - 第一次導入時用
+  - 在既有安裝目錄執行時，先檢查薄殼；不符就列出差異，印出 [訊息](03_messages.csv) `VK0006` [診斷](../../GLOSSARY.md#執行與結果)，以[結束碼](03_messages.md#結束碼) `2` 結束，除執行紀錄外不動 repo 檔與其他 [VK 檔](../../GLOSSARY.md#repo-內的檔與狀態)
   - 先從 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)下載 `bootstrap.sh`，再到要裝 VK 的那個目錄執行
   - 這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](02_invariants.md#3-自動化只碰不進-git-的東西)
   - 這時 repo 裡還沒有 VK，所以由它下載[引擎](../../GLOSSARY.md#vk-組件)，再呼叫 `install`
@@ -123,7 +124,7 @@ VK 對外只有兩個入口：
 
 依 [02 不變量第 8 條](02_invariants.md#8-使用者介面不可取代寫法一致)：
 
-- 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](03_messages.md#結束碼) `0` 結束；沒有 `help` 指令。[薄殼](../../GLOSSARY.md#vk-組件)、[VK 檔](../../GLOSSARY.md#repo-內的檔與狀態)與引擎的版本組合不相符時 `-h` 怎麼反應，這一頁不定；一定能用的只有[救援路徑](../../GLOSSARY.md#介面版與契約)，也就是這幾種呼叫：`install`、`upgrade --engine`、`sync` 的不符判定，以及四種印用法的呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）
+- 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](03_messages.md#結束碼) `0` 結束；沒有 `help` 指令。只有[救援路徑](../../GLOSSARY.md#介面版與契約)在[薄殼](../../GLOSSARY.md#vk-組件)、[VK 檔](../../GLOSSARY.md#repo-內的檔與狀態)與引擎的版本組合不相符時仍可用，也就是 `install`、`upgrade --engine`、`sync` 的不符判定，以及四種印用法的呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）；這些呼叫照各自原本的行為執行。版本組合不相符時，救援路徑以外的呼叫即使帶 `-h`／`--help`，也以結束碼 `3` 結束：stderr 印出 `fatal` 診斷並附救援指令，stdout 不印用法
 - 只打 `just vendor_kit`、不帶指令是用法錯誤，stderr 依序印版本行、[訊息](03_messages.csv) `VK0024` 診斷與簡短用法，以[結束碼](03_messages.md#結束碼) `2` 結束：
 
   ```text
@@ -156,7 +157,7 @@ VK 對外只有兩個入口：
   exit code: 2
 
   $ just vendor_kit sync --bogus
-  stderr: vendor_kit: error[VK0026]: Unknown command or option: --bogus.
+  stderr: vendor_kit: error[VK0026]: Unknown option or extra argument: --bogus.
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
 
@@ -193,6 +194,8 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 - 工具與引擎的 tag 只接受 `vX.Y.Z`，不帶 pre-release、build 後綴，不收前導零
 - 最新版是把 X、Y、Z 當非負整數逐欄比數值，取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 [digest](../../GLOSSARY.md#工具與出貨) 不算新版
 - 寫出格式不合的 tag 是用法錯誤，印出 [訊息](03_messages.csv) `VK0027` 診斷，以[結束碼](03_messages.md#結束碼) `2` 結束
+- `upgrade --engine=<tag>` 指定舊版引擎，而目標引擎無法無損讀取現有 VK 檔時，才用 [訊息](03_messages.csv) `VK0007`：`fatal`、結束碼 `3`，這次降版失敗
+- `upgrade <repo>@<tag>` 指定舊版工具不做上述引擎相容性判定，也不另設工具降版專用的原因代碼；正常完成時以結束碼 `0` 結束，出錯時依實際原因使用一般訊息與結束碼
 - 不加 `init`、`ensure`、`diff`、`accept`、`rollback` 這類別名，也不加 `--purge`（VK 永不刪 [repo 檔](../../GLOSSARY.md#repo-內的檔與狀態)，這個選項沒有對象）。這些用途各自由既有指令的選項或 git 處理
 - 工具 repo 的命名空間也照這套寫法，例如 base ([base#1192](https://github.com/ycpss91255-docker/base/issues/1192))
 
@@ -230,6 +233,12 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 
 ## 各指令專用選項
 
+- `upgrade --engine` 分兩段執行：第一段換上目標引擎後，若原指令尚未做完，就印出 [訊息](03_messages.csv) `VK0023` 的 `error` 診斷，以[結束碼](03_messages.md#結束碼) `2` 結束。診斷的 `next_step` 是重跑原指令；原指令在訊息定義中以占位符表示，實際輸出由 VK 填成完整、不需使用者代換的指令，保留原來的 tag 與 `-y`。照它重跑就會接著完成第二段
+- `sync` 的判定分階段：
+  - 主機前置檢查照共同規則先判
+  - 安裝目錄層的零寫入阻擋要在逐工具處理前全部判完：薄殼不符用 [訊息](03_messages.csv) `VK0006`，版本組合不合用 `VK0008`；任一成立就不取件，兩者同時成立就兩條都印，結束碼取最大值
+  - 沒有安裝目錄層的零寫入阻擋，才逐工具處理。`VK0004`、`VK0013` 只擋各自所屬的工具，其他工具照常同步；`VK0014`、`VK0015` 全部判、全部印
+  - 整次執行的結束碼取所有安全判出結果的最大值；同一階段內的判定次序與印出順序不承諾
 - `update`：查詢結果印到 stdout，不加前綴；不帶 `--exit-code` 時，查到新版仍以[結束碼](03_messages.md#結束碼) `0` 結束。
 - `update --exit-code`：給 CI 或腳本判斷有沒有新版；查到新版時 stdout 照樣印查詢結果，stderr 另印 [訊息](03_messages.csv) `VK0022` 的 `warn` 診斷，以[結束碼](03_messages.md#結束碼) `1` 結束：
 

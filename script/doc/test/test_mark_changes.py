@@ -333,7 +333,7 @@ class CsvTest(unittest.TestCase):
            "VK0002,active,warn,1,,情境,Unchanged.,不變,\n"
            "VK0003,active,error,2,失敗,要停用的情境,Retire this message.,要停用,\n")
     NEW = ("\ufeff" + HEAD
-           + "VK0001,active,error,2,需人處理,新情境,New message <repo>. Rerun <repo>.,新本文 <repo>,Rerun <repo>.\n"
+           + "VK0001,active,error,2,待續,新情境,New message <repo>. Rerun <repo>.,新本文 <repo>,Rerun <repo>.\n"
            "VK0002,active,warn,1,,情境,Unchanged.,不變,\n"
            "VK0003,retired,,,,,,,\n"
            "VK0004,active,warn,1,,新增的情境,\"First line.\nSecond line.\",新增的本文,\n")
@@ -384,7 +384,7 @@ class CsvTest(unittest.TestCase):
         text = self.marked()
         lines = text.splitlines()
         # 改欄位：舊值紅、新值綠；沒改的欄不標；占位符照原樣看得到
-        self.assertIn(f"- `disposition`：{self.RED}失敗</mark> → {self.GREEN}需人處理</mark>", lines)
+        self.assertIn(f"- `disposition`：{self.RED}失敗</mark> → {self.GREEN}待續</mark>", lines)
         self.assertIn(f"- `situation`：{self.RED}舊情境</mark> → {self.GREEN}新情境</mark>", lines)
         self.assertIn(f"- `message`：{self.RED}Old message &lt;repo&gt;.</mark> → "
                       f"{self.GREEN}New message &lt;repo&gt;. Rerun &lt;repo&gt;.</mark>", lines)
