@@ -17,7 +17,8 @@ export const meta = {
 //   dir        string  可省，預設 /home/cyc/Desktop/vendor-kit_ws/reference/research/<issue>（不放 /tmp）
 //   background string  可省，已定案前提
 //   post       boolean 可省，預設 true；false 就只產檔不貼 issue
-const { issue, topic, briefs, background = '', post = true } = args ?? {}
+//   agyModel   string  可省，指定 agy 模型名；省略就自動選最新的 gemini flash-high（agy models 第一欄）
+const { issue, topic, briefs, background = '', post = true, agyModel = '' } = args ?? {}
 if (!Number.isInteger(issue)) throw new Error('args.issue 必填（issue 編號）')
 if (typeof topic !== 'string' || !topic.trim()) throw new Error('args.topic 必填')
 if (!Array.isArray(briefs) || briefs.length === 0) throw new Error('args.briefs 必填')
@@ -29,10 +30,13 @@ const brief = b => `${dir}/${b.id}_brief.md`
 const agyOut = b => `${dir}/${b.id}_agy.md`
 const codexOut = b => `${dir}/${b.id}_codex.md`
 const claudeOut = `${dir}/claude_review.md`
+const PICK = agyModel.trim()
+  ? `M='${agyModel.trim()}';`
+  : `M=$(agy models | awk '/^gemini-[0-9.]+-flash-high[[:space:]]/{print $1}' | sort -V | tail -1); [ -n "$M" ] || { echo 'agy_exit=99 找不到 gemini flash-high 模型'; exit 0; };`
 
 const RUN = {
   type: 'object',
-  properties: { exit: { type: 'integer' }, out_ok: { type: 'boolean' }, reused: { type: 'boolean' }, error: { type: 'string' } },
+  properties: { exit: { type: 'integer' }, out_ok: { type: 'boolean' }, reused: { type: 'boolean' }, model: { type: 'string' }, error: { type: 'string' } },
   required: ['exit', 'out_ok'],
 }
 
@@ -42,8 +46,8 @@ const results = await pipeline(
 
 1. ${agyOut(b)} 已存在而且非空：不重跑，回報 reused=true、exit=0、out_ok=true。
 2. 否則前景執行（Bash timeout 600000；跑不完就改用 run_in_background 並等它結束，不要中途放棄）：
-   \`cd ${dir} && agy -p "$(cat ${brief(b)})" > ${agyOut(b)} 2> ${dir}/${b.id}_agy.err; echo "agy_exit=$?"\`
-3. 回報 exit（agy_exit 的值）、out_ok（輸出檔存在且非空）；失敗把 ${dir}/${b.id}_agy.err 的內容寫進 error。結束後刪掉空的 .err 檔。`,
+   \`${PICK} cd ${dir} && agy --model "$M" -p "$(cat ${brief(b)})" > ${agyOut(b)} 2> ${dir}/${b.id}_agy.err; echo "agy_exit=$? model=$M"\`
+3. 回報 exit（agy_exit 的值）、model（輸出的 model= 值；沿用時留空）、out_ok（輸出檔存在且非空）；失敗把 ${dir}/${b.id}_agy.err 的內容寫進 error。結束後刪掉空的 .err 檔。`,
     { label: `#${issue} agy:${b.id}`, phase: '調查', schema: RUN }),
   (r, b) => {
     if (!r || r.exit !== 0 || !r.out_ok) return { b, agy: r, codex: null }
