@@ -1,4 +1,4 @@
-<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定稿時整個送審資料夾一個 commit 刪除；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /doc/contract/03_messages.md 與 /doc/contract/03_messages.csv -->
+<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /doc/contract/03_messages.md 與 /doc/contract/03_messages.csv -->
 
 # 03 訊息與錯誤碼總表
 
@@ -25,7 +25,7 @@
 | <mark style="background-color:#f8c8c8">`2`</mark> | <mark style="background-color:#f8c8c8">error</mark> | <mark style="background-color:#f8c8c8">沒做完：[需人處理](../../../GLOSSARY.md#執行與結果)、[失敗](../../../GLOSSARY.md#執行與結果)或用法錯誤</mark> |
 | <mark style="background-color:#c8f0c8">`0`</mark> | <mark style="background-color:#c8f0c8">info</mark> | <mark style="background-color:#c8f0c8">成功；沒有任何[警告](../../../GLOSSARY.md#執行與結果)</mark> |
 | <mark style="background-color:#c8f0c8">`1`</mark> | <mark style="background-color:#c8f0c8">warn</mark> | <mark style="background-color:#c8f0c8">指令承諾的結果已做完，但有警告</mark> |
-| <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">error</mark> | <mark style="background-color:#c8f0c8">指令承諾的結果沒做完，可能是[待續](../../../GLOSSARY.md#執行與結果)、[失敗](../../../GLOSSARY.md#執行與結果)或用法錯誤</mark> |
+| <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">error</mark> | <mark style="background-color:#c8f0c8">指令承諾的結果沒做完，可能是[待處理](../../../GLOSSARY.md#執行與結果)、[失敗](../../../GLOSSARY.md#執行與結果)或用法錯誤</mark> |
 | `3` | fatal | 只限現有[薄殼](../../../GLOSSARY.md#vk-組件)、[VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)、[引擎](../../../GLOSSARY.md#vk-組件)的版本組合不合。以這個碼結束的那次執行不動 [repo 檔](../../../GLOSSARY.md#repo-內的檔與狀態)與 VK 檔，[執行紀錄](../../../GLOSSARY.md#repo-內的檔與狀態)除外 |
 
 <mark style="background-color:#f8c8c8">結束碼 `1` 有兩種：</mark>
@@ -96,7 +96,7 @@ exit code: 2
 處置與下一步：
 
 - <mark style="background-color:#f8c8c8">處置是診斷的屬性，不是 level。需人處理表示 VK 停下並要求使用者採取下一步，必須附可以直接複製的指令（不用使用者代換的單一指令）；失敗不承諾可執行的修法，但可以附一般建議；不屬於兩者的留空</mark>
-- <mark style="background-color:#c8f0c8">處置是診斷的屬性，不是嚴重度。待續表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令；失敗不承諾可執行的修法，但可以附一般建議；warn 的列與用法錯誤（VK0024～VK0027）留空</mark>
+- <mark style="background-color:#c8f0c8">處置是診斷的屬性，不是嚴重度。待處理表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令；失敗不承諾可執行的修法，但可以附一般建議；warn 的列與用法錯誤（VK0024～VK0027）留空</mark>
 - warn 要指名對象；有辦法處置就列出下一步
 
 訊息表怎麼讀：
@@ -112,12 +112,12 @@ exit code: 2
   - <mark style="background-color:#f8c8c8">`disposition`：處置，`需人處理`、`失敗` 或留空；`warn` 一律留空</mark>
   - <mark style="background-color:#c8f0c8">`level`：現行值為 `warn`、`error`、`fatal`，對應的結束碼見[結束碼](#結束碼)</mark>
   - <mark style="background-color:#c8f0c8">`exit_code`：該 `level` 欄對應的結束碼；`warn` 為 `1`、`error` 為 `2`、`fatal` 為 `3`；`retired` 列留空</mark>
-  - <mark style="background-color:#c8f0c8">`disposition`：處置，`待續`、`失敗` 或留空；warn 的列與用法錯誤（VK0024～VK0027）留空</mark>
+  - <mark style="background-color:#c8f0c8">`disposition`：處置，`待處理`、`失敗` 或留空；warn 的列與用法錯誤（VK0024～VK0027）留空</mark>
   - `situation`：什麼情況發出這個代碼，是它唯一的意思
   - `message`：英文本文，逐字照印，不含前綴；多行診斷在同一格內換行，一行對應印出的一行
   - `description`：訊息的中文說明，給人閱讀；`active` 列必填
   - <mark style="background-color:#f8c8c8">`next_step`：可以直接複製執行的單一指令，逐字出現在 `message` 裡，占位符都由 VK 換成實際的值；需人處理必填，失敗與沒有指令的留空；做不到的診斷標失敗</mark>
-  - <mark style="background-color:#c8f0c8">`next_step`：可以直接複製執行的單一指令，逐字出現在 `message` 裡，占位符都由 VK 換成實際的值；待續必填，失敗與沒有指令的留空；做不到的診斷標失敗</mark>
+  - <mark style="background-color:#c8f0c8">`next_step`：可以直接複製執行的單一指令，逐字出現在 `message` 裡，占位符都由 VK 換成實際的值；待處理必填，失敗與沒有指令的留空；做不到的診斷標失敗</mark>
 - 占位符
   - `<…>` 是占位符，VK 印出時換成實際的值
   - `situation` 註明原樣印出的，由使用者換成要用的值
@@ -137,7 +137,7 @@ exit code: 2
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待續</mark>
+- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
 - `situation`：操作需要詢問，但沒帶 -y 又不能互動（沒有終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後
 - `message`：Confirmation is required, but no terminal is available for interaction. No files were modified except the run log. Run from a terminal, or rerun with -y: &lt;command_with_y&gt;
 - `description`：需要確認，但沒有終端可以互動。除執行紀錄外，未修改任何檔。請在終端執行，或加上 -y 重新執行：&lt;command_with_y&gt;
@@ -148,7 +148,7 @@ exit code: 2
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待續</mark>
+- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
 - `situation`：sync 發現某個工具未完成導入
 - `message`：Import of &lt;repo&gt; is incomplete. Run: just vendor_kit add &lt;repo&gt;
 - `description`：&lt;repo&gt; 未完成導入，請執行：just vendor_kit add &lt;repo&gt;
@@ -159,7 +159,7 @@ exit code: 2
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待續</mark>
+- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
 - `situation`：bootstrap.sh 發現主機的 just 低於 1.33.0；&lt;install_command&gt; 不覆蓋主機既有的 just，也不要求主機另裝其他工具
 - `message`：just 1.33.0 or later is required; the current version is &lt;version&gt;. Use the GitHub release.<br>Download: &lt;download_url&gt;<br>Install: &lt;install_command&gt;
 - `description`：需要 just ≥ 1.33.0，目前為 &lt;version&gt;。請使用 GitHub release 版。<br>下載：&lt;download_url&gt;<br>安裝：&lt;install_command&gt;
@@ -170,7 +170,7 @@ exit code: 2
 - `status`：active
 - `level`：fatal
 - `exit_code`：3
-- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待續</mark>
+- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
 - `situation`：引擎讀到的 VK 檔，檔案版高於這個引擎支援的上限
 - `message`：Cannot read &lt;file&gt;: schema version &lt;N&gt; is newer than the maximum supported version &lt;M&gt;; written by vendor_kit &lt;written_by&gt;. Upgrade the engine: just vendor_kit upgrade --engine
 - `description`：無法讀取 &lt;file&gt;：檔案版 &lt;N&gt; 高於本引擎支援的 &lt;M&gt;；寫入者為 vendor_kit &lt;written_by&gt;。請升級引擎：just vendor_kit upgrade --engine
@@ -181,7 +181,7 @@ exit code: 2
 - `status`：active
 - `level`：fatal
 - `exit_code`：3
-- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待續</mark>
+- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
 - `situation`：舊的薄殼遇上 X 較新的引擎，執行救援路徑以外的 recipe
 - `message`：Shell interface version &lt;P_shell&gt; is older than required for general recipes in engine &lt;vY&gt;. Run first: just vendor_kit upgrade --engine
 - `description`：薄殼介面版 &lt;P_shell&gt; 低於引擎 &lt;vY&gt; 的一般 recipe 需求。請先執行：just vendor_kit upgrade --engine
@@ -192,7 +192,7 @@ exit code: 2
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待續</mark>
+- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
 - `situation`：<mark style="background-color:#f8c8c8">upgrade --engine 換上新引擎後停下，要求重跑</mark> → <mark style="background-color:#c8f0c8">upgrade --engine 換上新引擎後原指令尚未做完；&lt;original_command&gt; 是由 VK 填好的原指令</mark>
 - `message`：<mark style="background-color:#f8c8c8">Engine &lt;vY&gt; is now installed. Run again: just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">Engine &lt;vY&gt; is now installed. Run again: &lt;original_command&gt;</mark>
 - `description`：<mark style="background-color:#f8c8c8">已換上引擎 &lt;vY&gt;，請再執行一次：just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">已換上引擎 &lt;vY&gt;，請再執行一次原指令：&lt;original_command&gt;</mark>
@@ -212,7 +212,7 @@ exit code: 2
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待續</mark>
+- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
 - `situation`：在安裝目錄外執行 VK recipe
 - `message`：The current directory is not an install directory. Run: cd &lt;install_dir&gt;
 - `description`：目前不在安裝目錄，請執行：cd &lt;install_dir&gt;
@@ -223,7 +223,7 @@ exit code: 2
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待續</mark>
+- `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
 - `situation`：test 發現本機覆寫；&lt;undev_command&gt; 依對象印成 just vendor_kit undev &lt;repo&gt; 或 just vendor_kit undev --engine
 - `message`：Test cannot run while a local override of &lt;target&gt; is active. Run: &lt;undev_command&gt;
 - `description`：test 發現 &lt;target&gt; 的本機覆寫，請先執行：&lt;undev_command&gt;

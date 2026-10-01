@@ -1,4 +1,4 @@
-<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定稿時整個送審資料夾一個 commit 刪除；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /GLOSSARY.md -->
+<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /GLOSSARY.md -->
 
 # vendor_kit
 
@@ -205,9 +205,9 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 
 <mark style="background-color:#f8c8c8">**需人處理** (needs human)：</mark>
 <mark style="background-color:#f8c8c8">診斷的處置屬性，表示這次執行沒有做完，而且 VK 知道使用者接下來要做什麼；必須附上可直接複製的下一步指令。</mark>
-<mark style="background-color:#c8f0c8">**待續** (action required)：</mark>
+<mark style="background-color:#c8f0c8">**待處理** (action required)：</mark>
 <mark style="background-color:#c8f0c8">診斷的處置屬性，表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令。</mark>
-<mark style="background-color:#c8f0c8">_Avoid_: 需人處理、needs human</mark>
+<mark style="background-color:#c8f0c8">_Avoid_: 待續、需人處理、needs human</mark>
 
 **失敗** (failure)：
 診斷的處置屬性，表示這次執行沒有做完；不承諾可執行的修法，但可以附一般建議。

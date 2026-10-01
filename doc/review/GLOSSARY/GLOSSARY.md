@@ -190,9 +190,9 @@ VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊�
 **正常輸出** (normal output)：
 成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。
 
-**待續** (action required)：
+**待處理** (action required)：
 診斷的處置屬性，表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令。
-_Avoid_: 需人處理、needs human
+_Avoid_: 待續、需人處理、needs human
 
 **失敗** (failure)：
 診斷的處置屬性，表示這次執行沒有做完；不承諾可執行的修法，但可以附一般建議。
