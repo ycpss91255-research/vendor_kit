@@ -6,6 +6,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import check_review_pages as c  # noqa: E402
@@ -46,11 +47,11 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(self.run_main()[0], 0)
 
     def test_backward_link_provenance_version_and_anchor_fail(self):
-        self.write("01_a.md", "# 01\n\n> 版本 v3\n\n## 目錄\n\n見 [02](02_b.md)。\n\n出處：ADR-0001\n")
+        self.write("01_a.md", "# 01\n\n> 版本 v3\n\n## 目錄\n\n依 [02](02_b.md)。\n\n出處：ADR-0001\n")
         self.write("02_b.md", "# 02\n\n## 目錄\n\n[壞錨點](01_a.md#沒有這節)\n")
         code, out = self.run_main()
         self.assertEqual(code, 1)
-        for want in ("只能向前依賴", "不寫「出處」", "不寫版本號", "錨點不存在"):
+        for want in ("內容只能往前依賴", "不寫「出處」", "不寫版本號", "錨點不存在"):
             self.assertIn(want, out)
 
     def test_any_html_fails_including_ins(self):
@@ -98,6 +99,116 @@ class RulesTest(unittest.TestCase):
         self.assertNotIn("VK0001", out)
         self.assertNotIn("--description-only", out)
 
+    def test_l1_reason_codes_fail_in_early_pages_including_inline_code(self):
+        for page in ("01_a.md", "02_b.md"):
+            for text in ("VK0001", "`VK0001`"):
+                with self.subTest(page=page, text=text):
+                    self.write(page, f"# 頁\n\n## 目錄\n\n{text}\n")
+                    code, out = self.run_main()
+                    self.assertEqual(code, 1, out)
+                    self.assertIn("L1", out)
+                    pathlib.Path("doc/contract", page).unlink()
+
+    def test_l1_fenced_codes_and_later_page_codes_pass(self):
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n```text\nVK0001\n```\n")
+        self.write("03_m.md", "# 03\n\n## 目錄\n\n`VK0001`\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+    def test_l2_exit_values_fail_on_both_sides(self):
+        for page in ("01_a.md", "02_b.md"):
+            for text in ("結束碼 `2`", "`2` 是結束碼", "結束碼 exit code 2"):
+                with self.subTest(page=page, text=text):
+                    self.write(page, f"# 頁\n\n## 目錄\n\n{text}\n")
+                    code, out = self.run_main()
+                    self.assertEqual(code, 1, out)
+                    pathlib.Path("doc/contract", page).unlink()
+
+    def test_l2_distant_values_and_fenced_examples_pass(self):
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n結束碼" + "甲" * 11 + "`2`\n\n```text\n結束碼 `2`\nexit code 2\n```\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+    def test_l3_readme_argument_links_fail(self):
+        self.write("02_b.md", "# 02\n\n## 目錄\n")
+        for prefix in ("依", "依照"):
+            with self.subTest(prefix=prefix):
+                pathlib.Path("README.md").write_text(f"# VK\n\n## 目錄\n\n{prefix} [不變量](doc/contract/02_b.md)。\n")
+                code, out = self.run_main()
+                self.assertEqual(code, 1, out)
+                self.assertIn("README.md:5:", out)
+
+    def test_l3_navigation_links_pass_for_readme_and_early_pages(self):
+        self.write("01_a.md", "# 01\n\n## 目錄\n\n詳見 [介面](04_i.md)。\n")
+        self.write("04_i.md", "# 04\n\n## 目錄\n")
+        pathlib.Path("README.md").write_text("# VK\n\n## 目錄\n\n詳見 [介面](doc/contract/04_i.md)。\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+    def test_l4_recipe_options_fail_across_pages(self):
+        for page in ("README.md", "doc/contract/03_m.md"):
+            for command in ("update --missing", "just vendor_kit update --missing", "add <repo> --"):
+                with self.subTest(page=page, command=command):
+                    pathlib.Path(page).write_text(f"# 頁\n\n## 目錄\n\n`{command}`\n")
+                    code, out = self.run_main()
+                    self.assertEqual(code, 1, out)
+                    self.assertIn("用了 --", out)
+                    pathlib.Path(page).unlink()
+                    pathlib.Path("README.md").write_text("# VK\n\n## 目錄\n")
+
+    def test_l4_interface_is_out_of_scope(self):
+        self.write("04_i.md", "# 04\n\n## 目錄\n\n`update --foo`\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+    def test_l4_options_require_exact_inline_tokens(self):
+        pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n`--engine-extra` `--image`\n文字 --missing\n")
+        self.write("03_m.md", "# 03\n\n## 目錄\n\n`upgrade --engine` `dev -i image` `update --missing`\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 1, out)
+        for token in ("--engine", "-i", "--missing"):
+            self.assertIn(f"用了 {token}，", out)
+
+    def test_l4_defined_tokens_and_non_recipe_code_pass(self):
+        pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n`--engine` `-i` `--`\n")
+        self.write("03_m.md", "# 03\n\n## 目錄\n\n`upgrade --engine=value` `dev -i image` `add <repo> --` `other --missing`\n")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+    def test_l4_csv_short_recipes_and_separator_fail(self):
+        self.write("03_m.md", "# 03\n\n## 目錄\n")
+        pathlib.Path("doc/contract/03_m.csv").write_text(
+            "code,situation,message,next_step,description\n"
+            "VK0001,update --missing,add <repo> --,upgrade --missing,update --ignored\n"
+        )
+        code, out = self.run_main()
+        self.assertEqual(code, 1, out)
+        for field in ("situation", "message", "next_step"):
+            self.assertIn(f"03_m.csv:VK0001:{field}:", out)
+        self.assertNotIn("--ignored", out)
+
+    def test_allowlist_exact_match_is_waived_but_new_violation_fails(self):
+        self.write("02_b.md", "# 02\n\n## 目錄\n")
+        pathlib.Path("README.md").write_text("# VK\n\n## 目錄\n\n依 [不變量](doc/contract/02_b.md)。\n")
+        errors = []
+        c.check_page(pathlib.Path("README.md"), errors)
+        self.assertEqual(len(errors), 1, errors)
+        with mock.patch.object(c, "TEMP_ALLOWLIST", {errors[0]: "#135 待修；審完 README 後移除"}):
+            code, out = self.run_main()
+            self.assertEqual(code, 0, out)
+            self.assertIn("暫時白名單：1 筆；本次命中 1 筆", out)
+            pathlib.Path("README.md").write_text("# VK\n\n## 目錄\n\n依照 [另一條不變量](doc/contract/02_b.md)。\n")
+            code, out = self.run_main()
+            self.assertEqual(code, 1, out)
+            self.assertIn("本次命中 0 筆", out)
+            self.assertIn("L3", out)
+
+    def test_allowlist_entries_document_issue_and_expiry(self):
+        for error, reason in c.TEMP_ALLOWLIST.items():
+            with self.subTest(error=error):
+                self.assertIn("#135 待修", reason)
+                self.assertRegex(reason, r"審完 (?:03|README) 後移除")
+
     def test_new_style_rule_citation_passes(self):
         self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n")
         self.write("02_b.md", "# 02\n\n## 目錄\n\n依 [01 第 1 條](01_a.md#第一節)。\n")
@@ -132,14 +243,14 @@ class RulesTest(unittest.TestCase):
 
     def test_code_outside_link_text_passes(self):
         # 維護者定案的寫法：只連「結束碼」或「訊息」，碼放在連結外；非對外頁（GLOSSARY.md）不檢查
-        self.write("01_a.md", "# 01\n\n## 目錄\n\n## 第一節\n\n[結束碼](01_a.md#第一節) `2`、[訊息](01_a.md#第一節) `VK0005`。\n")
+        self.write("03_m.md", "# 03\n\n## 目錄\n\n## 第一節\n\n[結束碼](03_m.md#第一節) `2`、[訊息](03_m.md#第一節) `VK0005`。\n")
         pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n[`--engine`](README.md)\n")
         code, out = self.run_main()
         self.assertEqual(code, 0, out)
 
     def test_backtick_link_text_in_code_span_passes(self):
         # 行內程式碼裡的反例不算
-        self.write("01_a.md", "# 01\n\n## 目錄\n\n不要寫 `` [`VK0028`](01_a.md) `` 這種寫法。\n")
+        self.write("03_m.md", "# 03\n\n## 目錄\n\n不要寫 `` [`VK0028`](03_m.md) `` 這種寫法。\n")
         code, out = self.run_main()
         self.assertEqual(code, 0, out)
 

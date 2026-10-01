@@ -122,9 +122,32 @@ python3 script/doc/check_messages.py
 
 欄位約定：`message` 是印出的英文本文，不含 `vendor_kit: <level>[VKnnnn]: ` 前綴、不准含中文（規則 4）；`description` 是給人讀的中文說明。
 
-CSV 的 `situation`、`message`、`next_step` 裡的 `just vendor_kit …` 指令寫法由 `check_review_pages.py` 檢查，跟 03 頁反引號裡的指令用同一個函式：每個選項與 `@<tag>` 寫法都要在 `GLOSSARY.md`、01、02 出現過。CSV 裡的指令沒有反引號，範圍從 `just vendor_kit` 起，到英文收尾 `and retry.`、`;`、`,`、`(`、句尾句點、第一個非 ASCII 字或欄尾為止。
+CSV 的 `situation`、`message`、`next_step` 裡的指令寫法由 [審閱頁自檢](#審閱頁自檢check_review_pagespy)的 L4 檢查，與 Markdown 行內程式碼使用同一套選項比對規則。
 
 各條規則的正反例在 [check_messages 測試](test/test_check_messages.py)。
+
+## 審閱頁自檢（`check_review_pages.py`）
+
+改了根目錄 README、審閱頁或其附屬 CSV 就跑：
+
+```sh
+python3 script/doc/check_review_pages.py
+```
+
+在 repo 根目錄執行。檢查範圍是根目錄 `README.md` 與 `doc/contract/0N_*.md`，另檢查 03 的 CSV 指令欄。規則依據見[審閱頁說明](../../doc/contract/README.md)「寫法規則」；除了目錄、HTML、連結檔案與錨點、引用條目與連結文字等既有檢查，#135 新增或擴大以下檢查：
+
+- **L1 原因代碼**：01、02 正文不准出現符合 `VK\d{4}` 的原因代碼；排除程式碼區塊，行內程式碼照掃。
+- **L2 結束碼數字**：01、02 的「結束碼」前後 10 字內不准出現反引號包住的單位數字，亦不准出現 `exit code \d`。排除程式碼區塊，行內程式碼照掃。
+- **L3 論據依賴與導覽**：README 是入口，不是第 0 頁。README 連到審閱頁 `0N_*.md` 的連結，若前面緊接「依」或「依照」，視為論據依賴並擋下；其他導覽連結放行。審閱頁 N 連到後面的頁時，只有前面緊接「依」或「依照」的連結算論據依賴而擋下，其他導覽連結放行（照[審閱頁說明](../../doc/contract/README.md#寫法規則)「導覽指標可以往後指」那條）。導覽與內容依賴的完整規則見審閱頁說明。
+- **L4 指令先定義**：README 與 03 的行內程式碼，以及 03 CSV 的 `situation`、`message`、`next_step` 欄中，以 VK recipe 名或 `just vendor_kit <recipe>` 開頭的片段都要掃描；也抓單獨的 `--`。選項必須與名詞表、01、02 行內程式碼中已出現的選項 token 完整相同，不用子字串比對；`@<tag>` 寫法也須先出現過。CSV 的錯誤位置報 `<檔>:<代碼>:<欄名>`。
+
+README 與 03 正在審閱，既有內容被新規則抓到的個別項目先列入暫時白名單，每筆附「#135 待修」與到期條件：審完 03／README、完成對應修正後移除。檢查輸出會印出白名單筆數，方便追蹤待修項目；白名單不放行其他新增違規。
+
+L1～L4 的通過、失敗例子與白名單由 [check_review_pages 測試](test/test_check_review_pages.py)涵蓋：
+
+```sh
+python3 -m unittest discover -s script/doc/test
+```
 
 ## 名詞表自檢（`check_context.py`）
 

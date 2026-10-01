@@ -8,10 +8,10 @@ r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫�
 3a. 不准任何 HTML 標籤（<ins> 也不行；名詞改連到 GLOSSARY.md 分群）：<a id>、<br> 這類只有部分環境顯示得出來；錨點一律用標題產生。
     反斜線跳脫的 \<repo\> 是字面文字，不算標籤。
 4. 相對連結的檔案與錨點都存在（錨點照 GitHub 的標題轉換規則算）。
-5. 只能向前依賴：審閱頁 N 不能連到編號比它大的審閱頁。
-6. 03 的指令寫法只能用前面頁定義過的：03 頁反引號裡的 `just vendor_kit …`，以及 03 的 CSV
-   （situation、message、next_step 欄）裡的 just vendor_kit …，每個選項（-x、--xxx）與 @<tag> 寫法
-   都要在 GLOSSARY.md、01、02 出現過。CSV 的錯誤位置報 `<檔>:<代碼>:<欄名>`。
+5. 內容只能往前依賴；導覽指標可以往後指。README 是入口，不是第 0 頁。
+   L1、L2：01、02 不寫原因代碼與結束碼數字；L3：README 不以「依」連結審閱頁。
+6. L4：README 與 03 的行內程式碼、03 CSV 指令欄，掃 VK recipe 開頭的片段，
+   選項 token（含單獨的 --）與 @<tag> 必須在 GLOSSARY.md、01、02 行內程式碼定義過。
 7. 引用別頁條目不寫舊寫法「[名字](連結) 第 N 條」：一律寫「依 [頁名第 N 條](連結#錨點)」；
    行內程式碼（反引號內）不算。
 8. 連結文字不得含反引號：碼放在連結外，寫「[結束碼](03_messages.md#結束碼) `2`」、
@@ -137,6 +137,20 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
     me = page_no(path)
     for i, line in body_lines(path):
         where = f"{path}:{i}"
+        if me in (1, 2):
+            reason = re.search(r"VK\d{4}", line)
+            if reason:
+                errors.append(f"{where}: L1：01、02 不准原因代碼 {reason.group(0)}")
+            # 連結只留顯示文字，避免名詞連結的路徑把十字距離拉長。
+            visible = LINK_TEXT.sub(lambda m: m.group(1), line)
+            if re.search(r"exit code \d", visible):
+                errors.append(f"{where}: L2：01、02 不准 exit code 數字")
+            numbers = list(re.finditer(r"`[0-9]`", visible))
+            for term in re.finditer("結束碼", visible):
+                if any(max(0, number.start() - term.end(), term.start() - number.end()) <= 10
+                       for number in numbers):
+                    errors.append(f"{where}: L2：結束碼前後 10 字內不准碼值")
+                    break
         if re.match(r"^\s*(?:[-*]\s*)?出處[:：]", line):
             errors.append(f"{where}: 對外頁不寫「出處」行；沿用規則時在正文寫「依 [頁名第 N 條](連結#錨點)」")
         tags = sorted({t for t in TAG.findall(re.sub(r"`[^`]*`", "", line))})
@@ -151,7 +165,11 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
             errors.append(f"{where}: 連結文字裡的 {raw} 沒跳脫：{link}；改成 {fixed}，例如「[\\<repo\\>](../../GLOSSARY.md#工具與出貨)」")
         if re.match(r"^>\s*版本\s*v\d+\s*$", line):
             errors.append(f"{where}: 正式檔不寫版本號；版本只記在 doc/review/versions.json 與送審 zip 的檔名")
-        for target in LINK.findall(line):
+        spans = code_spans(line)
+        for match in LINK.finditer(line):
+            if any(start <= match.start() < end for start, end in spans):
+                continue
+            target = match.group(1)
             if re.match(r"^[a-z]+:", target):
                 continue
             file_part, _, frag = target.partition("#")
@@ -165,23 +183,42 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
             if frag and dest.suffix == ".md" and frag not in anchors(dest):
                 errors.append(f"{where}: 錨點不存在：{target}")
             other = page_no(dest) if dest.suffix == ".md" else None
-            if me is not None and other is not None and other > me:
-                errors.append(f"{where}: 審閱頁 {me:02d} 連到後面的頁 {dest.name}；只能向前依賴")
+            evidence = re.search(r"依(?:照)?\s*$", line[:match.start()]) is not None
+            if path.resolve() == (ROOT / "README.md").resolve() and other is not None and evidence:
+                errors.append(f"{where}: L3：README 不能以論據依賴審閱頁：{match.group(0)}")
+            if me is not None and other is not None and other > me and evidence:
+                errors.append(f"{where}: 審閱頁 {me:02d} 以「依」連到後面的頁 {dest.name}：內容只能往前依賴；只是導覽就改寫成「詳見」")
 
 
-CMD_MD = re.compile(r"`(just vendor_kit [^`]+)`")
-# CSV 不准 Markdown，指令沒有反引號：從 just vendor_kit 起取到英文 and retry 收尾、句讀、第一個非 ASCII 字或欄尾
-CMD_CSV = re.compile(r"just vendor_kit [ -~]*?(?=\s+and\s+retry\.(?:\s|$)|[;,(]|\.(?:\s|$)|[^ -~]|$)")
+# recipe 名依 GLOSSARY.md「VK recipe 與用途」；完整呼叫也接受介面佔位符。
+RECIPES = ("add", "remove", "update", "upgrade", "dev", "undev", "sync", "prune", "install", "uninstall", "test")
+RECIPE = "(?:" + "|".join(RECIPES) + ")"
+CMD_MD = re.compile(r"`((?:just vendor_kit\s+)?" + RECIPE + r"\b[^`]*)`")
+CMD_CSV = re.compile(
+    r"(?<![\w-])(?:just vendor_kit\s+(?:" + RECIPE + r"|<command>)|" + RECIPE + r")\b"
+    r"[ -~]*?(?=\s+and\s+retry\.(?:\s|$)|[;,(]|\.(?:\s|$)|[^ -~]|$)"
+)
 CSV_COMMAND_FIELDS = ("situation", "message", "next_step")
+OPTION = re.compile(r"(?<![\w<-])(?:--?[a-zA-Z][\w-]*|--(?![\w-])|@<[^>]+>)(?![\w-])")
 
 
-def command_errors(cmds, where: str, defined: str) -> list[str]:
-    """共用：每個指令裡的選項（-x、--xxx）與 @<tag> 寫法都要在 defined（GLOSSARY.md、01、02）出現過。"""
+def inline_texts(line: str):
+    for start, end in code_spans(line):
+        yield line[start:end].strip("`").strip()
+
+
+def option_tokens(text: str) -> set[str]:
+    return set(OPTION.findall(text))
+
+
+def command_errors(cmds, where: str, defined) -> list[str]:
+    """選項逐 token 比對；不讓 -i 被 --image 或一般文字誤當定義。"""
+    tokens = option_tokens(defined) if isinstance(defined, str) else defined
     errors = []
     for cmd in cmds:
         cmd = cmd.strip()
-        for tok in re.findall(r"(?<![\w<])(--?[a-z][\w-]*|@<[^>]+>)", cmd):
-            if tok not in defined:
+        for tok in sorted(option_tokens(cmd)):
+            if tok not in tokens:
                 errors.append(f"{where}: 指令 `{cmd}` 用了 {tok}，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁")
     return errors
 
@@ -200,16 +237,40 @@ def csv_command_texts(path: pathlib.Path):
 
 
 def check_commands(errors: list[str]) -> None:
-    defined = "\n".join(
-        p.read_text() for p in [ROOT / "GLOSSARY.md", *sorted(REVIEW.glob("0[12]_*.md"))] if p.exists()
-    )
-    msgs = sorted(REVIEW.glob("03_*.md"))
-    if msgs:
-        for i, line in body_lines(msgs[0]):
-            errors.extend(command_errors(CMD_MD.findall(line), f"{msgs[0]}:{i}", defined))
+    defined = set()
+    for path in [ROOT / "GLOSSARY.md", *sorted(REVIEW.glob("0[12]_*.md"))]:
+        if path.exists():
+            for _, line in body_lines(path):
+                for code in inline_texts(line):
+                    defined.update(option_tokens(code))
+    for path in pages():
+        if path != ROOT / "README.md" and page_no(path) != 3:
+            continue
+        if not path.exists():
+            continue
+        for i, line in body_lines(path):
+            cmds = [code for code in inline_texts(line)
+                    if re.match(r"^(?:just vendor_kit\s+)?" + RECIPE + r"\b", code)]
+            # 單獨的 -- 也可能在說明文字的行內程式碼出現。
+            cmds.extend(code for code in inline_texts(line) if code == "--")
+            errors.extend(command_errors(cmds, f"{path}:{i}", defined))
     for path in sorted(REVIEW.glob("03_*.csv")):
         for where, value in csv_command_texts(path):
-            errors.extend(command_errors(CMD_CSV.findall(value), where, defined))
+            cmds = CMD_CSV.findall(value)
+            if "--" in option_tokens(value) and not any("--" in option_tokens(cmd) for cmd in cmds):
+                cmds.append("--")
+            errors.extend(command_errors(cmds, where, defined))
+
+
+# 僅豁免已盤點的原文與位置；新增或改動的違規不會自動列入。
+TEMP_ALLOWLIST = {
+    'README.md:15: L3：README 不能以論據依賴審閱頁：[02 不變量第 5 條](doc/contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)': "#135 待修；審完 README 後移除",
+    'README.md:37: L3：README 不能以論據依賴審閱頁：[02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化不寫追蹤檔)': "#135 待修；審完 README 後移除",
+    'doc/contract/03_messages.md:26: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+    'doc/contract/03_messages.md:30: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+    'doc/contract/03_messages.csv:VK0002:situation: 指令 `--` 用了 --，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+    'doc/contract/03_messages.csv:VK0022:situation: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+}
 
 
 def main() -> int:
@@ -218,6 +279,9 @@ def main() -> int:
     for p in ps:
         check_page(p, errors)
     check_commands(errors)
+    waived = [error for error in errors if error in TEMP_ALLOWLIST]
+    errors = [error for error in errors if error not in TEMP_ALLOWLIST]
+    print(f"暫時白名單：{len(TEMP_ALLOWLIST)} 筆；本次命中 {len(waived)} 筆（#135 待修）")
     for e in errors:
         print(e)
     if errors:
