@@ -27,7 +27,19 @@ sh script/github/watch_github.sh [間隔秒數，預設 60] [--once]
 
 範圍表只寫在 `scope.json` 一處：本機 hook `.claude/hooks/pr_rules_guard.py`（攔 `gh pr create`）與之後的 CI 都呼叫這支。
 
-跑法（在 repo 根目錄）：
+跑法（在 repo 根目錄，推薦讓腳本自己取改動檔）：
+
+```sh
+python3 script/github/check_pr_rules.py --body-file <本文檔> --git-diff
+python3 script/github/check_pr_rules.py --pr <N> --git-diff
+```
+
+- `--git-diff [<base>]`：腳本自己跑 `git diff --name-only <base>...HEAD` 取改動檔，`<base>` 預設 `origin/main`。
+- `--pr <N>`：本文用 `gh pr view <N>` 取（預設 repo `ycpss91255-research/vendor_kit`，可用 `--repo` 換），取代 `--body-file`。
+
+一定要三點（`<base>...HEAD`）：三點從分支與 main 的分岔點算起，只列分支自己的改動。兩點（`<base>..HEAD` 或 `git diff <base>`）比的是兩端快照，main 在分支開出之後又往前時，main 上別人的改動也會被列進來，誤判成改到多個範圍。用 `--git-diff` 就不用每個呼叫端自己記得三點。
+
+原本自己傳清單的用法照舊可用：
 
 ```sh
 git diff --name-only origin/main...HEAD | python3 script/github/check_pr_rules.py --body-file <本文檔> --files-from -
