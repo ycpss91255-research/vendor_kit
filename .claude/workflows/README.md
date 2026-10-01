@@ -30,6 +30,7 @@ Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東�
 | `research` | agy 查 → codex 核對 → Claude 整合 → 貼 issue。brief 放 workspace 的 `reference/research/<issue>/<id>_brief.md`，輸出也放那裡，不放 `/tmp`；整合結論寫到 `claude_review_<id1>_<id2>….md`（依 `briefs` 順序串接 id），同一 issue 換一批 brief 再跑不會覆蓋；agy 經 `script/workflow/agy_run.py` 執行（自動選最新的 gemini flash-high 模型、可用 `agyModel` 指定，已有輸出就沿用），codex 經 `script/workflow/codex_run.py`；留言檔由 `script/workflow/prepare_comment.py` 準備，貼完核對則數 | 要找外部前例或資料當決策依據時；brief 先寫好 | `issue`、`topic`、`briefs`（每項 `{ id, label }`） |
 | `pr` | 把每一項做成一個 PR：開 issue 掛成 sub-issue、開 worktree、修改、驗證、commit、開 PR、等 CI，可選 merge；預設依序，`parallel: true` 時同時跑 | 要開一個或多個「一個 issue 一個 PR」的改動時 | `parent`、`items` |
 | `pr-fix` | 在已開 PR 的 worktree 修一個問題：查分支／worktree／issue 並確認乾淨且最新 → 修改 → 全部驗證 → 一個 commit → push → 等 CI；不 merge | PR 已經開了、CI 或審查要求再改時；CI 通過就停 | `pr`、`problem`、`todo`、`commit` |
+| `diagram-edit` | 改圖的固定流程：準備（輪次、備份、確認 drawio 頁面有效並載入）→ 改圖（drawio MCP，只改指定頁）→ lint 歸零（最多 3 輪）→ 匯出 PNG → codex 審查 → 套用必改 → 再跑 lint 與 `<diagram id>` 範圍檢查；不 commit，建議只回報 | 改 repo 裡的 `.drawio` 圖時；主對話要先持有 drawio 頁面 | `file`、`pages`、`task` |
 
 `doc-edit` 的選填欄位：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（審查額外要看的重點）、`editor`（`codex` 預設｜`claude`）、`mode`（`full` 預設｜`light`）、`effort`（`{ edit, polish, review }`）、`topic`（短主題，例如 `"#121"`）。`discuss` 的選填欄位：`background`（已定案前提）、`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`；要用 PR worktree 時明確帶）。`discuss` 的 codex 一律透過 `script/workflow/codex_run.py` 呼叫：brief 用 Write 工具寫進子代理的 scratchpad，成敗看腳本輸出的 JSON（`ok`／`exit`／`error`／`stderr_tail`），不看 shell 的結束碼。`research` 的選填欄位：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`；腳本從 `<repo>/script/workflow/` 取，workspace 是它的上一層）、`dir`（預設 `<workspace>/reference/research/<issue>`）、`background`（已定案前提）、`post`（預設 `true`；`false` 就只產檔、不貼 issue）、`agyModel`（指定 agy 模型名；不給就由 `agy_run.py` 自動選最新的 gemini flash-high 模型）。`research` 每次執行開頭印出識別 `research #<issue>`，子代理的 label 也帶 `#<issue>` 前綴。`research` 的機械步驟由子代理呼叫腳本、讀它印出的 JSON：調查是 `agy_run.py`（輸出先寫 `.part`，成功才改名），核對是 `codex_run.py --delete-brief`（brief 用 Write 工具寫檔），貼 issue 是 `prepare_comment.py prepare`（標記、註記行、本機路徑換相對、超過 60000 字元切分，並用 hook 的規則自檢）→ 每則一個獨立的 `gh issue comment --body-file` → `prepare_comment.py clean`。貼 issue 的子代理回報 `planned`（留言檔則數）與 `urls`，兩者數目不同或 `planned` 是 0 時回傳值帶 `error`。`pr` 與 `pr-fix` 的參數見下面。
 
@@ -131,6 +132,39 @@ args 欄位：
 不 merge、不開 PR、不碰主 repo（不改檔、不 pull、不動未追蹤檔）。回傳 `{ pr, branch, issue, url, ci_pass, pushed, commit, summary, error }`。
 
 args 範例在 `pr-fix.js` 檔尾。
+
+## diagram-edit
+
+改一張 `.drawio` 圖的指定頁。開始時印出 `diagram-edit <round> <檔名> <頁>`，子代理的 label 帶同一個前綴。不 commit：commit 由呼叫端或 `pr` workflow 做。
+
+drawio 頁面由主對話持有，workflow 不呼叫 `start_session`（[drawio 使用規則](../../doc/agents/drawio.md)）。MCP 工具只作用在同一個 Claude session 的頁面上，所以只有改圖與匯出 PNG 由子代理呼叫 MCP 工具；其他都是腳本。
+
+args 欄位：
+
+| 欄位 | 必填 | 說明 |
+|---|---|---|
+| `file` | 是 | 要改的 `.drawio`，相對 repo 根目錄 |
+| `pages` | 是 | 只准改的頁的 `<diagram id>` 陣列（圖的持久鍵，不是頁名也不是頁序） |
+| `task` | 是 | 要改什麼 |
+| `round` | 否 | `rNN`，跟 doc-edit 共用編號。不給就用 `script/doc/round.py next` 取，給了就用 `round.py check` 檢查 |
+| `repo` | 否 | 預設同 doc-edit |
+| `workspace` | 否 | 放 PNG 的 workspace，預設 `repo` 的上一層；`repo` 是 worktree 時要明確帶 |
+
+步驟與腳本（子代理只跑一行指令、回報它印出的 JSON，成敗在 workflow 裡判斷）：
+
+| 步驟 | 做法 |
+|---|---|
+| 準備 | `script/doc/round.py next`／`check`；`script/doc/backup.py save`（鍵含副檔名，例如 `doc_diagram_architecture.drawio`）；`script/diagram/state.py check`，失效就停下，請維護者在主對話重新取得頁面；`state.py put` 載入檔案，並確認 `pages` 的 id 都在檔裡 |
+| 改圖 | Claude 子代理用 MCP 的 `list_pages`、`get_diagram`、`edit_diagram`（一律帶 `page_id`）只改指定頁；改完由 `state.py get` 存回檔案 |
+| lint | `script/diagram/lint.py <file> --base <備份>`。指定頁的違規與 `page-id` 違規交回改圖子代理修，最多 3 輪，還不行就停；其他頁的違規只回報 |
+| 匯出 PNG | 子代理用 MCP `export_diagram` 每頁一張，存到 `<workspace>/reference/diagram_review/<round>/`；再用 `script/diagram/png.py flatten` 與 `resize --max-width 1600` 改白底、縮圖 |
+| 審查 | codex 經 `script/workflow/codex_run.py` 只讀審查 PNG 與 `state.py diff`，輸出寫到 `doc/decisions/review_log/codex/`；審查前先用 `state.py diff` 做一次範圍檢查 |
+| 套用必改 | 必改交回改圖子代理，存回後重跑 lint 與匯出 PNG；建議只回報 |
+| 收尾檢查 | 再跑一次 `lint.py` 與 `state.py diff`：不准新增或刪除頁、`<diagram id>` 不准變、只有 `pages` 的頁有改動或改名 |
+
+任何一步失敗就停，回傳值的 `stopped` 是停在哪一步、`error` 是原因。回傳 `{ round, file, pages, backup, edits, lint, png, review, applied, diff, stopped, error }`：`lint` 有 `blocking`（指定頁）與 `outside`（其他頁，只回報），`png` 是最後一次匯出的 PNG 路徑，`review.suggest` 是給維護者的建議。
+
+args 範例在 `diagram-edit.js` 檔尾。
 
 ## 共用護欄
 
