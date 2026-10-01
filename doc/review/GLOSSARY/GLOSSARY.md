@@ -31,7 +31,7 @@ _Avoid_: 接入
 `.vendor_kit/` 內由引擎產生、隨 repo 進 git、供使用者呼叫 VK 的一組檔。
 
 **啟動器** (launcher)：
-從主機啟動引擎的入口；薄殼內的 POSIX sh 片段與首次導入用的 `bootstrap.sh` 都是啟動器。
+從主機啟動引擎的入口；薄殼內的 POSIX sh 片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。
 
 ### 工具與出貨
 
@@ -100,9 +100,9 @@ _Avoid_: 專案檔
 **VK 檔** (VK file)：
 由 VK 建立及管理、位於 `.vendor_kit/` 的檔。
 
-**進 git 的檔** (tracked file)：
-隨 repo 一起 commit 進 git 的檔。
-_Avoid_: tracked 檔、版控檔
+**追蹤檔** (tracked file)：
+隨 repo 一起由 git 追蹤並 commit 的檔，含還沒建出來、建出來就要 commit 的檔。
+_Avoid_: 進 git 的檔、tracked 檔、版控檔
 
 **`cache/`**：
 VK 在 repo 本機保存已展開工具內容的目錄。
@@ -119,7 +119,7 @@ _Avoid_: 簽章、信任來源
 `cache/` 內每個檔的 sha256，記在印記裡。
 
 **自描述標頭** (self-describing header)：
-薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼一致性檢查，見[檢查](../../contract/04_interface.md#檢查-test)。
+薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼被改過時的檢查，見[不變量第 6 條](../../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)。
 
 **執行紀錄** (run log)：
 記錄一次 VK 執行以供事後追溯的 VK 檔。
@@ -166,13 +166,13 @@ _Avoid_: 三方合併
 
 **VK recipe**：
 VK 自己的指令，寫法 `just vendor_kit <recipe>`。
-_Avoid_: 動詞、子命令
+_Avoid_: 動詞、子命令、子指令
 
 **可寫 recipe** (writing recipe)：
-會動到進 git 的檔或進度檔的 VK recipe。
+會動到追蹤檔或進度檔的 VK recipe。
 
 **唯讀 recipe** (read-only recipe)：
-不動進 git 的檔、也不動進度檔的 VK recipe。
+不動追蹤檔、也不動進度檔的 VK recipe。
 
 **詢問** (prompt)：
 VK 在修改 repo 檔前，向使用者取得同意的互動。
@@ -182,22 +182,23 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 寫法：`-y`，長選項 `--yes`。
 
 **診斷** (diagnostic)：
-VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。
+VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。
 
-**level** (log level)：
-診斷的嚴重程度，只有 info、warn、error、fatal，依序對應結束碼 0、1、2、3；info 不印前綴。
+**嚴重度** (level)：
+診斷的嚴重程度。本版使用的值是 `info`、`warn`、`error`、`fatal`；stderr 的診斷只用 `warn`、`error`、`fatal`，`info` 只用在成功的結果與結構化紀錄，不印成診斷。結束碼和嚴重度的對應見[結束碼](../../contract/03_messages.md#結束碼)。
 
 **正常輸出** (normal output)：
 成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。
 
-**需人處理** (needs human)：
-診斷的處置屬性，表示這次執行沒有做完，而且 VK 知道使用者接下來要做什麼；必須附上可直接複製的下一步指令。
+**待續** (action required)：
+診斷的處置屬性，表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令。
+_Avoid_: 需人處理、needs human
 
 **失敗** (failure)：
 診斷的處置屬性，表示這次執行沒有做完；不承諾可執行的修法，但可以附一般建議。
 
 **警告** (warning)：
-指出可能有問題、需要人確認的 warn 診斷；與其他 warn 結果的區分見[結束碼](../../contract/03_messages.md#結束碼)。
+這次指令承諾的結果已做完，但有要使用者知道或確認的事的 `warn` 診斷；可以附下一步指令。
 
 **原因代碼** (reason code)：
 每條診斷的固定識別碼；格式與生命週期見[訊息](../../contract/03_messages.md#訊息)。
@@ -227,7 +228,7 @@ VK recipe 結束時回給呼叫方、表示整體結果的整數；各碼語意�
 `install` 使 repo 裡的一個目錄成為安裝目錄，`uninstall` 將 VK 從該處移除；兩者的介面與保留使用者檔規則見[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。
 
 **`test`**：
-檢查安裝目錄狀態或工具交付內容、且不寫進 git 之檔案的 VK recipe；範圍與用法見[檢查](../../contract/04_interface.md#檢查-test)。
+檢查安裝目錄狀態或工具交付內容、且不寫入追蹤檔的 VK recipe；範圍與用法見[檢查](../../contract/04_interface.md#檢查-test)。
 
 ### 介面版與契約
 

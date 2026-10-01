@@ -1,9 +1,8 @@
-<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定稿時整個送審資料夾一個 commit 刪除；基準是維護者回覆過的送審 commit ccde94f。正式內容看 /doc/contract/01_purpose.md -->
+<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定稿時整個送審資料夾一個 commit 刪除；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /doc/contract/01_purpose.md -->
 
 # 01 目的與承諾
 
-<mark style="background-color:#f8c8c8">加底線的是 VK 的專有名詞，第一次出現時標記，定義見[名詞表](../../../GLOSSARY.md)。</mark>
-<mark style="background-color:#c8f0c8">[VK](../../../GLOSSARY.md#角色與情境) 的專有名詞定義見[名詞表](../../../GLOSSARY.md)。</mark>
+[VK](../../../GLOSSARY.md#角色與情境) 的專有名詞定義見[名詞表](../../../GLOSSARY.md)。
 
 ## 目錄
 
@@ -14,11 +13,9 @@
 
 ## 要解決的痛點
 
-<mark style="background-color:#f8c8c8">同一套工具（開發環境設定、共用腳本、初始檔）要送進很多 repo。原本靠 `git subtree` 與 `symlink` 搬，有四個問題：</mark>
-<mark style="background-color:#c8f0c8">同一套[工具](../../../GLOSSARY.md#工具與出貨)（開發環境設定、共用腳本、[初始檔](../../../GLOSSARY.md#初始檔與合併)）要送進很多 [repo](../../../GLOSSARY.md#工具與出貨)。原本靠 `git subtree` 與 `symlink` 搬，有四個問題：</mark>
+同一套[工具](../../../GLOSSARY.md#工具與出貨)（開發環境設定、共用腳本、[初始檔](../../../GLOSSARY.md#初始檔與合併)）要送進很多 [repo](../../../GLOSSARY.md#工具與出貨)。原本靠 `git subtree` 與 `symlink` 搬，有四個問題：
 
-- <mark style="background-color:#f8c8c8">工具內容整份進了使用者的 git 歷史，工具的 commit 與使用者的 commit 混在一起。</mark>
-- <mark style="background-color:#c8f0c8">[工具內容](../../../GLOSSARY.md#工具與出貨)整份進了[使用者](../../../GLOSSARY.md#角色與情境)的 git 歷史，工具的 commit 與使用者的 commit 混在一起。</mark>
+- [工具內容](../../../GLOSSARY.md#工具與出貨)整份進了[使用者](../../../GLOSSARY.md#角色與情境)的 git 歷史，工具的 commit 與使用者的 commit 混在一起。
 - 升級是人工作業：沒有一個地方記著「這個 repo 現在用哪一版」，也沒辦法回到某一版。
 - 工具的檔與使用者的檔混在一起，分不出哪些能動、哪些是工具要重寫的。
 - 工具附的初始檔一旦被使用者改過，下次裝新版就被蓋掉。
@@ -27,13 +24,10 @@
 
 ## VK 做的事
 
-- <mark style="background-color:#f8c8c8">把工具的交付內容打包成容器 image，推到 registry。</mark>
-- <mark style="background-color:#f8c8c8">每個裝了 VK 的目錄只有一份<ins>版本鎖定行</ins>的集合，記著用哪些工具、哪個版本、哪個引擎，沒有第二份；換它就能升版或退版，內容也從它重建。一個 repo 裡可以有好幾個這樣的目錄，各自獨立。</mark>
-- <mark style="background-color:#c8f0c8">把工具的交付內容打包成容器 image，推到 [registry](../../../GLOSSARY.md#工具與出貨)。</mark>
-- <mark style="background-color:#c8f0c8">每個裝了 VK 的目錄只有一份[版本鎖定行](../../../GLOSSARY.md#版本與來源)的集合，記著用哪些工具、哪個版本、哪個[引擎](../../../GLOSSARY.md#vk-組件)，沒有第二份；換它就能升版或退版，內容也從它重建。一個 repo 裡可以有好幾個這樣的目錄，各自獨立。</mark>
+- 把工具的交付內容打包成容器 image，推到 [registry](../../../GLOSSARY.md#工具與出貨)。
+- 每個裝了 VK 的目錄只有一份[版本鎖定行](../../../GLOSSARY.md#版本與來源)的集合，記著用哪些工具、哪個版本、哪個[引擎](../../../GLOSSARY.md#vk-組件)，沒有第二份；換它就能升版或退版，內容也從它重建。一個 repo 裡可以有好幾個這樣的目錄，各自獨立。
 - 把工具內容搬進 repo，不進 git。
-- <mark style="background-color:#f8c8c8">工具附的<ins>初始檔</ins>第一次複製給使用者，之後歸使用者；升版做<ins>基準版合併</ins>，不蓋掉他改過的地方，也永不刪。</mark>
-- <mark style="background-color:#c8f0c8">工具附的初始檔第一次複製給使用者，之後歸使用者；升版做[基準版合併](../../../GLOSSARY.md#初始檔與合併)，不蓋掉他改過的地方，也永不刪。</mark>
+- 工具附的初始檔第一次複製給使用者，之後歸使用者；升版做[基準版合併](../../../GLOSSARY.md#初始檔與合併)，不蓋掉他改過的地方，也永不刪。
 - 本機開發：把工具指到本機目錄，或把 VK 引擎指到本機 image。
 - 提供一個檢查指令 `just vendor_kit test`：本機與 CI 用同一個，回報版本、快取、初始檔是否一致。
 
@@ -51,26 +45,21 @@
 
 | 名稱 | 是誰 | 承諾關係 |
 |---|---|---|
-| <mark style="background-color:#f8c8c8"><ins>使用者</ins></mark> | <mark style="background-color:#f8c8c8">用 VK 管理工具的人：把工具裝進自己的 repo 用（導入），或把自己做的工具交出去給別人裝（出貨）</mark> | <mark style="background-color:#f8c8c8">被承諾的一方</mark> |
-| <mark style="background-color:#f8c8c8"><ins>VK</ins></mark> | <mark style="background-color:#f8c8c8">我們，vendor_kit 開發者，維護引擎 image 與<ins>薄殼</ins></mark> | <mark style="background-color:#f8c8c8">提出承諾的一方</mark> |
-| <mark style="background-color:#c8f0c8">使用者</mark> | <mark style="background-color:#c8f0c8">用 VK 管理工具的人：把工具裝進自己的 repo 用（[導入](../../../GLOSSARY.md#角色與情境)），或把自己做的工具交出去給別人裝（[出貨](../../../GLOSSARY.md#角色與情境)）</mark> | <mark style="background-color:#c8f0c8">被承諾的一方</mark> |
-| <mark style="background-color:#c8f0c8">VK</mark> | <mark style="background-color:#c8f0c8">我們，vendor_kit 開發者，維護引擎 image 與[薄殼](../../../GLOSSARY.md#vk-組件)</mark> | <mark style="background-color:#c8f0c8">提出承諾的一方</mark> |
+| 使用者 | 用 VK 管理工具的人：把工具裝進自己的 repo 用（[導入](../../../GLOSSARY.md#角色與情境)），或把自己做的工具交出去給別人裝（[出貨](../../../GLOSSARY.md#角色與情境)） | 被承諾的一方 |
+| VK | 我們，vendor_kit 開發者，維護引擎 image 與[薄殼](../../../GLOSSARY.md#vk-組件) | 提出承諾的一方 |
 
 ### 使用者的兩個情境
 
-<mark style="background-color:#f8c8c8"><ins>導入</ins>：這個 repo 要用別人做好的工具。</mark>
-<mark style="background-color:#c8f0c8">導入：這個 repo 要用別人做好的工具。</mark>
+導入：這個 repo 要用別人做好的工具。
 
 - 一次把工具帶進來，不刪、不覆蓋原有內容；需要加入內容時先取得同意。
 - 之後長期由 VK 管：鎖定用哪一版、升版、退版、每次執行前確認裝的跟鎖的一致。
 - 工具附的初始檔進來之後就是使用者自己的檔，VK 不再動它，只在升版時幫忙合併。
 
-<mark style="background-color:#f8c8c8"><ins>出貨</ins>：這個 repo 自己做了一套工具，要給別的 repo 用。</mark>
-<mark style="background-color:#c8f0c8">出貨：這個 repo 自己做了一套工具，要給別的 repo 用。</mark>
+出貨：這個 repo 自己做了一套工具，要給別的 repo 用。
 
 - 維護要交付的內容，打包推出去。
-- <mark style="background-color:#f8c8c8">每個已鎖定 digest 對應的內容不可變且永久保留，別的 repo 鎖哪個 digest 就永遠拿到同一份內容。</mark>
-- <mark style="background-color:#c8f0c8">每個已鎖定 [digest](../../../GLOSSARY.md#工具與出貨) 對應的內容不可變且永久保留，別的 repo 鎖哪個 digest 就永遠拿到同一份內容。</mark>
+- 每個已鎖定 [digest](../../../GLOSSARY.md#工具與出貨) 對應的內容不可變且永久保留，別的 repo 鎖哪個 digest 就永遠拿到同一份內容。
 - 工具自己的 repo 也可以同時導入別人的工具。
 
 同一個 repo 可以只做其中一件，也可以兩件都做。
@@ -79,17 +68,14 @@
 
 ### VK 對導入的承諾
 
-- <mark style="background-color:#f8c8c8">不刪、不覆蓋 repo 檔。</mark>
-- <mark style="background-color:#c8f0c8">不刪、不覆蓋 [repo 檔](../../../GLOSSARY.md#repo-內的檔與狀態)。</mark>
+- 不刪、不覆蓋 [repo 檔](../../../GLOSSARY.md#repo-內的檔與狀態)。
 - 同一行版本鎖定行，在任何機器都裝到同一份內容。
 - 連不到 registry 的機器也能導入：用帶進去的 image 導入，版本鎖定行照樣鎖同一個 digest。
-- <mark style="background-color:#f8c8c8">升得了：repo 檔裡，升版只動初始檔的合併結果。VK 自己的檔會跟著更新：版本鎖定行、基準版、VK 對初始檔的納管紀錄，必要時還有薄殼。</mark>
-- <mark style="background-color:#c8f0c8">升得了：repo 檔裡，升版只動初始檔的合併結果。[VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)會跟著更新：版本鎖定行、[基準版](../../../GLOSSARY.md#初始檔與合併)、VK 對初始檔的[納管](../../../GLOSSARY.md#初始檔與合併)紀錄，必要時還有薄殼。</mark>
+- 升得了：repo 檔裡，升版只動初始檔的合併結果。[VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)會跟著更新：版本鎖定行、[基準版](../../../GLOSSARY.md#初始檔與合併)、VK 對初始檔的[納管](../../../GLOSSARY.md#初始檔與合併)紀錄，必要時還有薄殼。
 - 退得回：同一個 X 內可以退回舊版；跨 X 只依事前公告的手動步驟處理。版本鎖定行進 git，也可以用 git 還原。
-- <mark style="background-color:#f8c8c8">結果不是成功時必印原因；需要人處理時另印可直接複製的下一步指令。</mark>
-- <mark style="background-color:#f8c8c8">有警告也不算成功。</mark>
-- <mark style="background-color:#c8f0c8">結果不是成功時必印原因；[需人處理](../../../GLOSSARY.md#執行與結果)時另印可直接複製的下一步指令。</mark>
-- <mark style="background-color:#c8f0c8">有[警告](../../../GLOSSARY.md#執行與結果)也不算成功。</mark>
+- <mark style="background-color:#f8c8c8">結果不是成功時必印原因；[需人處理](../../../GLOSSARY.md#執行與結果)時另印可直接複製的下一步指令。</mark>
+- <mark style="background-color:#c8f0c8">結果不是成功時必印原因；[待續](../../../GLOSSARY.md#執行與結果)時另印可直接複製的下一步指令。</mark>
+- 有[警告](../../../GLOSSARY.md#執行與結果)也不算成功。
 - 主機只需要 Git、Docker、just，不裝別的東西。
 
 ### VK 對出貨的承諾
@@ -106,5 +92,4 @@
   - X 變動：破壞性調整，不保證相容，對外介面可能改變。
 - 同一個 X 之內：原本的用法繼續能用，舊資料讀得到，格式只會加新欄位，不改舊欄位的意思。
 - X 要變之前先公告，並寫清楚要先升級什麼、要做哪些手動步驟。
-- <mark style="background-color:#f8c8c8">引擎內部怎麼寫不算契約，隨時可換。</mark>
-- <mark style="background-color:#c8f0c8">引擎內部怎麼寫不算[契約](../../../GLOSSARY.md#介面版與契約)，隨時可換。</mark>
+- 引擎內部怎麼寫不算[契約](../../../GLOSSARY.md#介面版與契約)，隨時可換。

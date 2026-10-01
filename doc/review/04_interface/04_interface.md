@@ -1,6 +1,6 @@
 # 04 使用者介面
 
-[使用者](../../../GLOSSARY.md#角色與情境)與自動化都透過 `just vendor_kit` 指令跟 [VK](../../../GLOSSARY.md#角色與情境) 打交道；只有首次[導入](../../../GLOSSARY.md#角色與情境)用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、選項：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。VK 不讀取環境變數 `CI`；同一個 recipe 不論在哪裡執行，行為都一樣。
+[使用者](../../../GLOSSARY.md#角色與情境)與自動化都透過 `just vendor_kit` 指令跟 [VK](../../../GLOSSARY.md#角色與情境) 打交道；只有首次[導入](../../../GLOSSARY.md#角色與情境)，以及[薄殼](../../../GLOSSARY.md#vk-組件)被改到不啟動引擎時的檢查，用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、選項：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。VK 不讀取環境變數 `CI`；同一個 recipe 不論在哪裡執行，行為都一樣。
 
 - 必須永遠成立的規則以 [02 不變量](../../contract/02_invariants.md) 為準，這一頁只補使用者看得到的介面行為
 - [結束碼](../../../GLOSSARY.md#執行與結果)的意思與每條訊息見 [03 訊息與錯誤碼總表](../../contract/03_messages.md)
@@ -28,7 +28,7 @@
 
 除此之外，主機只需要這三個：
 
-| [工具](../../../GLOSSARY.md#工具與出貨) | 最低版本 | 說明 | 版本不足時 |
+| 主機程式 | 最低版本 | 說明 | 版本不足時 |
 |---|---|---|---|
 | [Docker](https://www.docker.com/) | 19.03 以上 | 不支援 Podman；偵測到 Podman 時由[啟動器](../../../GLOSSARY.md#vk-組件)以[結束碼](../../contract/03_messages.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/03_messages.csv) `VK0011` | 由啟動器檢查，首次導入與已有[安裝目錄](../../../GLOSSARY.md#工具與出貨)都一樣：在任何寫入之前以[結束碼](../../contract/03_messages.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/03_messages.csv) `VK0012` |
 | [Git](https://git-scm.com/) | 不設最低版本 | VK 不在主機上呼叫 git；「安裝目錄在 git [repo](../../../GLOSSARY.md#工具與出貨) 裡」由啟動器用 sh 往上找 `.git` 判斷；`.git` 是目錄或檔都算，所以 worktree 與 submodule 也適用 | — |
@@ -55,6 +55,7 @@ VK 對外只有兩個入口：
 
 - `bootstrap.sh`
   - 第一次導入時用
+  - 在既有安裝目錄執行時，先檢查薄殼；不符就列出差異，印出 [訊息](../../contract/03_messages.csv) `VK0006` [診斷](../../../GLOSSARY.md#執行與結果)，以[結束碼](../../contract/03_messages.md#結束碼) `2` 結束，除執行紀錄外不動 repo 檔與其他 [VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)
   - 先從 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)下載 `bootstrap.sh`，再到要裝 VK 的那個目錄執行
   - 這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](../../contract/02_invariants.md#3-自動化只碰不進-git-的東西)
   - 這時 repo 裡還沒有 VK，所以由它下載[引擎](../../../GLOSSARY.md#vk-組件)，再呼叫 `install`
@@ -84,7 +85,7 @@ VK 對外只有兩個入口：
   upgrade --engine            升引擎
   upgrade --engine=<tag>      換成指定版本的引擎
   update                      只查有沒有新版，不改任何檔
-  sync                        使本機的工具內容與版本鎖定行一致；每次跑工具 recipe 都會自動先跑它
+  sync                        使本機的工具內容與版本鎖定行或本機覆寫一致；每次跑工具 recipe 都會自動先跑它
   install                     把 VK 裝進 repo 的一個目錄，使它成為安裝目錄
   uninstall                   把 VK 從那個目錄移除。初始檔不刪
   prune                       清掉 VK 產生、但已不再使用的本機資源
@@ -123,7 +124,7 @@ VK 對外只有兩個入口：
 
 依 [02 不變量第 8 條](../../contract/02_invariants.md#8-使用者介面不可取代寫法一致)：
 
-- 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](../../contract/03_messages.md#結束碼) `0` 結束；沒有 `help` 指令。[薄殼](../../../GLOSSARY.md#vk-組件)、[VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)與引擎的版本組合不相符時 `-h` 怎麼反應，這一頁不定；一定能用的只有[救援路徑](../../../GLOSSARY.md#介面版與契約)，也就是這幾種呼叫：`install`、`upgrade --engine`、`sync` 的不符判定，以及四種印用法的呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）
+- 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](../../contract/03_messages.md#結束碼) `0` 結束；沒有 `help` 指令。只有[救援路徑](../../../GLOSSARY.md#介面版與契約)在[薄殼](../../../GLOSSARY.md#vk-組件)、[VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)與引擎的版本組合不相符時仍可用，也就是 `install`、`upgrade --engine`、`sync` 的不符判定，以及四種印用法的呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）；這些呼叫照各自原本的行為執行。版本組合不相符時，救援路徑以外的呼叫即使帶 `-h`／`--help`，也以結束碼 `3` 結束：stderr 印出 `fatal` 診斷並附救援指令，stdout 不印用法
 - 只打 `just vendor_kit`、不帶指令是用法錯誤，stderr 依序印版本行、[訊息](../../contract/03_messages.csv) `VK0024` 診斷與簡短用法，以[結束碼](../../contract/03_messages.md#結束碼) `2` 結束：
 
   ```text
@@ -134,10 +135,19 @@ VK 對外只有兩個入口：
   exit code: 2
   ```
 
-- 沒有頂層的 `just vendor_kit -h` 與 `just vendor_kit --version`：just 會把 `vendor_kit` 後面的 `-h`、`--version` 當成 recipe 名稱去找，參數到不了 VK
+- `vendor_kit` 後面接的不是 [VK recipe](../../../GLOSSARY.md#執行與結果) 名稱，或直接接 `-h`、`--version`，例如 `just vendor_kit foo`、`just vendor_kit -h`，都會被 just 當成 recipe 名稱去找，參數到不了 VK，不在 VK 的承諾內。這時由 just 自己印出不帶 `vendor_kit:` 前綴的錯誤訊息，以結束碼 `1` 結束；只承諾訊息來自 just 與結束碼是 `1`，不承諾訊息原文。以下是 just 1.33.0 的輸出；原文會隨 just 版本改變：
+
+  ```text
+  $ just vendor_kit foo
+  stderr: error: Justfile does not contain recipe `vendor_kit foo`.
+  exit code: 1
+  ```
+
+  這個 `1` 是 just 回的，不是 VK 回的，因此不表示 VK 的 `warn`，也不和 [03 的結束碼規則](../../contract/03_messages.md#結束碼)衝突。
+- 不支援 just 的 `--allow-missing` 或 `JUST_ALLOW_MISSING`；它們會讓不認得的 recipe 靜默以 `0` 成功，違反 [02 不變量第 4 條](../../contract/02_invariants.md#4-永不靜默失敗)
 - 用法錯誤：先在 stderr 印出 `error` [診斷](../../../GLOSSARY.md#執行與結果)，再接著印簡短用法，以[結束碼](../../contract/03_messages.md#結束碼) `2` 結束。算用法錯誤的有：
   - 缺必要參數：[訊息](../../contract/03_messages.csv) `VK0025`
-  - 不認得的指令或選項：[訊息](../../contract/03_messages.csv) `VK0026`
+  - VK recipe 帶了不認得的選項或多出的參數：[訊息](../../contract/03_messages.csv) `VK0026`
   - tag 格式不合：[訊息](../../contract/03_messages.csv) `VK0027`，見下面的[指定版本](#指定版本)
 
   ```text
@@ -146,8 +156,8 @@ VK 對外只有兩個入口：
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
 
-  $ just vendor_kit upgrde base
-  stderr: vendor_kit: error[VK0026]: Unknown command or option: upgrde.
+  $ just vendor_kit sync --bogus
+  stderr: vendor_kit: error[VK0026]: Unknown option or extra argument: --bogus.
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
 
@@ -184,6 +194,8 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 - 工具與引擎的 tag 只接受 `vX.Y.Z`，不帶 pre-release、build 後綴，不收前導零
 - 最新版是把 X、Y、Z 當非負整數逐欄比數值，取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 [digest](../../../GLOSSARY.md#工具與出貨) 不算新版
 - 寫出格式不合的 tag 是用法錯誤，印出 [訊息](../../contract/03_messages.csv) `VK0027` 診斷，以[結束碼](../../contract/03_messages.md#結束碼) `2` 結束
+- `upgrade --engine=<tag>` 指定舊版引擎，而目標引擎無法無損讀取現有 VK 檔時，才用 [訊息](../../contract/03_messages.csv) `VK0007`：`fatal`、結束碼 `3`，這次降版失敗
+- `upgrade <repo>@<tag>` 指定舊版工具不做上述引擎相容性判定，也不另設工具降版專用的原因代碼；正常完成時以結束碼 `0` 結束，出錯時依實際原因使用一般訊息與結束碼
 - 不加 `init`、`ensure`、`diff`、`accept`、`rollback` 這類別名，也不加 `--purge`（VK 永不刪 [repo 檔](../../../GLOSSARY.md#repo-內的檔與狀態)，這個選項沒有對象）。這些用途各自由既有指令的選項或 git 處理
 - 工具 repo 的命名空間也照這套寫法，例如 base ([base#1192](https://github.com/ycpss91255-docker/base/issues/1192))
 
@@ -194,12 +206,12 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
   - `update` 只查
   - 真正換版本的是 `upgrade`：裝新版工具內容、做[初始檔](../../../GLOSSARY.md#初始檔與合併)的[基準版合併](../../../GLOSSARY.md#初始檔與合併)、更新[基準版](../../../GLOSSARY.md#初始檔與合併)與[納管](../../../GLOSSARY.md#初始檔與合併)紀錄，必要時重產薄殼，最後才寫版本鎖定行
 - 沒有反向的 `sync`、`prune` 必須無害：
-  - 不改任何[進 git 的檔](../../../GLOSSARY.md#repo-內的檔與狀態)
+  - 不改任何[追蹤檔](../../../GLOSSARY.md#repo-內的檔與狀態)
   - `prune` 只清本機資源與自己的暫存
 
 ### 本機覆寫
 
-`dev` 是使用者明確選擇的具名行為。開著[本機覆寫](../../../GLOSSARY.md#版本與來源)時，除 `test` 外的一般 recipe 照常執行；若沒有其他[警告](../../../GLOSSARY.md#執行與結果)或錯誤，就以[結束碼](../../contract/03_messages.md#結束碼) `0` 結束。每次執行都要在 stdout 印出用了哪一個本機覆寫，不加診斷前綴。`test` 對本機覆寫的處置見下方的[檢查](#檢查-test)。
+`dev` 是使用者明確選擇的具名行為。開著[本機覆寫](../../../GLOSSARY.md#版本與來源)時，除 `test` 外的一般 recipe 照常執行；若沒有其他診斷，就以[結束碼](../../contract/03_messages.md#結束碼) `0` 結束。每次執行都要在 stdout 印出用了哪一個本機覆寫，不加診斷前綴。`test` 對本機覆寫的處置見下方的[檢查](#檢查-test)。
 
 ## 共同選項
 
@@ -217,10 +229,16 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 - 印出該打的指令，訊息見 [訊息](../../contract/03_messages.csv) `VK0002`
 - 讀到輸入結束 (EOF) 不算同意
 
-能互動時，詢問文字印到 stderr，不帶 [level](../../../GLOSSARY.md#執行與結果) 前綴。使用者明確回答「否」是正常取消：不修改，並在 stdout 說明未變更，以[結束碼](../../contract/03_messages.md#結束碼) `0` 結束。
+能互動時，詢問文字印到 stderr，不帶[嚴重度](../../../GLOSSARY.md#執行與結果)前綴。使用者明確回答「否」是正常取消：不修改，並在 stdout 說明未變更，以[結束碼](../../contract/03_messages.md#結束碼) `0` 結束。
 
 ## 各指令專用選項
 
+- `upgrade --engine` 分兩段執行：第一段換上目標引擎後，若原指令尚未做完，就印出 [訊息](../../contract/03_messages.csv) `VK0023` 的 `error` 診斷，以[結束碼](../../contract/03_messages.md#結束碼) `2` 結束。診斷的 `next_step` 是重跑原指令；原指令在訊息定義中以占位符表示，實際輸出由 VK 填成完整、不需使用者代換的指令，保留原來的 tag 與 `-y`。照它重跑就會接著完成第二段
+- `sync` 的判定分階段：
+  - 主機前置檢查照共同規則先判
+  - 安裝目錄層的零寫入阻擋要在逐工具處理前全部判完：薄殼不符用 [訊息](../../contract/03_messages.csv) `VK0006`，版本組合不合用 `VK0008`；任一成立就不取件，兩者同時成立就兩條都印，結束碼取最大值
+  - 沒有安裝目錄層的零寫入阻擋，才逐工具處理。`VK0004`、`VK0013` 只擋各自所屬的工具，其他工具照常同步；`VK0014`、`VK0015` 全部判、全部印
+  - 整次執行的結束碼取所有安全判出結果的最大值；同一階段內的判定次序與印出順序不承諾
 - `update`：查詢結果印到 stdout，不加前綴；不帶 `--exit-code` 時，查到新版仍以[結束碼](../../contract/03_messages.md#結束碼) `0` 結束。
 - `update --exit-code`：給 CI 或腳本判斷有沒有新版；查到新版時 stdout 照樣印查詢結果，stderr 另印 [訊息](../../contract/03_messages.csv) `VK0022` 的 `warn` 診斷，以[結束碼](../../contract/03_messages.md#結束碼) `1` 結束：
 
@@ -259,8 +277,8 @@ stdout 與 stderr 怎麼分、訊息的前綴與顏色，見 [03 訊息與錯誤
 使用者的檔：
 
 - 適用的 repo 檔含根 `justfile`、初始檔等
-- 進 git 的 VK 檔裡，交由使用者維護、受合併保護的只有 VK 的設定檔 `.vendor_kit/config.toml`：它不是初始檔，只沿用初始檔的保護與合併規則，換新版或合併前一樣先問
-- 其餘進 git 的 VK 檔（版本鎖定行、基準版、納管紀錄、薄殼）內容由 VK 擁有，VK 重寫它們不構成覆蓋。版本鎖定行雖由 VK 擁有，使用者仍可以照它的固定格式手改來升版或退版；手改不會讓它變成交由使用者維護的內容。薄殼被改過的處置依 [02 不變量第 6 條](../../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)
+- 屬於追蹤檔的 VK 檔裡，交由使用者維護、受合併保護的只有 VK 的設定檔 `.vendor_kit/config.toml`：它不是初始檔，只沿用初始檔的保護與合併規則，換新版或合併前一樣先問
+- 其餘屬於追蹤檔的 VK 檔（`version.toml`、基準版、納管紀錄、薄殼）內容由 VK 擁有，VK 重寫它們不構成覆蓋。版本鎖定行雖由 VK 擁有，使用者仍可以照它的固定格式手改來升版或退版；手改不會讓它變成交由使用者維護的內容。薄殼被改過的處置依 [02 不變量第 6 條](../../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)
 - 執行紀錄與[進度檔](../../../GLOSSARY.md#repo-內的檔與狀態)是 VK 的工作狀態，不是使用者的內容
 
 目標不存在時新建檔（例如第一次導入時整份複製的初始檔）不動到既有的內容。動到既有使用者檔、又不構成覆蓋的寫入，只有這四種明定例外：
@@ -270,7 +288,7 @@ stdout 與 stderr 怎麼分、訊息的前綴與顏色，見 [03 訊息與錯誤
 - append 型初始檔第一次導入時向既有檔 append 內容，規則見下面「append 型的初始檔」
 - 已納管初始檔的基準版合併（VK 的設定檔沿用同一套規則）：
   - 使用者沒改過：詢問是否換新版
-  - 雙方都改過：詢問是否合併；[合併衝突](../../../GLOSSARY.md#初始檔與合併)留下標記，由使用者解，印出 [訊息](../../contract/03_messages.csv) `VK0021` 的 `warn` 診斷並以[結束碼](../../contract/03_messages.md#結束碼) `1` 結束；這次執行做完但要人接手
+  - 雙方都改過：詢問是否合併；[合併衝突](../../../GLOSSARY.md#初始檔與合併)留下標記，由使用者解，印出 [訊息](../../contract/03_messages.csv) `VK0021` 的 `warn` 診斷並以[結束碼](../../contract/03_messages.md#結束碼) `1` 結束；這次執行做完，有警告
 
 append 型的初始檔：
 
@@ -287,7 +305,7 @@ append 型的初始檔：
 有紀錄、所以會被收回動作碰到的檔，就是根 `justfile`、根 `.dockerignore`，以及工具宣告為 append 的那些檔。收回時：
 
 - 整份檔裡恰好一處與當初插入的原文相同，才刪那一行
-- 一處也沒有、或有兩處以上，都不刪，講出是哪個檔、找到幾處；一處也沒有時印出 [訊息](../../contract/03_messages.csv) `VK0016` 警告，有兩處以上時印出 [訊息](../../contract/03_messages.csv) `VK0017` 警告，兩者都以[結束碼](../../contract/03_messages.md#結束碼) `1` 結束
+- 一處也沒有、或有兩處以上，都不刪，講出是哪個檔、找到幾處；一處也沒有時印出 [訊息](../../contract/03_messages.csv) `VK0016` [警告](../../../GLOSSARY.md#執行與結果)，有兩處以上時印出 [訊息](../../contract/03_messages.csv) `VK0017` 警告，兩者都以[結束碼](../../contract/03_messages.md#結束碼) `1` 結束
 
 其他情況：
 
@@ -296,7 +314,7 @@ append 型的初始檔：
 
 ## 檢查 (test)
 
-[test](../../../GLOSSARY.md#vk-recipe-與用途) 是 VK 的檢查指令，本機與 CI 用同一個。`test` 不寫進 git 的檔。檢查的範圍照這個原則：
+[test](../../../GLOSSARY.md#vk-recipe-與用途) 是 VK 的檢查指令，本機與 CI 用同一個。`test` 不寫入追蹤檔。檢查的範圍照這個原則：
 
 - [01 目的與承諾](../../contract/01_purpose.md)的對外[契約](../../../GLOSSARY.md#介面版與契約)中，CI 驗得到的項目百分之百覆蓋
 - CI 驗不到的項目由 VK 的驗收測試覆蓋，依 [02 不變量第 9 條](../../contract/02_invariants.md#9-對外承諾必須黑箱可驗本機開發與正式啟動走同一個入口)
