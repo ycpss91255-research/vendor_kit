@@ -18,10 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 # 這些路徑不掃：歷史快照、本地產物、外部素材原文、vendored 的第三方 skill、已凍結的架構圖。
 # 共同點是「文字不是我們寫的，或不是現行規範」，拿我們的名詞規範去掃它只會產生假警報。
 EXCLUDE_PREFIXES = (
-    "doc/decisions/_legacy/",
-    "doc/decisions/_backup/",
-    "doc/decisions/review_log/",
-    "doc/decisions/review/research/",
     "doc/decisions/research/",
     "doc/decisions/review/_marked/",
     ".claude/skills/",

@@ -1,6 +1,0 @@
-只用網路搜尋與讀網頁，不要執行指令、不要寫檔。請查證「CLI 指令用法（usage／synopsis）的標準記法」並給出附來源連結的摘要，重點：
-1. POSIX / Open Group「Utility Argument Syntax」（utility conventions 第 12 章）：必填、可省略 `[ ]`、互斥二選一用什麼符號（`|`）、可重複 `...`、佔位符怎麼寫（斜體 / 底線 / 尖括號）。
-2. GNU / man page（man-pages(7)、docopt、help2man）的慣例：`<x>` vs 斜體、`[x]`、`{a|b}` 或 `(a|b)` 表示必選其一、`[a|b]` 可省略的其一、`-x, --long=VALUE`、`--flag` 不帶值、`-x VALUE` 等價寫法。
-3. 舉 3 個主流工具的 usage 行實例（git、docker、just 任選）貼原文，指出它們怎麼寫互斥選項與可選版本後綴（如 `<name>[@<version>]`，npm 的寫法）。
-4. 結論：給一張「記法 → 意思」對照表，只列 POSIX/GNU 通用的記法；特別回答：「二選一」在 Linux 慣例是用 `a|b`（放在 `{}` 或 `()` 內表示必選其一），不是 `a／b`。若有不同流派請明說。
-輸出 markdown，每條附 URL。
