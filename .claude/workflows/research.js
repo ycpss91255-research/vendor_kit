@@ -3,10 +3,10 @@ export const meta = {
   description: 'agy 查 → codex 核對 → Claude 整合 → 貼 issue',
   whenToUse: '要找外部前例或資料當決策依據時（例如大型 repo 怎麼設定某件事）；brief 先寫好放在 workspace 的 reference/research/<issue>/',
   phases: [
-    { title: '調查', detail: '每個 brief 一個 agy；輸出已存在且非空就沿用' },
-    { title: '核對', detail: '每份 agy 輸出交給 codex，逐條打開來源核對，標正確／有誤／查不到' },
+    { title: '調查', detail: '每個 brief 一個 agy（script/workflow/agy_run.py）；輸出已存在且非空就沿用' },
+    { title: '核對', detail: '每份 agy 輸出交給 codex（script/workflow/codex_run.py），逐條打開來源核對，標正確／有誤／查不到' },
     { title: '整合', detail: 'Claude 讀全部 agy 與 codex 輸出，抽查來源，寫整合結論；兩方不一致列成分歧，不選邊' },
-    { title: '貼 issue', detail: '依序貼 [agy] 原文、[codex] 原文、[claude] 整合結論' },
+    { title: '貼 issue', detail: 'script/workflow/prepare_comment.py 準備留言檔，依序貼 [agy] 原文、[codex] 原文、[claude] 整合結論，核對則數' },
   ],
 }
 
@@ -14,27 +14,31 @@ export const meta = {
 //   issue      number  必填，結果貼到這個 issue
 //   topic      string  必填，一句話說明調查目的（給 codex 與 Claude 的背景）
 //   briefs     array   必填，每項 { id, label }：brief 檔是 <dir>/<id>_brief.md，agy 輸出 <dir>/<id>_agy.md
-//   dir        string  可省，預設 /home/cyc/Desktop/vendor-kit_ws/reference/research/<issue>（不放 /tmp）
+//   repo       string  可省，主 repo，預設 /home/cyc/Desktop/vendor-kit_ws/src；腳本從 <repo>/script/workflow/ 取，workspace＝它的上一層
+//   dir        string  可省，預設 <workspace>/reference/research/<issue>（不放 /tmp）
 //   background string  可省，已定案前提
 //   post       boolean 可省，預設 true；false 就只產檔不貼 issue
-//   agyModel   string  可省，指定 agy 模型名；省略就自動選最新的 gemini flash-high（agy models 第一欄）
+//   agyModel   string  可省，指定 agy 模型名；省略就由 agy_run.py 自動選最新的 gemini flash-high
 // 整合輸出寫到 <dir>/claude_review_<id1>[_<id2>…].md（依 briefs 順序串接 id）
-const { issue, topic, briefs, background = '', post = true, agyModel = '' } = args ?? {}
+const { issue, topic, briefs, background = '', post = true, agyModel = '', repo = '/home/cyc/Desktop/vendor-kit_ws/src' } = args ?? {}
 if (!Number.isInteger(issue)) throw new Error('args.issue 必填（issue 編號）')
 if (typeof topic !== 'string' || !topic.trim()) throw new Error('args.topic 必填')
 if (!Array.isArray(briefs) || briefs.length === 0) throw new Error('args.briefs 必填')
+if (typeof repo !== 'string' || !repo.trim()) throw new Error('args.repo 必須是主 repo 的路徑')
 log(`research #${issue}`)
-const dir = args.dir ?? `/home/cyc/Desktop/vendor-kit_ws/reference/research/${issue}`
+const ROOT = repo.trim().replace(/\/+$/, '')
+const WS = ROOT.replace(/\/[^/]+$/, '')
+const WF = `${ROOT}/script/workflow`
+const dir = args.dir ?? `${WS}/reference/research/${issue}`
 const REPO = 'ycpss91255-research/vendor_kit'
 const BG = background.trim() ? `已定案前提（不要質疑）：\n${background.trim()}\n` : ''
 const brief = b => `${dir}/${b.id}_brief.md`
 const agyOut = b => `${dir}/${b.id}_agy.md`
 const codexOut = b => `${dir}/${b.id}_codex.md`
+const codexBrief = b => `${dir}/${b.id}_codex_brief.md`
 // 整合輸出帶 brief id，同一 issue 換一批 brief 再跑不會覆蓋前一次
 const claudeOut = `${dir}/claude_review_${briefs.map(b => b.id).join('_')}.md`
-const PICK = agyModel.trim()
-  ? `M='${agyModel.trim()}';`
-  : `M=$(agy models | awk '/^gemini-[0-9.]+-flash-high[[:space:]]/{print $1}' | sort -V | tail -1); [ -n "$M" ] || { echo 'agy_exit=99 找不到 gemini flash-high 模型'; exit 0; };`
+const MODEL = agyModel.trim() ? ` --model ${agyModel.trim()}` : ''
 
 const RUN = {
   type: 'object',
@@ -44,25 +48,25 @@ const RUN = {
 
 const results = await pipeline(
   briefs,
-  b => agent(`你的工作是執行 agy 做資料調查，**你自己不調查、不改寫輸出**。不改任何 repo、不 commit、不 push。
+  b => agent(`你的工作是用腳本執行 agy 做資料調查，**你自己不調查、不改寫輸出**。不改任何 repo、不 commit、不 push。
 
-1. ${agyOut(b)} 已存在而且非空：不重跑，回報 reused=true、exit=0、out_ok=true。
-2. 否則前景執行（Bash timeout 600000；跑不完就改用 run_in_background 並等它結束，不要中途放棄）：
-   \`${PICK} cd ${dir} && agy --model "$M" -p "$(cat ${brief(b)})" > ${agyOut(b)} 2> ${dir}/${b.id}_agy.err; echo "agy_exit=$? model=$M"\`
-3. 回報 exit（agy_exit 的值）、model（輸出的 model= 值；沿用時留空）、out_ok（輸出檔存在且非空）；失敗把 ${dir}/${b.id}_agy.err 的內容寫進 error。結束後刪掉空的 .err 檔。`,
+1. 前景執行（Bash timeout 600000），指令一字不差：
+   \`python3 ${WF}/agy_run.py --cd ${dir} --brief ${brief(b)} --out ${agyOut(b)} --err ${dir}/${b.id}_agy.err${MODEL}\`
+   跑不完就用 run_in_background 重跑同一行並等它結束，不要中途放棄（腳本先寫 .part、成功才改名，不會沿用半成品）。輸出已存在且非空時腳本會直接沿用。
+2. 讀它印出的那一行 JSON，照實回報：exit＝JSON 的 exit、out_ok＝JSON 的 ok、reused＝JSON 的 reused、model＝JSON 的 model（沿用時可能是空的）；ok 是 false 就把 JSON 的 error 與 err_tail 寫進 error。不要自己判斷輸出檔、不要自己刪 .err。`,
     { label: `#${issue} agy:${b.id}`, phase: '調查', schema: RUN }),
   (r, b) => {
     if (!r || r.exit !== 0 || !r.out_ok) return { b, agy: r, codex: null }
-    return agent(`你的工作是啟動 codex 核對 agy 的調查結果，**你自己不核對、不加意見**。不改任何 repo、不 commit、不 push。
+    return agent(`你的工作是用腳本啟動 codex 核對 agy 的調查結果，**你自己不核對、不加意見**。不改任何 repo、不 commit、不 push。
 
-1. 用 heredoc（'EOF'）把下面的 brief 原文寫進 ${dir}/${b.id}_codex_brief.md：
+1. 用 Write 工具把下面的 brief 原文寫進 ${codexBrief(b)}（不要用 heredoc）：
 ---
 ${BG}調查目的：${topic}
 讀 ${agyOut(b)}（agy 的調查輸出）與它的題目 ${brief(b)}。逐條打開 agy 引用的來源（網址、workflow 檔、文件）核對：每條標「正確／有誤／查不到來源」，有誤就寫出正確內容與來源網址。agy 漏掉的重要事實自己補上，同樣附來源。最後一節「核對後結論」：依核對結果修正後的結論與數量統計。用繁體中文 markdown，不要改任何檔。
 ---
-2. 前景執行（Bash timeout 600000），形狀一字不差：
-   \`bash -c 'codex exec --skip-git-repo-check -C ${dir} -o ${codexOut(b)} "$(cat ${dir}/${b.id}_codex_brief.md)" < /dev/null; echo "codex_exit=$?"'\`
-3. 回報 exit（codex_exit 的值）、out_ok（${codexOut(b)} 存在且非空）。結束後刪掉 ${dir}/${b.id}_codex_brief.md。`,
+2. 前景執行（Bash timeout 600000），指令一字不差：
+   \`python3 ${WF}/codex_run.py --cd ${dir} --brief ${codexBrief(b)} --out ${codexOut(b)} --delete-brief\`
+3. 讀它印出的那一行 JSON，照實回報：exit＝JSON 的 exit、out_ok＝JSON 的 ok；ok 是 false 就把 JSON 的 error 與 stderr_tail 寫進 error。不要自己看 shell 的結束碼或輸出檔。`,
       { label: `#${issue} codex:${b.id}`, phase: '核對', schema: RUN }).then(c => ({ b, agy: r, codex: c }))
   },
 )
@@ -91,20 +95,52 @@ ${ok.map(x => `- ${x.b.label}：${agyOut(x.b)}、${codexOut(x.b)}`).join('\n')}
 if (!post || !review) return { ok: ok.map(x => x.b.id), failed, review }
 
 phase('貼 issue')
-const posted = await agent(`把調查結果依序貼到 GitHub issue #${issue}（repo ${REPO}）。不改 repo、不 commit。
+// 留言檔的標記、註記行、本機路徑替換與切分由 prepare_comment.py 做並自檢；gh 寫入由子代理逐則下，hook 才看得到
+const POST_DIR = `${dir}/post`
+// 標題用單引號包，bash 與 fish 都照字面讀；單引號與反斜線先換掉
+const q = s => `'${String(s).replace(/'/g, '’').replace(/\\/g, '/')}'`
+const items = [
+  ...ok.flatMap(x => [
+    `--item agy ${agyOut(x.b)} ${q(`${x.b.label} 的 agy 調查原文`)}`,
+    `--item codex ${codexOut(x.b)} ${q(`${x.b.label} 的 codex 核對原文`)}`,
+  ]),
+  `--item claude ${claudeOut} ${q('整合結論')}`,
+].join(' ')
+const posted = await agent(`把調查結果依序貼到 GitHub issue #${issue}（repo ${REPO}）。不改 repo、不 commit。留言檔由腳本準備，你不要自己加標記、寫註記行、換路徑或切分，也不要改留言檔內容。
 
-規則：
-- 每則留言先寫成檔，再用另一個指令 \`gh issue comment ${issue} -R ${REPO} --body-file <絕對路徑>\` 貼出；不要用變數代替路徑，也不要在同一個指令裡寫檔。
-- 本文第一行一律是標記：agy 原文用 \`[agy] \`、codex 原文用 \`[codex] \`、整合結論用 \`[claude] \`。[agy]、[codex] 只能貼原文，不准改寫；第二行加一行「（註：…）」說明這是哪一份 brief 的輸出原文、未改寫。
-- 本文不准出現本機絕對路徑（/home/…、/tmp/…）：原文若有，就在註記行說明並把該路徑換成相對於 workspace 的寫法（例如 reference/research/${issue}/…），其他字不動。
-- 單則超過 60000 字元就切成幾則，標「（1/2）」這類序號。
-- 留言檔寫在 ${dir}/post_*.md，貼完刪掉。
+1. 執行一次（指令一字不差）：
+   \`python3 ${WF}/prepare_comment.py prepare --out-dir ${POST_DIR} --workspace ${WS} ${items}\`
+   讀它印出的 JSON。ok 是 false：不貼任何留言，planned 回 0、urls 回空陣列，把 problems 寫進 error，然後停。
+2. planned＝JSON 的 files 則數。依 files 的順序，每則用一個獨立的指令貼出（不要用 && 串、不要用迴圈或變數代替路徑、不要在同一個指令裡寫檔）：
+   \`gh issue comment ${issue} -R ${REPO} --body-file <files[i].path 的絕對路徑>\`
+   記下每則印出的留言網址。某一則失敗（例如被 hook 擋下）就停下，不貼後面的，把原因寫進 error。
+3. 最後執行 \`python3 ${WF}/prepare_comment.py clean --out-dir ${POST_DIR}\`（貼失敗也要跑）。
 
-順序：
-${ok.map(x => `1. [agy] ${x.b.label}：${agyOut(x.b)}\n2. [codex] ${x.b.label} 的核對：${codexOut(x.b)}`).join('\n')}
-最後. [claude] 整合結論：${claudeOut}
+回報 planned（預計則數）、urls（實際貼出的每則網址，依序），有問題寫 error。`,
+  { label: `#${issue} 貼 issue`, phase: '貼 issue', schema: { type: 'object', properties: { planned: { type: 'integer' }, urls: { type: 'array', items: { type: 'string' } }, error: { type: 'string' } }, required: ['planned', 'urls'] } })
 
-回報每則留言的網址。`,
-  { label: `#${issue} 貼 issue`, phase: '貼 issue', schema: { type: 'object', properties: { urls: { type: 'array', items: { type: 'string' } }, error: { type: 'string' } }, required: ['urls'] } })
+const urls = posted?.urls ?? []
+const planned = posted?.planned ?? 0
+let postError = posted?.error ?? ''
+if (!posted) postError = '貼 issue 的子代理沒有回傳結果'
+else if (planned < 1) postError = postError || '沒有準備出任何留言檔（planned 為 0）'
+else if (urls.length !== planned) {
+  const diff = planned - urls.length
+  const msg = `預計 ${planned} 則，實際貼出 ${urls.length} 則，${diff > 0 ? `少了 ${diff}` : `多了 ${-diff}`} 則`
+  log(`貼 issue 不齊：${msg}`)
+  postError = postError ? `${msg}；${postError}` : msg
+}
+const out = { ok: ok.map(x => x.b.id), failed, summary: review.summary, planned, urls }
+if (postError) out.error = postError
+return out
 
-return { ok: ok.map(x => x.b.id), failed, summary: review.summary, urls: posted?.urls ?? [] }
+// args 範例：
+// {
+//   "issue": 140,
+//   "topic": "<一句話說明調查目的>",
+//   "background": "<已定案前提>",
+//   "briefs": [
+//     { "id": "ros", "label": "ROS 生態系" },
+//     { "id": "ubuntu", "label": "Canonical／Ubuntu" }
+//   ]
+// }
