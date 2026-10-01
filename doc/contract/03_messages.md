@@ -70,7 +70,7 @@ exit code: 2
   ```text
   vendor_kit: <level>[VKnnnn]: <message>
   ```
-- stderr 的診斷只用 `warn`、`error`、`fatal`；`info` 只用在成功的結果與結構化紀錄，不印成診斷。
+- stderr 的診斷只用 `warn`、`error`、`fatal`；`info` 只用在成功的結果與執行紀錄，不印成 stderr 的診斷。
 - 只有診斷本文固定使用英文；stdout 的[正常輸出](../../GLOSSARY.md#執行與結果)、詢問與用法不在這條語言規則內。診斷本文以完整英文句子書寫，句首大寫並以句點結尾；以占位符或小寫的指令名開頭時照原樣，以指令結尾時不加句點，免得複製到句點。本文可能同時包含原因與下一步，需要保留完整句子的邊界。
 - 中文說明見訊息表的 `description` 欄。
 - 多行診斷的續行也印到 stderr。
