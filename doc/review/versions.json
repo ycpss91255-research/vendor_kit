@@ -16,7 +16,7 @@
       {
         "v": 17,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
-        "replied": false
+        "replied": true
       }
     ],
     "02_invariants": [
@@ -34,7 +34,7 @@
       {
         "v": 19,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
-        "replied": false
+        "replied": true
       }
     ],
     "03_messages": [
@@ -53,7 +53,7 @@
       {
         "v": 15,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
-        "replied": false
+        "replied": true
       }
     ],
     "04_interface": [
@@ -89,7 +89,7 @@
       {
         "v": 8,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
-        "replied": false
+        "replied": true
       }
     ],
     "README": [
