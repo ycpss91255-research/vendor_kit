@@ -21,7 +21,7 @@
       {
         "v": 18,
         "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0",
-        "replied": false
+        "replied": true
       }
     ],
     "02_invariants": [
@@ -141,5 +141,11 @@
         "replied": false
       }
     ]
+  },
+  "finalized": {
+    "01_purpose": {
+      "v": 18,
+      "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0"
+    }
   }
 }
