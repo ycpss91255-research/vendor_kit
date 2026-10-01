@@ -90,13 +90,13 @@ const guard = scope => `硬性規則（違反就算這輪失敗）：
 ${scope.map(f => `- ${repo}/${f}`).join('\n')}
 3. 改前先備份到 ${repo}/doc/decisions/_backup/，命名 <鍵>.pre_${round}<副檔名>。<鍵>：相對 repo 根目錄的路徑，去掉 .md 或 .csv、/ 換成 _、去掉開頭的點（例如 doc/contract/01_purpose.md → doc_contract_01_purpose、.claude/workflows/README.md → claude_workflows_README、doc/contract/03_messages.csv → doc_contract_03_messages；跟 script/mark_changes.py 同一套）。<副檔名>：.csv 檔是 .csv（doc_contract_03_messages.pre_${round}.csv），其他一律 .md。同名已存在就在副檔名前加序號（.pre_${round}.2.md、.pre_${round}.2.csv）；不帶序號的那份一定是這一輪改之前的原檔。
 4. 驗證一律用腳本算，不要目視判斷「看起來對」。
-5. 名詞照 ${repo}/GLOSSARY.md；_Avoid_ 詞不准出現。名詞底線用 <ins>，不用 <u>（GitHub 會刪掉 <u>）。CSV 檔（doc/contract/*.csv）不准 HTML 與 Markdown，名詞底線不適用；欄位結構（表頭、欄數、引號跳脫、BOM、LF）照 script/check_messages.py。
+5. 名詞照 ${repo}/GLOSSARY.md；_Avoid_ 詞不准出現。對外文件（根 README 與 doc/contract/01～04）裡的名詞，在每頁第一次出現於正文時連到 GLOSSARY.md 該名詞所在分群的標題錨點，不用 <ins>、<u> 或任何 HTML 標籤（規則照 script/check_terms.py）。CSV 檔（doc/contract/*.csv）不准 HTML 與 Markdown，名詞連結不適用；欄位結構（表頭、欄數、引號跳脫、BOM、LF）照 script/check_messages.py。
 6. 連結要是有名字的超連結（[名字](路徑)），不要把路徑當連結文字；路徑要實際存在。
 7. 同一輪還有別的子代理在並行改這些檔：${files.map(f => f).join('、')}。你只改上面第 2 條列的檔；讀其他檔只為了對照。`
 const GUARDRAILS = guard(files)
 
 // check_messages.py 在 doc/contract/03_messages.csv 還不存在時自己跳過
-const LINT = `cd ${repo} && python3 script/check_terms.py && python3 script/check_context.py && python3 script/check_review_pages.py && python3 script/check_messages.py`
+const LINT = `cd ${repo} && python3 script/check_terms.py && python3 script/check_context.py && python3 script/check_review_pages.py && python3 script/check_messages.py && python3 script/check_typography.py`
 
 const RESULT = {
   type: 'object',
