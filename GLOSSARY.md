@@ -100,9 +100,9 @@ _Avoid_: 專案檔
 **VK 檔** (VK file)：
 由 VK 建立及管理、位於 `.vendor_kit/` 的檔。
 
-**進 git 的檔** (tracked file)：
-隨 repo 一起 commit 進 git 的檔。
-_Avoid_: tracked 檔、版控檔
+**追蹤檔** (tracked file)：
+隨 repo 一起由 git 追蹤並 commit 的檔，含還沒建出來、建出來就要 commit 的檔。
+_Avoid_: 進 git 的檔、tracked 檔、版控檔
 
 **`cache/`**：
 VK 在 repo 本機保存已展開工具內容的目錄。
@@ -169,10 +169,10 @@ VK 自己的指令，寫法 `just vendor_kit <recipe>`。
 _Avoid_: 動詞、子命令
 
 **可寫 recipe** (writing recipe)：
-會動到進 git 的檔或進度檔的 VK recipe。
+會動到追蹤檔或進度檔的 VK recipe。
 
 **唯讀 recipe** (read-only recipe)：
-不動進 git 的檔、也不動進度檔的 VK recipe。
+不動追蹤檔、也不動進度檔的 VK recipe。
 
 **詢問** (prompt)：
 VK 在修改 repo 檔前，向使用者取得同意的互動。
@@ -227,7 +227,7 @@ VK recipe 結束時回給呼叫方、表示整體結果的整數；各碼語意�
 `install` 使 repo 裡的一個目錄成為安裝目錄，`uninstall` 將 VK 從該處移除；兩者的介面與保留使用者檔規則見[指令](doc/contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](doc/contract/04_interface.md#使用者的檔與-vk-的檔)。
 
 **`test`**：
-檢查安裝目錄狀態或工具交付內容、且不寫進 git 之檔案的 VK recipe；範圍與用法見[檢查](doc/contract/04_interface.md#檢查-test)。
+檢查安裝目錄狀態或工具交付內容、且不寫入追蹤檔的 VK recipe；範圍與用法見[檢查](doc/contract/04_interface.md#檢查-test)。
 
 ### 介面版與契約
 

@@ -14,7 +14,7 @@
 
 ## Consequences
 
-- `test` 不寫進 git 的檔。它發現基準版落後版本鎖定行時印 `warn[VK0014]`、以結束碼 `1` 結束；發現本機覆寫時印 `error[VK0032]`、以結束碼 `2` 結束。
+- `test` 不寫[追蹤檔](../../GLOSSARY.md#repo-內的檔與狀態)。它發現基準版落後版本鎖定行時印 `warn[VK0014]`、以結束碼 `1` 結束；發現本機覆寫時印 `error[VK0032]`、以結束碼 `2` 結束。
 - `dev` 開啟本機覆寫後，一般 recipe 仍照常執行，並在 stdout 記錄採用了本機覆寫；只要該 recipe 的承諾已完成且沒有其他診斷，就以結束碼 `0` 結束。只有 `test` 會因本機覆寫而擋下。
 - VK 不另定 CI 專用規則，也不自行追蹤新版、commit 或開 PR。自動化流程要驗證安裝目錄時明確執行 `just vendor_kit test`；新版追蹤交給 Renovate。
 - 這項決議取代 [ADR-0004](0004-vk-recipe-interface-and-write-boundary.md) 中的 CI 模式、依 `CI` 分流，以及 CI 模式附加嚴格規則；ADR-0004 的 recipe 介面、寫入邊界與警告結束碼決議仍然有效。
