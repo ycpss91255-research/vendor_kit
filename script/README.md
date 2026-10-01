@@ -6,9 +6,9 @@
 
 | 類別 | 內容 | 說明 |
 |---|---|---|
-| `doc/` | 文件工具：名詞自檢 `check_terms.py`、`check_context.py`，改動標示 `mark_changes.py` | [文件工具說明](doc/README.md) |
+| `doc/` | 文件工具：名詞自檢、改動標示等，各腳本見該類別的 README | [文件工具說明](doc/README.md) |
 | `repo/` | repo 結構檢查：`check_script_layout.py` | [repo 結構檢查說明](repo/README.md) |
-| `workflow/` | 命名 workflow 的機械步驟：`worktree.py`、`wait_ci.py`、`body.py`、`pr_target.py`、`verify.py` | [workflow 腳本說明](workflow/README.md) |
+| `workflow/` | 命名 workflow 的機械步驟，各腳本見該類別的 README | [workflow 腳本說明](workflow/README.md) |
 | `diagram/` | 圖面工具：drawio 圖頁的抽取與檢查 | [圖面工具說明](diagram/README.md) |
 | `github/` | GitHub 相關工具：盯動靜 `watch_github.sh`、PR 規則檢查 `check_pr_rules.py`（範圍表 `scope.json`） | [GitHub 工具說明](github/README.md) |
 

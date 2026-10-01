@@ -41,8 +41,16 @@ python3 script/workflow/body.py check <file> --kind pr --issue <issue 編號>
 
 - issue：第一行要是 `Part of #<父題>`。
 - PR：第一行以 `[claude] ` 開頭，且有一行 `Closes #<issue>`。
-- 兩者都不准含本機絕對路徑；樣式跟 `.claude/hooks/comment_tag_guard.py` 的 `LOCAL_PATHS` 相同。
+- 兩者都不准含本機絕對路徑；規則經 [`hook_rules.py`](#hook_rulespy) 直接 import `.claude/hooks/comment_tag_guard.py`。
 - 輸出一行 JSON：`{"ok", "file", "kind", "problems"}`；全過 0，有問題 1。
+
+## hook_rules.py
+
+給其他腳本 import 的模組，沒有命令列介面。從 `.claude/hooks/comment_tag_guard.py` 載入 hook 模組，匯出 `LOCAL_PATHS`、`TAGS`、`RAW_TAGS`、`NOTE_PREFIXES`、`tagged`、`local_path_problem`。
+
+- 給誰用：`body.py`（本機絕對路徑樣式），以及之後的留言檔準備腳本（標記、`[codex]`／`[agy]` 原文的註記行）。
+- 為什麼不另抄一份：送出前的自檢跟 hook 用兩份規則，改一邊另一邊不會跟著變，自檢過了 hook 還是會擋（或反過來）。直接 import，規則只寫在 hook 一處。
+- hook 檔不存在或缺上面的名稱時 raise `HookRulesError`，訊息寫明哪個檔；不退回自己的副本。
 
 ## pr_target.py
 
