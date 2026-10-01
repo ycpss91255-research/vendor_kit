@@ -10,6 +10,8 @@
 
    備份檔名是 `<鍵>.pre_<round>.md`，鍵是**把路徑攤平**（去掉 `.md`、`/` 換成 `_`、去掉開頭的點）。所有檔都用這套命名，不限審閱頁。審閱頁 `doc/contract/01_purpose.md` 的備份是 `doc_contract_01_purpose.pre_<round>.md`；`docs/` 併進 `doc/` 之前的備份是舊鍵 `docs_contract_…`（歷史），`mark_changes.py` 兩種都認。
 
+   鍵、備份檔名、序號與「這一輪的基準」的規則以 `backup.py` 為準，見下面的「doc-edit 的備份與範圍檢查（`backup.py`）」。
+
 2. **改**：由 [doc-edit workflow](../../.claude/workflows/doc-edit.js) 的改寫階段派子代理修改（各 workflow 的說明見 [workflow 說明](../../.claude/workflows/README.md)）；本工具不改內容，只在修改完成後產生標示版。
 
 3. **產標示版與正文副本**：
@@ -69,6 +71,34 @@
 CSV 的逐碼差異：新舊兩版依 `code` 對齊、逐欄比較，每個有改動的代碼寫成一段 `#### VKnnnn`，依新表頭的欄位順序列出這個代碼的各欄。改過的欄寫成紅底舊值 → 綠底新值，沒改的欄照原樣列出、不加標記。新增的代碼在標題下一行註記綠底「（本碼新增）」、各欄標綠；改成 `retired` 的註記紅底「（本碼停用）」；從 CSV 拿掉的列註記紅底「（本列刪除）」、各欄標紅。表頭改了（例如刪掉欄）時，逐碼差異開頭先標出新舊表頭，並逐欄註記紅底「（本欄刪除）」或綠底「（本欄新增）」；新增的欄照新表頭的位置列出，各碼標綠新值並註記綠底「（本欄新增）」，新值是空的不算改動；刪掉的欄排在新表頭各欄之後，列出舊值並標紅，所以只刪欄的代碼也算有改動。沒改動的代碼不成段，最後用一行列出有幾個、是哪些。欄位值裡的 `<`、`>` 會跳脫，占位符照原樣看得到；格內換行改成 `<br>`。
 
 不帶後綴或用 `--base-version` 時，CSV 的基準跟 `.md` 一樣從送審紀錄的 commit 取（紀錄有 `csv_path` 就取那個路徑）。帶後綴時，CSV 的基準版是本機 `doc/decisions/_backup/doc_contract_03_output.<後綴>.csv`，攤平規則跟 `.md` 相同，只差副檔名；以下是後綴模式的規則。兩個檔只有一個有基準版時，另一個視為這一輪沒改；CSV 沒有基準版、也不在 git 的 `HEAD` 裡時，視為新建、整份標新增。這兩種情況都會印在輸出，也寫在標示版開頭。兩個都沒有基準版就停下。基準後綴寫 `new` 時，兩個檔都整份標新增。
+
+## doc-edit 的備份與範圍檢查（`backup.py`）
+
+doc-edit 的備份、改前快照、備份檢查、範圍外檢查與這一輪的 diff 由這支做，規則只寫在這裡（#139）。以前由子代理照 workflow 的文字步驟做，r152 因此誤判（#133）。每種用法都在 stdout 印一行 JSON，成功與失敗都有 `ok`；全過結束碼 0，有問題 1，用法錯（參數、輪次格式、repo 不是 git repo、檔案不在 repo 裡）2。檔案一律寫相對 repo 根目錄的路徑。
+
+```sh
+python3 script/doc/backup.py key <檔>...
+python3 script/doc/backup.py save --repo <repo> --round <rNN> <檔>...
+python3 script/doc/backup.py base --repo <repo> --round <rNN> <檔>
+python3 script/doc/backup.py diff --repo <repo> --round <rNN> <檔>
+python3 script/doc/backup.py snapshot --repo <repo> --out <json> [--files <檔>...]
+python3 script/doc/backup.py verify --repo <repo> --round <rNN> --before <json> --scope <檔>... --round-files <檔>...
+```
+
+- **鍵**（`key` → `{ok, keys: [{file, backup_key, run_key}]}`）：`backup_key` 是上面「一輪的流程」第 1 步的攤平鍵（去掉 `.md` 或 `.csv`、`/` 換成 `_`、去掉開頭的點），跟 `mark_changes.py` 同一套，備份檔名用它。`run_key` 在 `.md`、`.csv` 檔的 `backup_key` 後面接 `_md` 或 `_csv`（`doc/contract/03_output.csv` → `doc_contract_03_output_csv`），給暫存目錄與 review_log 檔名用：`03_output.md` 與 `03_output.csv` 的 `backup_key` 相同，備份靠副檔名分開，暫存檔與 review_log 不分開就會互相覆蓋（r163）。其他檔的 `run_key` 等於 `backup_key`。
+- **備份**（`save` → `{ok, results: [{file, backup, created, seq, md5, missing}]}`）：備份到 `doc/decisions/_backup/<backup_key>.pre_<round><ext>`，`<ext>` 對 `.csv` 檔是 `.csv`、其他一律 `.md`。這一輪的基準（不帶序號，`seq` 為 1）不存在就建它；已存在時，目前內容的 md5 等於這一輪任何一份既有備份就不另存、回報那一份；否則另存 `.pre_<round>.<N><ext>`，N 從 2 起、取現有最大加一。檔案不存在（這一輪新建的檔）不備份，`missing` 為 true。不手動 `cp`、不自己編序號。
+- **基準**（`base` → `{ok, file, base, exists}`）：這一輪不帶序號的那份備份的路徑與它在不在。
+- **這一輪的 diff**（`diff` → `{ok, file, base, base_kind, empty, diff}`）：基準優先用這一輪的基準備份（`base_kind` 為 `backup`），不存在就用 `git show HEAD:<檔>`（`HEAD`），都沒有就整份算新增（`none`）。`diff` 是 unified diff 文字，`empty` 為 true 表示這一輪沒改這個檔。
+- **改前快照**（`snapshot` → `{ok, out, paths}`）：記下 `git status` 的每個路徑（含未追蹤的檔）與 md5、`--files` 每個檔的 md5、`_backup/` 的檔名清單，寫進 `--out`。`--out` 放在 scratchpad，不放 repo 裡，否則它自己會被當成變動。
+- **比對**（`verify` → `{ok, changed, new_backups, backup_problems, out_of_scope, parallel, diffstat}`）：重做一次快照，跟 `--before` 比。
+  - `changed`：改前或現在的 `git status` 有的路徑、以及快照記過的檔，md5 變了的。快照沒記到的路徑，改前內容當成 `HEAD` 的版本。
+  - `backup_problems`（#133）：`--scope` 裡變了、改前就存在的檔，這一輪的基準必須存在，而且改前的 md5 必須等於這一輪某一份既有備份（基準或帶序號的），也就是改前狀態能從既有備份還原。基準已經等於改前內容時，不必另存備份。
+  - `out_of_scope`：變了、不在 `--round-files`、也不在 `doc/decisions/` 底下的路徑。只回報，不還原。
+  - `parallel`：在 `--round-files`、不在 `--scope` 的變動，是同一輪並行的子代理造成的，不算錯。
+  - `new_backups`：快照之後 `_backup/` 新出現的檔；`diffstat`：`git diff --stat -- <scope>`。
+  - `backup_problems` 或 `out_of_scope` 不是空的，`ok` 就是 false、結束碼 1。
+
+鍵跟 `mark_changes.py` 一致、序號、重現 r152、範圍外與 diff 退回 `HEAD` 這些行為由 [backup 測試](test/test_backup.py) 涵蓋。
 
 ## 送審打包（`pack_review.py`）
 
