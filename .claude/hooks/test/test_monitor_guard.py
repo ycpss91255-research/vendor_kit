@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 
 HOOK = Path(__file__).resolve().parents[1] / "monitor_guard.py"
+REPO = Path(__file__).resolve().parents[3]
+WATCH = "script/github/watch_github.sh"
 
 
 def run_hook(stdin: str) -> str:
@@ -25,6 +27,13 @@ class MonitorGuardTest(unittest.TestCase):
         self.assertEqual(spec["hookEventName"], "PreToolUse")
         self.assertEqual(spec["permissionDecision"], "deny")
         self.assertIn("run_in_background", spec["permissionDecisionReason"])
+
+    def test_reason_points_to_repo_script(self):
+        out = run_hook(json.dumps({"tool_name": "Monitor", "tool_input": {}}))
+        reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn(WATCH, reason)
+        self.assertNotIn(str(Path.home()), reason)  # 不准寫本機絕對路徑
+        self.assertTrue((REPO / WATCH).is_file())
 
     def test_other_tool_passes(self):
         self.assertEqual(run_hook(json.dumps({"tool_name": "Bash", "tool_input": {}})), "")

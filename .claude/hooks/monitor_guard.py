@@ -12,7 +12,7 @@ import sys
 REASON = (
     "這個 repo 不用 Monitor（最長 30 分鐘，到期重開都要花 token；issue #70）。"
     "改用 Bash run_in_background 跑一支「查到事件就印出來並結束」的指令，收到通知、處理完再用同一行重開。"
-    "盯 GitHub issue／PR：cd /home/cyc/Desktop/vendor-kit_ws/src && sh script/watch_github.sh 60 --once。"
+    "盯 GitHub issue／PR：在 repo 根目錄執行 sh script/github/watch_github.sh 60 --once（用 Bash run_in_background）。"
     "等某個條件成立：until <條件>; do sleep 60; done; echo <結果>。"
 )
 
