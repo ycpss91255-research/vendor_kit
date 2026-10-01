@@ -40,8 +40,8 @@ Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東�
 這幾條**寫在腳本裡**，會組進送給每個子代理的 prompt，不靠每次記得講：
 
 - **不 commit、不 push、不跑任何 git 寫入指令**。唯讀的 `git status`／`git diff` 可以。
-- **改前先備份**到本機的 `doc/decisions/_backup/`（已 gitignore，不進 git），命名 `<鍵>.pre_<round><副檔名>`（例如 `claude_workflows_README.pre_r146.md`；鍵與副檔名的規則跟 `script/mark_changes.py` 同一套），同名已存在就在副檔名前加序號。
-- **不准動** `doc/decisions/_backup/`、`doc/decisions/review_log/`（本機產物，已 gitignore）與送審資料夾 `doc/review/`（由 `script/mark_changes.py`、`script/pack_review.py` 產生），除非該 task 明說。審查結論寫進 issue 留言，不留在 repo。
+- **改前先備份**到本機的 `doc/decisions/_backup/`（已 gitignore，不進 git），命名 `<鍵>.pre_<round><副檔名>`（例如 `claude_workflows_README.pre_r146.md`；鍵與副檔名的規則跟 `script/doc/mark_changes.py` 同一套），同名已存在就在副檔名前加序號。
+- **不准動** `doc/decisions/_backup/`、`doc/decisions/review_log/`（本機產物，已 gitignore）與送審資料夾 `doc/review/`（由 `script/doc/mark_changes.py`、`script/doc/pack_review.py` 產生），除非該 task 明說。審查結論寫進 issue 留言，不留在 repo。
 - **驗證一律用腳本／grep 算，不要目視**。
 - codex 一律帶 `< /dev/null`：少了它，codex 會停在等 stdin，整條 workflow 卡死。形狀固定：`codex exec --skip-git-repo-check -C <repo> -o <輸出檔>`、不加沙箱旗標、stdin 接 `/dev/null`；brief 先用 heredoc 寫進暫存檔，再用命令替換傳進去：
 

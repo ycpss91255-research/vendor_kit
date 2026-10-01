@@ -33,7 +33,7 @@
    { ls doc/decisions/_backup 2>/dev/null | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//'; git log --format=%B | grep -oE '^Doc-Edit: r[0-9]+' | sed 's/^Doc-Edit: r//'; } | sort -n | tail -1
    ```
 
-3. **產生標示版與正文副本。** 改完在 repo 根目錄跑 `python3 script/mark_changes.py <頁>`（[標示版產生器](../../script/mark_changes.py)）。審閱頁傳頁名，例如 `02_invariants`；根目錄 README 傳 `README.md`（鍵是 `README`）；本檔要傳路徑 `doc/contract/README.md`，鍵是 `doc_contract_README`。基準有三種：
+3. **產生標示版與正文副本。** 改完在 repo 根目錄跑 `python3 script/doc/mark_changes.py <頁>`（[標示版產生器](../../script/doc/mark_changes.py)）。審閱頁傳頁名，例如 `02_invariants`；根目錄 README 傳 `README.md`（鍵是 `README`）；本檔要傳路徑 `doc/contract/README.md`，鍵是 `doc_contract_README`。基準有三種：
    - 不帶後綴：[版本號紀錄](../review/versions.json) (`doc/review/versions.json`) 裡這個鍵最後一筆 `replied: true` 的紀錄，也就是維護者最後回覆過的版本；回覆過的內容不再標紅綠，只標之後的改動。沒有這種紀錄就整份標新增。
    - `--base-version <鍵>=<N>`：用版本號紀錄裡這個鍵版本 N 的紀錄當基準，不看 `replied`。
 
@@ -42,8 +42,8 @@
 
    產出放在送審資料夾 `doc/review/<鍵>/`，檔名固定、每次產生就覆蓋：`<鍵>.md` 是正文副本，`<鍵>.marked.md` 是標示版（新增用綠底 `<mark>`、刪除（被取代或拿掉的舊文字）用紅底 `<mark>`），有 CSV 的頁再加 `<鍵>.csv`。repo 裡的檔名與檔內都不寫版本號；正式檔名不帶版本號，也不改名，其他文件的連結才不會斷。產生器只讀版本號紀錄，不寫、不取號。
 
-   鍵對審閱頁是頁名，對其他檔是攤平後的路徑，規則見[工具說明](../../script/README.md)。
-4. **送審。** 先把正式檔與送審資料夾 commit，再用[打包腳本](../../script/pack_review.py)打包 `doc/review/<鍵>/`，產出 `review_vN.zip`，用 SendUserFile 傳給維護者。版本號只在 zip 裡的檔名（`<鍵>.v<N>.md`、`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.csv`）：看檔名就要知道是哪一版，不用打開才知道。打包腳本送審時把 `{v, commit, replied: false}` 追加進版本號紀錄、zip 編號加一；正式檔有未 commit 的改動，或送審資料夾的副本跟正式檔不一致（沒重跑產生器），就停下不打包。維護者回覆後跑 `python3 script/pack_review.py --replied <鍵>=<N> [...]` 把那筆標成 `replied: true`：只改 `replied`，不打包、不取號，不用 `--out`。
+   鍵對審閱頁是頁名，對其他檔是攤平後的路徑，規則見[工具說明](../../script/doc/README.md)。
+4. **送審。** 先把正式檔與送審資料夾 commit，再用[打包腳本](../../script/doc/pack_review.py)打包 `doc/review/<鍵>/`，產出 `review_vN.zip`，用 SendUserFile 傳給維護者。版本號只在 zip 裡的檔名（`<鍵>.v<N>.md`、`<鍵>.v<N>.marked.md`、`<鍵>.v<N>.csv`）：看檔名就要知道是哪一版，不用打開才知道。打包腳本送審時把 `{v, commit, replied: false}` 追加進版本號紀錄、zip 編號加一；正式檔有未 commit 的改動，或送審資料夾的副本跟正式檔不一致（沒重跑產生器），就停下不打包。維護者回覆後跑 `python3 script/doc/pack_review.py --replied <鍵>=<N> [...]` 把那筆標成 `replied: true`：只改 `replied`，不打包、不取號，不用 `--out`。
 
 內部文件（本檔、[工作約定](../../AGENTS.md)、[工具說明](../../script/README.md)、[ADR 規則](../adr/README.md) 等，也就是對外文件以外的所有文件）改完照樣走步驟 2 (doc-edit)，但不產標示版、不送審；也不准留過時的資訊。
 

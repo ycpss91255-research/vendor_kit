@@ -29,8 +29,8 @@
 | 目錄 | 是什麼 | 最終去向 |
 |---|---|---|
 | `review_log/`（已移出 git） | 審閱頁（01–04）的審閱往返：codex brief／output、Claude 子代理審查紀錄。本機保留、已 gitignore；審查結論改寫進 issue 留言。原本在這裡的 `versions.json` 已移到 [doc/review/versions.json](../review/versions.json)。 | 本機參考用，不進 git。 |
-| `_backup/`（已移出 git） | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`）。本機保留、已 gitignore；`script/mark_changes.py` 帶 `<後綴>` 時讀它當基準，doc-edit 取 round 號時也看它。 | 本機用，不進 git。 |
-| [doc/review/](../review/)（送審資料夾，在本目錄外） | 原本的 `_marked/` 已刪，改為 `doc/review/<鍵>/`：`mark_changes.py` 產生固定檔名的 `<鍵>.md`（正文副本）與 `<鍵>.marked.md`（標示版：新增綠底 `<mark>`、刪除紅底 `<mark>`），有 CSV 的頁再加 `<鍵>.csv`，每次產生就覆蓋。版本號不在 repo 檔名裡，只在 `script/pack_review.py` 打包的 zip 內檔名（`<鍵>.v<N>.…`）；`doc/review/versions.json` 記每次送審的版號與 commit。只有對外文件（根目錄 README.md 與審閱頁 01～04）產標示版、送審；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產、不送。 | 進 git；該頁定稿時整個 `<鍵>/` 資料夾在同一個 commit 刪掉。 |
+| `_backup/`（已移出 git） | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`）。本機保留、已 gitignore；`script/doc/mark_changes.py` 帶 `<後綴>` 時讀它當基準，doc-edit 取 round 號時也看它。 | 本機用，不進 git。 |
+| [doc/review/](../review/)（送審資料夾，在本目錄外） | 原本的 `_marked/` 已刪，改為 `doc/review/<鍵>/`：`mark_changes.py` 產生固定檔名的 `<鍵>.md`（正文副本）與 `<鍵>.marked.md`（標示版：新增綠底 `<mark>`、刪除紅底 `<mark>`），有 CSV 的頁再加 `<鍵>.csv`，每次產生就覆蓋。版本號不在 repo 檔名裡，只在 `script/doc/pack_review.py` 打包的 zip 內檔名（`<鍵>.v<N>.…`）；`doc/review/versions.json` 記每次送審的版號與 commit。只有對外文件（根目錄 README.md 與審閱頁 01～04）產標示版、送審；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產、不送。 | 進 git；該頁定稿時整個 `<鍵>/` 資料夾在同一個 commit 刪掉。 |
 | `_legacy`（已搬出） | 原本放已歸檔的檔案；已搬到 repo 外、只留維護者本機的 `../reference/_legacy`，不進 git。見下一段。 | 本機參考用，確認清楚之後刪。 |
 
 ## 已歸檔（repo 外的 `../reference/_legacy`）
@@ -44,7 +44,7 @@
 | 定案流水帳 | `grilling.md` | 逐題追問與定案紀錄。Q 編號只在檔內有意義；要引用當初的定案，寫日期加定案內容。 |
 | agy／codex 原始輸出 | `agy/`、`log/`、`review/codex_*`、`review_log/`（舊輪次：`codex_r2`–`codex_r9`、`codex_review`、`r12_codex`、`r13_codex`、`r15_codex`、`review_v1`，共 152 檔 59 MB） | 9/17–9/21 的雙軌審查往返，對象是已作廢的圖頁與舊版名詞。 |
 | 舊審閱頁 | `review/01-03_名詞與縮寫.md`、`review/04-05_不變量與角色.md`、`review/terms_moved.md`、`review/invariants_roles.md`、`review/verbs.md`、`review/CONTEXT.draft.md`、`review/legend_page.md`、`review/02_terms.md` | 前七份當時被 01／02 兩頁取代（歷史；當時取代後是 01～03，現為 01～04）；`02_terms.md`（名詞與縮寫）的內容已重寫進根 `GLOSSARY.md`，本檔隨即退場。 |
-| 後來補歸檔 | `review/_changes_r63.md`（手寫對照表，已被 `script/mark_changes.py` 取代，內文用「導入根」舊名）、`review/_variants/`（承諾關係三種呈現草稿，已擇一定案）、`dist_distribution_notes.md`（主圖討論紀錄，用三方模型舊名詞） | 見括號。 |
+| 後來補歸檔 | `review/_changes_r63.md`（手寫對照表，已被 `script/doc/mark_changes.py` 取代，內文用「導入根」舊名）、`review/_variants/`（承諾關係三種呈現草稿，已擇一定案）、`dist_distribution_notes.md`（主圖討論紀錄，用三方模型舊名詞） | 見括號。 |
 | issue 草稿 | `issues/`（`close_*.md`、`d11`–`d13`、`reframe_14.md`）、`issue_deploy_split*.md` | 已貼上 GitHub，本地副本不同步。 |
 | 外部參考 | `wf/`（20 個上游 repo 的 GitHub Actions workflow）、`verify/`（ADR 抓取與 issue JSON） | 一次性取樣，要用再抓。 |
 | 圖檔審查產物 | `drawio_audit/`（9 個 `.drawio-audit-*` 目錄 + `files.zip`，35 MB） | draw.io 編輯期間的自動快照。（歷史：還在 repo 內時，`.gitignore` 的 `.drawio-audit-*/` 與 `files.zip` 兩條擋著它們，所以從沒進 git。） |
@@ -71,7 +71,7 @@
 
 （歷史：以上「是什麼」「為什麼卡住」是當時的狀況。原本的選項是）(a) 整個 `script/diagram/` 歸檔（移到 repo 外的本機參考目錄）；(b) 只留通用的四支（`extract_pages.py`、`lint_pages.py`、`shrink_png.py`、`drawio_common.py`）加 `review_v2_README.md`，其餘歸檔。已歸檔的 `diagram-review-v2` workflow 當時的前置步驟就是跑前三支；(c) 全留，只刪 `verify_r15/16.py` 這類明確壞掉的。
 
-`script/mark_changes.py` 不在此列，它是現在每輪都在用的工具，留。
+`script/doc/mark_changes.py` 不在此列，它是現在每輪都在用的工具，留。
 
 ### 3. `doc/decisions/` 這個目錄本身（已定）
 
@@ -89,7 +89,7 @@
 
 **是什麼**：每輪改動前的快照（路徑攤平的命名）。
 
-**結論（#128）**：移出 git，本機保留、已 gitignore。`script/mark_changes.py` 不帶後綴時改用 `doc/review/versions.json` 記的送審 commit 以 `git show` 取基準，`--base-version <鍵>=<N>` 取指定送審版本；只有帶 `<後綴>` 時才讀本機 `_backup/`。（歷史：原本的選項是只留最新快照、改用 `git show` 取舊版，或審閱頁定案後整個刪。）
+**結論（#128）**：移出 git，本機保留、已 gitignore。`script/doc/mark_changes.py` 不帶後綴時改用 `doc/review/versions.json` 記的送審 commit 以 `git show` 取基準，`--base-version <鍵>=<N>` 取指定送審版本；只有帶 `<後綴>` 時才讀本機 `_backup/`。（歷史：原本的選項是只留最新快照、改用 `git show` 取舊版，或審閱頁定案後整個刪。）
 
 ### 6. `review_log/`（已完成）
 
