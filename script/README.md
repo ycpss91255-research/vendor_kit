@@ -10,7 +10,7 @@
 | `repo/` | repo 結構檢查：`check_script_layout.py` | [repo 結構檢查說明](repo/README.md) |
 | `workflow/` | 命名 workflow 的機械步驟：`worktree.py`、`wait_ci.py`、`body.py` | [workflow 腳本說明](workflow/README.md) |
 | `diagram/` | 圖面工具：drawio 圖頁的抽取與檢查 | [圖面工具說明](diagram/README.md) |
-| `github/` | 盯 GitHub 的工具：`watch_github.sh` | [GitHub 工具說明](github/README.md) |
+| `github/` | GitHub 相關工具：盯動靜 `watch_github.sh`、PR 規則檢查 `check_pr_rules.py`（範圍表 `scope.json`） | [GitHub 工具說明](github/README.md) |
 
 ## 新增腳本
 
