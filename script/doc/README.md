@@ -230,3 +230,19 @@ python3 script/doc/check_review_pages.py
 頂端的 `TEMP_ALLOWLIST` 放暫時豁免的個別錯誤（整行原文完全相同才放行），目前是空的；輸出第一行會印筆數與命中數，悄悄長大看得見。
 
 各條規則的正反例在 [check_review_pages 測試](test/test_check_review_pages.py)。
+
+## 潤稿越界檢查（`polish_check.py`）
+
+doc-edit 的潤稿只准改這一輪改過的行。這支比「潤稿前」與「潤稿後」，找出落在範圍外的變動，帶 `--fix` 就把那些段還原成潤稿前的原文：
+
+```sh
+python3 script/doc/polish_check.py <基準> <潤稿前> <潤稿後> [--fix]
+```
+
+- 範圍：`<基準>`（這一輪改之前的原檔）→ `<潤稿前>` 的新增或修改行。
+- 等長的替換逐行判斷；其他變動整段判斷，整段都要在範圍內；純插入只要緊鄰的前一行或後一行在範圍內就保留。
+- `<基準>` 與 `<潤稿前>` 相同（這一輪沒改這個檔）時，任何變動都算越界。
+
+輸出一行 JSON `{"ok", "round_changed_lines", "violations", "reverted"}`；`violations` 每筆有 `pre_lines`、`post_lines`（從 1 起算，含迄）與 `post_text`。結束碼：沒有越界回 0；有越界且已 `--fix` 還原回 0（`reverted` 為 `true`，再不帶 `--fix` 跑一次確認 `violations` 為空）；有越界沒還原回 1；讀不到檔回 2。
+
+各種情況的正反例在 [polish_check 測試](test/test_polish_check.py)。
