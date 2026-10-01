@@ -7,24 +7,17 @@
 檢查：
 - issue：第一行是 `Part of #<parent>`。
 - pr：第一行以 `[claude] ` 開頭，且本文有一行 `Closes #<issue>`。
-- 兩者：不是空檔；不含本機絕對路徑（/home/<user>/、/Users/<user>/、/tmp/claude-、C:\\Users\\），
-  樣式與 .claude/hooks/comment_tag_guard.py 的 LOCAL_PATHS 相同。
+- 兩者：不是空檔；不含本機絕對路徑（/home/<user>/、/Users/<user>/、/tmp/claude-、C:\\Users\\）。
+  規則直接取自 .claude/hooks/comment_tag_guard.py（經 hook_rules.py 載入 LOCAL_PATHS），不另抄一份。
 
 輸出一行 JSON：{"ok", "file", "kind", "problems": [...]}；全過結束碼 0，有問題 1。
 """
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
-# 與 .claude/hooks/comment_tag_guard.py 的 LOCAL_PATHS 同一套樣式
-LOCAL_PATHS = (
-    (re.compile(r"/home/[^/\s]+/"), "/home/<user>/"),
-    (re.compile(r"/Users/[^/\s]+/"), "/Users/<user>/"),
-    (re.compile(r"/tmp/claude-"), "/tmp/claude-"),
-    (re.compile(r"[A-Za-z]:\\Users\\", re.IGNORECASE), "C:\\Users\\"),
-)
+from hook_rules import LOCAL_PATHS
 
 
 def problems(text: str, kind: str, parent=None, issue=None) -> list[str]:
