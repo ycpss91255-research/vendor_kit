@@ -6,7 +6,7 @@
 
 ### 一輪的流程
 
-1. **改之前先備份**。改動一律走 doc-edit workflow，由 workflow 在第一次修改前自動備份，不手動建 `*.pre_rNN.md`：手動建的檔會被當成已用掉的 round，也可能蓋掉 workflow 保證為「修改前原檔」的那份備份。`_backup/` 已移出 git（#128），只留在本機、已 gitignore。workflow 中途失敗就換下一個 round 重跑，不手動補備份。每輪一個 round，寫成 `rNN`：取本機 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 與 git log 裡 `Doc-Edit: rNN` footer 兩者的最大編號再加一，不能重用；doc-edit workflow 開跑時會檢查 round 的格式是不是 `rNN`、編號是不是這個最大值加一，重用或跳號就直接停。這一輪的基準後綴（也就是備份尾碼）是 `pre_<round>`，例如 round `r65` 的基準後綴是 `pre_r65`。
+1. **改之前先備份**。改動一律走 doc-edit workflow，由 workflow 在第一次修改前自動備份，不手動建 `*.pre_rNN.md`：手動建的檔會被當成已用掉的 round，也可能蓋掉 workflow 保證為「修改前原檔」的那份備份。`_backup/` 已移出 git（#128），只留在本機、已 gitignore。workflow 中途失敗就換下一個 round 重跑，不手動補備份。每輪一個 round，寫成 `rNN`：取本機 `doc/decisions/_backup/` 裡最大的 `pre_rNN` 與 git log 裡 `Doc-Edit: rNN` footer 兩者的最大編號再加一，不能重用；doc-edit workflow 開跑時會檢查 round 的格式是不是 `rNN`、編號是不是這個最大值加一，重用或跳號就直接停。下一個 round 由 `python3 script/doc/round.py next` 算，`python3 script/doc/round.py check rNN` 檢查給定的 round 對不對（見下面的「輪次編號」）。這一輪的基準後綴（也就是備份尾碼）是 `pre_<round>`，例如 round `r65` 的基準後綴是 `pre_r65`。
 
    備份檔名是 `<鍵>.pre_<round>.md`，鍵是**把路徑攤平**（去掉 `.md`、`/` 換成 `_`、去掉開頭的點）。所有檔都用這套命名，不限審閱頁。審閱頁 `doc/contract/01_purpose.md` 的備份是 `doc_contract_01_purpose.pre_<round>.md`；`docs/` 併進 `doc/` 之前的備份是舊鍵 `docs_contract_…`（歷史），`mark_changes.py` 兩種都認。
 
@@ -99,6 +99,22 @@ python3 script/doc/backup.py verify --repo <repo> --round <rNN> --before <json> 
   - `backup_problems` 或 `out_of_scope` 不是空的，`ok` 就是 false、結束碼 1。
 
 鍵跟 `mark_changes.py` 一致、序號、重現 r152、範圍外與 diff 退回 `HEAD` 這些行為由 [backup 測試](test/test_backup.py) 涵蓋。
+
+## 輪次編號（`round.py`）
+
+算 doc-edit 一輪的 round，取代以前照抄的一行 shell（那行用了 bash 的大括號群組，換 shell 結果就不固定）：
+
+```sh
+python3 script/doc/round.py next [--repo <R>]
+python3 script/doc/round.py check r66 [--repo <R>]
+```
+
+`--repo` 不給時用目前目錄所在 git repo 的根目錄。已用過的編號有兩個來源：`<R>/doc/decisions/_backup/` 檔名裡的 `pre_rNN`（只看這個目錄本身；帶序號的備份 `….pre_r12.2.md` 也算 12），與 `git log --format=%B` 裡行首的 `Doc-Edit: rNN` footer。輸出一行 JSON：
+
+- `next`：`{"ok": true, "max", "next", "backup_max", "footer_max"}`。`backup_max`、`footer_max` 是各來源的最大編號，沒有就是 `null`（`_backup/` 不存在也是 `null`）；`max` 取兩者最大，都沒有是 `0`；`next` 是 `r<max+1>`。
+- `check`：同上，再加 `round`（給的值）與 `expected`（等於 `next`）。格式不是 `rNN`，或編號不等於 `max+1`（重用或跳號）時 `ok` 是 `false`、附 `error`，結束碼 1。
+
+結束碼：0 成功（`check` 時 round 正確）；1 是 `check` 不通過；2 是執行失敗（不是 git repo、git 失敗），輸出 `{"ok": false, "error"}`。各種來源組合與 `check` 的重用、跳號由 [round 測試](test/test_round.py) 涵蓋。
 
 ## 送審打包（`pack_review.py`）
 
