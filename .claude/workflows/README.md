@@ -29,8 +29,9 @@ Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東�
 | `discuss` | codex 與 Claude 各自回答、最多 3 輪比對，未收斂交維護者 | 問維護者之前；結果回報主對話，貼到 #78 對應的 child issue | `round`、`questions`（每項 `{ id, question, context }`） |
 | `research` | agy 查 → codex 核對 → Claude 整合 → 貼 issue。brief 放 workspace 的 `reference/research/<issue>/<id>_brief.md`，輸出也放那裡，不放 `/tmp`；整合結論寫到 `claude_review_<id1>_<id2>….md`（依 `briefs` 順序串接 id），同一 issue 換一批 brief 再跑不會覆蓋；agy 一律用最新的 gemini flash-high 模型（自動選），可用 `agyModel` 指定 | 要找外部前例或資料當決策依據時；brief 先寫好 | `issue`、`topic`、`briefs`（每項 `{ id, label }`） |
 | `pr` | 依序把每一項做成一個 PR：開 issue 掛成 sub-issue、開 worktree、修改、驗證、commit、開 PR、等 CI，可選 merge | 要開一個或多個「一個 issue 一個 PR」的改動時 | `parent`、`items` |
+| `pr-fix` | 在已開 PR 的 worktree 修一個問題：查分支／worktree／issue 並確認乾淨且最新 → 修改 → 全部驗證 → 一個 commit → push → 等 CI；不 merge | PR 已經開了、CI 或審查要求再改時；CI 通過就停 | `pr`、`problem`、`todo`、`commit` |
 
-`doc-edit` 的選填欄位：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（審查額外要看的重點）、`editor`（`codex` 預設｜`claude`）、`mode`（`full` 預設｜`light`）、`effort`（`{ edit, polish, review }`）、`topic`（短主題，例如 `"#121"`）。`discuss` 的選填欄位：`background`（已定案前提）、`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`；要用 PR worktree 時明確帶）。`research` 的選填欄位：`dir`（預設 `/home/cyc/Desktop/vendor-kit_ws/reference/research/<issue>`）、`background`（已定案前提）、`post`（預設 `true`；`false` 就只產檔、不貼 issue）、`agyModel`（指定 agy 模型名；不給就自動選最新的 gemini flash-high 模型）。`research` 每次執行開頭印出識別 `research #<issue>`，子代理的 label 也帶 `#<issue>` 前綴。`pr` 的參數見下面。
+`doc-edit` 的選填欄位：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（審查額外要看的重點）、`editor`（`codex` 預設｜`claude`）、`mode`（`full` 預設｜`light`）、`effort`（`{ edit, polish, review }`）、`topic`（短主題，例如 `"#121"`）。`discuss` 的選填欄位：`background`（已定案前提）、`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`；要用 PR worktree 時明確帶）。`research` 的選填欄位：`dir`（預設 `/home/cyc/Desktop/vendor-kit_ws/reference/research/<issue>`）、`background`（已定案前提）、`post`（預設 `true`；`false` 就只產檔、不貼 issue）、`agyModel`（指定 agy 模型名；不給就自動選最新的 gemini flash-high 模型）。`research` 每次執行開頭印出識別 `research #<issue>`，子代理的 label 也帶 `#<issue>` 前綴。`pr` 與 `pr-fix` 的參數見下面。
 
 ## doc-edit
 
@@ -88,6 +89,32 @@ args 範例：
   ]
 }
 ```
+
+## pr-fix
+
+修已開的 PR。開始時印出 `pr-fix #<pr>`，子代理的 label 是 `#<pr> 準備`、`#<pr> 修改`。
+
+args 欄位：
+
+| 欄位 | 必填 | 說明 |
+|---|---|---|
+| `pr` | 是 | PR 編號。分支、worktree、issue 都由 `script/workflow/pr_target.py` 查，不用自己帶 |
+| `problem` | 是 | 要修的問題 |
+| `todo` | 是 | 要做的事 |
+| `commit` | 是 | commit 訊息第一行（`type(scope): 摘要`），只能一行；footer `Refs: #<issue>` 由 workflow 補 |
+| `repoRoot` | 否 | 主 repo。不給就用子代理的工作目錄，實際位置以 `pr_target.py` 回報的 `repo` 為準 |
+
+步驟：
+
+1. 準備：`script/workflow/pr_target.py <pr>` 用唯讀的 `gh pr view` 取分支（headRefName）與本文，issue 取本文第一個 `Closes`／`Refs #N`；worktree 在 `worktree/branch/<分支>`，不存在就從 `origin/<分支>` 建；確認乾淨、沒有沒推的 commit，落後遠端就 fast-forward。失敗就停，不進下一步。
+2. 照 `problem`、`todo` 在 worktree 修改。
+3. 驗證：`script/workflow/verify.py --root <worktree>`，跑 docs.yml 每個 `run:`、每個 `script/*/test`、`check_script_layout.py`、`.claude/hooks/test_guard.py`，並檢查每個 `script/*/test` 都在 docs.yml 裡。
+4. 一個 commit（footer `Refs: #<issue>`，不加 Claude 署名），一般 push；只有要 rebase 到 origin/main 時才 `--force-with-lease`，只限這個分支。
+5. `script/workflow/wait_ci.py <pr>` 等 CI；失敗且是這次改動造成的就再修、commit、push、再等。CI 全過就停。
+
+不 merge、不開 PR、不碰主 repo（不改檔、不 pull、不動未追蹤檔）。回傳 `{ pr, branch, issue, url, ci_pass, pushed, commit, summary, error }`。
+
+args 範例在 `pr-fix.js` 檔尾。
 
 ## 共用護欄
 
