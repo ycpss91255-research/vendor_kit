@@ -91,9 +91,25 @@ python3 script/workflow/codex_run.py --cd <dir> --brief <brief 檔> --out <輸�
 - 結束碼：成功（codex 結束碼 0 且輸出檔存在、非空）0；codex 結束碼非 0 或跑不起來 1；輸出檔不存在或是空的 2；逾時 3；brief 檔不存在或用法錯 4。
 - codex 執行檔可用環境變數 `CODEX_BIN` 換掉（測試用）。
 
+## agy_run.py
+
+執行 agy 做一次調查：選模型、沿用既有輸出、先寫 `.part` 成功才改名、整理 stderr。只在本機跑 agy，不碰 GitHub。
+
+```sh
+python3 script/workflow/agy_run.py --cd <dir> --brief <brief 檔> --out <輸出檔> [--err <stderr 檔>] [--model <名>] [--timeout 0]
+```
+
+- `--out` 已存在且非空：不執行 agy，回報 `reused=true`。
+- 沒給 `--model`：跑 `agy models`，取第一欄符合 `^gemini-[0-9.]+-flash-high$` 的名稱，依版本號取最新；找不到就失敗。
+- 執行 `agy --model <M> -p <brief 全文>`（工作目錄＝`--cd`）。stdout 先寫 `<out>.part`，結束碼 0 且非空才改名成 `<out>`；失敗、輸出空、逾時或被中斷都刪掉 `.part`，不會留下被下次沿用的半成品。
+- stderr 寫到 `--err`（預設 `<out 去副檔名>.err`），結束時是空的就刪掉。
+- `--timeout` 秒數，0（預設）表示不設上限。相對路徑以目前目錄為準，不是 `--cd`。
+- 輸出一行 JSON：`{"ok", "exit", "model", "reused", "out", "out_bytes", "timed_out", "err_tail", "error"}`；`err_tail` 是 stderr 最後 20 行。
+- 結束碼：成功或沿用 0；agy 結束碼非 0 為 1；輸出空 2；逾時 3；用法錯或 brief 不存在 4；找不到模型 5。
+
 ## 測試
 
-測試在 [test/](test/)，用暫存的 git repo、暫存的根目錄與假的 `gh`、`codex`（環境變數 `WAIT_CI_GH`、`PR_TARGET_GH`、`CODEX_BIN`），不打 GitHub。跑法：
+測試在 [test/](test/)，用暫存的 git repo、暫存的根目錄與假的 `gh`、`codex`、`agy`（環境變數 `WAIT_CI_GH`、`PR_TARGET_GH`、`CODEX_BIN`、`AGY_BIN`），不打 GitHub。跑法：
 
 ```sh
 python3 -m unittest discover -s script/workflow/test
