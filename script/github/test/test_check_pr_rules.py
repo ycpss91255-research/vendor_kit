@@ -50,6 +50,24 @@ class ScopeTest(unittest.TestCase):
                             ".github/workflows/docs.yml"])
         self.assertEqual((s, p), (["hook:terms_context"], []))
 
+    def test_hook_registration_attaches(self):
+        s, p = self.scopes([".claude/hooks/new_hook.py", ".claude/hooks/test/test_new_hook.py",
+                            ".claude/settings.json", ".claude/hooks/test/test_settings_hooks.py"])
+        self.assertEqual((s, p), (["hook:new_hook"], []))
+
+    def test_settings_alone_is_own_scope(self):
+        for files in ([".claude/settings.json"],
+                      [".claude/settings.json", ".claude/hooks/test/test_settings_hooks.py"]):
+            with self.subTest(files=files):
+                s, p = self.scopes(files)
+                self.assertEqual((s, p), (["claude:settings"], []))
+
+    def test_hook_with_unrelated_scope_still_violates(self):
+        s, p = self.scopes([".claude/hooks/new_hook.py", ".claude/settings.json",
+                            ".claude/workflows/doc-edit.js"])
+        self.assertEqual(sorted(s), ["hook:new_hook", "workflow:doc-edit"])
+        self.assertIn("2 個範圍", p[0])
+
     def test_agents_line_attaches(self):
         s, p = self.scopes(["AGENTS.md", "doc/agents/drawio.md"])
         self.assertEqual((s, p), (["agents-doc:drawio"], []))

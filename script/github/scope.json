@@ -1,10 +1,11 @@
 {
-  "_說明": "PR「一個邏輯目的」的範圍表（#140）。本機 hook（.claude/hooks/pr_rules_guard.py）與之後的 CI 共用這一份，規則只寫在這裡。rules 由上往下比，第一條 pattern（Python re，對 repo 相對路徑做 search）符合的就是這個檔的範圍；scope 裡的 {名稱} 換成 pattern 的同名群組。attach 標示附屬檔：same＝只在同一個範圍已經有主檔時才算附屬（例如測試），沒有就自己算一個範圍；any＝附在這個 PR 的任何主檔上（例如 README 段、docs.yml 步驟、AGENTS 一句），整個 PR 只有附屬檔時才自己算一個範圍。groups 把同一個邏輯目的、分散在兩處的範圍併成一個（例如 hook 跟它呼叫的 script 類別）。表上沒列到的檔一律算違規，要先補表。",
+  "_說明": "PR「一個邏輯目的」的範圍表（#140）。本機 hook（.claude/hooks/pr_rules_guard.py）與之後的 CI 共用這一份，規則只寫在這裡。rules 由上往下比，第一條 pattern（Python re，對 repo 相對路徑做 search）符合的就是這個檔的範圍；scope 裡的 {名稱} 換成 pattern 的同名群組。attach 標示附屬檔：same＝只在同一個範圍已經有主檔時才算附屬（例如測試），沒有就自己算一個範圍；any＝附在這個 PR 的任何主檔上（例如 README 段、docs.yml 步驟、AGENTS 一句、hook 在 settings.json 的註冊與 test_settings_hooks 白名單），整個 PR 只有附屬檔時才自己算一個範圍。groups 把同一個邏輯目的、分散在兩處的範圍併成一個（例如 hook 跟它呼叫的 script 類別）。表上沒列到的檔一律算違規，要先補表。",
   "rules": [
+    {"pattern": "^\\.claude/hooks/test/test_settings_hooks\\.py$", "scope": "claude:settings", "attach": "any", "_why": "檢查 settings.json 註冊的 hook 白名單；登記一支 hook，跟 settings.json 的註冊一起附在 hook 上（#253）"},
     {"pattern": "^\\.claude/hooks/test/test_(?P<name>[A-Za-z0-9_]+)\\.py$", "scope": "hook:{name}", "attach": "same"},
     {"pattern": "^\\.claude/hooks/test_guard\\.py$", "scope": "hook:guard", "attach": "same"},
     {"pattern": "^\\.claude/hooks/(?P<name>[A-Za-z0-9_]+)\\.py$", "scope": "hook:{name}"},
-    {"pattern": "^\\.claude/settings\\.json$", "scope": "claude:settings"},
+    {"pattern": "^\\.claude/settings\\.json$", "scope": "claude:settings", "attach": "any", "_why": "hook 的註冊；比照 docs.yml 步驟，新增、刪除或改名 hook 時跟 hook 檔同一個 PR（#253）"},
     {"pattern": "^\\.claude/workflows/README\\.md$", "scope": "workflow:README", "attach": "any"},
     {"pattern": "^\\.claude/workflows/(?P<name>[^/]+)\\.js$", "scope": "workflow:{name}"},
     {"pattern": "^\\.claude/skills$", "scope": "skill:link"},
@@ -34,7 +35,6 @@
   "groups": [
     {"name": "hook:pr_rules_guard", "scopes": ["hook:pr_rules_guard", "script:github"], "_why": "hook 呼叫 script/github/check_pr_rules.py 與這份範圍表"},
     {"name": "hook:monitor_guard", "scopes": ["hook:monitor_guard", "script:github"], "_why": "hook 擋下 Monitor 時指向 script/github/watch_github.sh（#175）"},
-    {"name": "claude:settings", "scopes": ["claude:settings", "hook:settings_hooks"], "_why": "test_settings_hooks 檢查的就是 settings.json 註冊的 hook"},
     {"name": "workflow:pr-fix", "scopes": ["workflow:pr-fix", "script:workflow"], "_why": "workflow 只呼叫 script/workflow/pr_target.py 與 verify.py 做機械步驟（#187）"},
     {"name": "githooks:commit-msg", "scopes": ["githooks:commit-msg", "script:git"], "_why": "hook 只呼叫 script/git/check_commit_msg.py（#110）"}
   ]
