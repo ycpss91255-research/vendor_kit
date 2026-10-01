@@ -27,6 +27,8 @@ jobs:
         run: python3 script/doc/check_review_pages.py
       - name: check_script_layout（script/ 依類型分子目錄：頂層只准 README.md、類別名小寫英數與連字號、每類要有 README.md）
         run: python3 script/repo/check_script_layout.py
+      - name: check_local_paths（repo 追蹤的檔案不准有本機絕對路徑，規則取自 comment_tag_guard 的 LOCAL_PATHS）
+        run: python3 script/repo/check_local_paths.py
 
   # script/ 底下工具自己的測試；VK 程式碼的測試放根目錄 test/ 與 test.yml，不混在這裡
   docs-tool-test:
