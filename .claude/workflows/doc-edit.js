@@ -1,6 +1,6 @@
 export const meta = {
   name: 'doc-edit',
-  description: '改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 每檔只讀審查（含核對已定案）並套用必改 → 跨檔一致性 → 潤稿 → lint；預設 codex 改、Claude 查，可用 editor 切換成 Claude 改、codex 查；mode=light 給機械式或只改幾行的改動：只跑 Claude 改寫 → lint → Claude 審查並套用必改 → lint，不叫 codex、不跑跨檔一致性與潤稿；建議只回報，全程禁止 git 寫入',
+  description: '改文件：改寫 → lint → 審查 → 潤稿；mode=light 只改寫、審查',
   whenToUse: '改任何現行文件（README、doc/contract/、GLOSSARY.md、ADR）時；主對話不自己改',
   phases: [
     { title: '改寫', detail: '先查 round 是不是 _backup 最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過；mode=light 一律由 Claude 子代理改，機械式改動用腳本做並用腳本驗證' },
@@ -15,6 +15,7 @@ export const meta = {
 // args 契約：
 //   repo?        string    預設 '/home/cyc/Desktop/vendor-kit_ws/src'
 //   round        string    必填，格式 rNN，必須是 _backup 裡最大的 pre_rNN 加一；備份與審查輸出檔名用
+//   topic?       string    短主題（例如 '#121'），跟 round 一起組成這次執行的識別（log 與子代理 label 用）
 //   files        string[]  必填，這次只准動的檔（相對 repo 根目錄）
 //   ask?         string    要怎麼改；不給就跳過「改寫」
 //   background?  string    已定案的前提，改稿方與審查方都不要質疑
@@ -34,6 +35,7 @@ export const meta = {
 const {
   repo = '/home/cyc/Desktop/vendor-kit_ws/src',
   round,
+  topic = '',
   files,
   ask = '',
   background = '',
@@ -56,7 +58,12 @@ if (editor !== 'codex' && editor !== 'claude') {
 if (mode !== 'full' && mode !== 'light') {
   throw new Error(`args.mode 只能是 "full" 或 "light"（收到 ${JSON.stringify(mode)}）：預設 full；light 只給機械式或只改幾行的改動`)
 }
+if (typeof topic !== 'string') {
+  throw new Error(`args.topic 只能是字串（收到 ${JSON.stringify(topic)}）：短主題，例如 "#121"`)
+}
 const LIGHT = mode === 'light'
+// 這次執行的識別：meta.name 只能是固定文字，所以每次執行先印出輪次＋主題，子代理 label 也加上輪次（#131）
+log(`doc-edit ${round}${topic.trim() ? ` ${topic.trim()}` : ''}${LIGHT ? ' light' : ''}`)
 // light 一律 Claude 改、Claude 查（兩個不同的子代理），不叫 codex
 const editBy = LIGHT ? 'claude' : editor
 const reviewer = LIGHT ? 'claude' : (editor === 'codex' ? 'claude' : 'codex')
@@ -67,6 +74,9 @@ const reviewEffort = effort.review ?? (LIGHT ? 'low' : undefined)
 const key = f => f.replace(/\.(md|csv)$/, '').replace(/\//g, '_').replace(/^\./, '')
 // 備份的副檔名：.csv 檔（例如 doc/contract/03_messages.csv，#122）備份成 .csv，其他一律 .md
 const ext = f => (/\.csv$/.test(f) ? '.csv' : '.md')
+// 子代理 label：「<round> 步驟[:檔名]」，檔名只留 basename 去副檔名，例如 r155 改寫:04_interface
+const short = f => f.split('/').pop().replace(/\.[^.]+$/, '')
+const L = (step, f) => `${round} ${step}${f ? `:${short(f)}` : ''}`
 // 這一輪的基準：不帶序號的 <鍵>.pre_<round><副檔名>，一定是這一輪改之前的原檔
 const baseOf = f => `${repo}/doc/decisions/_backup/${key(f)}.pre_${round}${ext(f)}`
 // 輸出檔依產生者放 review_log/codex/ 或 review_log/claude/
@@ -77,11 +87,12 @@ const BACKGROUND = background.trim()
 // 已定案的決定記在 GitHub 的 wayfinder map issue #78，每條連到各自的 child issue，結論在 child issue 的留言
 const DECIDED = 'wayfinder map issue 的已定案決定（跑 `gh issue view 78 -R ycpss91255-research/vendor_kit --comments`：本文的「Decisions so far」凍結不改，之後的新決定記在留言，兩者都要讀；每條連到一個 child issue；要某條的細節跑 `gh issue view <child> -R ycpss91255-research/vendor_kit --comments`，結論在留言裡；只讀，不要發 issue 或留言）'
 // 並行的子代理共用同一個 scratchpad：暫存檔用固定檔名會互相覆蓋（r144 的改前快照與 codex 輸出都被蓋過），
-// 所以每個子代理一律放自己的子目錄，子目錄名取自 label
-const tmpDir = label => `<你的 scratchpad>/doc-edit/${round}/${String(label ?? 'agent').replace(/[\/\s:]+/g, '_')}`
-const run = (prompt, opts = {}) => agent(`${prompt}
+// 所以每個子代理一律放自己的子目錄。label 的檔名只留 basename（不同目錄的同名檔會撞），
+// 所以子目錄名取自 tmp（步驟＋完整路徑的鍵），沒給 tmp 才用 label
+const tmpDir = name => `<你的 scratchpad>/doc-edit/${round}/${String(name ?? 'agent').replace(/[\/\s:]+/g, '_')}`
+const run = (prompt, { tmp, ...opts } = {}) => agent(`${prompt}
 
-暫存檔規則：並行的子代理共用同一個 scratchpad。你的暫存檔（快照、brief、codex 輸出、腳本）一律放 ${tmpDir(opts.label)}/（先 mkdir -p），不要放 scratchpad 根目錄，也不要用別的子代理也可能用的路徑。`, opts)
+暫存檔規則：並行的子代理共用同一個 scratchpad。你的暫存檔（快照、brief、codex 輸出、腳本）一律放 ${tmpDir(tmp ?? opts.label)}/（先 mkdir -p），不要放 scratchpad 根目錄，也不要用別的子代理也可能用的路徑。`, opts)
 
 // ───────────────── 共用護欄（組進每個子代理與 codex 的 prompt） ─────────────────
 const guard = scope => `硬性規則（違反就算這輪失敗）：
@@ -125,10 +136,10 @@ bash -c 'codex exec --skip-git-repo-check -C ${repo} -o ${out} "$(cat <暫存檔
 // ───────────────── 改稿方：依 editor 叫 codex（包裝子代理）或 Claude 子代理；light 一律 Claude ─────────────────
 // task 裡已含 guard(scope)；scope 是這一步准動的檔；out 是 codex 輸出檔名（只在 editor=codex 時用）。
 // lintMustPass：這一步結束時 lint 必須全部 OK（跨檔修正用）。
-const runEditor = ({ label, ph, task, scope, out, lintMustPass = false }) => {
+const runEditor = ({ label, tmp, ph, task, scope, out, lintMustPass = false }) => {
   const eff = editEffort ? { effort: editEffort } : {}
   if (editBy === 'claude') {
-    return run(task, { label, phase: ph, schema: RESULT, agentType: 'general-purpose', ...eff })
+    return run(task, { label, tmp, phase: ph, schema: RESULT, agentType: 'general-purpose', ...eff })
   }
   return run(`你的工作是啟動 codex 改檔，等它結束後自己驗證，再整理成結構化回報。**你自己不改任何檔、不替 codex 補改、不加入你自己的意見。**
 
@@ -154,7 +165,7 @@ ${scope.map(f => `- ${repo}/${f}`).join('\n')}
 
 brief：
 ${task}`,
-    { label, phase: ph, schema: RESULT, agentType: 'general-purpose', ...eff })
+    { label, tmp, phase: ph, schema: RESULT, agentType: 'general-purpose', ...eff })
 }
 
 // ───────────────── 輪次檢查 ─────────────────
@@ -164,7 +175,7 @@ ${task}`,
 // 子代理只負責讀出最大編號，比對在腳本裡做，不交給模型判斷。
 const seen = await run(`在 ${repo} 跑這行，照原樣回報輸出的數字（沒有輸出就回 0）；不要做任何其他事：
 { ls doc/decisions/_backup 2>/dev/null | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//'; git log --format=%B | grep -oE '^Doc-Edit: r[0-9]+' | sed 's/^Doc-Edit: r//'; } | sort -n | tail -1`,
-  { label: '輪次檢查', phase: '改寫', effort: 'low',
+  { label: L('輪次檢查'), phase: '改寫', effort: 'low',
     schema: { type: 'object', properties: { max: { type: 'integer' } }, required: ['max'] } })
 const expected = (seen?.max ?? NaN) + 1
 if (Number(round.slice(1)) !== expected) {
@@ -176,7 +187,7 @@ let edited = null
 if (ask.trim()) {
   phase('改寫')
   edited = await parallel(files.map(f => () => runEditor({
-    label: `改寫:${f}`, ph: '改寫', scope: [f], out: logFile('codex', `edit-${key(f)}`),
+    label: L('改寫', f), tmp: `改寫_${key(f)}`, ph: '改寫', scope: [f], out: logFile('codex', `edit-${key(f)}`),
     task: `你負責改文件，這一輪你只負責一個檔：${f}。
 
 ${guard([f])}
@@ -208,7 +219,7 @@ ${GUARDRAILS}
 3. 有 FAIL：只修 lint 指出的那幾行，而且只在上面列的檔裡修；換詞時照 GLOSSARY.md 的正式名詞。修完重跑，直到全部 OK。
 4. lint 指出的問題在列出的檔以外：不要改，寫進 error。`,
   { label, phase: ph, schema: RESULT, agentType: 'general-purpose', effort: 'low' })
-const linted = await lintAgent('lint', 'lint')
+const linted = await lintAgent(L('lint'), 'lint')
 if (!linted || linted.error) {
   log(`lint 沒有歸零：${linted?.error ?? '子代理沒有回傳'}；停在這裡`)
   return { round, mode, edited, linted, review: null, applied: null, consistency: null, polished: null, finalLint: null }
@@ -279,7 +290,7 @@ const runReviewer = f => {
 ${LIGHT ? lightBriefFor(f) : briefFor(f)}
 
 最後：\`mkdir -p ${repo}/doc/decisions/review_log/claude\`，把上面的 markdown 審查結果寫到 ${out}。回報時「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、證據（放 source 欄）；output_file 填 ${out}。審不下去（例如檔不存在）就兩個陣列回空、error 寫原因。`,
-      { label: `審查:${f}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
+      { label: L('審查', f), tmp: `審查_${key(f)}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
   }
   return run(`你的工作是啟動 codex 做只讀審查，再把輸出整理成結構化回報。**不要自己審、不要改檔、不要加入你自己的意見。**
 
@@ -294,13 +305,13 @@ ${LIGHT ? lightBriefFor(f) : briefFor(f)}
 
 brief：
 ${briefFor(f)}`,
-    { label: `審查:${f}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
+    { label: L('審查', f), tmp: `審查_${key(f)}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
 }
 
 const applyOne = (rev, f) => {
   if (!rev || rev.error || !rev.must_fix.length) return Promise.resolve(null)
   return runEditor({
-    label: `套用:${f}`, ph: '套用必改', scope: [f], out: logFile('codex', `apply-${key(f)}`),
+    label: L('套用', f), tmp: `套用_${key(f)}`, ph: '套用必改', scope: [f], out: logFile('codex', `apply-${key(f)}`),
     task: `你負責把審查對 ${f} 的「必改」改進檔裡。建議不要改。
 
 ${guard([f])}
@@ -337,7 +348,7 @@ if (applyErr.length) {
 // ───────────────── light：不跑跨檔一致性與潤稿，最後 lint 收尾 ─────────────────
 if (LIGHT) {
   phase('lint')
-  const finalLint = await lintAgent('最後 lint', 'lint')
+  const finalLint = await lintAgent(L('最後 lint'), 'lint')
   log(review.errors.length
     ? `light：Claude 審查有失敗：${review.errors.join('；')}`
     : `light：Claude 改、Claude 查：必改 ${review.must_fix.length}（已套用；指到別的檔的只回報）、建議 ${review.suggest.length}（只回報）；沒跑跨檔一致性與潤稿`)
@@ -366,7 +377,7 @@ ${otherFile}
 ${CHECK_STEPS}
 4. 改錯的那邊；判斷不了的不要改，寫進 changed 並註明「未改：無法判斷，要維護者決定」。
 5. 跑 \`${LINT}\`，要全部 OK。`,
-    { label: '跨檔一致性', phase: '跨檔一致性', schema: RESULT, agentType: 'general-purpose' })
+    { label: L('跨檔一致性'), phase: '跨檔一致性', schema: RESULT, agentType: 'general-purpose' })
 } else {
   // codex 改稿：Claude 只讀檢查出清單，清單非空再交 codex 修
   const CHECK = {
@@ -391,14 +402,14 @@ ${otherFile}
 步驟：
 ${CHECK_STEPS}
 4. 回報：要修的放 issues（file 是要改的那個檔、where 位置、what 問題、fix 改成什麼、source 證據檔名＋行號）；判斷不了的放 undecidable，不放進 issues。`,
-    { label: '跨檔檢查', phase: '跨檔一致性', schema: CHECK, agentType: 'general-purpose' })
+    { label: L('跨檔檢查'), phase: '跨檔一致性', schema: CHECK, agentType: 'general-purpose' })
   if (!check || check.error) {
     consistency = { check, changed: [], backups: [], lint: '', error: check?.error ?? '檢查子代理沒有回傳' }
   } else if (!check.issues.length) {
     consistency = { check, changed: check.undecidable.map(u => `未改：無法判斷，要維護者決定：${u}`), backups: [], lint: '（清單為空，沒有交 codex 修）' }
   } else {
     const fixed = await runEditor({
-      label: '跨檔修正', ph: '跨檔一致性', scope: files, out: logFile('codex', 'consistency'), lintMustPass: true,
+      label: L('跨檔修正'), ph: '跨檔一致性', scope: files, out: logFile('codex', 'consistency'), lintMustPass: true,
       task: `這一輪各檔是分開並行改的，檢查已找出它們之間對不上的地方，你負責照清單修掉。
 
 ${GUARDRAILS}
@@ -491,9 +502,9 @@ ${BACKGROUND}
 
 polish_check.py：
 ${POLISH_CHECK}`,
-  { label: `潤稿:${f}`, phase: '潤稿', schema: POLISH_RESULT, agentType: 'general-purpose', ...(effort.polish ? { effort: effort.polish } : {}) })
+  { label: L('潤稿', f), tmp: `潤稿_${key(f)}`, phase: '潤稿', schema: POLISH_RESULT, agentType: 'general-purpose', ...(effort.polish ? { effort: effort.polish } : {}) })
 }))
-const finalLint = await lintAgent('最後 lint', '潤稿')
+const finalLint = await lintAgent(L('最後 lint'), '潤稿')
 
 log(review.errors.length
   ? `${reviewer} 審查有失敗：${review.errors.join('；')}`
