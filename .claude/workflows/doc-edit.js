@@ -75,7 +75,13 @@ const BACKGROUND = background.trim()
   ? `背景（已定案，不要質疑、不要重新設計）：\n${background.trim()}`
   : '（沒有額外背景前提。）'
 // 已定案的決定記在 GitHub 的 wayfinder map issue #78，每條連到各自的 child issue，結論在 child issue 的留言
-const DECIDED = 'wayfinder map issue 的已定案決定（跑 `gh issue view 78 -R ycpss91255-research/vendor_kit` 讀本文的「Decisions so far」，每條連到一個 child issue；要某條的細節跑 `gh issue view <child> -R ycpss91255-research/vendor_kit --comments`，結論在留言裡；只讀，不要發 issue 或留言）'
+const DECIDED = 'wayfinder map issue 的已定案決定（跑 `gh issue view 78 -R ycpss91255-research/vendor_kit --comments`：本文的「Decisions so far」凍結不改，之後的新決定記在留言，兩者都要讀；每條連到一個 child issue；要某條的細節跑 `gh issue view <child> -R ycpss91255-research/vendor_kit --comments`，結論在留言裡；只讀，不要發 issue 或留言）'
+// 並行的子代理共用同一個 scratchpad：暫存檔用固定檔名會互相覆蓋（r144 的改前快照與 codex 輸出都被蓋過），
+// 所以每個子代理一律放自己的子目錄，子目錄名取自 label
+const tmpDir = label => `<你的 scratchpad>/doc-edit/${round}/${String(label ?? 'agent').replace(/[\/\s:]+/g, '_')}`
+const run = (prompt, opts = {}) => agent(`${prompt}
+
+暫存檔規則：並行的子代理共用同一個 scratchpad。你的暫存檔（快照、brief、codex 輸出、腳本）一律放 ${tmpDir(opts.label)}/（先 mkdir -p），不要放 scratchpad 根目錄，也不要用別的子代理也可能用的路徑。`, opts)
 
 // ───────────────── 共用護欄（組進每個子代理與 codex 的 prompt） ─────────────────
 const guard = scope => `硬性規則（違反就算這輪失敗）：
@@ -122,9 +128,9 @@ bash -c 'codex exec --skip-git-repo-check -C ${repo} -o ${out} "$(cat <暫存檔
 const runEditor = ({ label, ph, task, scope, out, lintMustPass = false }) => {
   const eff = editEffort ? { effort: editEffort } : {}
   if (editBy === 'claude') {
-    return agent(task, { label, phase: ph, schema: RESULT, agentType: 'general-purpose', ...eff })
+    return run(task, { label, phase: ph, schema: RESULT, agentType: 'general-purpose', ...eff })
   }
-  return agent(`你的工作是啟動 codex 改檔，等它結束後自己驗證，再整理成結構化回報。**你自己不改任何檔、不替 codex 補改、不加入你自己的意見。**
+  return run(`你的工作是啟動 codex 改檔，等它結束後自己驗證，再整理成結構化回報。**你自己不改任何檔、不替 codex 補改、不加入你自己的意見。**
 
 硬性規則：不 commit、不 push、不跑任何 git 寫入指令（含 add、checkout、reset、stash）；除了你 scratchpad 裡的暫存檔，不寫任何檔（codex 的輸出檔由 codex 寫）。
 
@@ -154,7 +160,7 @@ ${task}`,
 // ───────────────── 輪次檢查 ─────────────────
 // round 必須是 _backup 裡最大的 pre_rNN 再加一：重用舊編號會蓋掉或混淆那一輪的基準版。
 // 子代理只負責讀出最大編號，比對在腳本裡做，不交給模型判斷。
-const seen = await agent(`在 ${repo} 跑這行，照原樣回報輸出的數字（沒有輸出就回 0）；不要做任何其他事：
+const seen = await run(`在 ${repo} 跑這行，照原樣回報輸出的數字（沒有輸出就回 0）；不要做任何其他事：
 ls doc/decisions/_backup | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//' | sort -n | tail -1`,
   { label: '輪次檢查', phase: '改寫', effort: 'low',
     schema: { type: 'object', properties: { max: { type: 'integer' } }, required: ['max'] } })
@@ -190,7 +196,7 @@ ${LIGHT ? '機械式改動（換詞、改連結、改編號這類）用腳本做
 
 // ───────────────── lint（全部改完後一次） ─────────────────
 phase('lint')
-const lintAgent = (label, ph) => agent(`你負責讓 lint 歸零。
+const lintAgent = (label, ph) => run(`你負責讓 lint 歸零。
 
 ${GUARDRAILS}
 
@@ -266,14 +272,14 @@ const runReviewer = f => {
   const out = logFile(reviewer, key(f))
   const eff = reviewEffort ? { effort: reviewEffort } : {}
   if (reviewer === 'claude') {
-    return agent(`你負責審查一個檔。硬性規則：不 commit、不 push、不跑任何 git 寫入指令；除了下面的審查輸出檔，不改、不建任何檔。
+    return run(`你負責審查一個檔。硬性規則：不 commit、不 push、不跑任何 git 寫入指令；除了下面的審查輸出檔，不改、不建任何檔。
 
 ${LIGHT ? lightBriefFor(f) : briefFor(f)}
 
 最後：\`mkdir -p ${repo}/doc/decisions/review_log/claude\`，把上面的 markdown 審查結果寫到 ${out}。回報時「必改」放 must_fix、「建議」放 suggest，每條保留位置、問題、建議、證據（放 source 欄）；output_file 填 ${out}。審不下去（例如檔不存在）就兩個陣列回空、error 寫原因。`,
       { label: `審查:${f}`, phase: '審查', schema: REVIEW, agentType: 'general-purpose', ...eff })
   }
-  return agent(`你的工作是啟動 codex 做只讀審查，再把輸出整理成結構化回報。**不要自己審、不要改檔、不要加入你自己的意見。**
+  return run(`你的工作是啟動 codex 做只讀審查，再把輸出整理成結構化回報。**不要自己審、不要改檔、不要加入你自己的意見。**
 
 硬性規則：不 commit、不 push、不跑任何 git 寫入指令；不改任何檔。
 
@@ -345,7 +351,7 @@ const CHECK_STEPS = `1. 讀這一輪的全部檔。用腳本比對跨檔會一�
 let consistency
 if (editor === 'claude') {
   // Claude 改稿：一個 Claude 子代理檢查並修
-  consistency = await agent(`這一輪各檔是分開並行改的，你負責檢查它們之間有沒有對不上，並修掉。
+  consistency = await run(`這一輪各檔是分開並行改的，你負責檢查它們之間有沒有對不上，並修掉。
 
 ${GUARDRAILS}
 
@@ -370,7 +376,7 @@ ${CHECK_STEPS}
     },
     required: ['issues', 'undecidable'],
   }
-  const check = await agent(`這一輪各檔是分開並行改的，你負責只讀檢查它們之間有沒有對不上，列出要修的清單。**不要改任何檔**；不 commit、不 push、不跑任何 git 寫入指令。
+  const check = await run(`這一輪各檔是分開並行改的，你負責只讀檢查它們之間有沒有對不上，列出要修的清單。**不要改任何檔**；不 commit、不 push、不跑任何 git 寫入指令。
 
 這一輪的檔：
 ${files.map(f => `- ${repo}/${f}`).join('\n')}
@@ -459,7 +465,7 @@ const POLISH_RESULT = {
 phase('潤稿')
 const polished = await parallel(files.map(f => {
   const base = baseOf(f)
-  return () => agent(`你負責潤稿，只負責 ${f}。
+  return () => run(`你負責潤稿，只負責 ${f}。
 
 ${guard([f])}
 
