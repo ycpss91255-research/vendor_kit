@@ -27,14 +27,14 @@ vendor_kit ([VK](GLOSSARY.md#角色與情境)) 把一套[工具](GLOSSARY.md#工
 
 版本不足時：
 
-- Docker 或 just 版本不足，都在任何寫入之前以 `2` 結束
-- 只有 just 版本不足時，另外印出下載與安裝指令
+- Docker 版本不足：在任何寫入之前結束
+- just 版本不足：首次[導入](GLOSSARY.md#角色與情境)時，`bootstrap.sh` 在任何寫入之前結束，並印出下載與安裝指令；已有安裝目錄時，由 just 自己報錯。詳細行為與結束碼見 [04 使用者介面](doc/contract/04_interface.md#主機需求)
 
 ### 第一次導入
 
 > 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，下面的網址目前找不到檔案，照做會[失敗](GLOSSARY.md#執行與結果)。進度見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
 
-發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化只碰不進-git-的東西)。
+發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化不寫追蹤檔)。
 
 ```sh
 curl -fsSLO https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh

@@ -1,6 +1,6 @@
 # VK 的狀態全收進 `.vendor_kit/`，版本鎖定行只認一種正規形
 
-每個安裝目錄對「用哪些工具、哪個版本、哪個引擎」只能有一份說法（[不變量 2](../contract/02_invariants.md#2-一個來源版本鎖定行只有一份進-git)），而自動化只准碰不進 git 的東西（[不變量 3](../contract/02_invariants.md#3-自動化只碰不進-git-的東西)）。所以 VK 的狀態全收進安裝目錄下的 `.vendor_kit/`，由它自己的 `.gitignore` 寫死哪些路徑不進 git；版本鎖定行 `version.toml` 只認一種正規形，讓主機上只有 `grep`／`sed` 的啟動器也讀得準，而同一份內容不會有兩種合法寫法。
+每個安裝目錄對「用哪些工具、哪個版本、哪個引擎」只能有一份說法（[不變量 2](../contract/02_invariants.md#2-一個來源版本鎖定行只有一份進-git)），而自動化不寫追蹤檔（[不變量 3](../contract/02_invariants.md#3-自動化不寫追蹤檔)）。所以 VK 的狀態全收進安裝目錄下的 `.vendor_kit/`，由它自己的 `.gitignore` 寫死哪些路徑不進 git；版本鎖定行 `version.toml` 只認一種正規形，讓主機上只有 `grep`／`sed` 的啟動器也讀得準，而同一份內容不會有兩種合法寫法。
 
 ## Considered Options
 

@@ -2,7 +2,7 @@
 
 > Status: accepted
 >
-> Serves: [不變量 3：自動化只碰不進 git 的東西](../contract/02_invariants.md#3-自動化只碰不進-git-的東西)、[不變量 12：依對外承諾無法唯一判定就停，任何環境一律採最嚴格行為](../contract/02_invariants.md#12-依對外承諾無法唯一判定就停任何環境一律採最嚴格行為)
+> Serves: [不變量 3：自動化不寫追蹤檔](../contract/02_invariants.md#3-自動化不寫追蹤檔)、[不變量 12：依對外承諾無法唯一判定就停，任何環境一律採最嚴格行為](../contract/02_invariants.md#12-依對外承諾無法唯一判定就停任何環境一律採最嚴格行為)
 
 以環境變數判定 CI 模式，會讓同一個 recipe 在不同地方改變行為；`CI=0`、`CI=false` 等值也容易被不同實作誤判。VK 因此取消 CI 模式、不讀環境變數 `CI`，每個 recipe 在任何環境都採相同且最嚴格的行為；需要集中執行的嚴格檢查只屬於 `just vendor_kit test`，因為穩定性優先於依環境提供不同便利。
 

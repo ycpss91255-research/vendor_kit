@@ -57,7 +57,7 @@ VK 對外只有兩個入口：
   - 第一次導入時用
   - 在既有安裝目錄執行時，先檢查薄殼；不符就列出差異，印出 [訊息](03_messages.csv) `VK0006` [診斷](../../GLOSSARY.md#執行與結果)，以[結束碼](03_messages.md#結束碼) `2` 結束，除執行紀錄外不動 repo 檔與其他 [VK 檔](../../GLOSSARY.md#repo-內的檔與狀態)
   - 先從 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)下載 `bootstrap.sh`，再到要裝 VK 的那個目錄執行
-  - 這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](02_invariants.md#3-自動化只碰不進-git-的東西)
+  - 這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](02_invariants.md#3-自動化不寫追蹤檔)
   - 這時 repo 裡還沒有 VK，所以由它下載[引擎](../../GLOSSARY.md#vk-組件)，再呼叫 `install`
   - 再跑一次就是修復
   - 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，Release 頁上目前還沒有這個檔
