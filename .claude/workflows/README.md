@@ -26,14 +26,18 @@ Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東�
 | 名字 | 用途 | 什麼時候跑 | args 必填 |
 |---|---|---|---|
 | `doc-edit` | 改文件的固定流程（每個檔並行）：改寫 → lint 歸零 → 只讀審查並套用必改 → 跨檔一致性 → humanizer-zh-tw 潤稿 → lint；預設 codex 改、Claude 查，`editor` 可對調；`mode: "light"` 給機械式或只改幾行的改動，只用 Claude 子代理、不跑跨檔一致性與潤稿；建議只回報。取代已刪除的 `doc-apply` 與 `doc-review` | 改任何現行文件（README、`doc/contract/`、`GLOSSARY.md`、ADR）時；主對話不自己改 | `round`、`files` |
-| `research` | 外部資料調查：agy 依 brief 查資料 → codex 逐條核對來源 → Claude 整合審查 → 結果貼到指定 issue。brief 放 workspace 的 `reference/research/<issue>/<id>_brief.md`，輸出也放那裡，不放 `/tmp` | 要找外部前例或資料當決策依據時；brief 先寫好 | `issue`、`topic`、`briefs`（每項 `{ id, label }`） |
+| `discuss` | codex 與 Claude 各自回答、最多 3 輪比對，未收斂交維護者 | 問維護者之前；結果回報主對話，貼到 #78 對應的 child issue | `round`、`questions`（每項 `{ id, question, context }`） |
+| `research` | agy 查 → codex 核對 → Claude 整合 → 貼 issue。brief 放 workspace 的 `reference/research/<issue>/<id>_brief.md`，輸出也放那裡，不放 `/tmp` | 要找外部前例或資料當決策依據時；brief 先寫好 | `issue`、`topic`、`briefs`（每項 `{ id, label }`） |
 
 選填欄位：
 
 - `doc-edit`：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（審查額外要看的重點）、`editor`（`codex` 預設｜`claude`）、`mode`（`full` 預設｜`light`）、`effort`（`{ edit, polish, review }`）。
+- `discuss`：`background`（已定案前提）、`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/worktree/pr/59`）。
 - `research`：`dir`（預設 `/home/cyc/Desktop/vendor-kit_ws/reference/research/<issue>`）、`background`（已定案前提）、`post`（預設 `true`；`false` 就只產檔、不貼 issue）。
 
-`round` 是 `rNN`，取兩者的最大值加一：本機 `doc/decisions/_backup/` 裡最大的 `pre_rNN`，與 git log 裡 `Doc-Edit: rNN` footer 的最大值。`_backup/` 不進 git，只看它會在別台機器或清過本機後重用舊編號。
+每次執行開頭會印出識別，子代理的 label 也帶同一個前綴，方便分辨同時跑的幾次：doc-edit 是 `doc-edit <round> <topic>`、discuss 是 `discuss <round>`、research 是 `research #<issue>`。
+
+doc-edit 的 `round` 是 `rNN`，取兩者的最大值加一：本機 `doc/decisions/_backup/` 裡最大的 `pre_rNN`，與 git log 裡 `Doc-Edit: rNN` footer 的最大值。`_backup/` 不進 git，只看它會在別台機器或清過本機後重用舊編號。
 
 ## 共用護欄
 

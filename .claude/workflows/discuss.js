@@ -1,7 +1,7 @@
 export const meta = {
   name: 'discuss',
-  description: '維護者還沒回覆的問題先跟 codex 討論：codex 與 Claude 各自獨立回答，再比對出共識與分歧，整理成要問維護者的一句話；最多 3 輪，未收斂交給維護者',
-  whenToUse: '有問題要問維護者之前；結果整理成一段 issue_note 回報給主對話，由主對話貼到 wayfinder map #78 對應的 child issue，再依序問「要維護者決定」的題',
+  description: 'codex 與 Claude 各自回答、最多 3 輪比對，未收斂交維護者',
+  whenToUse: '問維護者之前；結果回報主對話，貼到 #78 對應的 child issue',
   phases: [
     { title: '各自回答', detail: '第 1 輪：每題 codex（只讀）與 Claude 子代理各答一次，互不知道對方的答案' },
     { title: '回應', detail: '第 2、3 輪：上一輪不一致的題，把對方最新立場交給雙方各自回應，證據成立才改立場；最多 3 輪，未收斂交給維護者' },
@@ -16,6 +16,7 @@ export const meta = {
 const { round, questions, background = '', repo = '/home/cyc/Desktop/vendor-kit_ws/worktree/pr/59' } = args ?? {}
 if (typeof round !== 'string' || !round.trim()) throw new Error('args.round 必填')
 if (!Array.isArray(questions) || questions.length === 0) throw new Error('args.questions 必填')
+log(`discuss ${round}`)
 
 const BG = background.trim() ? `已定案前提（不要質疑）：\n${background.trim()}` : ''
 const READ = '先讀 GLOSSARY.md、doc/contract/01_purpose.md、doc/contract/02_invariants.md，以及題目提到的檔。已定案的決定記在 wayfinder map issue：跑 `gh issue view 78 -R ycpss91255-research/vendor_kit --comments`，本文的「Decisions so far」凍結不改、之後的新決定在留言，兩者都讀；要某條決定的細節，跑 `gh issue view <child> -R ycpss91255-research/vendor_kit --comments` 讀該 child issue 的留言（結論在留言裡）。只讀，不要發 issue 或留言。結論跟任何一條定案衝突時要明講是哪一條（#<child>）。結論要附證據（檔名＋行號、外部文件網址或 repo 內實例），沒有證據的主張標明是推論。'
@@ -89,12 +90,12 @@ brief：
 ${brief(q, n, own, other, 'Claude')}
 
 輸出 markdown：結論（一到三句）、理由（每條附證據）、風險或反例。不要客套話。`,
-  { label: `codex:${q.id}:r${n}`, phase: n === 1 ? '各自回答' : '回應', schema: ANSWER, agentType: 'general-purpose' })
+  { label: `${round} ${q.id} codex r${n}`, phase: n === 1 ? '各自回答' : '回應', schema: ANSWER, agentType: 'general-purpose' })
 
 const claudeAsk = (q, n, own, other) => agent(`只讀，不要改任何檔。${n === 1 ? '獨立回答' : '回應'}下面的設計問題。
 
 ${brief(q, n, own, other, 'codex')}`,
-  { label: `claude:${q.id}:r${n}`, phase: n === 1 ? '各自回答' : '回應', schema: ANSWER })
+  { label: `${round} ${q.id} claude r${n}`, phase: n === 1 ? '各自回答' : '回應', schema: ANSWER })
 
 const compare = (q, n, c, a) => agent(`比對兩份對同一個問題的最新答案（第 ${n} 輪，最多 ${MAX_ROUNDS} 輪）。不要加入新的立場；只判斷兩份是否一致、共同結論是什麼、分歧在哪。
 
@@ -109,7 +110,7 @@ ${JSON.stringify(a)}
 id 填 ${q.id}。ask_user：兩份一致而且不改對外承諾時留空；否則寫成一句要問維護者的話，附建議選項（建議的放第一個）。codex 那份有 error 時 agree 填 false，並在 disagreements 寫 codex 沒有結果。
 recommendation：不一致時依雙方證據寫推薦的選項與理由，只供維護者參考；你不能替維護者定案，也不能把分歧寫成一致。一致時留空。
 你只回報，不要跑 gh 發 issue 或留言。`,
-  { label: `比對:${q.id}:r${n}`, phase: '比對', schema: VERDICT })
+  { label: `${round} ${q.id} 比對 r${n}`, phase: '比對', schema: VERDICT })
 
 // 單題討論：一致就停；不一致且未到上限就把對方最新立場交給雙方再答一輪
 const discussOne = async q => {

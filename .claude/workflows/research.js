@@ -1,6 +1,6 @@
 export const meta = {
   name: 'research',
-  description: '外部資料調查：agy 依 brief 查資料 → codex 逐條核對來源 → Claude 整合審查，結果貼到指定 issue（[agy]／[codex] 貼原文、[claude] 貼整合結論）',
+  description: 'agy 查 → codex 核對 → Claude 整合 → 貼 issue',
   whenToUse: '要找外部前例或資料當決策依據時（例如大型 repo 怎麼設定某件事）；brief 先寫好放在 workspace 的 reference/research/<issue>/',
   phases: [
     { title: '調查', detail: '每個 brief 一個 agy；輸出已存在且非空就沿用' },
@@ -21,6 +21,7 @@ const { issue, topic, briefs, background = '', post = true } = args ?? {}
 if (!Number.isInteger(issue)) throw new Error('args.issue 必填（issue 編號）')
 if (typeof topic !== 'string' || !topic.trim()) throw new Error('args.topic 必填')
 if (!Array.isArray(briefs) || briefs.length === 0) throw new Error('args.briefs 必填')
+log(`research #${issue}`)
 const dir = args.dir ?? `/home/cyc/Desktop/vendor-kit_ws/reference/research/${issue}`
 const REPO = 'ycpss91255-research/vendor_kit'
 const BG = background.trim() ? `已定案前提（不要質疑）：\n${background.trim()}\n` : ''
@@ -43,7 +44,7 @@ const results = await pipeline(
 2. 否則前景執行（Bash timeout 600000；跑不完就改用 run_in_background 並等它結束，不要中途放棄）：
    \`cd ${dir} && agy -p "$(cat ${brief(b)})" > ${agyOut(b)} 2> ${dir}/${b.id}_agy.err; echo "agy_exit=$?"\`
 3. 回報 exit（agy_exit 的值）、out_ok（輸出檔存在且非空）；失敗把 ${dir}/${b.id}_agy.err 的內容寫進 error。結束後刪掉空的 .err 檔。`,
-    { label: `agy:${b.id}`, phase: '調查', schema: RUN }),
+    { label: `#${issue} agy:${b.id}`, phase: '調查', schema: RUN }),
   (r, b) => {
     if (!r || r.exit !== 0 || !r.out_ok) return { b, agy: r, codex: null }
     return agent(`你的工作是啟動 codex 核對 agy 的調查結果，**你自己不核對、不加意見**。不改任何 repo、不 commit、不 push。
@@ -56,7 +57,7 @@ ${BG}調查目的：${topic}
 2. 前景執行（Bash timeout 600000），形狀一字不差：
    \`bash -c 'codex exec --skip-git-repo-check -C ${dir} -o ${codexOut(b)} "$(cat ${dir}/${b.id}_codex_brief.md)" < /dev/null; echo "codex_exit=$?"'\`
 3. 回報 exit（codex_exit 的值）、out_ok（${codexOut(b)} 存在且非空）。結束後刪掉 ${dir}/${b.id}_codex_brief.md。`,
-      { label: `codex:${b.id}`, phase: '核對', schema: RUN }).then(c => ({ b, agy: r, codex: c }))
+      { label: `#${issue} codex:${b.id}`, phase: '核對', schema: RUN }).then(c => ({ b, agy: r, codex: c }))
   },
 )
 
@@ -79,7 +80,7 @@ ${ok.map(x => `- ${x.b.label}：${agyOut(x.b)}、${codexOut(x.b)}`).join('\n')}
 4. 沒有來源的主張標明是推論。
 
 用繁體中文 markdown 寫到 ${claudeOut}，回報 output_file 與 summary（結論一節的全文）。`,
-  { label: 'Claude 整合', phase: '整合', schema: { type: 'object', properties: { output_file: { type: 'string' }, summary: { type: 'string' }, error: { type: 'string' } }, required: ['output_file', 'summary'] } })
+  { label: `#${issue} Claude 整合`, phase: '整合', schema: { type: 'object', properties: { output_file: { type: 'string' }, summary: { type: 'string' }, error: { type: 'string' } }, required: ['output_file', 'summary'] } })
 
 if (!post || !review) return { ok: ok.map(x => x.b.id), failed, review }
 
@@ -98,6 +99,6 @@ ${ok.map(x => `1. [agy] ${x.b.label}：${agyOut(x.b)}\n2. [codex] ${x.b.label} �
 最後. [claude] 整合結論：${claudeOut}
 
 回報每則留言的網址。`,
-  { label: '貼 issue', phase: '貼 issue', schema: { type: 'object', properties: { urls: { type: 'array', items: { type: 'string' } }, error: { type: 'string' } }, required: ['urls'] } })
+  { label: `#${issue} 貼 issue`, phase: '貼 issue', schema: { type: 'object', properties: { urls: { type: 'array', items: { type: 'string' } }, error: { type: 'string' } }, required: ['urls'] } })
 
 return { ok: ok.map(x => x.b.id), failed, summary: review.summary, urls: posted?.urls ?? [] }
