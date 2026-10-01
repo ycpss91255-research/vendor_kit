@@ -158,15 +158,17 @@ ${task}`,
 }
 
 // ───────────────── 輪次檢查 ─────────────────
-// round 必須是 _backup 裡最大的 pre_rNN 再加一：重用舊編號會蓋掉或混淆那一輪的基準版。
+// round 必須是已用過的最大編號再加一：重用舊編號會蓋掉或混淆那一輪的基準版。
+// 已用過的編號有兩個來源：本機 _backup 的 pre_rNN（不進 git，#128），與 git log 的 `Doc-Edit: rNN` footer；
+// 換電腦或新 clone 時 _backup 是空的，靠 footer 才不會重用。
 // 子代理只負責讀出最大編號，比對在腳本裡做，不交給模型判斷。
 const seen = await run(`在 ${repo} 跑這行，照原樣回報輸出的數字（沒有輸出就回 0）；不要做任何其他事：
-ls doc/decisions/_backup | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//' | sort -n | tail -1`,
+{ ls doc/decisions/_backup 2>/dev/null | grep -oE 'pre_r[0-9]+' | sed 's/^pre_r//'; git log --format=%B | grep -oE '^Doc-Edit: r[0-9]+' | sed 's/^Doc-Edit: r//'; } | sort -n | tail -1`,
   { label: '輪次檢查', phase: '改寫', effort: 'low',
     schema: { type: 'object', properties: { max: { type: 'integer' } }, required: ['max'] } })
 const expected = (seen?.max ?? NaN) + 1
 if (Number(round.slice(1)) !== expected) {
-  throw new Error(`round ${round} 不對：_backup 裡最大是 pre_r${seen?.max}，這一輪要用 r${expected}；round 不能重用也不能跳號`)
+  throw new Error(`round ${round} 不對：已用過的最大是 r${seen?.max}（_backup 與 git log 的 Doc-Edit footer），這一輪要用 r${expected}；round 不能重用也不能跳號`)
 }
 
 // ───────────────── 改寫（每個檔並行） ─────────────────
