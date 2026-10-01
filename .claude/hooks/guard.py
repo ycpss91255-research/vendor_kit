@@ -338,12 +338,11 @@ def get_git_status_summary(repo_dir):
     porcelain 的狀態是兩個字元 XY（X = 索引、Y = 工作區），第 3 個字元起是路徑。
     只看 X 會漏掉未 staged 的修改，只看 Y 會漏掉已 staged 的，所以兩個都要看。
     """
-    # 列出來給人看的只取「真的要審的檔」：送審資料夾與圖的備份都是產生物，
+    # 列出來給人看的只取「真的要審的檔」：送審資料夾是產生物，
     # 列進去會把前 10 個名額吃光、把該看的檔擠掉。計數仍然含它們。
     # 改前快照、審查紀錄、研究素材已移出 git 並列進 .gitignore（#128），git status 本來就不會列。
     NOISE = (
         'doc/review/',
-        'script/diagram/_backup/',
     )
     LIMIT = 10
 

@@ -7,6 +7,4 @@ __pycache__/
 doc/decisions/_backup/
 doc/decisions/review_log/
 doc/research/
-script/diagram/_backup/
-script/diagram/_misc/
 .claude/settings.local.json
