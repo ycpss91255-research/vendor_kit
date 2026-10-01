@@ -57,7 +57,7 @@
         "replied": true
       }
     ],
-    "03_messages": [
+    "03_output": [
       {
         "v": 13,
         "commit": "ccde94fd39901ff745ef5de4de01310d404a5aee",

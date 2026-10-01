@@ -185,7 +185,7 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。
 
 **嚴重度** (level)：
-診斷的嚴重程度。本版使用的值是 `info`、`warn`、`error`、`fatal`；stderr 的診斷只用 `warn`、`error`、`fatal`，`info` 只用在成功的結果與結構化紀錄，不印成診斷。結束碼和嚴重度的對應見[結束碼](../../contract/03_messages.md#結束碼)。
+診斷的嚴重程度；可用的值以及它和結束碼的對應見[結束碼](../../contract/03_output.md#結束碼)。
 
 **正常輸出** (normal output)：
 成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。
@@ -201,10 +201,10 @@ _Avoid_: 待續、需人處理、needs human
 這次指令承諾的結果已做完，但有要使用者知道或確認的事的 `warn` 診斷；可以附下一步指令。
 
 **原因代碼** (reason code)：
-每條診斷的固定識別碼；格式與生命週期見[訊息](../../contract/03_messages.md#訊息)。
+每條診斷的固定識別碼；格式與生命週期見[訊息](../../contract/03_output.md#訊息)。
 
 **結束碼** (exit code)：
-VK recipe 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見[結束碼](../../contract/03_messages.md#結束碼)。
+VK recipe 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見[結束碼](../../contract/03_output.md#結束碼)。
 
 ### VK recipe 與用途
 

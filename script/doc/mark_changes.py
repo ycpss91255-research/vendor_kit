@@ -5,7 +5,7 @@
 
 用法：
     python3 script/doc/mark_changes.py <檔名…>                      # 基準：該鍵維護者最後一次回覆過的版本；已定案的鍵用定案版（未改就不產檔）
-    python3 script/doc/mark_changes.py --base-version 03_messages=13 GLOSSARY=6   # 指定送審版本當基準
+    python3 script/doc/mark_changes.py --base-version 03_output=13 GLOSSARY=6   # 指定送審版本當基準
     python3 script/doc/mark_changes.py <舊版後綴> <檔名…>           # 本機 _backup 的改前快照當基準
 例：
     python3 script/doc/mark_changes.py 01_purpose 02_invariants README.md
@@ -45,7 +45,7 @@ replied: true。這支只讀 versions.json，不寫。
 表格列（以 | 開頭）在儲存格內標記，不把整列包起來——整列包住會讓那一列
 不再是合法的表格列，GitHub 與 VS Code 都會把表格切斷。
 
-審閱頁旁邊有同名的 CSV（例如 doc/contract/03_messages.csv，#122）時，一個頁名同時處理兩個檔：
+審閱頁旁邊有同名的 CSV（例如 doc/contract/03_output.csv，#122）時，一個頁名同時處理兩個檔：
 輸出 <鍵>.md、<鍵>.csv，與一份合併的 <鍵>.marked.md——前半是
 .md 的逐行差異，後半是 CSV 的逐碼差異（依 code 對齊、逐欄比較，只列有改動的代碼）。
 表頭改了（例如刪掉 note 欄）時，後半開頭先標出新舊表頭；刪掉的欄在各碼照樣列出舊值並標紅。
@@ -74,6 +74,14 @@ REVIEW_OUT = pathlib.Path("doc/review")
 # 每個鍵送審過的版號與送審當時的 commit；進 git。只有 pack_review.py 寫它
 VERSIONS = REVIEW_OUT / "versions.json"
 ZIP_KEY = "review_zip"
+# 改過名的正式檔：新路徑 → 改名前的路徑（#137：03_messages 改名為 03_output）。
+# 送審紀錄沒寫 path／csv_path 時，基準在紀錄的 commit 裡找不到新路徑，就改取改名前的路徑；
+# 基準裡連到改名前路徑的連結也換成新路徑，只因改名而不同的行不標成改動。
+RENAMED = {
+    REVIEW / "03_output.md": REVIEW / "03_messages.md",
+    REVIEW / "03_output.csv": REVIEW / "03_messages.csv",
+}
+RENAMED_FROM = {old: new for new, old in RENAMED.items()}
 
 
 def mark(body: str, tag: str) -> str:
@@ -144,6 +152,36 @@ def relink(dest: str, src: pathlib.Path, base: pathlib.Path) -> str:
 
 def rewrite_links(text: str, src: pathlib.Path, base: pathlib.Path) -> str:
     """把 src 裡照原位置寫的相對連結改寫成從 base 目錄出發；程式碼區塊與行內程式碼不動。"""
+    return map_links(text, lambda dest: relink(dest, src, base))
+
+
+def follow_rename(dest: str, where: pathlib.Path) -> str:
+    """從 where 目錄寫的連結若指到改名前的正式檔，換成改名後的路徑（錨點照留）；其他連結原樣回傳。"""
+    angled = dest.startswith("<") and dest.endswith(">")
+    raw = dest[1:-1] if angled else dest
+    if not raw or raw.startswith(("#", "/")) or SCHEME.match(raw):
+        return dest
+    file_part, sep, anchor = raw.partition("#")
+    if not file_part:
+        return dest
+    resolved = pathlib.Path(os.path.normpath(os.path.join(where.as_posix(), file_part)))
+    renamed = RENAMED_FROM.get(resolved)
+    if renamed is None:
+        return dest
+    new = os.path.relpath(renamed.as_posix(), where.as_posix()).replace(os.sep, "/") + sep + anchor
+    return f"<{new}>" if angled else new
+
+
+def follow_renames(text: str, official: pathlib.Path) -> str:
+    """基準文字（照 official 的位置寫連結）裡指到改名前正式檔的連結，換成改名後的路徑。
+
+    不換的話，只因為改名，基準裡每一行連到那頁的文字都會被標成改動（#137）。
+    """
+    return map_links(text, lambda dest: follow_rename(dest, official.parent))
+
+
+def map_links(text: str, fix) -> str:
+    """把每個行內連結目標交給 fix 改寫；程式碼區塊與行內程式碼裡的字樣不動。"""
     out = []
     fence = None
     for line in text.split("\n"):
@@ -159,11 +197,11 @@ def rewrite_links(text: str, src: pathlib.Path, base: pathlib.Path) -> str:
             continue
         parts, pos = [], 0
         for cm in CODE_SPAN.finditer(line):
-            parts.append(LINK.sub(lambda l: l.group(1) + l.group(2) + relink(l.group(3), src, base) + l.group(4),
+            parts.append(LINK.sub(lambda l: l.group(1) + l.group(2) + fix(l.group(3)) + l.group(4),
                                   line[pos:cm.start()]))
             parts.append(cm.group(0))
             pos = cm.end()
-        parts.append(LINK.sub(lambda l: l.group(1) + l.group(2) + relink(l.group(3), src, base) + l.group(4),
+        parts.append(LINK.sub(lambda l: l.group(1) + l.group(2) + fix(l.group(3)) + l.group(4),
                               line[pos:]))
         out.append("".join(parts))
     return "\n".join(out)
@@ -235,14 +273,20 @@ def git_show(commit: str, path: pathlib.Path) -> str | None:
 def base_text(entry: dict, field: str, official: pathlib.Path) -> tuple[pathlib.Path, str | None]:
     """紀錄的基準內容：回傳（取用的路徑, git show 的內容或 None）。
 
-    field 是 path 或 csv_path：紀錄有這欄就從那個路徑取，沒有就取正式檔路徑。
+    field 是 path 或 csv_path：紀錄有這欄就從那個路徑取，沒有就取正式檔路徑；正式檔改過名
+    （RENAMED）而那個 commit 裡還沒有新路徑時，取改名前的路徑。
     從副本取的 .md 先把相對連結改寫回正式檔的位置（副本的連結是從副本所在目錄寫的），
     否則每一行連結都會被當成改動；紀錄帶 raw_links: true 時副本照正式檔位置寫，不改寫。
     """
     src = pathlib.Path(entry[field]) if entry.get(field) else official
     text = git_show(entry["commit"], src)
+    if text is None and not entry.get(field) and official in RENAMED:
+        src = RENAMED[official]
+        text = git_show(entry["commit"], src)
     if text is not None and src != official and official.suffix == ".md" and not entry.get("raw_links"):
         text = rewrite_links(text, src, official.parent)
+    if text is not None and official.suffix == ".md":
+        text = follow_renames(text, official)
     return src, text
 
 
@@ -255,7 +299,7 @@ def normalize(name: str) -> str:
 
 
 def companion_csv(name: str) -> pathlib.Path | None:
-    """審閱頁旁邊的同名 CSV（例如 03_messages.csv）；沒有就回 None。以路徑指定的檔沒有附屬 CSV。"""
+    """審閱頁旁邊的同名 CSV（例如 03_output.csv）；沒有就回 None。以路徑指定的檔沒有附屬 CSV。"""
     if "/" in name or name.endswith(".md"):
         return None
     path = REVIEW / f"{name}.csv"
@@ -545,7 +589,7 @@ def build(name: str, suffix: str) -> tuple[int, int]:
     if suffix == "new":
         old = []
     elif csv_path is None:
-        old = backup_path(name, suffix).read_text().splitlines()
+        old = follow_renames(backup_path(name, suffix).read_text(), path).splitlines()
     else:
         md_backup, md_tried = find_backup(name, suffix, ".md")
         csv_backup, csv_tried = find_backup(name, suffix, ".csv")
@@ -559,7 +603,7 @@ def build(name: str, suffix: str) -> tuple[int, int]:
             old = new
             notes.append(f"沒有 {path.as_posix()} 的基準版 {suffix}：視為這一輪沒改")
         else:
-            old = md_backup.read_text().splitlines()
+            old = follow_renames(md_backup.read_text(), path).splitlines()
         if csv_backup is not None:
             old_csv = csv_backup.read_text(encoding="utf-8")
         elif in_head(csv_path):
@@ -720,7 +764,7 @@ def main() -> None:
         for pair in pairs:
             name, sep, num = pair.rpartition("=")
             if not sep or not name or not num.isdigit():
-                sys.exit(f"--base-version 的參數要寫成 <頁>=<版號>，例如 03_messages=13：{pair}")
+                sys.exit(f"--base-version 的參數要寫成 <頁>=<版號>，例如 03_output=13：{pair}")
             parsed.append((name, int(num)))
         run_from_versions(parsed)
         return

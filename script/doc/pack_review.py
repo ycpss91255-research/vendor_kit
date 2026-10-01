@@ -6,7 +6,7 @@
   python3 script/doc/pack_review.py --replied <鍵>=<N> [<鍵>=<N> ...]   # 維護者回覆後標記那一版
   python3 script/doc/pack_review.py --finalized <鍵>=<N> [<鍵>=<N> ...] # 維護者定案後標記並清除送審檔
 
-頁鍵的寫法跟 mark_changes.py 相同：審閱頁傳頁名（03_messages），其他檔傳路徑（GLOSSARY.md）。
+頁鍵的寫法跟 mark_changes.py 相同：審閱頁傳頁名（03_output），其他檔傳路徑（GLOSSARY.md）。
 標示版照舊由 mark_changes.py 產生；這支只打包 doc/review/<鍵>/ 裡的
 <鍵>.marked.md、<鍵>.md，有 <鍵>.csv 也放進去。repo 裡的檔名不帶版本號，zip 裡的檔名才帶：
 <鍵>.v<N>.marked.md、<鍵>.v<N>.md、<鍵>.v<N>.csv；N 是該鍵最後送審的版號加一（從沒送審過是 1）。
@@ -192,7 +192,7 @@ def parse_pairs(pairs: list[str], option: str = "--replied") -> list[tuple[str, 
     for pair in pairs:
         name, sep, num = pair.rpartition("=")
         if not sep or not name or not num.isdigit():
-            raise SystemExit(f"{option} 的參數要寫成 <鍵>=<版號>，例如 03_messages=14：{pair}")
+            raise SystemExit(f"{option} 的參數要寫成 <鍵>=<版號>，例如 03_output=14：{pair}")
         parsed.append((name, int(num)))
     return parsed
 
@@ -206,7 +206,7 @@ def main() -> None:
                        help="把 <鍵>=<N> 的送審紀錄標成維護者已回覆；不打包、不取號，不用 --out")
     modes.add_argument("--finalized", action="store_true",
                        help="把已回覆的 <鍵>=<N> 標成定案並刪除送審資料夾；不打包、不取號，不用 --out")
-    ap.add_argument("names", nargs="+", help="頁鍵，例如 03_messages 04_interface GLOSSARY.md；--replied、--finalized 時寫 <鍵>=<N>")
+    ap.add_argument("names", nargs="+", help="頁鍵，例如 03_output 04_interface GLOSSARY.md；--replied、--finalized 時寫 <鍵>=<N>")
     args = ap.parse_args()
     if args.replied:
         for done in mark_replied(parse_pairs(args.names)):

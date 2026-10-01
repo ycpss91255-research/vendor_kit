@@ -35,7 +35,7 @@ class CsvTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             (root / "doc/contract").mkdir(parents=True)
-            (root / "doc/contract/03_messages.csv").write_text(
+            (root / "doc/contract/03_output.csv").write_text(
                 "\ufeffcode,status,level,exit_code,disposition,situation,message,description,next_step\n"
                 "VK0001,舊詞,舊詞,舊詞,舊詞處置,舊詞情況,Old .version message,"
                 "\"第一行\n舊詞說明\",Old term next step\n",

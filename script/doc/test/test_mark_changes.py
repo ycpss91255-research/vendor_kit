@@ -247,8 +247,8 @@ class RelinkTest(unittest.TestCase):
                 self.assertEqual(self.back(got), want)
 
     def test_review_page_links_point_to_official_file(self):
-        got = self.link("[03](03_messages.md#結束碼)")
-        self.assertEqual(got, "../../contract/03_messages.md#結束碼")
+        got = self.link("[03](03_output.md#結束碼)")
+        self.assertEqual(got, "../../contract/03_output.md#結束碼")
 
     def test_external_and_anchor_unchanged(self):
         for text in ("[a](https://git-scm.com/)", "[b](http://x.org/a.md)",
@@ -349,43 +349,43 @@ class CsvTest(unittest.TestCase):
         os.chdir(self._tmp.name)
         pathlib.Path("doc/contract").mkdir(parents=True)
         pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
-        pathlib.Path("doc/contract/03_messages.md").write_text("# 03\n\n規則\n")
-        pathlib.Path("doc/contract/03_messages.csv").write_text(self.NEW, encoding="utf-8")
+        pathlib.Path("doc/contract/03_output.md").write_text("# 03\n\n規則\n")
+        pathlib.Path("doc/contract/03_output.csv").write_text(self.NEW, encoding="utf-8")
 
     def tearDown(self):
         os.chdir(self._cwd)
         self._tmp.cleanup()
 
     def backup(self, ext, text):
-        pathlib.Path(f"doc/decisions/_backup/doc_contract_03_messages.pre_r1{ext}").write_text(text, encoding="utf-8")
+        pathlib.Path(f"doc/decisions/_backup/doc_contract_03_output.pre_r1{ext}").write_text(text, encoding="utf-8")
 
     def marked(self):
-        return out("03_messages").read_text()
+        return out("03_output").read_text()
 
     def test_outputs_in_one_folder(self):
         self.backup(".md", "# 03\n\n舊規則\n")
         self.backup(".csv", self.OLD)
-        mark_changes.build("03_messages", "pre_r1")
-        d = pathlib.Path("doc/review/03_messages")
+        mark_changes.build("03_output", "pre_r1")
+        d = pathlib.Path("doc/review/03_output")
         self.assertEqual(sorted(p.name for p in d.iterdir()),
-                         ["03_messages.csv", "03_messages.marked.md", "03_messages.md"])
+                         ["03_output.csv", "03_output.marked.md", "03_output.md"])
         # CSV 副本逐位元組照抄（BOM 保留）
-        self.assertEqual((d / "03_messages.csv").read_bytes(),
-                         pathlib.Path("doc/contract/03_messages.csv").read_bytes())
+        self.assertEqual((d / "03_output.csv").read_bytes(),
+                         pathlib.Path("doc/contract/03_output.csv").read_bytes())
         text = self.marked()
         # md 部分照舊逐行標示，CSV 部分接在後面
-        self.assertLess(text.index(self.GREEN + "規則</mark>"), text.index("## 03_messages.csv 的逐碼差異"))
+        self.assertLess(text.index(self.GREEN + "規則</mark>"), text.index("## 03_output.csv 的逐碼差異"))
 
     def test_csv_path_is_same_as_page_name(self):
         self.backup(".md", "# 03\n\n規則\n")
         self.backup(".csv", self.OLD)
-        mark_changes.build("doc/contract/03_messages.csv", "pre_r1")
-        self.assertTrue(out("03_messages").exists())
+        mark_changes.build("doc/contract/03_output.csv", "pre_r1")
+        self.assertTrue(out("03_output").exists())
 
     def test_per_code_per_field(self):
         self.backup(".md", "# 03\n\n規則\n")
         self.backup(".csv", self.OLD)
-        mark_changes.build("03_messages", "pre_r1")
+        mark_changes.build("03_output", "pre_r1")
         text = self.marked()
         lines = text.splitlines()
         # 改欄位：舊值紅、新值綠；沒改的欄不標；占位符照原樣看得到
@@ -425,7 +425,7 @@ class CsvTest(unittest.TestCase):
                     + "VK0001,active,error,2,失敗,舊情境,Old message <repo>.,舊本文 <repo>,,舊值\n"
                     "VK0002,active,warn,1,,情境,Unchanged.,不變,,\n"
                     "VK0003,active,error,2,失敗,要停用的情境,Retire this message.,要停用,,\n")
-        mark_changes.build("03_messages", "pre_r1")
+        mark_changes.build("03_output", "pre_r1")
         lines = self.marked().splitlines()
         self.assertIn(f"- 表頭：{self.RED}{old_head.strip()}</mark> → {self.GREEN}{self.HEAD.strip()}</mark>", lines)
         self.assertIn(f"- `note`：{self.RED}（本欄刪除）</mark>", lines)
@@ -445,7 +445,7 @@ class CsvTest(unittest.TestCase):
                     + "VK0001,active,error,2,失敗,舊情境,Old message <repo>.,舊本文 <repo>\n"
                     "VK0002,active,warn,1,,情境,Unchanged.,不變\n"
                     "VK0003,active,error,2,失敗,要停用的情境,Retire this message.,要停用\n")
-        mark_changes.build("03_messages", "pre_r1")
+        mark_changes.build("03_output", "pre_r1")
         lines = self.marked().splitlines()
         self.assertIn(f"- 表頭：{self.RED}{old_head.strip()}</mark> → {self.GREEN}{self.HEAD.strip()}</mark>", lines)
         self.assertIn(f"- `next_step`：{self.GREEN}（本欄新增）</mark>", lines)
@@ -460,7 +460,7 @@ class CsvTest(unittest.TestCase):
         self.backup(".md", "# 03\n\n規則\n")
         self.backup(".csv", self.OLD
                     + "VK0009,active,warn,1,,拿掉的情境,Remove this message.,拿掉,\n")
-        mark_changes.build("03_messages", "pre_r1")
+        mark_changes.build("03_output", "pre_r1")
         lines = self.marked().splitlines()
         i = lines.index("#### VK0009")
         self.assertEqual(lines[i + 1], self.RED + "（本列刪除）</mark>")
@@ -470,15 +470,15 @@ class CsvTest(unittest.TestCase):
 
     def test_md_backup_missing_means_md_unchanged(self):
         self.backup(".csv", self.OLD)
-        mark_changes.build("03_messages", "pre_r1")
+        mark_changes.build("03_output", "pre_r1")
         text = self.marked()
-        self.assertIn("> 注意：沒有 doc/contract/03_messages.md 的基準版 pre_r1：視為這一輪沒改", text)
+        self.assertIn("> 注意：沒有 doc/contract/03_output.md 的基準版 pre_r1：視為這一輪沒改", text)
         self.assertNotIn(self.GREEN + "規則</mark>", text)
         self.assertIn("#### VK0001", text)
 
     def test_csv_backup_missing_and_not_in_git_means_new(self):
         self.backup(".md", "# 03\n\n規則\n")
-        mark_changes.build("03_messages", "pre_r1")
+        mark_changes.build("03_output", "pre_r1")
         text = self.marked()
         self.assertIn("視為新建，整份標新增", text)
         for code in ("VK0001", "VK0002", "VK0003", "VK0004"):
@@ -486,20 +486,20 @@ class CsvTest(unittest.TestCase):
 
     def test_both_backups_missing_fails(self):
         with self.assertRaises(SystemExit):
-            mark_changes.build("03_messages", "pre_r1")
+            mark_changes.build("03_output", "pre_r1")
 
     def test_rerun_keeps_same_names(self):
         self.backup(".md", "# 03\n\n規則\n")
         self.backup(".csv", self.OLD)
-        mark_changes.build("03_messages", "pre_r1")
-        mark_changes.build("03_messages", "pre_r1")
-        names = sorted(p.name for p in pathlib.Path("doc/review/03_messages").iterdir())
-        self.assertEqual(names, ["03_messages.csv", "03_messages.marked.md", "03_messages.md"])
+        mark_changes.build("03_output", "pre_r1")
+        mark_changes.build("03_output", "pre_r1")
+        names = sorted(p.name for p in pathlib.Path("doc/review/03_output").iterdir())
+        self.assertEqual(names, ["03_output.csv", "03_output.marked.md", "03_output.md"])
 
     def test_csv_backup_path(self):
         self.backup(".csv", self.OLD)
-        self.assertEqual(mark_changes.backup_path("03_messages", "pre_r1", ".csv"),
-                         pathlib.Path("doc/decisions/_backup/doc_contract_03_messages.pre_r1.csv"))
+        self.assertEqual(mark_changes.backup_path("03_output", "pre_r1", ".csv"),
+                         pathlib.Path("doc/decisions/_backup/doc_contract_03_output.pre_r1.csv"))
 
 
 class BaseVersionTest(unittest.TestCase):
@@ -517,27 +517,27 @@ class BaseVersionTest(unittest.TestCase):
         os.chdir(self._tmp.name)
         init_repo()
         pathlib.Path("doc/contract").mkdir(parents=True)
-        pathlib.Path("doc/contract/03_messages.md").write_text(self.PAGE)
-        pathlib.Path("doc/contract/03_messages.csv").write_text(self.CSV, encoding="utf-8")
-        pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n[03](doc/contract/03_messages.md)\n")
+        pathlib.Path("doc/contract/03_output.md").write_text(self.PAGE)
+        pathlib.Path("doc/contract/03_output.csv").write_text(self.CSV, encoding="utf-8")
+        pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n[03](doc/contract/03_output.md)\n")
         self.v13 = commit_all("v13")
-        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True}]}, review_zip=2)
+        write_versions({"03_output": [{"v": 13, "commit": self.v13, "replied": True}]}, review_zip=2)
 
     def tearDown(self):
         os.chdir(self._cwd)
         self._tmp.cleanup()
 
     def marked(self):
-        return out("03_messages").read_text()
+        return out("03_output").read_text()
 
     def change(self):
-        pathlib.Path("doc/contract/03_messages.md").write_text(self.PAGE.replace("不變的段落", "改過的段落"))
-        pathlib.Path("doc/contract/03_messages.csv").write_text(
+        pathlib.Path("doc/contract/03_output.md").write_text(self.PAGE.replace("不變的段落", "改過的段落"))
+        pathlib.Path("doc/contract/03_output.csv").write_text(
             self.CSV.replace("Message text.", "New message text."), encoding="utf-8")
 
     def test_same_content_has_no_marks(self):
         # 正式檔與送審時相同：沒有紅綠，連結照新深度改寫
-        ins, dele, _ = mark_changes.build_from_version("03_messages", 13)
+        ins, dele, _ = mark_changes.build_from_version("03_output", 13)
         self.assertEqual((ins, dele), (0, 0))
         text = self.marked()
         self.assertNotIn("<mark", text.split("-->", 1)[1])
@@ -547,35 +547,35 @@ class BaseVersionTest(unittest.TestCase):
 
     def test_finalized_unchanged_removes_review_folder_and_writes_nothing(self):
         # 已定案且正式檔仍與定案 commit 相同：不留送審資料。
-        mark_changes.build_from_version("03_messages", 13)
-        self.assertTrue(out("03_messages").exists())
+        mark_changes.build_from_version("03_output", 13)
+        self.assertTrue(out("03_output").exists())
         write_versions(
-            {"03_messages": [{"v": 13, "commit": self.v13, "replied": True}]},
-            finalized={"03_messages": {"v": 13, "commit": self.v13}},
+            {"03_output": [{"v": 13, "commit": self.v13, "replied": True}]},
+            finalized={"03_output": {"v": 13, "commit": self.v13}},
         )
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
-            mark_changes.build_from_version("03_messages")
-        self.assertFalse(pathlib.Path("doc/review/03_messages").exists())
+            mark_changes.build_from_version("03_output")
+        self.assertFalse(pathlib.Path("doc/review/03_output").exists())
         self.assertIn("已定案", stdout.getvalue())
         self.assertIn("刪除", stdout.getvalue())
 
     def test_finalized_changed_uses_finalized_commit_and_returns_to_review(self):
         # 即使後來又有 replied 版本，回到待審時仍以定案 commit 為基準。
-        finalized = {"03_messages": {"v": 13, "commit": self.v13}}
+        finalized = {"03_output": {"v": 13, "commit": self.v13}}
         self.change()
         v14 = commit_all("v14")
-        pathlib.Path("doc/contract/03_messages.md").write_text(
+        pathlib.Path("doc/contract/03_output.md").write_text(
             self.PAGE.replace("不變的段落", "定案後再改的段落")
         )
         write_versions(
-            {"03_messages": [
+            {"03_output": [
                 {"v": 13, "commit": self.v13, "replied": True},
                 {"v": 14, "commit": v14, "replied": True},
             ]},
             finalized=finalized,
         )
-        mark_changes.build_from_version("03_messages")
+        mark_changes.build_from_version("03_output")
         text = self.marked()
         self.assertIn(self.RED + "不變的段落</mark>", text)
         self.assertIn(self.GREEN + "定案後再改的段落</mark>", text)
@@ -585,7 +585,7 @@ class BaseVersionTest(unittest.TestCase):
 
     def test_only_later_changes_marked(self):
         self.change()
-        ins, dele, _ = mark_changes.build_from_version("03_messages", 13)
+        ins, dele, _ = mark_changes.build_from_version("03_output", 13)
         text = self.marked()
         self.assertIn(self.GREEN + "改過的段落</mark>", text)
         self.assertIn(self.RED + "不變的段落</mark>", text)
@@ -597,19 +597,19 @@ class BaseVersionTest(unittest.TestCase):
         # v14 送審在後面的 commit；指定 v13 時基準仍是 v13 的 commit
         self.change()
         v14 = commit_all("v14")
-        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True},
+        write_versions({"03_output": [{"v": 13, "commit": self.v13, "replied": True},
                                         {"v": 14, "commit": v14, "replied": False}]}, 3)
-        result = mark_changes.build_from_version("03_messages", 13)
+        result = mark_changes.build_from_version("03_output", 13)
         self.assertEqual(result[:2], (2, 2))
         self.assertEqual(result[2], "送審 v13")
-        self.assertEqual(mark_changes.build_from_version("03_messages", 14)[:2], (0, 0))
+        self.assertEqual(mark_changes.build_from_version("03_output", 14)[:2], (0, 0))
 
     def test_default_base_is_last_replied(self):
         self.change()
         v14 = commit_all("v14")
-        write_versions({"03_messages": [{"v": 14, "commit": v14, "replied": True},
+        write_versions({"03_output": [{"v": 14, "commit": v14, "replied": True},
                                         {"v": 13, "commit": self.v13, "replied": True}]}, 3)
-        result = mark_changes.build_from_version("03_messages")
+        result = mark_changes.build_from_version("03_output")
         self.assertEqual(result[:2], (0, 0))
         self.assertEqual(result[2], "最後一次回覆過的版本")
 
@@ -617,22 +617,22 @@ class BaseVersionTest(unittest.TestCase):
         # v14 送出後維護者還沒回覆：基準仍是回覆過的 v13，v13 之後的改動照樣標紅綠
         self.change()
         v14 = commit_all("v14")
-        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True},
+        write_versions({"03_output": [{"v": 13, "commit": self.v13, "replied": True},
                                         {"v": 14, "commit": v14, "replied": False}]}, 3)
-        self.assertEqual(mark_changes.build_from_version("03_messages")[:2], (2, 2))
+        self.assertEqual(mark_changes.build_from_version("03_output")[:2], (2, 2))
         self.assertIn(self.GREEN + "改過的段落</mark>", self.marked())
         self.assertIn(self.v13[:7], self.marked())
         # 指定版號時不看 replied
-        self.assertEqual(mark_changes.build_from_version("03_messages", 14)[:2], (0, 0))
+        self.assertEqual(mark_changes.build_from_version("03_output", 14)[:2], (0, 0))
 
     def test_missing_replied_field_counts_as_unreplied(self):
-        write_versions({"03_messages": [{"v": 13, "commit": self.v13}]})
-        mark_changes.build_from_version("03_messages")
+        write_versions({"03_output": [{"v": 13, "commit": self.v13}]})
+        mark_changes.build_from_version("03_output")
         self.assertIn("沒有維護者回覆過的版本", self.marked())
 
     def test_never_sent_is_all_new(self):
         write_versions({})
-        ins, dele, _ = mark_changes.build_from_version("03_messages")
+        ins, dele, _ = mark_changes.build_from_version("03_output")
         text = self.marked()
         self.assertGreater(ins, 0)
         self.assertEqual(dele, 0)
@@ -642,8 +642,8 @@ class BaseVersionTest(unittest.TestCase):
 
     def test_no_replied_entry_is_all_new(self):
         # 送過但都還沒回覆：整份標新增
-        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": False}]})
-        ins, dele, _ = mark_changes.build_from_version("03_messages")
+        write_versions({"03_output": [{"v": 13, "commit": self.v13, "replied": False}]})
+        ins, dele, _ = mark_changes.build_from_version("03_output")
         text = self.marked()
         self.assertEqual(dele, 0)
         self.assertIn("沒有維護者回覆過的版本", text)
@@ -655,16 +655,16 @@ class BaseVersionTest(unittest.TestCase):
         d = pathlib.Path("doc/decisions/_marked")
         d.mkdir(parents=True)
         page = self.PAGE.replace("不變的段落", "副本裡的段落")
-        (d / "03_messages.v13.md").write_text(
-            mark_changes.rewrite_links(page, pathlib.Path("doc/contract/03_messages.md"), d))
-        (d / "03_messages.v13.csv").write_text(self.CSV.replace("Message text.", "Copy text."), encoding="utf-8")
+        (d / "03_output.v13.md").write_text(
+            mark_changes.rewrite_links(page, pathlib.Path("doc/contract/03_output.md"), d))
+        (d / "03_output.v13.csv").write_text(self.CSV.replace("Message text.", "Copy text."), encoding="utf-8")
         return commit_all("copies"), page
 
     def test_path_overrides_official(self):
         commit, page = self.copy_commit()
-        write_versions({"03_messages": [{"v": 13, "commit": commit, "replied": True,
-                                         "path": "doc/decisions/_marked/03_messages.v13.md"}]})
-        mark_changes.build_from_version("03_messages")
+        write_versions({"03_output": [{"v": 13, "commit": commit, "replied": True,
+                                         "path": "doc/decisions/_marked/03_output.v13.md"}]})
+        mark_changes.build_from_version("03_output")
         text = self.marked()
         # 基準是副本：副本的段落標紅；副本的連結改寫回正式檔位置，連結行不算改動
         self.assertIn(self.RED + "副本裡的段落</mark>", text)
@@ -677,9 +677,9 @@ class BaseVersionTest(unittest.TestCase):
 
     def test_csv_path_overrides_official(self):
         commit, _ = self.copy_commit()
-        write_versions({"03_messages": [{"v": 13, "commit": commit, "replied": True,
-                                         "csv_path": "doc/decisions/_marked/03_messages.v13.csv"}]})
-        mark_changes.build_from_version("03_messages")
+        write_versions({"03_output": [{"v": 13, "commit": commit, "replied": True,
+                                         "csv_path": "doc/decisions/_marked/03_output.v13.csv"}]})
+        mark_changes.build_from_version("03_output")
         text = self.marked()
         self.assertIn(self.RED + "Copy text.</mark> → " + self.GREEN + "Message text.</mark>", text)
         # 沒有 path：.md 基準取正式檔，沒有改動
@@ -688,42 +688,62 @@ class BaseVersionTest(unittest.TestCase):
     def test_raw_links_copy_not_rewritten(self):
         d = pathlib.Path("doc/decisions/_marked")
         d.mkdir(parents=True)
-        (d / "03_messages.v13.md").write_text(self.PAGE)  # 連結照正式檔位置寫
+        (d / "03_output.v13.md").write_text(self.PAGE)  # 連結照正式檔位置寫
         commit = commit_all("raw copy")
-        entry = {"v": 13, "commit": commit, "replied": True, "path": "doc/decisions/_marked/03_messages.v13.md"}
-        write_versions({"03_messages": [dict(entry, raw_links=True)]})
-        self.assertEqual(mark_changes.build_from_version("03_messages")[:2], (0, 0))
-        write_versions({"03_messages": [entry]})
-        self.assertNotEqual(mark_changes.build_from_version("03_messages")[:2], (0, 0))
+        entry = {"v": 13, "commit": commit, "replied": True, "path": "doc/decisions/_marked/03_output.v13.md"}
+        write_versions({"03_output": [dict(entry, raw_links=True)]})
+        self.assertEqual(mark_changes.build_from_version("03_output")[:2], (0, 0))
+        write_versions({"03_output": [entry]})
+        self.assertNotEqual(mark_changes.build_from_version("03_output")[:2], (0, 0))
+
+    def test_renamed_page_uses_old_path_and_old_links_follow(self):
+        # 正式檔改過名（RENAMED，#137）：紀錄的 commit 裡只有改名前的檔，基準照改名前的路徑取；
+        # 基準裡連到改名前路徑的連結換成新路徑，只因改名而不同的行不標成改動
+        old_md, old_csv = pathlib.Path("doc/contract/03_messages.md"), pathlib.Path("doc/contract/03_messages.csv")
+        new_md, new_csv = pathlib.Path("doc/contract/03_output.md"), pathlib.Path("doc/contract/03_output.csv")
+        new_md.rename(old_md)
+        new_csv.rename(old_csv)
+        p04 = pathlib.Path("doc/contract/04_interface.md")
+        p04.write_text("# 04\n\n見 [03](03_messages.md#結束碼) 與 [訊息](03_messages.csv) `VK0001`。\n")
+        before = commit_all("before rename")
+        old_md.rename(new_md)
+        old_csv.rename(new_csv)
+        p04.write_text("# 04\n\n見 [03](03_output.md#結束碼) 與 [訊息](03_output.csv) `VK0001`。\n")
+        write_versions({"03_output": [{"v": 13, "commit": before, "replied": True}],
+                        "04_interface": [{"v": 20, "commit": before, "replied": True}]})
+        self.assertEqual(mark_changes.build_from_version("03_output")[:2], (0, 0))
+        self.assertNotIn("#### VK0001", self.marked())
+        self.assertEqual(mark_changes.build_from_version("04_interface")[:2], (0, 0))
+        self.assertIn("../../contract/03_output.md#結束碼", out("04_interface").read_text())
 
     def test_missing_path_in_commit_fails(self):
-        write_versions({"03_messages": [{"v": 13, "commit": self.v13, "replied": True,
+        write_versions({"03_output": [{"v": 13, "commit": self.v13, "replied": True,
                                          "path": "doc/decisions/_marked/nope.md"}]})
         with self.assertRaises(SystemExit) as cm:
-            mark_changes.build_from_version("03_messages")
+            mark_changes.build_from_version("03_output")
         self.assertIn("nope.md", str(cm.exception))
-        self.assertFalse(out("03_messages").exists())
+        self.assertFalse(out("03_output").exists())
 
     def test_csv_missing_in_commit_is_new(self):
-        pathlib.Path("doc/contract/03_messages.csv").unlink()
+        pathlib.Path("doc/contract/03_output.csv").unlink()
         no_csv = commit_all("no csv")
-        pathlib.Path("doc/contract/03_messages.csv").write_text(self.CSV, encoding="utf-8")
-        write_versions({"03_messages": [{"v": 13, "commit": no_csv}]})
-        mark_changes.build_from_version("03_messages", 13)
+        pathlib.Path("doc/contract/03_output.csv").write_text(self.CSV, encoding="utf-8")
+        write_versions({"03_output": [{"v": 13, "commit": no_csv}]})
+        mark_changes.build_from_version("03_output", 13)
         text = self.marked()
         self.assertIn("視為新建，整份標新增", text)
         self.assertIn(f"#### VK0001\n{self.GREEN}（本碼新增）</mark>", text)
 
     def test_does_not_write_versions(self):
         before = pathlib.Path("doc/review/versions.json").read_text()
-        mark_changes.build_from_version("03_messages", 13)
+        mark_changes.build_from_version("03_output", 13)
         self.assertEqual(pathlib.Path("doc/review/versions.json").read_text(), before)
 
     def test_missing_version_fails(self):
         with self.assertRaises(SystemExit) as cm:
-            mark_changes.build_from_version("03_messages", 12)
+            mark_changes.build_from_version("03_output", 12)
         self.assertIn("v12", str(cm.exception))
-        self.assertFalse(out("03_messages").exists())
+        self.assertFalse(out("03_output").exists())
 
     def test_root_file_by_key(self):
         write_versions({"GLOSSARY": [{"v": 6, "commit": self.v13}]})
@@ -752,12 +772,12 @@ class BaseVersionTest(unittest.TestCase):
             sys.argv = argv
 
     def test_cli_parses_pairs(self):
-        self.run_cli("--base-version", "03_messages=13")
-        self.assertTrue(out("03_messages").exists())
+        self.run_cli("--base-version", "03_output=13")
+        self.assertTrue(out("03_output").exists())
 
     def test_cli_names_only_uses_last_replied(self):
         self.change()
-        self.run_cli("03_messages", "GLOSSARY.md")
+        self.run_cli("03_output", "GLOSSARY.md")
         self.assertIn(self.GREEN + "改過的段落</mark>", self.marked())
         # GLOSSARY 從沒送審過：整份標新增
         self.assertIn("沒有維護者回覆過的版本", out("GLOSSARY").read_text())
@@ -765,17 +785,17 @@ class BaseVersionTest(unittest.TestCase):
     def test_cli_first_arg_not_a_file_is_suffix(self):
         # 第一個參數對不到檔就當成後綴；本機沒有 _backup/ 時清楚報錯
         with self.assertRaises(SystemExit) as cm:
-            self.run_cli("pre_r1", "03_messages")
+            self.run_cli("pre_r1", "03_output")
         self.assertIn("doc/decisions/_backup", str(cm.exception))
 
     def test_cli_rejects_bad_pair(self):
         with self.assertRaises(SystemExit):
-            self.run_cli("--base-version", "03_messages")
+            self.run_cli("--base-version", "03_output")
 
     def test_cli_missing_one_builds_none(self):
         with self.assertRaises(SystemExit):
-            self.run_cli("--base-version", "03_messages=13", "GLOSSARY=6")
-        self.assertFalse(out("03_messages").exists())
+            self.run_cli("--base-version", "03_output=13", "GLOSSARY=6")
+        self.assertFalse(out("03_output").exists())
 
 
 if __name__ == "__main__":

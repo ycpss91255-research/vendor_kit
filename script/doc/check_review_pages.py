@@ -14,8 +14,8 @@ r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫�
    選項 token（含單獨的 --）與 @<tag> 必須在 GLOSSARY.md、01、02 行內程式碼定義過。
 7. 引用別頁條目不寫舊寫法「[名字](連結) 第 N 條」：一律寫「依 [頁名第 N 條](連結#錨點)」；
    行內程式碼（反引號內）不算。
-8. 連結文字不得含反引號：碼放在連結外，寫「[結束碼](03_messages.md#結束碼) `2`」、
-   「[訊息](03_messages.csv) `VK0028`」；行內程式碼裡的連結例子不算。
+8. 連結文字不得含反引號：碼放在連結外，寫「[結束碼](03_output.md#結束碼) `2`」、
+   「[訊息](03_output.csv) `VK0028`」；行內程式碼裡的連結例子不算。
    程式碼名詞本身當連結時直接寫名詞，例如「[dist/](…)」。
 9. 連結文字裡的 <…> 要跳脫：寫「[\<repo\>](../../GLOSSARY.md#工具與出貨)」；沒跳脫的 <repo> 會被當成
    HTML 標籤吃掉。<ins> 也一樣要跳脫。
@@ -159,7 +159,7 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
         if OLD_CITE.search(re.sub(r"`[^`]*`", "", line)):
             errors.append(f"{where}: 引用條目的舊寫法「[名字](連結) 第 N 條」；改成「依 [頁名第 N 條](連結#錨點)」")
         for link in backtick_link_texts(line):
-            errors.append(f"{where}: 連結文字不得含反引號：{link}；碼放在連結外，寫「[結束碼](03_messages.md#結束碼) `2`」「[訊息](03_messages.csv) `VK0028`」；程式碼名詞本身當連結時直接寫名詞，例如「[dist/](…)」")
+            errors.append(f"{where}: 連結文字不得含反引號：{link}；碼放在連結外，寫「[結束碼](03_output.md#結束碼) `2`」「[訊息](03_output.csv) `VK0028`」；程式碼名詞本身當連結時直接寫名詞，例如「[dist/](…)」")
         for link, raw in raw_angle_link_texts(line):
             fixed = "\\<" + raw[1:-1] + "\\>"
             errors.append(f"{where}: 連結文字裡的 {raw} 沒跳脫：{link}；改成 {fixed}，例如「[\\<repo\\>](../../GLOSSARY.md#工具與出貨)」")
@@ -266,10 +266,10 @@ def check_commands(errors: list[str]) -> None:
 TEMP_ALLOWLIST = {
     'README.md:15: L3：README 不能以論據依賴審閱頁：[02 不變量第 5 條](doc/contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)': "#135 待修；審完 README 後移除",
     'README.md:37: L3：README 不能以論據依賴審閱頁：[02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化不寫追蹤檔)': "#135 待修；審完 README 後移除",
-    'doc/contract/03_messages.md:26: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
-    'doc/contract/03_messages.md:30: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
-    'doc/contract/03_messages.csv:VK0002:situation: 指令 `--` 用了 --，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
-    'doc/contract/03_messages.csv:VK0022:situation: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+    'doc/contract/03_output.md:26: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+    'doc/contract/03_output.md:30: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+    'doc/contract/03_output.csv:VK0002:situation: 指令 `--` 用了 --，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+    'doc/contract/03_output.csv:VK0022:situation: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
 }
 
 

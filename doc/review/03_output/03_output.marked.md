@@ -1,6 +1,8 @@
-<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /doc/contract/03_messages.md 與 /doc/contract/03_messages.csv -->
+<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /doc/contract/03_output.md 與 /doc/contract/03_output.csv -->
 
-# 03 訊息與錯誤碼總表
+# 03 輸出
+<mark style="background-color:#f8c8c8">舊標題：03 訊息與錯誤碼總表</mark>
+<mark style="background-color:#c8f0c8">（標題已修改）</mark>
 
 這一頁列出 [VK](../../../GLOSSARY.md#角色與情境) 每個[結束碼](../../../GLOSSARY.md#執行與結果)的意思，以及每條[診斷](../../../GLOSSARY.md#執行與結果)的固定格式。結束碼是[契約](../../../GLOSSARY.md#介面版與契約)，依 [02 不變量第 4 條](../../contract/02_invariants.md#4-永不靜默失敗)。
 
@@ -79,19 +81,20 @@ exit code: 2
 
 <mark style="background-color:#f8c8c8">每條診斷都印到 stderr。第一行格式固定是 `vendor_kit: <level>[VKnnnn]: <message>`。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。只有診斷本文固定使用英文；stdout 的[正常輸出](../../../GLOSSARY.md#執行與結果)、詢問與用法不在這條語言規則內。診斷本文以完整英文句子書寫，句首大寫並以句點結尾；以占位符或小寫的指令名開頭時照原樣，以指令結尾時不加句點，免得複製到句點。本文可能同時包含原因與下一步，需要保留完整句子的邊界。中文說明見訊息表的 `description` 欄。多行診斷的續行也印到 stderr。</mark>
 - <mark style="background-color:#c8f0c8">每條診斷都印到 stderr。</mark>
-- <mark style="background-color:#c8f0c8">第一行格式固定如下，診斷使用的嚴重度見[名詞表](../../../GLOSSARY.md#執行與結果)：</mark>
+- <mark style="background-color:#c8f0c8">第一行格式固定如下：</mark>
 
   <mark style="background-color:#c8f0c8">```text</mark>
   <mark style="background-color:#c8f0c8">vendor_kit: <level>[VKnnnn]: <message></mark>
   <mark style="background-color:#c8f0c8">```</mark>
+- <mark style="background-color:#c8f0c8">stderr 的診斷只用 `warn`、`error`、`fatal`；`info` 只用在成功的結果與執行紀錄，不印成 stderr 的診斷。</mark>
 - <mark style="background-color:#c8f0c8">只有診斷本文固定使用英文；stdout 的[正常輸出](../../../GLOSSARY.md#執行與結果)、詢問與用法不在這條語言規則內。診斷本文以完整英文句子書寫，句首大寫並以句點結尾；以占位符或小寫的指令名開頭時照原樣，以指令結尾時不加句點，免得複製到句點。本文可能同時包含原因與下一步，需要保留完整句子的邊界。</mark>
 - <mark style="background-color:#c8f0c8">中文說明見訊息表的 `description` 欄。</mark>
 - <mark style="background-color:#c8f0c8">多行診斷的續行也印到 stderr。</mark>
 
 [原因代碼](../../../GLOSSARY.md#執行與結果)是 `VK` 加四位數字。每個代碼以訊息表的 `situation` 欄為唯一意思；發出後永不重用。停用的代碼不刪列，`status` 改成 `retired`，留作空號。
 
-<mark style="background-color:#f8c8c8">每個代碼的 level、處置、情況、本文與下一步，只寫在[訊息表](../../contract/03_messages.csv)，一列一個代碼。</mark>
-<mark style="background-color:#c8f0c8">每個代碼的嚴重度、處置、情況、本文與下一步，只寫在[訊息表](../../contract/03_messages.csv)，一列一個代碼。</mark>
+<mark style="background-color:#f8c8c8">每個代碼的 level、處置、情況、本文與下一步，只寫在[訊息表](../../contract/03_output.csv)，一列一個代碼。</mark>
+<mark style="background-color:#c8f0c8">每個代碼的嚴重度、處置、情況、本文與下一步，只寫在[訊息表](../../contract/03_output.csv)，一列一個代碼。</mark>
 
 處置與下一步：
 
@@ -128,7 +131,7 @@ exit code: 2
 
 ---
 
-## 03_messages.csv 的逐碼差異
+## 03_output.csv 的逐碼差異
 
 依 code 對齊、逐欄比較，只列有改動的代碼；綠底是新值、紅底是舊值，沒改的欄照原樣列出。
 

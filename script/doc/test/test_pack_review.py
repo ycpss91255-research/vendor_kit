@@ -29,17 +29,17 @@ class PackReviewTest(unittest.TestCase):
         git("config", "user.name", "t")
         git("config", "commit.gpgsign", "false")
         pathlib.Path("doc/contract").mkdir(parents=True)
-        pathlib.Path("doc/contract/03_messages.md").write_text("# 03\n\n[名詞](../../GLOSSARY.md)\n")
-        pathlib.Path("doc/contract/03_messages.csv").write_text("code,status\nVK0001,active\n")
+        pathlib.Path("doc/contract/03_output.md").write_text("# 03\n\n[名詞](../../GLOSSARY.md)\n")
+        pathlib.Path("doc/contract/03_output.csv").write_text("code,status\nVK0001,active\n")
         pathlib.Path("doc/contract/04_interface.md").write_text("# 04\n")
         pathlib.Path("GLOSSARY.md").write_text("# 名詞\n")
         self.first = self.commit()
         VERSIONS.parent.mkdir(parents=True)
         VERSIONS.write_text(json.dumps({"review_zip": 1, "pages": {
-            "03_messages": [{"v": 12, "commit": self.first}],
+            "03_output": [{"v": 12, "commit": self.first}],
             "04_interface": [{"v": 17, "commit": self.first}],
         }}))
-        for name in ("03_messages", "04_interface", "GLOSSARY.md"):
+        for name in ("03_output", "04_interface", "GLOSSARY.md"):
             mark_changes.build_from_version(name)
         pathlib.Path("note.md").write_text("說明")
         self.out = pathlib.Path("out")
@@ -58,11 +58,11 @@ class PackReviewTest(unittest.TestCase):
         return json.loads(VERSIONS.read_text())
 
     def test_zip_names_carry_version(self):
-        path, arcnames = pack_review.pack(["03_messages", "04_interface", "GLOSSARY.md"], self.out,
+        path, arcnames = pack_review.pack(["03_output", "04_interface", "GLOSSARY.md"], self.out,
                                           pathlib.Path("note.md"))
         self.assertEqual(path.name, "review_v2.zip")
         expected = ["note.md",
-                    "03_messages.v13.marked.md", "03_messages.v13.md", "03_messages.v13.csv",
+                    "03_output.v13.marked.md", "03_output.v13.md", "03_output.v13.csv",
                     "04_interface.v18.marked.md", "04_interface.v18.md",
                     "GLOSSARY.v1.marked.md", "GLOSSARY.v1.md"]
         self.assertEqual(arcnames, expected)
@@ -70,14 +70,14 @@ class PackReviewTest(unittest.TestCase):
             self.assertEqual(zf.namelist(), expected)
             self.assertEqual(zf.read("GLOSSARY.v1.md").decode(), "# 名詞\n")
         # repo 裡的檔名不帶版本號
-        self.assertEqual(sorted(p.name for p in pathlib.Path("doc/review/03_messages").iterdir()),
-                         ["03_messages.csv", "03_messages.marked.md", "03_messages.md"])
+        self.assertEqual(sorted(p.name for p in pathlib.Path("doc/review/03_output").iterdir()),
+                         ["03_output.csv", "03_output.marked.md", "03_output.md"])
 
     def test_records_version_and_head(self):
-        pack_review.pack(["03_messages", "GLOSSARY.md"], self.out)
+        pack_review.pack(["03_output", "GLOSSARY.md"], self.out)
         table = self.table()
         self.assertEqual(table["review_zip"], 2)
-        self.assertEqual(table["pages"]["03_messages"],
+        self.assertEqual(table["pages"]["03_output"],
                          [{"v": 12, "commit": self.first}, {"v": 13, "commit": self.head, "replied": False}])
         self.assertEqual(table["pages"]["GLOSSARY"], [{"v": 1, "commit": self.head, "replied": False}])
         self.assertEqual(table["pages"]["04_interface"], [{"v": 17, "commit": self.first}])
@@ -104,11 +104,11 @@ class PackReviewTest(unittest.TestCase):
         self.assert_not_bumped()
 
     def test_uncommitted_csv_fails(self):
-        pathlib.Path("doc/contract/03_messages.csv").write_text("code,status\nVK0001,retired\n")
-        mark_changes.build_from_version("03_messages")
+        pathlib.Path("doc/contract/03_output.csv").write_text("code,status\nVK0001,retired\n")
+        mark_changes.build_from_version("03_output")
         with self.assertRaises(SystemExit) as cm:
-            pack_review.pack(["03_messages"], self.out)
-        self.assertIn("03_messages.csv", str(cm.exception))
+            pack_review.pack(["03_output"], self.out)
+        self.assertIn("03_output.csv", str(cm.exception))
 
     def test_staged_official_fails(self):
         pathlib.Path("doc/contract/04_interface.md").write_text("# 04\n\n改了\n")
@@ -162,7 +162,7 @@ class PackReviewTest(unittest.TestCase):
                           {"v": 18, "commit": self.head, "replied": True}])
         # 不打包、不取號：review_zip 與其他鍵不變，也沒有新 zip
         self.assertEqual(table["review_zip"], before["review_zip"])
-        self.assertEqual(table["pages"]["03_messages"], before["pages"]["03_messages"])
+        self.assertEqual(table["pages"]["03_output"], before["pages"]["03_output"])
         self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["review_v2.zip"])
 
     def test_replied_accepts_root_file_key(self):
@@ -204,12 +204,12 @@ class PackReviewTest(unittest.TestCase):
         before = VERSIONS.read_text()
 
         with self.assertRaises(SystemExit) as cm:
-            self.run_main("--finalized", "04_interface=17", "03_messages=12")
+            self.run_main("--finalized", "04_interface=17", "03_output=12")
 
         self.assertIn("replied: true", str(cm.exception))
         self.assertEqual(VERSIONS.read_text(), before)
         self.assertTrue(pathlib.Path("doc/review/04_interface").is_dir())
-        self.assertTrue(pathlib.Path("doc/review/03_messages").is_dir())
+        self.assertTrue(pathlib.Path("doc/review/03_output").is_dir())
 
     def test_finalized_rejects_version_that_was_not_sent(self):
         before = VERSIONS.read_text()

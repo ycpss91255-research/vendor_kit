@@ -9,7 +9,7 @@
 - **只記整檔 hash，不記行原文**：判斷得了檔有沒有被改，但移除時算不出要收回哪幾行，只剩整份刪（違反不變量 1）或不動。
 - **多處命中時刪第一處或全刪**：可能刪掉使用者自己寫的相同內容。
 - **不留基準版，只比對磁碟內容與新版**：沒有共同祖先，分不出上游改的與使用者改的，只能整份覆蓋或整份不動。
-- **把 `git merge-file` 的原生結束狀態直接當結束碼**：它的語意跟[結束碼](../contract/03_messages.md#結束碼)不對齊，而且等於把可換的合併機制變成對外介面。
+- **把 `git merge-file` 的原生結束狀態直接當結束碼**：它的語意跟[結束碼](../contract/03_output.md#結束碼)不對齊，而且等於把可換的合併機制變成對外介面。
 
 ## Consequences
 
@@ -17,7 +17,7 @@
 - 移除的結果事前算得出來：拿 metadata 與檔案內容就知道會刪哪幾行、哪幾行只警告。
 - 每個納管的初始檔在 repo 裡多一份基準版副本，每次套用後要更新。
 - CRLF／LF 等價比對要在每個平台給同一個答案（[ADR-0012](0012-deterministic-behavior-and-escaping.md)）。
-- 驗收：命中零處、一處、多處三種移除情形，與合併衝突回[結束碼 `1`](../contract/03_messages.md#結束碼)，要在乾淨 fixture repo 的完整流程裡黑箱驗得出來（[不變量 9](../contract/02_invariants.md#9-對外承諾必須黑箱可驗本機開發與正式啟動走同一個入口)）。
+- 驗收：命中零處、一處、多處三種移除情形，與合併衝突回[結束碼 `1`](../contract/03_output.md#結束碼)，要在乾淨 fixture repo 的完整流程裡黑箱驗得出來（[不變量 9](../contract/02_invariants.md#9-對外承諾必須黑箱可驗本機開發與正式啟動走同一個入口)）。
 - 內部機制（之後搬到實作 issue）：
   - metadata 每個初始檔一筆 `[[file]]`；`state` 記 `managed`／`appended`／`declined`／`unmanaged`／`deleted`，使用者拒絕的版本記在 `declined_hash`，下一次執行知道那一版問過了。`state` 與 `declined_hash` 是持久格式。
   - metadata 記錄「哪些檔、哪些行由 VK 建立」，是 `remove` 與 `uninstall` 唯一的刪除依據；紀錄以外的檔一律不看。

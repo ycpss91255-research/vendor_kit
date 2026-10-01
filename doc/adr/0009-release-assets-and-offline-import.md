@@ -14,7 +14,7 @@
 
 - 退版不需要額外機制，還原鎖定行就夠，因為指到的資產還在。
 - 代價落在出貨端：每次 release 多交每個平台的 `.digest` 與一份 `SHA256SUMS`，支援平台增加時跟著長。永不刪是永久成本：儲存與用過的版本號只會累積，發錯的版本只能另發一版蓋過去。
-- 驗收落在黑箱層：乾淨 fixture 裡拿掉旁檔跑 `add <repo> -i <image>`，要得到[結束碼 `2`](../contract/03_messages.md#結束碼)，且版本鎖定行不動。
+- 驗收落在黑箱層：乾淨 fixture 裡拿掉旁檔跑 `add <repo> -i <image>`，要得到[結束碼 `2`](../contract/03_output.md#結束碼)，且版本鎖定行不動。
 - 內部機制（之後搬到實作 issue）：
   - Release 資產：每個支援平台一份 image tar（工具 image 是多架構 amd64＋arm64，見 [ADR-0011](0011-test-layers-and-ci-matrix.md)）；每份旁邊一個同名 `.digest`，記正式的多架構 index digest，不是那份 tar 的雜湊；另有一份 `SHA256SUMS` 管其餘資產的完整性，不承擔 digest。
   - 離線導入（`add <repo> -i <image>`）讀 tar 同名的旁檔取得 digest 寫進版本鎖定行；旁檔缺就以 `2` 結束，不退化成只寫 tag。

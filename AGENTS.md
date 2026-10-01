@@ -14,7 +14,7 @@ repo 上一層的 `vendor-kit_ws/` 是工作區：`src/` 是這個 repo；`workt
 
 ## 決議與文件流程
 
-- **對外契約放 `doc/contract/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md`、`03_messages.md`、`04_interface.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
+- **對外契約放 `doc/contract/`，不放 issue。** 這是刻意偏離 skill 的預設（`to-prd` 會把規格發到 issue）：issue 不好追蹤改動、做不了逐頁審與標示版差異。所以 `01_purpose.md`、`02_invariants.md`、`03_output.md`、`04_interface.md` 留在 repo，跑 `to-prd` 之類的 skill 時不要把它們搬進 issue。
 - **目錄一律用 `doc/`，不用 `docs/`。** 這是刻意偏離 skill 的預設：`.agents/skills/` 是外部引入的 skill，內文寫的 `docs/adr/`、`docs/agents/` 等一律讀成 `doc/adr/`、`doc/agents/`。skill 本身不改，改了以後同步上游會衝突；根目錄出現 `docs/` 時 [check_terms.py](script/doc/check_terms.py) 會擋下來。
 - 每個設計決議先在 issue 討論（中文）；定案後才寫 ADR。
 - **對外文件的依賴與導覽：** ① 內容（論據、名詞、選項）只能往前依賴，頁 N 只能用前面的頁與[名詞表](GLOSSARY.md)。② 導覽指標（例如「詳見 04」，只告訴讀者去哪裡看、不當論據）可以往後指，前提是拿掉連結後那一段仍讀得懂。③ 根目錄 [README](README.md) 是入口、不是第 0 頁，它的導覽照 ②，當論據用的連結（例如「依 [02 不變量](doc/contract/02_invariants.md)」）照 ①。

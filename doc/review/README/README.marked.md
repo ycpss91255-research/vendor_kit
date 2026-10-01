@@ -71,7 +71,7 @@ sh bootstrap.sh
 - <mark style="background-color:#f8c8c8">進階指令與選項見 [04 使用者介面](../../decisions/review/04_interface.md)</mark>
 - <mark style="background-color:#f8c8c8">結束碼與訊息見 [03 訊息與錯誤碼總表](../../decisions/review/03_messages.md)</mark>
 - <mark style="background-color:#c8f0c8">進階指令與選項見 [04 使用者介面](../../contract/04_interface.md)</mark>
-- <mark style="background-color:#c8f0c8">[結束碼](../../../GLOSSARY.md#執行與結果)與訊息見 [03 訊息與錯誤碼總表](../../contract/03_messages.md)</mark>
+- <mark style="background-color:#c8f0c8">[結束碼](../../../GLOSSARY.md#執行與結果)與訊息見 [03 輸出](../../contract/03_output.md)</mark>
 
 ## 文件
 
@@ -83,7 +83,7 @@ sh bootstrap.sh
 - <mark style="background-color:#f8c8c8">[架構決議（ADR）](../../adr/)</mark>
 - <mark style="background-color:#c8f0c8">[01 目的與承諾](../../contract/01_purpose.md)：為什麼做 VK，對使用者承諾什麼</mark>
 - <mark style="background-color:#c8f0c8">[02 不變量](../../contract/02_invariants.md)：任何版本都必須成立的規則</mark>
-- <mark style="background-color:#c8f0c8">[03 訊息與錯誤碼總表](../../contract/03_messages.md)：每個結束碼的意思，與要[使用者](../../../GLOSSARY.md#角色與情境)動手處理的訊息</mark>
+- <mark style="background-color:#c8f0c8">[03 輸出](../../contract/03_output.md)：每個結束碼的意思，與要[使用者](../../../GLOSSARY.md#角色與情境)動手處理的訊息</mark>
 - <mark style="background-color:#c8f0c8">[04 使用者介面](../../contract/04_interface.md)：全部指令與選項</mark>
 - <mark style="background-color:#c8f0c8">[名詞表](../../../GLOSSARY.md)</mark>
 - <mark style="background-color:#c8f0c8">[架構決議 (ADR)](../../adr/)</mark>
