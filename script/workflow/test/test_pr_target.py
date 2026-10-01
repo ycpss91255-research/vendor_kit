@@ -1,4 +1,5 @@
-"""pr_target.py：用暫存的 origin／主 repo 與假的 gh 測找分支、issue、建或沿用 worktree 與乾淨檢查。"""
+"""pr_target.py：用暫存的 origin／主 repo 與假的 gh 測找分支、issue、建或沿用 worktree、乾淨檢查與並行時的鎖。"""
+import fcntl
 import json
 import os
 import pathlib
@@ -6,6 +7,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -134,6 +136,36 @@ class PrTarget(unittest.TestCase):
         code, out = self.run_main()
         self.assertEqual(code, 1)
         self.assertIn("遠端沒有分支", out["error"])
+
+    def test_lock_blocks_second_holder(self):
+        lock = pathlib.Path(sh(self.repo, "git", "rev-parse", "--path-format=absolute",
+                                "--git-common-dir")) / "pr_target.lock"
+        with t.repo_lock(self.repo):
+            with open(lock, "w") as f:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with open(lock, "w") as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)   # 放開之後拿得到
+
+    def test_parallel_prepare_two_branches(self):
+        sh(self.other, "git", "switch", "-q", "-c", "feat/y")
+        sh(self.other, "git", "push", "-q", "origin", "feat/y")
+        res, errs = {}, []
+
+        def run(b):
+            try:
+                res[b] = t.prepare(self.repo, b)
+            except Exception as e:  # noqa: BLE001
+                errs.append(f"{b}: {e}")
+
+        ths = [threading.Thread(target=run, args=(b,)) for b in ("feat/x", "feat/y")]
+        for th in ths:
+            th.start()
+        for th in ths:
+            th.join()
+        self.assertEqual(errs, [])
+        self.assertTrue(res["feat/x"]["created"] and res["feat/y"]["created"])
+        self.assertTrue((self.ws / "worktree" / "branch" / "feat" / "y" / "b.txt").exists())
 
 
 if __name__ == "__main__":

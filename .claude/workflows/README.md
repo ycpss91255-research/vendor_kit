@@ -29,7 +29,7 @@ Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東�
 | `discuss` | codex 與 Claude 各自回答、最多 3 輪比對，未收斂交維護者 | 問維護者之前；結果回報主對話，貼到 #78 對應的 child issue | `round`、`questions`（每項 `{ id, question, context }`） |
 | `research` | agy 查 → codex 核對 → Claude 整合 → 貼 issue。brief 放 workspace 的 `reference/research/<issue>/<id>_brief.md`，輸出也放那裡，不放 `/tmp`；整合結論寫到 `claude_review_<id1>_<id2>….md`（依 `briefs` 順序串接 id），同一 issue 換一批 brief 再跑不會覆蓋；agy 經 `script/workflow/agy_run.py` 執行（自動選最新的 gemini flash-high 模型、可用 `agyModel` 指定，已有輸出就沿用），codex 經 `script/workflow/codex_run.py`；留言檔由 `script/workflow/prepare_comment.py` 準備，貼完核對則數 | 要找外部前例或資料當決策依據時；brief 先寫好 | `issue`、`topic`、`briefs`（每項 `{ id, label }`） |
 | `pr` | 把每一項做成一個 PR：開 issue 掛成 sub-issue、開 worktree、修改、驗證、commit、開 PR、等 CI，可選 merge；預設依序，`parallel: true` 時同時跑 | 要開一個或多個「一個 issue 一個 PR」的改動時 | `parent`、`items` |
-| `pr-fix` | 在已開 PR 的 worktree 修一個問題：查分支／worktree／issue 並確認乾淨且最新 → 修改 → 全部驗證 → 一個 commit → push → 等 CI；不 merge | PR 已經開了、CI 或審查要求再改時；CI 通過就停 | `pr`、`problem`、`todo`、`commit` |
+| `pr-fix` | 在已開 PR 的 worktree 修問題：查分支／worktree／issue 並確認乾淨且最新 → 修改 → 全部驗證 → 一個 commit → push → 等 CI；不 merge。`pr` 給陣列時各 PR 同時修、互不影響 | PR 已經開了、CI 或審查要求再改時；CI 通過就停 | `pr`、`problem`、`todo`、`commit` |
 | `diagram-edit` | 改圖的固定流程：準備（輪次、備份、確認 drawio 頁面有效並載入）→ 改圖（drawio MCP，只改指定頁）→ lint 歸零（最多 3 輪）→ 匯出 PNG → codex 審查 → 套用必改 → 再跑 lint 與 `<diagram id>` 範圍檢查；不 commit，建議只回報 | 改 repo 裡的 `.drawio` 圖時；主對話要先持有 drawio 頁面 | `file`、`pages`、`task` |
 
 `doc-edit` 的選填欄位：`repo`（repo 根目錄的絕對路徑；不給就由第一個子代理跑 `git rev-parse --path-format=absolute --git-common-dir`，取其上一層，在 worktree 裡也指回主 repo）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（審查額外要看的重點）、`editor`（`codex` 預設｜`claude`）、`mode`（`full` 預設｜`light`）、`effort`（`{ edit, polish, review }`）、`topic`（短主題，例如 `"#121"`）。`discuss` 的選填欄位：`background`（已定案前提）、`repo`（主 repo 根目錄；不給就由第一個子代理在它的工作目錄跑 `git rev-parse --path-format=absolute --git-common-dir`，取結果的上一層，所以在 linked worktree 也會回到主 repo；要用 PR worktree 時明確帶）。`discuss` 的 codex 一律透過 `script/workflow/codex_run.py` 呼叫：brief 用 Write 工具寫進子代理的 scratchpad，成敗看腳本輸出的 JSON（`ok`／`exit`／`error`／`stderr_tail`），不看 shell 的結束碼。`research` 的選填欄位：`repo`（預設 `/home/cyc/Desktop/vendor-kit_ws/src`；腳本從 `<repo>/script/workflow/` 取，workspace 是它的上一層）、`dir`（預設 `<workspace>/reference/research/<issue>`）、`background`（已定案前提）、`post`（預設 `true`；`false` 就只產檔、不貼 issue）、`agyModel`（指定 agy 模型名；不給就由 `agy_run.py` 自動選最新的 gemini flash-high 模型）。`research` 每次執行開頭印出識別 `research #<issue>`，子代理的 label 也帶 `#<issue>` 前綴。`research` 的機械步驟由子代理呼叫腳本、讀它印出的 JSON：調查是 `agy_run.py`（輸出先寫 `.part`，成功才改名），核對是 `codex_run.py --delete-brief`（brief 用 Write 工具寫檔），貼 issue 是 `prepare_comment.py prepare`（標記、註記行、本機路徑換相對、超過 60000 字元切分，並用 hook 的規則自檢）→ 每則一個獨立的 `gh issue comment --body-file` → `prepare_comment.py clean`。貼 issue 的子代理回報 `planned`（留言檔則數）與 `urls`，兩者數目不同或 `planned` 是 0 時回傳值帶 `error`。`pr` 與 `pr-fix` 的參數見下面。
@@ -109,29 +109,31 @@ args 範例：
 
 ## pr-fix
 
-修已開的 PR。開始時印出 `pr-fix #<pr>`，子代理的 label 是 `#<pr> 準備`、`#<pr> 修改`。
+修已開的 PR。開始時印出 `pr-fix #<pr>`（陣列時列出每個編號並加註「並行」），每個 PR 的子代理 label 是 `#<pr> 準備`、`#<pr> 修改`。
 
 args 欄位：
 
 | 欄位 | 必填 | 說明 |
 |---|---|---|
-| `pr` | 是 | PR 編號。分支、worktree、issue 都由 `script/workflow/pr_target.py` 查，不用自己帶 |
-| `problem` | 是 | 要修的問題 |
-| `todo` | 是 | 要做的事 |
-| `commit` | 是 | commit 訊息第一行（`type(scope): 摘要`），只能一行；footer `Refs: #<issue>` 由 workflow 補 |
+| `pr` | 是 | PR 編號，或編號陣列（不能重複）。陣列時各 PR 同時修，一個失敗或丟錯只記在它自己的結果，不影響其他 PR。分支、worktree、issue 都由 `script/workflow/pr_target.py` 查，不用自己帶 |
+| `problem` | 是 | 要修的問題。字串＝所有 PR 共用；物件＝以 PR 編號為鍵各自給（鍵必須是 `pr` 裡的編號，每個 PR 都要有值） |
+| `todo` | 是 | 要做的事。共用或各自給，同 `problem` |
+| `commit` | 是 | commit 訊息第一行（`type(scope): 摘要`），只能一行；共用或各自給，同 `problem`。footer `Refs: #<issue>` 由 workflow 補 |
 | `repoRoot` | 否 | 主 repo。不給就用子代理的工作目錄，實際位置以 `pr_target.py` 回報的 `repo` 為準 |
 
-步驟：
+每個 PR 的步驟：
 
-1. 準備：`script/workflow/pr_target.py <pr>` 用唯讀的 `gh pr view` 取分支（headRefName）與本文，issue 取本文第一個 `Closes`／`Refs #N`；worktree 在 `worktree/branch/<分支>`，不存在就從 `origin/<分支>` 建；確認乾淨、沒有沒推的 commit，落後遠端就 fast-forward。失敗就停，不進下一步。
+1. 準備：`script/workflow/pr_target.py <pr>` 用唯讀的 `gh pr view` 取分支（headRefName）與本文，issue 取本文第一個 `Closes`／`Refs #N`；worktree 在 `worktree/branch/<分支>`，不存在就從 `origin/<分支>` 建；確認乾淨、沒有沒推的 commit，落後遠端就 fast-forward。失敗就停，不進下一步。動到主 repo 的 fetch 與 worktree add 用檔案鎖（git common dir 的 `pr_target.lock`）排隊，同時準備幾個 PR 不會撞到 git 的 ref 鎖。
 2. 照 `problem`、`todo` 在 worktree 修改。
 3. 驗證：`script/workflow/verify.py --root <worktree>`，跑 docs.yml 每個 `run:`、每個 `script/*/test`、`check_script_layout.py`、hooks 的測試，並檢查每個 `script/*/test` 都在 docs.yml 裡。
 4. 一個 commit（footer `Refs: #<issue>`，不加 Claude 署名），一般 push；只有要 rebase 到 origin/main 時才 `--force-with-lease`，只限這個分支。
 5. `script/workflow/wait_ci.py <pr>` 等 CI；失敗且是這次改動造成的就再修、commit、push、再等。CI 全過就停。
 
-不 merge、不開 PR、不碰主 repo（不改檔、不 pull、不動未追蹤檔）。回傳 `{ pr, branch, issue, url, ci_pass, pushed, commit, summary, error }`。
+子代理的暫存檔（commit 訊息、留言本文、一次性腳本）一律放 scratchpad 下的 `pr-fix/<pr>/`：並行的子代理共用同一個 scratchpad，固定檔名會互相覆蓋（#241）。
 
-args 範例在 `pr-fix.js` 檔尾。
+不 merge、不開 PR、不碰主 repo（不改檔、不 pull、不動未追蹤檔）。單一 PR 回傳 `{ pr, branch, issue, url, ci_pass, pushed, commit, summary, error }`；陣列時回傳 `{ prs, results, failed }`：`results` 是每個 PR 一筆上面的結果（順序同 `pr`），`failed` 是沒有 CI 全過的 `{ pr, reason }`。
+
+args 範例（單一與陣列各一）在 `pr-fix.js` 檔尾。
 
 ## diagram-edit
 
