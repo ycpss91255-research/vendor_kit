@@ -18,13 +18,12 @@ ROOT = Path(__file__).resolve().parents[2]
 # 這些路徑不掃：歷史快照、本地產物、外部素材原文、vendored 的第三方 skill、已凍結的架構圖。
 # 共同點是「文字不是我們寫的，或不是現行規範」，拿我們的名詞規範去掃它只會產生假警報。
 EXCLUDE_PREFIXES = (
-    "doc/decisions/research/",
     "doc/decisions/review/_marked/",
     ".claude/skills/",
     ".agents/skills/",  # skill 的實體目錄；.claude/skills 是指過來的 symlink，git 追蹤的是這條路徑
     "script/diagram/",
 )
-EXCLUDE_FILES = ("discussion.drawio",)
+EXCLUDE_FILES = ()
 
 # 帶這些標記的行是在引述舊詞，不算殘留。要放行新的講法就加在這裡。
 QUOTE_MARKERS = (

@@ -39,5 +39,6 @@
 
 ## 圖檔位置
 
-- 舊模型的圖怎麼處理，待 #35 決定。
+- 最新的架構圖在 `doc/diagram/architecture.drawio`，以舊模型畫成，之後依新名詞重畫。
+- 舊模型的其他圖與它們的產生器不進 git（#35），副本在 workspace 的 `reference/diagram_legacy/`。
 - 新的圖由 `diagram-edit` workflow 處理（#138）。

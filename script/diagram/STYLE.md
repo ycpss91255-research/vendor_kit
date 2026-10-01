@@ -1,6 +1,6 @@
 # 圖面樣式規範
 
-所有 `.drawio` 圖都照這份畫。來源是 `gen57.py` 的樣式常數與 `legend_flow`／`legend_arch`／`page()`／`band()`／`tree()`，以及 `disc_v1_a.py`、`disc_v1_b.py`、`disc_v1_c.py` 的實際用法。本檔只管格式，不管方塊裡寫什麼；圖上的名詞一律用根目錄 `CONTEXT.md` 的詞。
+所有 `.drawio` 圖都照這份畫。來源是 `gen57.py` 的樣式常數與 `legend_flow`／`legend_arch`／`page()`／`band()`／`tree()`，以及 `disc_v1_a.py`、`disc_v1_b.py`、`disc_v1_c.py` 的實際用法（這些產生器已移出 git，副本在 workspace 的 `reference/diagram_legacy/script_diagram/`）。本檔只管格式，不管方塊裡寫什麼；圖上的名詞一律用根目錄 `CONTEXT.md` 的詞。
 
 style 字串都是完整的，直接貼進 `<mxCell style="...">`。
 
