@@ -27,3 +27,28 @@ drawio MCP `export_diagram` 匯出的 PNG 是透明底（#138）。`png.py` 只�
 - `python3 script/diagram/png.py resize <in.png> <out.png> [--max-width 1600]`：寬度超過上限才等比縮（最近鄰取樣），色彩型態沿用輸入。
 
 只支援 drawio 實際會輸出的 8-bit RGBA／RGB、非交錯；其他型態回結束碼 2。輸出一行 JSON；結束碼 0 過、1 有問題（讀不到、不是 PNG、內容壞掉）、2 用法錯。測試在 `test/`（`python3 -m unittest discover -s script/diagram/test`）。
+
+## lint.py
+
+[lint.py](lint.py) 一次跑完圖的機械檢查（#138），給 `diagram-edit` workflow 的「lint 歸零」用。壓線與溢字直接沿用 `check_overlap.py`、`check_overflow.py`，格子分類沿用 `extract_pages.py`，不另寫一份。
+
+跑法（在 repo 根目錄）：
+
+```sh
+python3 script/diagram/lint.py <file.drawio> [--base <old.drawio>] [--rules a,b]
+```
+
+| 規則 | 檢查 |
+|---|---|
+| `overlap` | 壓線：線穿過不相干的方塊 |
+| `overflow` | 溢字：文字超出方塊、橢圓或菱形；字寬估算，全形字 = fontSize，半形字 = 0.6 × fontSize |
+| `dangling` | 懸空：流程頁的步驟與判斷沒有進線或出線、終點沒有進線、跨頁出入口少了該有的線 |
+| `decision` | 判斷：菱形出線不是兩條，或兩條沒有分別標「是」「否」 |
+| `endcolor` | 終點顏色：橢圓底色不是終點色；寫結束碼 0 卻不是綠、寫非 0 卻是綠；紅終點寫了「請」「手動」「重跑」就該用橙 |
+| `term` | 名詞：用了名詞表 `_Avoid_` 的說法、本頁名詞表的名詞不在名詞表、同一名詞各頁寫法或定義不一致。名詞表讀根目錄 `GLOSSARY.md`，沒有就讀 `CONTEXT.md`，都沒有就跳過並在 `skipped` 標出 |
+| `legend` | 圖例：每頁要有圖例（id 規則見 `STYLE.md` 3.1）、頁上的底色要在圖例裡、圖例的底色要是 `STYLE.md` 定義過的 |
+| `page-id` | 頁 id：`<diagram id>` 不准重複或缺；給 `--base` 時，舊檔每頁的 id 在新檔都要還在（改頁名、換頁序不算） |
+
+流程頁 = 頁上有非圖例的菱形或終點、出入口橢圓；`dangling` 只查流程頁。只讀檔，不連 drawio 服務；壓縮與未壓縮的 `<diagram>` 都讀。
+
+輸出一行 JSON：`{"ok", "file", "base", "rules", "skipped", "count", "violations": [{"page", "cell", "rule", "msg"}]}`，`page` 是 `<diagram id>`。結束碼 0 沒有違規、1 有違規、2 用法錯。測試：`python3 -m unittest discover -s script/diagram/test`。
