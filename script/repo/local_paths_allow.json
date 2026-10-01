@@ -14,10 +14,6 @@
       "reason": "docstring 列出自檢擋哪些樣式（用 <user> 佔位），不是真路徑"
     },
     {
-      "path": ".claude/hooks/test/test_comment_tag_guard.py",
-      "reason": "hook 測試資料刻意含本機路徑；改成拆字串寫法要動 hook 範圍，不在 #255（一個 PR 一類範圍），改完刪這條"
-    },
-    {
       "path": "script/workflow/test/test_body.py",
       "reason": "body.py 測試資料刻意含本機路徑，部分還沒拆字串；改要動 script/workflow 範圍，不在 #255，改完刪這條"
     },
