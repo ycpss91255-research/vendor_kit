@@ -129,7 +129,7 @@ ${RULES}
 2. 掛成 sub-issue：\`gh api repos/${SLUG}/issues/N -q .id\` 取 id，再用另一個指令 \`gh api -X POST repos/${SLUG}/issues/${parent}/sub_issues -F sub_issue_id=<id>\`。
 3. 開 worktree：\`python3 ${S}/worktree.py add ${it.branch} --repo ${repoRoot}\`（會先 fetch、從 origin/main 開在 ${wt}；已存在會報錯，報錯就停）。之後都在 ${wt} 裡做。
 4. 修改：照「要做的內容」改。
-5. 驗證：\`python3 ${W}/verify.py --root ${wt}\`。它跑 docs.yml 每個 \`run:\`、每個 \`script/*/test\` 的 unittest、check_script_layout、\`.claude/hooks/test_guard.py\`，並檢查每個 \`script/*/test\` 都在 docs.yml 裡；輸出 JSON 的 ok 是 true 才算過。失敗時看 steps 裡 ok 是 false 的 output 自己判斷：是這次改動造成的就修好再重跑一次 verify.py；修不了或跟這次無關就停下，不要 commit，在 error 寫清楚。
+5. 驗證：\`python3 ${W}/verify.py --root ${wt}\`。它跑 docs.yml 每個 \`run:\`、每個 \`script/*/test\` 的 unittest、check_script_layout、hooks 的測試，並檢查每個 \`script/*/test\` 都在 docs.yml 裡；輸出 JSON 的 ok 是 true 才算過。失敗時看 steps 裡 ok 是 false 的 output 自己判斷：是這次改動造成的就修好再重跑一次 verify.py；修不了或跟這次無關就停下，不要 commit，在 error 寫清楚。
 6. commit 一個（訊息照上面，最後空一行加 footer \`Refs: #N\`），\`git push -u origin ${it.branch}\`。
 7. 開 PR：本文寫成檔 ${prFile}，第一行 \`[claude] \` 開頭寫一句摘要，接著「做了什麼」「為什麼」「驗證」（列實際跑的指令與結果），最後一行 \`Closes #N\`。自檢 \`python3 ${W}/body.py check ${prFile} --kind pr --issue N\`，ok 才送。用另一個指令 \`gh pr create -R ${SLUG} --base main --head ${it.branch} --title "${prTitle}" --body-file ${prFile}\`。刪掉 ${prFile}。
    等 CI：\`python3 ${W}/wait_ci.py <PR>\`（預設最多 600 秒）。結束碼 0＝全過；1＝有失敗：看 \`gh run view --log-failed -R ${SLUG}\`，是這次改動造成的就修、commit、push 後再等一次，修不了就停；2＝逾時，停下回報；跟 main 衝突時照規則 rebase。

@@ -75,7 +75,7 @@ args 欄位：
 1. 開 issue（本文先寫成檔、`body.py check` 自檢、`gh issue create --body-file`），再用 sub_issues API 掛到父題。
 2. `script/workflow/worktree.py add <branch>` 從 origin/main 開 worktree。之後的腳本（`verify.py`、`body.py`、`wait_ci.py`）一律用 worktree 自己的 `script/workflow/`，不用主 repo 的：主 repo 可能落後 main。
 3. 照 `content` 修改。
-4. 驗證：`script/workflow/verify.py --root <worktree>`，跑 docs.yml 每個 `run:`、每個 `script/*/test` 的 unittest、`check_script_layout.py`、`.claude/hooks/test_guard.py`，並檢查每個 `script/*/test` 都在 docs.yml 裡；輸出的 `ok` 是 true 才算過。
+4. 驗證：`script/workflow/verify.py --root <worktree>`，跑 docs.yml 每個 `run:`、每個 `script/*/test` 的 unittest、`check_script_layout.py`、hooks 的測試，並檢查每個 `script/*/test` 都在 docs.yml 裡；輸出的 `ok` 是 true 才算過。
 5. commit（footer `Refs: #<issue>`，不加 Claude 署名）、push。
 6. 開 PR：本文第一行 `[claude] `、含 `Closes #<issue>`，自檢後 `gh pr create --body-file`。
 7. `script/workflow/wait_ci.py <pr>` 等 CI。
@@ -125,7 +125,7 @@ args 欄位：
 
 1. 準備：`script/workflow/pr_target.py <pr>` 用唯讀的 `gh pr view` 取分支（headRefName）與本文，issue 取本文第一個 `Closes`／`Refs #N`；worktree 在 `worktree/branch/<分支>`，不存在就從 `origin/<分支>` 建；確認乾淨、沒有沒推的 commit，落後遠端就 fast-forward。失敗就停，不進下一步。
 2. 照 `problem`、`todo` 在 worktree 修改。
-3. 驗證：`script/workflow/verify.py --root <worktree>`，跑 docs.yml 每個 `run:`、每個 `script/*/test`、`check_script_layout.py`、`.claude/hooks/test_guard.py`，並檢查每個 `script/*/test` 都在 docs.yml 裡。
+3. 驗證：`script/workflow/verify.py --root <worktree>`，跑 docs.yml 每個 `run:`、每個 `script/*/test`、`check_script_layout.py`、hooks 的測試，並檢查每個 `script/*/test` 都在 docs.yml 裡。
 4. 一個 commit（footer `Refs: #<issue>`，不加 Claude 署名），一般 push；只有要 rebase 到 origin/main 時才 `--force-with-lease`，只限這個分支。
 5. `script/workflow/wait_ci.py <pr>` 等 CI；失敗且是這次改動造成的就再修、commit、push、再等。CI 全過就停。
 
