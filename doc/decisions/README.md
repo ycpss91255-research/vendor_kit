@@ -59,11 +59,11 @@
 
 ### 2. `script/diagram/`
 
-**是什麼**：圖的產生器與審查工具。19 MB、216 個 `.py`。其中 `_backup/`（17 MB，`gen2`–`gen56`、`make_gen*`、各種 `.v*` 後綴）是歷代痕跡，`_misc/`（900 KB，53 個一次性 patch／診斷腳本）多數假設 cwd 有已不存在的 `v2_only.drawio`。
+**是什麼**：圖的產生器與審查工具。一次性產物（`_backup/`、`_misc/`、`r12_codex/`、`r13_codex/`、`r15_codex/`、`push_*.py`、`verify_r15/16.py`、`finish_r15.py`、`review_v2_README.md`）已刪（#144），舊內容在 git 歷史與 tag `archive/pr-59`。現在只剩舊圖的產生器（`gen57.py`、`gen_disc.py`、`disc_v1_*.py`）、可重用的工具（`check_overflow.py`、`check_overlap.py`、`lint_pages.py`、`extract_pages.py`、`shrink_png.py`、`drawio_common.py`）與 `README.md`、`STYLE.md`。
 
-**為什麼卡住**：依賴的圖頁已作廢（跟第 1 項綁在一起）。`verify_r15.py`、`verify_r16.py` 指向 `decisions/review/terms.md` —— 這個檔早就不存在（名詞表現在是根 `CONTEXT.md`，而且不是逐字上圖了），兩支腳本現在跑起來必定失敗。
+**為什麼卡住**：產生器依賴的圖頁已作廢（跟第 1 項綁在一起），等 #35 決定舊圖放哪裡、#138 重做時再處理。
 
-**選項**：(a) 整個 `script/diagram/` 進 `_legacy/`；(b) 只留通用的四支（`extract_pages.py`、`lint_pages.py`、`shrink_png.py`、`drawio_common.py`）加 `review_v2_README.md`，其餘歸檔——注意 `diagram-review-v2` skill 的前置步驟就是跑前三支，留著它們才不會把 skill 弄壞；(c) 全留，只刪 `verify_r15/16.py` 這類明確壞掉的。
+**選項**：(a) 整個 `script/diagram/` 進 `_legacy/`；(b) 只留可重用的工具，產生器歸檔——注意 `diagram-review-v2` workflow 的前置步驟就是跑 `extract_pages.py`、`lint_pages.py`、`shrink_png.py`，留著它們才不會把它弄壞；(c) 全留。
 
 `script/mark_changes.py` 不在此列，它是現在每輪都在用的工具，留。
 
