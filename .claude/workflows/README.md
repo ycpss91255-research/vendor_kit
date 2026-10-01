@@ -37,7 +37,21 @@ Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東�
 
 每次執行開頭會印出識別 `doc-edit <round> <topic>`，子代理的 label 也帶同一個前綴，方便分辨同時跑的幾次。
 
-`round` 是 `rNN`，取兩者的最大值加一：本機 `doc/decisions/_backup/` 裡最大的 `pre_rNN`，與 git log 裡 `Doc-Edit: rNN` footer 的最大值。`_backup/` 不進 git，只看它會在別台機器或清過本機後重用舊編號。
+`round` 是 `rNN`，取兩者的最大值加一：本機 `doc/decisions/_backup/` 裡最大的 `pre_rNN`，與 git log 裡 `Doc-Edit: rNN` footer 的最大值，由 [`script/doc/round.py`](../../script/doc/README.md) `next` 算。`_backup/` 不進 git，只看它會在別台機器或清過本機後重用舊編號。
+
+機械步驟由子代理呼叫腳本、讀它印出的 JSON，不照文字步驟自己做（#139）：
+
+| 步驟 | 腳本 |
+|---|---|
+| 輪次檢查 | `script/doc/round.py next` |
+| 改前快照、備份、備份與範圍外檢查、這一輪的 diff | `script/doc/backup.py snapshot`／`save`／`verify`／`diff` |
+| 呼叫 codex（改寫、套用必改、跨檔修正、審查） | `script/workflow/codex_run.py` |
+| lint | `script/workflow/verify.py --root <repo>`（docs.yml 每一步與工具測試；清單以 docs.yml 為準） |
+| 潤稿越界檢查與還原 | `script/doc/polish_check.py` |
+
+codex 改稿時，包裝子代理在 codex 動手前做快照與備份，給 codex 的 brief 寫明不要備份；改完用 `backup.py verify` 檢查。規則是改前的內容等於這一輪某一份既有備份就算可還原，所以內容沒變、不必另存備份的情況不再誤判（#133）。
+
+暫存目錄、子代理 `tmp` 與 `review_log/` 的檔名用暫存鍵（`backup.py key` 的 `run_key`：`.md`、`.csv` 檔在備份鍵後面接 `_md`、`_csv`），`03_output.md` 與 `03_output.csv` 的暫存檔與審查輸出才不會互相覆蓋；備份檔名照舊用備份鍵（`backup_key`），靠副檔名分開。
 
 args 範例在 `doc-edit.js` 檔尾，可以直接貼進 `args`。
 
@@ -121,16 +135,16 @@ args 範例在 `pr-fix.js` 檔尾。
 這幾條**寫在腳本裡**，會組進送給每個子代理的 prompt，不靠每次記得講：
 
 - **不 commit、不 push、不跑任何 git 寫入指令**。唯讀的 `git status`／`git diff` 可以。
-- **改前先備份**到 `doc/decisions/_backup/`，命名 `<鍵>.pre_<round><副檔名>`（例如 `claude_workflows_README.pre_r146.md`；鍵與副檔名的規則跟 `script/doc/mark_changes.py` 同一套），同名已存在就在副檔名前加序號。
+- **改前先備份**到 `doc/decisions/_backup/`：一律跑 [`script/doc/backup.py`](../../script/doc/README.md) `save`，不手動 `cp`、不自己編序號。命名 `<鍵>.pre_<round><副檔名>`（例如 `claude_workflows_README.pre_r146.md`；鍵與副檔名的規則跟 `script/doc/mark_changes.py` 同一套），內容跟這一輪既有備份都不同時才另存帶序號的一份；規則以 `backup.py` 為準。
 - **不准動** `doc/decisions/_legacy/`、`doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/decisions/review/_marked/`——歷史快照與本地產物，除非該 task 明說。
 - **驗證一律用腳本／grep 算，不要目視**。
-- codex 一律帶 `< /dev/null`：省了 codex 會停在等 stdin，整條 workflow 卡死。指令形狀固定：
+- doc-edit 的 codex 一律透過 [`script/workflow/codex_run.py`](../../script/workflow/README.md) 呼叫，brief 用 Write 工具寫檔：
 
   ```
-  codex exec --skip-git-repo-check -C <repo> -o <輸出檔> "<brief>" < /dev/null
+  python3 script/workflow/codex_run.py --cd <repo> --brief <brief 檔> --out <輸出檔>
   ```
 
-  不要自己加沙箱旗標——repo 的 `.codex/config.toml` 已設 `danger-full-access`，加了 bubblewrap 會失敗、codex 零修改。
+  它固定讓 codex 的 stdin 接 /dev/null（不接 codex 會停在等 stdin，整條 workflow 卡死），不帶沙箱旗標（repo 的 `.codex/config.toml` 已設 `danger-full-access`，加了 bubblewrap 會失敗、codex 零修改），先建輸出目錄。結束碼由腳本讀：0 成功、1 codex 非 0 或跑不起來、2 輸出檔不存在或是空的、3 逾時、4 brief 不存在或用法錯；子代理只讀它印出的 JSON。其他 workflow 還沒改用這支腳本前，照舊用 `codex exec --skip-git-repo-check -C <repo> -o <輸出檔> "<brief>" < /dev/null`。
 - 成果進 repo，不留 `/tmp`。
 
 ## 新增 workflow 的規則
