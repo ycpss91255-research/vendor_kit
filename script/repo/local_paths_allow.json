@@ -12,10 +12,6 @@
     {
       "path": "script/workflow/body.py",
       "reason": "docstring 列出自檢擋哪些樣式（用 <user> 佔位），不是真路徑"
-    },
-    {
-      "path": "script/workflow/test/test_body.py",
-      "reason": "body.py 測試資料刻意含本機路徑，部分還沒拆字串；改要動 script/workflow 範圍，不在 #255，改完刪這條"
     }
   ]
 }
