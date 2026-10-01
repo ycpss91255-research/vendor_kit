@@ -1,4 +1,4 @@
-<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定稿時整個送審資料夾一個 commit 刪除；基準是維護者回覆過的送審 commit ccde94f。正式內容看 /README.md -->
+<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit ccde94f。正式內容看 /README.md -->
 
 # vendor_kit
 
@@ -34,8 +34,9 @@
 版本不足時：
 
 - <mark style="background-color:#f8c8c8">Docker 或 just 版本不足，都在任何寫入之前以 `1` 結束</mark>
-- <mark style="background-color:#c8f0c8">Docker 或 just 版本不足，都在任何寫入之前以 `2` 結束</mark>
-- 只有 just 版本不足時，另外印出下載與安裝指令
+- <mark style="background-color:#f8c8c8">只有 just 版本不足時，另外印出下載與安裝指令</mark>
+- <mark style="background-color:#c8f0c8">Docker 版本不足：在任何寫入之前結束</mark>
+- <mark style="background-color:#c8f0c8">just 版本不足：首次[導入](../../../GLOSSARY.md#角色與情境)時，`bootstrap.sh` 在任何寫入之前結束，並印出下載與安裝指令；已有安裝目錄時，由 just 自己報錯。詳細行為與結束碼見 [04 使用者介面](../../contract/04_interface.md#主機需求)</mark>
 
 ### 第一次導入
 
@@ -43,7 +44,7 @@
 > <mark style="background-color:#c8f0c8">尚未可用：含 `bootstrap.sh` 的 release 還沒發布，下面的網址目前找不到檔案，照做會[失敗](../../../GLOSSARY.md#執行與結果)。進度見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。</mark>
 
 <mark style="background-color:#f8c8c8">發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡，依 [02 不變量](../../decisions/review/02_invariants.md#3-自動化只碰不進-git-的東西) 第 3 條。</mark>
-<mark style="background-color:#c8f0c8">發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](../../contract/02_invariants.md#3-自動化只碰不進-git-的東西)。</mark>
+<mark style="background-color:#c8f0c8">發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](../../contract/02_invariants.md#3-自動化不寫追蹤檔)。</mark>
 
 ```sh
 curl -fsSLO https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh
