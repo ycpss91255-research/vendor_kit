@@ -9,10 +9,11 @@ writable_roots = ["~/Desktop/vendor-kit_ws/worktree"]
 [agents]
 max_concurrent_threads_per_session = 100
 
-# Reuse the draw.io MCP package already downloaded by Claude Code.  Keep a
+# Run the draw.io MCP package already in the npm cache (downloaded by Claude
+# Code).  `--offline` resolves it from the cache only, so this neither installs
+# nor updates host packages; the version is pinned instead of @latest.  Keep a
 # separate HTTP port because Claude's stdio MCP instance currently owns 6002.
-# This avoids `npx -y` and therefore does not install or update host packages.
 [mcp_servers.drawio]
-command = "node"
-args = ["/home/cyc/.npm/_npx/4d0da7c6f53b225e/node_modules/@next-ai-drawio/mcp-server/dist/index.js"]
+command = "npm"
+args = ["exec", "--offline", "--yes", "--package=@next-ai-drawio/mcp-server@0.2.3", "--", "next-ai-drawio-mcp"]
 env = { PORT = "6003" }

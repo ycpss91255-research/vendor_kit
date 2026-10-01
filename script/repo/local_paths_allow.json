@@ -16,10 +16,6 @@
     {
       "path": "script/workflow/test/test_body.py",
       "reason": "body.py 測試資料刻意含本機路徑，部分還沒拆字串；改要動 script/workflow 範圍，不在 #255，改完刪這條"
-    },
-    {
-      "path": ".codex/config.toml",
-      "reason": "真違規：drawio MCP 路徑寫死本機 npx 快取，另開 #257 修，修完刪這條"
     }
   ]
 }
