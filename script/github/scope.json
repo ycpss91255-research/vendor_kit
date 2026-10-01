@@ -13,6 +13,7 @@
     {"pattern": "^\\.github/workflows/docs\\.yml$", "scope": "ci:docs", "attach": "any"},
     {"pattern": "^\\.github/workflows/(?P<name>[^/]+)\\.ya?ml$", "scope": "ci:{name}"},
     {"pattern": "^\\.gitignore$", "scope": "repo:gitignore"},
+    {"pattern": "^\\.githooks/(?P<name>[^/]+)$", "scope": "githooks:{name}"},
     {"pattern": "^(AGENTS|CLAUDE)\\.md$", "scope": "agents", "attach": "any"},
     {"pattern": "^CONTEXT\\.md$", "scope": "context"},
     {"pattern": "^script/README\\.md$", "scope": "script", "attach": "any"},
@@ -34,6 +35,7 @@
     {"name": "hook:pr_rules_guard", "scopes": ["hook:pr_rules_guard", "script:github"], "_why": "hook 呼叫 script/github/check_pr_rules.py 與這份範圍表"},
     {"name": "hook:monitor_guard", "scopes": ["hook:monitor_guard", "script:github"], "_why": "hook 擋下 Monitor 時指向 script/github/watch_github.sh（#175）"},
     {"name": "claude:settings", "scopes": ["claude:settings", "hook:settings_hooks"], "_why": "test_settings_hooks 檢查的就是 settings.json 註冊的 hook"},
-    {"name": "workflow:pr-fix", "scopes": ["workflow:pr-fix", "script:workflow"], "_why": "workflow 只呼叫 script/workflow/pr_target.py 與 verify.py 做機械步驟（#187）"}
+    {"name": "workflow:pr-fix", "scopes": ["workflow:pr-fix", "script:workflow"], "_why": "workflow 只呼叫 script/workflow/pr_target.py 與 verify.py 做機械步驟（#187）"},
+    {"name": "githooks:commit-msg", "scopes": ["githooks:commit-msg", "script:git"], "_why": "hook 只呼叫 script/git/check_commit_msg.py（#110）"}
   ]
 }

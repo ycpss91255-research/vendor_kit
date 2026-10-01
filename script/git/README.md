@@ -1,6 +1,6 @@
 # script/git — git 相關工具
 
-檢查 commit 訊息這類 git 本身的東西。
+檢查 commit 訊息這類 git 本身的東西，以及呼叫它的本機 hook（`.githooks/`）。
 
 ## check_commit_msg.py
 
@@ -25,9 +25,19 @@ python3 script/git/check_commit_msg.py --range A..B  # 逐一檢查 A..B 的每�
 
 全部合格回 0；有不合格逐條印出回 1；用法錯誤或 `--range` 給錯回 2。
 
+## 本機 commit-msg hook
+
+[.githooks/commit-msg](../../.githooks/commit-msg) 在每次 commit 時呼叫 `check_commit_msg.py` 檢查訊息，不合格就擋下這次 commit。git 不會自動啟用 repo 裡的 hook，clone 之後要在 repo 根目錄設一次：
+
+```sh
+git config core.hooksPath .githooks
+```
+
+這是本機設定，每份 clone 設一次；同一份 clone 開出的 worktree 共用這個設定。CI 另外檢查 PR 標題與 PR 內每個 commit，沒設 hook 也擋得到，只是比較晚才發現。
+
 ## 測試
 
-測試在 [test/test_check_commit_msg.py](test/test_check_commit_msg.py)，跑法：
+測試在 [test/test_check_commit_msg.py](test/test_check_commit_msg.py)（檢查器）與 [test/test_commit_msg_hook.py](test/test_commit_msg_hook.py)（用暫存 git repo 設 `core.hooksPath` 實際跑 hook），跑法：
 
 ```sh
 python3 -m unittest discover -s script/git/test
