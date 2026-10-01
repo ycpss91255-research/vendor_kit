@@ -3,6 +3,7 @@ export const meta = {
   description: 'agy 查 → codex 核對 → Claude 整合 → 貼 issue',
   whenToUse: '要找外部前例或資料當決策依據時（例如大型 repo 怎麼設定某件事）；brief 先寫好放在 workspace 的 reference/research/<issue>/',
   phases: [
+    { title: '定位', detail: '沒給 repo 時，effort low 子代理跑 git rev-parse --path-format=absolute --git-common-dir，取其上一層當主 repo' },
     { title: '調查', detail: '每個 brief 一個 agy（script/workflow/agy_run.py）；輸出已存在且非空就沿用' },
     { title: '核對', detail: '每份 agy 輸出交給 codex（script/workflow/codex_run.py），逐條打開來源核對，標正確／有誤／查不到' },
     { title: '整合', detail: 'Claude 讀全部 agy 與 codex 輸出，抽查來源，寫整合結論；兩方不一致列成分歧，不選邊' },
@@ -14,19 +15,33 @@ export const meta = {
 //   issue      number  必填，結果貼到這個 issue
 //   topic      string  必填，一句話說明調查目的（給 codex 與 Claude 的背景）
 //   briefs     array   必填，每項 { id, label }：brief 檔是 <dir>/<id>_brief.md，agy 輸出 <dir>/<id>_agy.md
-//   repo       string  可省，主 repo，預設 /home/cyc/Desktop/vendor-kit_ws/src；腳本從 <repo>/script/workflow/ 取，workspace＝它的上一層
+//   repo       string  可省，主 repo；不給就由子代理跑 git rev-parse --path-format=absolute --git-common-dir，取其上一層。腳本從 <repo>/script/workflow/ 取，workspace＝它的上一層
 //   dir        string  可省，預設 <workspace>/reference/research/<issue>（不放 /tmp）
 //   background string  可省，已定案前提
 //   post       boolean 可省，預設 true；false 就只產檔不貼 issue
 //   agyModel   string  可省，指定 agy 模型名；省略就由 agy_run.py 自動選最新的 gemini flash-high
 // 整合輸出寫到 <dir>/claude_review_<id1>[_<id2>…].md（依 briefs 順序串接 id）
-const { issue, topic, briefs, background = '', post = true, agyModel = '', repo = '/home/cyc/Desktop/vendor-kit_ws/src' } = args ?? {}
+const { issue, topic, briefs, background = '', post = true, agyModel = '', repo } = args ?? {}
 if (!Number.isInteger(issue)) throw new Error('args.issue 必填（issue 編號）')
 if (typeof topic !== 'string' || !topic.trim()) throw new Error('args.topic 必填')
 if (!Array.isArray(briefs) || briefs.length === 0) throw new Error('args.briefs 必填')
-if (typeof repo !== 'string' || !repo.trim()) throw new Error('args.repo 必須是主 repo 的路徑')
+if (repo !== undefined && (typeof repo !== 'string' || !repo.trim())) throw new Error('args.repo 必須是主 repo 的路徑')
 log(`research #${issue}`)
-const ROOT = repo.trim().replace(/\/+$/, '')
+
+const LOCATE = {
+  type: 'object',
+  properties: { common_dir: { type: 'string' }, error: { type: 'string' } },
+  required: ['common_dir'],
+}
+let repoPath = repo
+if (repoPath === undefined) {
+  const loc = await agent(`只做一件事：在目前的工作目錄執行 \`git rev-parse --path-format=absolute --git-common-dir\`，把印出的那一行原樣填進 common_dir。不改任何檔案、不 commit、不 push。指令失敗就把 common_dir 留空、錯誤訊息寫進 error。`,
+    { label: `#${issue} 定位 repo`, phase: '定位', schema: LOCATE, effort: 'low' })
+  const common = (loc?.common_dir ?? '').trim().replace(/\/+$/, '')
+  if (!common.startsWith('/') || !/\/[^/]+$/.test(common)) throw new Error(`找不到主 repo：${loc?.error || common || '沒有輸出'}；請明確帶 args.repo`)
+  repoPath = common.replace(/\/[^/]+$/, '')
+}
+const ROOT = repoPath.trim().replace(/\/+$/, '')
 const WS = ROOT.replace(/\/[^/]+$/, '')
 const WF = `${ROOT}/script/workflow`
 const dir = args.dir ?? `${WS}/reference/research/${issue}`
