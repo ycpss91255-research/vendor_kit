@@ -1,5 +1,5 @@
 {
-  "review_zip": 4,
+  "review_zip": 5,
   "pages": {
     "01_purpose": [
       {
@@ -17,6 +17,11 @@
         "v": 17,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
         "replied": true
+      },
+      {
+        "v": 18,
+        "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0",
+        "replied": false
       }
     ],
     "02_invariants": [
@@ -35,6 +40,11 @@
         "v": 19,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
         "replied": true
+      },
+      {
+        "v": 20,
+        "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0",
+        "replied": false
       }
     ],
     "03_messages": [
@@ -54,6 +64,11 @@
         "v": 15,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
         "replied": true
+      },
+      {
+        "v": 16,
+        "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0",
+        "replied": false
       }
     ],
     "04_interface": [
@@ -71,6 +86,11 @@
       {
         "v": 20,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
+        "replied": false
+      },
+      {
+        "v": 21,
+        "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0",
         "replied": false
       }
     ],
@@ -90,6 +110,11 @@
         "v": 8,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
         "replied": true
+      },
+      {
+        "v": 9,
+        "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0",
+        "replied": false
       }
     ],
     "README": [
@@ -108,6 +133,11 @@
       {
         "v": 8,
         "commit": "a49bca058aae9cd9f1c9d0f5ee9c51a34e63eb43",
+        "replied": false
+      },
+      {
+        "v": 9,
+        "commit": "e0728ef9ad9ca019908d0c62771da7c13349d5e0",
         "replied": false
       }
     ]
