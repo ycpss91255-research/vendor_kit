@@ -48,9 +48,27 @@ python3 script/workflow/body.py check <file> --kind pr --issue <issue 編號>
 
 給其他腳本 import 的模組，沒有命令列介面。從 `.claude/hooks/comment_tag_guard.py` 載入 hook 模組，匯出 `LOCAL_PATHS`、`TAGS`、`RAW_TAGS`、`NOTE_PREFIXES`、`tagged`、`local_path_problem`。
 
-- 給誰用：`body.py`（本機絕對路徑樣式），以及之後的留言檔準備腳本（標記、`[codex]`／`[agy]` 原文的註記行）。
+- 給誰用：`body.py`（本機絕對路徑樣式），以及 [`prepare_comment.py`](#prepare_commentpy)（標記、`[codex]`／`[agy]` 原文的註記行、本機路徑樣式）。
 - 為什麼不另抄一份：送出前的自檢跟 hook 用兩份規則，改一邊另一邊不會跟著變，自檢過了 hook 還是會擋（或反過來）。直接 import，規則只寫在 hook 一處。
 - hook 檔不存在或缺上面的名稱時 raise `HookRulesError`，訊息寫明哪個檔；不退回自己的副本。
+
+## prepare_comment.py
+
+準備要貼到 issue 的留言檔（標記、註記行、本機路徑替換、切分），並用 hook 的同一套規則自檢。只寫本機檔，不呼叫 `gh`；`gh issue comment` 由子代理依產出順序逐則下。
+
+```sh
+python3 script/workflow/prepare_comment.py prepare --out-dir <dir> --workspace <ws> [--max 60000] \
+    --item <tag> <來源檔> <標題> [--item <tag> <來源檔> <標題> ...]
+python3 script/workflow/prepare_comment.py clean --out-dir <dir>
+```
+
+- `tag` 只能是 `claude`、`codex`、`agy`（取自 hook 的 `TAGS`）。先刪掉 `<dir>` 裡舊的 `post_*.md`，再依 `--item` 順序產生 `<dir>/post_<NN>_<tag>.md`，`NN` 兩位數、跨所有項目連號，檔名排序就是貼出順序。
+- 每則第一行 `[<tag>] <標題>`，切成多則時標題後加「（k/n）」。`agy`、`codex`（hook 的 `RAW_TAGS`）第二行加註記行「（註：以下是 <來源檔相對 workspace 的路徑> 的原文，未改寫。…）」，有換路徑時同一行寫明；`claude` 不加。
+- 本機路徑：`<ws>/` 開頭的換成 workspace 相對路徑；其他符合 `LOCAL_PATHS` 的依腳本裡的替換表換（家目錄 `~/`、Claude scratchpad `<scratchpad>/`、Windows 使用者目錄 `~\`），順序照 `LOCAL_PATHS`，其他字不動。hook 新增了替換表沒涵蓋的樣式就算失敗，不會漏換。
+- 切分：每則（含標頭）不超過 `--max` 字元；在行邊界切、優先切在空行；不在 ```` ``` ```` 程式碼區塊中間切，非切不可時該則結尾補關閉、下一則開頭補開啟；單行超長才硬切。
+- 自檢：每個產出檔過 `hook_rules.tagged` 與 `hook_rules.local_path_problem(raw_ok=True)`（hook 放行的條件），且替換後不准再有任何本機絕對路徑。
+- 輸出一行 JSON：`prepare` 是 `{"ok", "files": [{"path", "tag", "source", "part", "parts", "chars"}], "replaced": [{"source", "from", "to", "count"}], "problems"}`；`clean` 是 `{"ok", "removed"}`。結束碼：成功 0；來源檔讀不到或自檢不過 1；用法錯 2。
+- 呼叫端用 `files` 的則數當「預計則數」，跟實際貼出的網址數對照，沒貼齊就報錯。
 
 ## pr_target.py
 
