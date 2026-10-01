@@ -98,10 +98,29 @@ class Verify(unittest.TestCase):
         self.assertEqual(len(step), 1)
         self.assertTrue(step[0]["ok"])
 
-    def test_missing_guard_script_fails(self):
+    def test_missing_guard_script_skipped(self):
         (self.root / ".claude/hooks/test_guard.py").unlink()
         code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["ok"])
+        step = [s for s in out["steps"] if s["source"] == "hooks test_guard"]
+        self.assertEqual(len(step), 1)
+        self.assertTrue(step[0]["skipped"])
+        self.assertTrue(step[0]["ok"])
+        self.assertIsNone(step[0]["code"])
+
+    def test_present_guard_script_runs(self):
+        code, out = self.run_main()
+        step = [s for s in out["steps"] if s["source"] == "hooks test_guard"]
+        self.assertEqual(step[0]["code"], 0)
+        self.assertNotIn("skipped", step[0])
+
+    def test_failing_guard_script_fails(self):
+        self.write(".claude/hooks/test_guard.py", "raise SystemExit(4)\n")
+        code, out = self.run_main()
         self.assertEqual(code, 1)
+        step = [s for s in out["steps"] if s["source"] == "hooks test_guard"]
+        self.assertEqual(step[0]["code"], 4)
 
     def test_missing_workflow(self):
         (self.root / ".github/workflows/docs.yml").unlink()
