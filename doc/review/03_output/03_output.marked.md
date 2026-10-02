@@ -1,4 +1,4 @@
-<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /doc/contract/03_output.md 與 /doc/contract/03_output.csv -->
+<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /doc/contract/03_output.md 與 /doc/contract/reason_codes.csv -->
 
 # 03 輸出
 <mark style="background-color:#f8c8c8">舊標題：03 訊息與錯誤碼總表</mark>
@@ -36,7 +36,7 @@
 - <mark style="background-color:#f8c8c8">有警告</mark>
 - <mark style="background-color:#f8c8c8">做完但要人接手（不算警告）：留下[合併衝突](../../../GLOSSARY.md#初始檔與合併)、`update --exit-code` 查到新版</mark>
 <mark style="background-color:#f8c8c8">只有警告也以 `1` 結束。每個 recipe 不論在哪個環境執行，都使用同一套規則。是否成功看有沒有做到該指令契約承諾的結果，不看訊息名稱或輸出串流。</mark>
-<mark style="background-color:#c8f0c8">留下[合併衝突](../../../GLOSSARY.md#初始檔與合併)、`update --exit-code` 查到新版都屬於警告，碼仍是 `1`。每個 recipe 不論在哪個環境執行，都使用同一套規則。是否成功看有沒有做到該指令契約承諾的結果，不看訊息名稱或輸出串流。</mark>
+<mark style="background-color:#c8f0c8">留下[合併衝突](../../../GLOSSARY.md#初始檔與合併)、`update --exit-code` 查到新版都屬於警告，碼仍是 `1`。`bootstrap.sh` 與每個 recipe 不論在哪個環境執行，都使用同一套規則。是否成功看有沒有做到該指令契約承諾的結果，不看訊息名稱或輸出串流。</mark>
 
 一次處理多個[工具](../../../GLOSSARY.md#工具與出貨)時：
 
@@ -55,7 +55,8 @@ exit code: 2
 
 ## 輸出
 
-- 成功時改了什麼、查詢結果與各 recipe 的 `-h`／`--help` 用法只印到 stdout，不加前綴
+- <mark style="background-color:#f8c8c8">成功時改了什麼、查詢結果與各 recipe 的 `-h`／`--help` 用法只印到 stdout，不加前綴</mark>
+- <mark style="background-color:#c8f0c8">成功時改了什麼、查詢或檢查結果，以及 `bootstrap.sh` 與各 recipe 的 `-h`／`--help` 用法只印到 stdout，不加前綴</mark>
 - stderr 只放診斷及其續行、[詢問](../../../GLOSSARY.md#執行與結果)文字、不帶指令時第一行的版本行，以及用法錯誤後附的用法
 - <mark style="background-color:#f8c8c8">只打 `just vendor_kit`、不帶指令時，stderr 第一行印 `vendor_kit <版本>`，第二行印下列診斷，接著印簡短用法，以 `2` 結束：</mark>
 - <mark style="background-color:#c8f0c8">只打 `just vendor_kit`、不帶指令時，stderr 依序印版本行、下列診斷與簡短用法，以 `2` 結束：</mark>
@@ -68,7 +69,8 @@ exit code: 2
   <mark style="background-color:#c8f0c8">stderr: 用法：just vendor_kit <指令> [參數] [選項]</mark>
   <mark style="background-color:#c8f0c8">exit code: 2</mark>
   ```
-- 主機前置檢查（檢查主機的 just 與 Docker）排在建執行紀錄之前；沒通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷
+- <mark style="background-color:#f8c8c8">主機前置檢查（檢查主機的 just 與 Docker）排在建執行紀錄之前；沒通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷</mark>
+- <mark style="background-color:#c8f0c8">主機前置檢查（檢查主機上的 Docker 與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。各入口檢查哪幾項見 [04 使用者介面](../../contract/04_interface.md#bootstrapsh)</mark>
 - `remove`／`uninstall` 依契約保留[初始檔](../../../GLOSSARY.md#初始檔與合併)時，把保留清單印到 stdout，以 `0` 結束
 - 詢問時[使用者](../../../GLOSSARY.md#角色與情境)明確回答「否」，是正常取消：不做變更，在 stdout 說明未變更，以 `0` 結束
 - 顏色照這幾條：
@@ -93,8 +95,8 @@ exit code: 2
 
 [原因代碼](../../../GLOSSARY.md#執行與結果)是 `VK` 加四位數字。每個代碼以訊息表的 `situation` 欄為唯一意思；發出後永不重用。停用的代碼不刪列，`status` 改成 `retired`，留作空號。
 
-<mark style="background-color:#f8c8c8">每個代碼的 level、處置、情況、本文與下一步，只寫在[訊息表](../../contract/03_output.csv)，一列一個代碼。</mark>
-<mark style="background-color:#c8f0c8">每個代碼的嚴重度、處置、情況、本文與下一步，只寫在[訊息表](../../contract/03_output.csv)，一列一個代碼。</mark>
+<mark style="background-color:#f8c8c8">每個代碼的 level、處置、情況、本文與下一步，只寫在[訊息表](../../contract/reason_codes.csv)，一列一個代碼。</mark>
+<mark style="background-color:#c8f0c8">每個代碼的嚴重度、處置、情況、本文與下一步，只寫在[訊息表](../../contract/reason_codes.csv)，一列一個代碼。</mark>
 
 處置與下一步：
 
@@ -131,7 +133,7 @@ exit code: 2
 
 ---
 
-## 03_output.csv 的逐碼差異
+## reason_codes.csv 的逐碼差異
 
 依 code 對齊、逐欄比較，只列有改動的代碼；綠底是新值、紅底是舊值，沒改的欄照原樣列出。
 
@@ -141,7 +143,7 @@ exit code: 2
 - `level`：error
 - `exit_code`：2
 - `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
-- `situation`：操作需要詢問，但沒帶 -y 又不能互動（沒有終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後
+- `situation`：<mark style="background-color:#f8c8c8">操作需要詢問，但沒帶 -y 又不能互動（沒有終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後</mark> → <mark style="background-color:#c8f0c8">操作需要詢問，但沒帶 -y 又不能互動（沒有終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後；bootstrap.sh 首次導入時，&lt;command_with_y&gt; 以這次呼叫的 sh 與腳本路徑 ($0) 開頭，後接這次的參數，依同一規則重組</mark>
 - `message`：Confirmation is required, but no terminal is available for interaction. No files were modified except the run log. Run from a terminal, or rerun with -y: &lt;command_with_y&gt;
 - `description`：需要確認，但沒有終端可以互動。除執行紀錄外，未修改任何檔。請在終端執行，或加上 -y 重新執行：&lt;command_with_y&gt;
 - `next_step`：&lt;command_with_y&gt;
@@ -163,10 +165,20 @@ exit code: 2
 - `level`：error
 - `exit_code`：2
 - `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
-- `situation`：bootstrap.sh 發現主機的 just 低於 1.33.0；&lt;install_command&gt; 不覆蓋主機既有的 just，也不要求主機另裝其他工具
+- `situation`：<mark style="background-color:#f8c8c8">bootstrap.sh 發現主機的 just 低於 1.33.0；&lt;install_command&gt; 不覆蓋主機既有的 just，也不要求主機另裝其他工具</mark> → <mark style="background-color:#c8f0c8">bootstrap.sh 首次導入時發現主機的 just 低於 1.33.0；&lt;install_command&gt; 不覆蓋主機既有的 just，也不要求主機另裝其他工具</mark>
 - `message`：just 1.33.0 or later is required; the current version is &lt;version&gt;. Use the GitHub release.<br>Download: &lt;download_url&gt;<br>Install: &lt;install_command&gt;
 - `description`：需要 just ≥ 1.33.0，目前為 &lt;version&gt;。請使用 GitHub release 版。<br>下載：&lt;download_url&gt;<br>安裝：&lt;install_command&gt;
 - `next_step`：&lt;install_command&gt;
+
+#### VK0006
+
+- `status`：active
+- `level`：error
+- `exit_code`：2
+- `disposition`：失敗
+- `situation`：<mark style="background-color:#f8c8c8">薄殼的檔跟這一版引擎的模板比對不符（內容被修改過，或不是這一版引擎的模板）；&lt;files&gt; 逐檔標出是哪一種，除執行紀錄外不動 repo 檔與其他 VK 檔</mark> → <mark style="background-color:#c8f0c8">薄殼的檔跟這一版引擎的模板比對不符（內容被修改過，或不是這一版引擎的模板）；bootstrap.sh 只檢查或 --repair 時，若進度檔記錄引擎升級未完成，改報 VK0023，不做薄殼比對；&lt;files&gt; 逐檔標出是哪一種，除執行紀錄外不動 repo 檔與其他 VK 檔</mark>
+- `message`：<mark style="background-color:#f8c8c8">Shell files do not match this engine version's templates: &lt;files&gt;. No shell files were regenerated. Review the following differences; restore any manual changes, then run: just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">Shell files do not match this engine version's templates: &lt;files&gt;. No shell files were regenerated. Review the following differences; download bootstrap.sh again from the Release, then run sh bootstrap.sh --repair in the install directory.</mark>
+- `description`：<mark style="background-color:#f8c8c8">偵測到薄殼跟這一版引擎的模板不符：&lt;files&gt;。未重產任何薄殼。請先檢視下列差異；手動修改過的先還原，再執行：just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">偵測到薄殼跟這一版引擎的模板不符：&lt;files&gt;。未重產任何薄殼。請先檢視下列差異；重新從 Release 下載 bootstrap.sh，在安裝目錄執行 sh bootstrap.sh --repair。</mark>
 
 #### VK0008
 
@@ -190,25 +202,44 @@ exit code: 2
 - `description`：薄殼介面版 &lt;P_shell&gt; 低於引擎 &lt;vY&gt; 的一般 recipe 需求。請先執行：just vendor_kit upgrade --engine
 - `next_step`：just vendor_kit upgrade --engine
 
+#### VK0010
+
+- `status`：active
+- `level`：error
+- `exit_code`：2
+- `disposition`：失敗
+- `situation`：<mark style="background-color:#f8c8c8">任何 VK recipe 建不出執行紀錄（在任何副作用之前結束）</mark> → <mark style="background-color:#c8f0c8">任何 VK recipe，或 bootstrap.sh 首次導入（含未完成的首次導入）、只檢查、--repair 時，建不出執行紀錄（在任何副作用之前結束，首次導入在呼叫 install 之前先建紀錄）</mark>
+- `message`：Cannot write run log &lt;path&gt;: &lt;reason&gt;. vendor_kit does not run without a log; no files were modified. Free disk space or fix the permissions and retry.
+- `description`：無法寫入執行紀錄 &lt;path&gt;：&lt;reason&gt;。vendor_kit 不在沒有紀錄的情況下執行，未修改任何檔。請清出磁碟空間或修正權限後重試。
+
 #### VK0023
 
 - `status`：active
 - `level`：error
 - `exit_code`：2
 - `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
-- `situation`：<mark style="background-color:#f8c8c8">upgrade --engine 換上新引擎後停下，要求重跑</mark> → <mark style="background-color:#c8f0c8">upgrade --engine 換上新引擎後原指令尚未做完；&lt;original_command&gt; 是由 VK 填好的原指令</mark>
+- `situation`：<mark style="background-color:#f8c8c8">upgrade --engine 換上新引擎後停下，要求重跑</mark> → <mark style="background-color:#c8f0c8">upgrade --engine 換上新引擎後原指令尚未做完；bootstrap.sh 只檢查或 --repair 時讀到記錄引擎升級未完成的進度檔，也報此碼，不比對或重產薄殼；&lt;original_command&gt; 由 VK 依進度檔填成原本的完整 upgrade 指令，保留原 tag 與 -y，不需使用者代換</mark>
 - `message`：<mark style="background-color:#f8c8c8">Engine &lt;vY&gt; is now installed. Run again: just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">Engine &lt;vY&gt; is now installed. Run again: &lt;original_command&gt;</mark>
 - `description`：<mark style="background-color:#f8c8c8">已換上引擎 &lt;vY&gt;，請再執行一次：just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">已換上引擎 &lt;vY&gt;，請再執行一次原指令：&lt;original_command&gt;</mark>
 - `next_step`：<mark style="background-color:#f8c8c8">just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">&lt;original_command&gt;</mark>
+
+#### VK0025
+
+- `status`：active
+- `level`：error
+- `exit_code`：2
+- `situation`：<mark style="background-color:#f8c8c8">用法錯誤：缺少必要參數</mark> → <mark style="background-color:#c8f0c8">用法錯誤：VK recipe 或 bootstrap.sh 缺少必要參數（含 bootstrap.sh 的 -i／--image 沒帶 image）</mark>
+- `message`：Required argument is missing: &lt;argument&gt;.
+- `description`：缺少必要參數：&lt;argument&gt;。
 
 #### VK0026
 
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `situation`：<mark style="background-color:#f8c8c8">用法錯誤：不認得指令或選項</mark> → <mark style="background-color:#c8f0c8">用法錯誤：VK recipe 帶了不認得的選項或多出的參數</mark>
-- `message`：<mark style="background-color:#f8c8c8">Unknown command or option: &lt;value&gt;.</mark> → <mark style="background-color:#c8f0c8">Unknown option or extra argument: &lt;value&gt;.</mark>
-- `description`：<mark style="background-color:#f8c8c8">不認得的指令或選項：&lt;value&gt;。</mark> → <mark style="background-color:#c8f0c8">不認得的選項或多出的參數：&lt;value&gt;。</mark>
+- `situation`：<mark style="background-color:#f8c8c8">用法錯誤：不認得指令或選項</mark> → <mark style="background-color:#c8f0c8">用法錯誤：VK recipe 或 bootstrap.sh 帶了不認得的選項或多出的參數；bootstrap.sh 帶 --repair -y，或在既有安裝目錄帶 -y／--yes（排除 VK0037 所述、依執行紀錄判定的未完成首次導入），或 -h／--help 與其他參數並用；&lt;value&gt; 印第一個不認得或不允許的參數；-h／--help 與其他參數並用時，印第一個不是 -h／--help 的參數，若全部都是 -h／--help，則印第二個參數</mark>
+- `message`：<mark style="background-color:#f8c8c8">Unknown command or option: &lt;value&gt;.</mark> → <mark style="background-color:#c8f0c8">Unknown, extra, or disallowed argument: &lt;value&gt;.</mark>
+- `description`：<mark style="background-color:#f8c8c8">不認得的指令或選項：&lt;value&gt;。</mark> → <mark style="background-color:#c8f0c8">不認得、多出或此處不允許的參數：&lt;value&gt;。</mark>
 
 #### VK0028
 
@@ -221,6 +252,16 @@ exit code: 2
 - `description`：目前不在安裝目錄，請執行：cd &lt;install_dir&gt;
 - `next_step`：cd &lt;install_dir&gt;
 
+#### VK0031
+
+- `status`：active
+- `level`：error
+- `exit_code`：2
+- `disposition`：失敗
+- `situation`：<mark style="background-color:#f8c8c8">離線導入的 image 缺少必要的 digest 資訊</mark> → <mark style="background-color:#c8f0c8">離線導入的本機 image 或 image tar 缺少必要的 digest 資訊；或 bootstrap.sh 在既有安裝目錄帶 -i／--image，所提供的本機 image 或 image tar 缺少必要的 digest 資訊，或 digest 與引擎版本鎖定行不符；只檢查與 --repair 都適用；&lt;reason&gt; 依情況填為 required digest information is missing 或 the digest does not match the engine lock version line</mark>
+- `message`：<mark style="background-color:#f8c8c8">Cannot import from &lt;image&gt;: required digest information is missing.</mark> → <mark style="background-color:#c8f0c8">Cannot use image &lt;image&gt;: &lt;reason&gt;. The supplied image was not used.</mark>
+- `description`：<mark style="background-color:#f8c8c8">無法從 &lt;image&gt; 導入：缺少必要的 digest 資訊。</mark> → <mark style="background-color:#c8f0c8">無法使用 image &lt;image&gt;：&lt;reason&gt;（缺少必要的 digest 資訊，或 digest 與引擎版本鎖定行不符）。未使用指定的 image。</mark>
+
 #### VK0032
 
 - `status`：active
@@ -232,4 +273,93 @@ exit code: 2
 - `description`：test 發現 &lt;target&gt; 的本機覆寫，請先執行：&lt;undev_command&gt;
 - `next_step`：&lt;undev_command&gt;
 
-沒改動的代碼 23 個：VK0001、VK0003、VK0006、VK0007、VK0010、VK0011、VK0012、VK0013、VK0014、VK0015、VK0016、VK0017、VK0018、VK0019、VK0020、VK0021、VK0022、VK0024、VK0025、VK0027、VK0029、VK0030、VK0031。
+#### VK0033
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">啟動器找不到主機的 docker（bootstrap.sh 的首次導入、只檢查、--repair，以及薄殼的啟動器都檢查）</mark>
+- `message`：<mark style="background-color:#c8f0c8">Docker was not found on the host. Install Docker and retry.</mark>
+- `description`：<mark style="background-color:#c8f0c8">找不到主機的 docker。請安裝 Docker 後重試。</mark>
+
+#### VK0034
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">待處理</mark>
+- `situation`：<mark style="background-color:#c8f0c8">bootstrap.sh 首次導入時找不到主機的 just；&lt;install_command&gt; 由 VK 填好，可直接執行、不需使用者代換，不要求主機另裝其他工具</mark>
+- `message`：<mark style="background-color:#c8f0c8">just was not found on the host. Use the GitHub release.<br>Download: &lt;download_url&gt;<br>Install: &lt;install_command&gt;</mark>
+- `description`：<mark style="background-color:#c8f0c8">找不到主機的 just。請使用 GitHub release 版。<br>下載：&lt;download_url&gt;<br>安裝：&lt;install_command&gt;</mark>
+- `next_step`：<mark style="background-color:#c8f0c8">&lt;install_command&gt;</mark>
+
+#### VK0035
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">bootstrap.sh 從目前目錄往上找不到 .git；不在主機呼叫 git，也不替使用者建立 repo</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot find .git in the current directory or any parent directory. Run bootstrap.sh from within a Git repository.</mark>
+- `description`：<mark style="background-color:#c8f0c8">目前目錄與所有上層目錄都找不到 .git。請在 git repo 內執行 bootstrap.sh。</mark>
+
+#### VK0036
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">啟動器取不到要用的引擎 image（首次導入含未完成的首次導入時用內嵌版本；已有版本鎖定行時用它指定的版本）；不改用其他版本</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot obtain engine image &lt;image&gt;: &lt;reason&gt;. No alternative engine version was used.</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法取得引擎 image &lt;image&gt;：&lt;reason&gt;。未改用其他引擎版本。</mark>
+
+#### VK0037
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">bootstrap.sh 發現目前目錄有 .vendor_kit/，但讀不到恰好一行有效的引擎版本鎖定行；停下，不改走首次導入；僅首次導入的呼叫（不帶參數、-y、-i，含對應長選項及其合法組合）排除可依執行紀錄唯一判定的未完成首次導入：最近一筆執行紀錄是首次導入，且 (a) 停在 VK0002、除執行紀錄外未修改任何檔，或 (b) 在建執行紀錄之後、寫入引擎版本鎖定行之前結束（不論是否已寫入其他檔）；這些狀態允許帶 -y 重跑首次導入，判定不靠檔案在不在，無法唯一判定時仍停下；--repair 在這些狀態下仍報 VK0037</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot read exactly one valid engine lock version line from .vendor_kit/version.toml. Initial import was not attempted.</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法從 .vendor_kit/version.toml 讀取恰好一行有效的引擎版本鎖定行。未改走首次導入。</mark>
+
+#### VK0038
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">bootstrap.sh 在既有安裝目錄以 image 引用帶 -i／--image，digest 與引擎版本鎖定行相符，但完整 image 引用不符；缺少 digest 或 digest 不符改報 VK0031；只檢查與 --repair 都適用</mark>
+- `message`：<mark style="background-color:#c8f0c8">Image &lt;image&gt; does not exactly match the engine lock version line &lt;locked_image&gt;. The supplied image was not used.</mark>
+- `description`：<mark style="background-color:#c8f0c8">image &lt;image&gt; 與引擎版本鎖定行 &lt;locked_image&gt; 不完全相同。未使用指定的 image。</mark>
+
+#### VK0039
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">bootstrap.sh 在非安裝目錄帶 --repair（目前目錄沒有 .vendor_kit/）；不改走首次導入</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot repair shell files outside an install directory. Initial import was not attempted.</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法在安裝目錄外修復薄殼。未改走首次導入。</mark>
+
+#### VK0040
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">fatal</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">3</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">bootstrap.sh 只檢查或 --repair 時，腳本內嵌引擎版本的 X 與引擎版本鎖定行指定版本的 X 不同；在任何寫入、拉 image 或起引擎之前停下；&lt;bootstrap_X&gt; 與 &lt;engine_X&gt; 分別由腳本內嵌版本及引擎版本鎖定行填入</mark>
+- `message`：<mark style="background-color:#c8f0c8">This bootstrap.sh is for major version &lt;bootstrap_X&gt;, but the locked engine requires major version &lt;engine_X&gt;. No files were modified. Download bootstrap.sh for major version &lt;engine_X&gt; from the Release and retry.</mark>
+- `description`：<mark style="background-color:#c8f0c8">這份 bootstrap.sh 適用於 X 為 &lt;bootstrap_X&gt; 的版本，但鎖定引擎的 X 為 &lt;engine_X&gt;。未修改任何檔。請從 Release 下載 X 為 &lt;engine_X&gt; 的 bootstrap.sh 後重試。</mark>
+
+沒改動的代碼 19 個：VK0001、VK0003、VK0007、VK0011、VK0012、VK0013、VK0014、VK0015、VK0016、VK0017、VK0018、VK0019、VK0020、VK0021、VK0022、VK0024、VK0027、VK0029、VK0030。

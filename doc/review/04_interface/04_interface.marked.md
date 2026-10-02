@@ -3,7 +3,7 @@
 # 04 使用者介面
 
 <mark style="background-color:#f8c8c8"><ins>使用者</ins>與 CI 都透過 `just vendor_kit` 指令跟 <ins>VK</ins> 打交道；只有首次導入用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、<ins>選項</ins>：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。</mark>
-<mark style="background-color:#c8f0c8">[使用者](../../../GLOSSARY.md#角色與情境)與自動化都透過 `just vendor_kit` 指令跟 [VK](../../../GLOSSARY.md#角色與情境) 打交道；只有首次[導入](../../../GLOSSARY.md#角色與情境)，以及[薄殼](../../../GLOSSARY.md#vk-組件)被改到不啟動引擎時的檢查，用 `bootstrap.sh`。這一頁列出全部指令與必要的參數、選項：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。VK 不讀取環境變數 `CI`；同一個 recipe 不論在哪裡執行，行為都一樣。</mark>
+<mark style="background-color:#c8f0c8">[使用者](../../../GLOSSARY.md#角色與情境)與自動化都透過 `just vendor_kit` 指令跟 [VK](../../../GLOSSARY.md#角色與情境) 打交道；只有首次[導入](../../../GLOSSARY.md#角色與情境)，以及[薄殼](../../../GLOSSARY.md#vk-組件)的檢查與明確要求的修復，用 `sh bootstrap.sh`。這一頁列出全部指令與必要的參數、選項：少了就不能用、或會影響相容性的才列；其他選項的細節實作時再定。VK 不讀取環境變數 `CI`；同一個 recipe 不論在哪裡執行，行為都一樣。</mark>
 
 - 必須永遠成立的規則以 [02 不變量](../../contract/02_invariants.md) 為準，這一頁只補使用者看得到的介面行為
 - <mark style="background-color:#f8c8c8"><ins>結束碼</ins>的意思與每條訊息見 [03 訊息與錯誤碼總表](../../contract/03_output.md)</mark>
@@ -15,14 +15,15 @@
 - [主機需求](#主機需求)
 - [registry 與認證](#registry-與認證)
 - [入口](#入口)
+- <mark style="background-color:#c8f0c8">[bootstrap.sh](#bootstrapsh)</mark>
 - [指令](#指令)
 - [共同選項](#共同選項)
 - [各指令專用選項](#各指令專用選項)
+- <mark style="background-color:#c8f0c8">[追蹤新版](#追蹤新版)</mark>
 - [輸出](#輸出)
 - [使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
 - [檢查 (test)](#檢查-test)
 - <mark style="background-color:#f8c8c8">[CI 模式](#ci-模式)</mark>
-- <mark style="background-color:#c8f0c8">[追蹤新版](#追蹤新版)</mark>
 
 ## 主機需求
 
@@ -36,15 +37,15 @@
 | <mark style="background-color:#f8c8c8">工具</mark> | <mark style="background-color:#f8c8c8">最低版本</mark> | <mark style="background-color:#f8c8c8">說明</mark> | <mark style="background-color:#f8c8c8">版本不足時</mark> |
 | <mark style="background-color:#c8f0c8">主機程式</mark> | <mark style="background-color:#c8f0c8">最低版本</mark> | <mark style="background-color:#c8f0c8">說明</mark> | <mark style="background-color:#c8f0c8">版本不足時</mark> |
 |---|---|---|---|
-| <mark style="background-color:#f8c8c8">[Docker](https://www.docker.com/)</mark> | <mark style="background-color:#f8c8c8">19.03 以上</mark> | <mark style="background-color:#f8c8c8">不支援 Podman；偵測到 Podman 時由<ins>啟動器</ins>以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/03_output.csv) `VK0011`</mark> | <mark style="background-color:#f8c8c8">由<ins>啟動器</ins>檢查，首次導入與已有安裝目錄都一樣：在任何寫入之前以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/03_output.csv) `VK0012`</mark> |
+| <mark style="background-color:#f8c8c8">[Docker](https://www.docker.com/)</mark> | <mark style="background-color:#f8c8c8">19.03 以上</mark> | <mark style="background-color:#f8c8c8">不支援 Podman；偵測到 Podman 時由<ins>啟動器</ins>以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/reason_codes.csv) `VK0011`</mark> | <mark style="background-color:#f8c8c8">由<ins>啟動器</ins>檢查，首次導入與已有安裝目錄都一樣：在任何寫入之前以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/reason_codes.csv) `VK0012`</mark> |
 | <mark style="background-color:#f8c8c8">[Git](https://git-scm.com/)</mark> | <mark style="background-color:#f8c8c8">不設最低版本</mark> | <mark style="background-color:#f8c8c8">VK 不在主機上呼叫 git；「安裝目錄在 git repo 裡」由啟動器用 sh 往上找 `.git` 判斷；`.git` 是目錄或檔都算，所以 worktree 與 submodule 也適用</mark> | <mark style="background-color:#f8c8c8">—</mark> |
-| <mark style="background-color:#c8f0c8">[Docker](https://www.docker.com/)</mark> | <mark style="background-color:#c8f0c8">19.03 以上</mark> | <mark style="background-color:#c8f0c8">不支援 Podman；偵測到 Podman 時由[啟動器](../../../GLOSSARY.md#vk-組件)以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/03_output.csv) `VK0011`</mark> | <mark style="background-color:#c8f0c8">由啟動器檢查，首次導入與已有[安裝目錄](../../../GLOSSARY.md#工具與出貨)都一樣：在任何寫入之前以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/03_output.csv) `VK0012`</mark> |
+| <mark style="background-color:#c8f0c8">[Docker](https://www.docker.com/)</mark> | <mark style="background-color:#c8f0c8">19.03 以上</mark> | <mark style="background-color:#c8f0c8">不支援 Podman；偵測到 Podman 時由[啟動器](../../../GLOSSARY.md#vk-組件)以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/reason_codes.csv) `VK0011`</mark> | <mark style="background-color:#c8f0c8">由啟動器檢查，首次導入與已有[安裝目錄](../../../GLOSSARY.md#工具與出貨)都一樣：在任何寫入之前以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/reason_codes.csv) `VK0012`</mark> |
 | <mark style="background-color:#c8f0c8">[Git](https://git-scm.com/)</mark> | <mark style="background-color:#c8f0c8">不設最低版本</mark> | <mark style="background-color:#c8f0c8">VK 不在主機上呼叫 git；「安裝目錄在 git [repo](../../../GLOSSARY.md#工具與出貨) 裡」由啟動器用 sh 往上找 `.git` 判斷；`.git` 是目錄或檔都算，所以 worktree 與 submodule 也適用</mark> | <mark style="background-color:#c8f0c8">—</mark> |
-| [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 首次導入：`bootstrap.sh` 以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/03_output.csv) `VK0005`。已有安裝目錄：由 just 自己報錯，見下方的註 |
+| [just](https://github.com/casey/just) | 1.33.0 以上 | 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest) | 首次導入：`bootstrap.sh` 以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，訊息見 [訊息](../../contract/reason_codes.csv) `VK0005`。已有安裝目錄：由 just 自己報錯，見下方的註 |
 
 註：just 版本不足時
 
-- 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，另印下載與安裝指令，訊息見 [訊息](../../contract/03_output.csv) `VK0005`
+- 首次導入：`bootstrap.sh` 在任何寫入之前以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，另印下載與安裝指令，訊息見 [訊息](../../contract/reason_codes.csv) `VK0005`
 - <mark style="background-color:#f8c8c8">已有安裝目錄：justfile 用了 just 1.33.0 才支援的寫法，just 太舊時讀 justfile 就會出錯，輪不到 VK 執行，也就沒機會檢查版本；這時看到的是 just 自己的錯誤訊息與結束碼，VK 不留執行紀錄</mark>
 - <mark style="background-color:#c8f0c8">已有安裝目錄：justfile 用了 just 1.33.0 才支援的寫法，just 太舊時讀 justfile 就會出錯，輪不到 VK 執行，也就沒機會檢查版本；這時看到的是 just 自己的錯誤訊息與結束碼，VK 不留[執行紀錄](../../../GLOSSARY.md#repo-內的檔與狀態)</mark>
 
@@ -56,7 +57,7 @@
 - 支援的 registry 目前只有 GitHub 的 image 伺服器 (GHCR)。沒列在這份清單上的 registry（例如 Docker Hub、GitLab、自架）不在承諾內
 - <mark style="background-color:#f8c8c8"><ins>引擎 image</ins> 公開；<ins>工具 image</ins> 公開或私有，由出貨那個 repo 自己決定</mark>
 - <mark style="background-color:#c8f0c8">[引擎 image](../../../GLOSSARY.md#工具與出貨) 公開；[工具 image](../../../GLOSSARY.md#工具與出貨) 公開或私有，由[出貨](../../../GLOSSARY.md#角色與情境)那個 repo 自己決定</mark>
-- 沒有給憑證時，不支援需要認證的版本列舉：對那個工具以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，印出兩條路，訊息見 [訊息](../../contract/03_output.csv) `VK0001`
+- 沒有給憑證時，不支援需要認證的版本列舉：對那個工具以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，印出兩條路，訊息見 [訊息](../../contract/reason_codes.csv) `VK0001`
   - 設定 `VENDOR_KIT_REGISTRY_TOKEN`（或 `VENDOR_KIT_REGISTRY_TOKEN_FILE`）
   - 直接指定版本 `@<tag>`
 
@@ -64,21 +65,90 @@
 
 VK 對外只有兩個入口：
 
-- `bootstrap.sh`
+- <mark style="background-color:#f8c8c8">`bootstrap.sh`</mark>
   - <mark style="background-color:#f8c8c8">第一次<ins>導入</ins>時用</mark>
-  - <mark style="background-color:#c8f0c8">第一次導入時用</mark>
-  - <mark style="background-color:#c8f0c8">在既有安裝目錄執行時，先檢查薄殼；不符就列出差異，印出 [訊息](../../contract/03_output.csv) `VK0006` [診斷](../../../GLOSSARY.md#執行與結果)，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，除執行紀錄外不動 repo 檔與其他 [VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)</mark>
-  - 先從 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)下載 `bootstrap.sh`，再到要裝 VK 的那個目錄執行
+  - <mark style="background-color:#f8c8c8">先從 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)下載 `bootstrap.sh`，再到要裝 VK 的那個目錄執行</mark>
   - <mark style="background-color:#f8c8c8">這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](../../contract/02_invariants.md#3-自動化只碰不進-git-的東西)</mark>
   - <mark style="background-color:#f8c8c8">這時 repo 裡還沒有 VK，所以由它下載<ins>引擎</ins>，再呼叫 `install`</mark>
-  - <mark style="background-color:#c8f0c8">這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](../../contract/02_invariants.md#3-自動化不寫追蹤檔)</mark>
-  - <mark style="background-color:#c8f0c8">這時 repo 裡還沒有 VK，所以由它下載[引擎](../../../GLOSSARY.md#vk-組件)，再呼叫 `install`</mark>
-  - 再跑一次就是修復
+  - <mark style="background-color:#f8c8c8">再跑一次就是修復</mark>
+- <mark style="background-color:#c8f0c8">`sh bootstrap.sh`</mark>
+  - <mark style="background-color:#c8f0c8">首次導入、檢查與修復薄殼，見下方的 [bootstrap.sh](#bootstrapsh)</mark>
+  - <mark style="background-color:#c8f0c8">先從 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)下載，再到要裝 VK 或已有 VK 的目錄執行</mark>
   - 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，Release 頁上目前還沒有這個檔
 - `just vendor_kit …`
   - 日常使用的全部指令；CI 也用它，見下面的[檢查 (test)](#檢查-test)
   - <mark style="background-color:#f8c8c8">都收在 `vendor_kit` 這個<ins>命名空間</ins>底下，不佔用 <ins>repo</ins> 自己的頂層指令名</mark>
   - <mark style="background-color:#c8f0c8">都收在 `vendor_kit` 這個命名空間底下，不佔用 [repo](../../../GLOSSARY.md#工具與出貨) 自己的頂層指令名</mark>
+
+## bootstrap.sh
+<mark style="background-color:#c8f0c8">（本節新增）</mark>
+
+<mark style="background-color:#c8f0c8">`bootstrap.sh` 是啟動器之一；首次導入時取得內嵌那一版[引擎](../../../GLOSSARY.md#vk-組件)，再呼叫 `install`（把 VK 裝進目前目錄）。在既有安裝目錄則依[版本鎖定行](../../../GLOSSARY.md#版本與來源)指定的引擎模板，檢查或重產薄殼。它不執行 repo 內的薄殼，也不從薄殼讀取版本或模板；薄殼內容只用於逐檔比對。</mark>
+
+<mark style="background-color:#c8f0c8">```text</mark>
+<mark style="background-color:#c8f0c8">用法：sh bootstrap.sh [選項]</mark>
+
+  <mark style="background-color:#c8f0c8">（不帶參數）         尚非安裝目錄或未完成的首次導入：首次導入；其他安裝目錄：只檢查薄殼</mark>
+  <mark style="background-color:#c8f0c8">-i, --image <image>   使用本機 image 或 image tar 作為引擎來源</mark>
+  <mark style="background-color:#c8f0c8">--repair             用鎖定引擎的模板重產薄殼</mark>
+  <mark style="background-color:#c8f0c8">-y, --yes            首次導入時傳給 install，代替原本允許的詢問</mark>
+  <mark style="background-color:#c8f0c8">-h, --help           單獨使用時印出用法</mark>
+<mark style="background-color:#c8f0c8">```</mark>
+
+<mark style="background-color:#c8f0c8">不收位置參數，也沒有 `--version`。短長選項意思相同，選項順序不限；`--repair` 只有長選項。`-h`／`--help` 只准單獨使用，不印內嵌引擎版本；與任何其他參數並用都算用法錯誤。</mark>
+
+<mark style="background-color:#c8f0c8">目前目錄有 `.vendor_kit/` 就是安裝目錄；沒有才首次導入。有 `.vendor_kit/` 卻讀不出恰好一行有效的引擎版本鎖定行時，停下報 `VK0037`，不猜版本，也不改走首次導入；唯一例外是未完成的首次導入：這個安裝目錄最近一筆執行紀錄是首次導入、停在 `VK0002`，且除執行紀錄外未修改任何檔；或最近一筆執行紀錄是首次導入，且在建紀錄之後、寫入引擎版本鎖定行之前就結束（不論是否已寫入其他檔）。符合例外時仍按首次導入處理，允許帶 `-y` 重跑；讀得出恰好一行有效的引擎版本鎖定行時，一律是既有安裝目錄，不套用例外。判定靠執行紀錄，不靠 `.vendor_kit/` 裡有哪些檔；啟動器只用字串相等比對最近一筆執行紀錄裡固定記下的欄位：模式是首次導入，且原因代碼是 `VK0002`、除執行紀錄外未修改任何檔，或結束階段在建紀錄之後、寫入引擎版本鎖定行之前。比對不出來或紀錄不足以唯一判定時，不套用例外。在這個未完成狀態下，用法錯誤或帶 `--repair` 而中途結束的執行不建紀錄，不改變例外判定所用的最近一筆執行紀錄。</mark>
+
+<mark style="background-color:#c8f0c8">既有安裝目錄的檢查與修復一律使用版本鎖定行那一版引擎，不套用[本機覆寫](../../../GLOSSARY.md#版本與來源)：`bootstrap.sh` 是在 VK 本身可能壞掉時用的入口，以進 git 的鎖定行為準。`-i` 跟首次導入一樣接受已載入的本機 image 或 image tar；兩者都必須符合引擎版本鎖定行的 [digest](../../../GLOSSARY.md#工具與出貨)，缺少必要的 digest 資訊或 digest 不符時報 `VK0031`。以 [image 引用](../../../GLOSSARY.md#工具與出貨)指定時，完整引用也必須與鎖定行相同，引用不符但 digest 相符時報 `VK0038`。</mark>
+
+<mark style="background-color:#c8f0c8">`bootstrap.sh` 只保證跟同 X 的鎖定引擎一起用；內嵌引擎與版本鎖定行指定的引擎跨 X 時，在任何寫入之前停下（包括不建執行紀錄），報版本組合不合，以結束碼 `3` 結束，訊息說明要換成與鎖定引擎同 X 的 `bootstrap.sh`。</mark>
+
+### 依情況的行為
+<mark style="background-color:#c8f0c8">（本節新增）</mark>
+
+<mark style="background-color:#c8f0c8">表中的[原因代碼](../../../GLOSSARY.md#執行與結果)見 [03 訊息](../../contract/reason_codes.csv)；表中的[診斷](../../../GLOSSARY.md#執行與結果)除跨 X 為 `fatal`、結束碼 `3` 外，都是 `error`、結束碼 `2`，印到 stderr，stdout 不印診斷；處置只有[待處理](../../../GLOSSARY.md#執行與結果)、[失敗](../../../GLOSSARY.md#執行與結果)或留空，用法錯誤的處置留空，見[訊息表](../../contract/reason_codes.csv)。成功的用法、差異與結果印到 stdout，不加診斷前綴。</mark>
+
+| <mark style="background-color:#c8f0c8">情況</mark> | <mark style="background-color:#c8f0c8">行為</mark> | <mark style="background-color:#c8f0c8">結束碼</mark> | <mark style="background-color:#c8f0c8">原因代碼</mark> | <mark style="background-color:#c8f0c8">stdout／stderr</mark> |
+|---|---|---|---|---|
+| <mark style="background-color:#c8f0c8">單獨帶 `-h`／`--help`</mark> | <mark style="background-color:#c8f0c8">只印用法，不做主機檢查、不寫檔</mark> | <mark style="background-color:#c8f0c8">`0`</mark> | <mark style="background-color:#c8f0c8">—</mark> | <mark style="background-color:#c8f0c8">stdout：用法</mark> |
+| <mark style="background-color:#c8f0c8">不認得的選項、多出位置參數，或 `-h`／`--help` 與其他參數並用</mark> | <mark style="background-color:#c8f0c8">用法錯誤，不寫檔</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0026`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷與簡短用法</mark> |
+| <mark style="background-color:#c8f0c8">`-i`／`--image` 缺值</mark> | <mark style="background-color:#c8f0c8">用法錯誤，不寫檔</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0025`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷與簡短用法</mark> |
+| <mark style="background-color:#c8f0c8">既有安裝目錄帶 `-y`／`--yes`（上述未完成的首次導入例外除外），或任何情況帶 `--repair -y`</mark> | <mark style="background-color:#c8f0c8">用法錯誤，不寫檔</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0026`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷與簡短用法</mark> |
+| <mark style="background-color:#c8f0c8">找不到 docker</mark> | <mark style="background-color:#c8f0c8">主機前置檢查失敗</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0033`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">偵測到 Podman</mark> | <mark style="background-color:#c8f0c8">主機前置檢查失敗</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0011`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">Docker 低於 19.03</mark> | <mark style="background-color:#c8f0c8">主機前置檢查失敗</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0012`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">首次導入找不到 just</mark> | <mark style="background-color:#c8f0c8">主機前置檢查失敗，附下載與安裝指令</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0034`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷與下載、安裝指令</mark> |
+| <mark style="background-color:#c8f0c8">首次導入 just 低於 1.33.0</mark> | <mark style="background-color:#c8f0c8">主機前置檢查失敗，附下載與安裝指令</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0005`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷與下載、安裝指令</mark> |
+| <mark style="background-color:#c8f0c8">往上找不到 `.git`</mark> | <mark style="background-color:#c8f0c8">不寫檔，也不建立 repo</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0035`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">非安裝目錄帶 `--repair`</mark> | <mark style="background-color:#c8f0c8">停下，不改走首次導入、不建紀錄、不寫檔</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0039`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">有 `.vendor_kit/`，但讀不出恰好一行有效的引擎版本鎖定行，且不屬上述未完成的首次導入例外；帶 `--repair` 時即使符合例外也同樣處理</mark> | <mark style="background-color:#c8f0c8">停下，不改走首次導入、不建紀錄、不寫檔</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0037`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">鎖定引擎與 `bootstrap.sh` 內嵌引擎跨 X</mark> | <mark style="background-color:#c8f0c8">任何寫入之前停下，指出要換哪個 X 的 `bootstrap.sh`</mark> | <mark style="background-color:#c8f0c8">`3`</mark> | <mark style="background-color:#c8f0c8">`VK0040`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">既有安裝目錄帶 `-i`，本機 image 或 image tar 缺必要的 digest 資訊，或 digest 與鎖定行不符</mark> | <mark style="background-color:#c8f0c8">停下，不用這個 image</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0031`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">既有安裝目錄以 [image 引用](../../../GLOSSARY.md#工具與出貨)帶 `-i`，digest 相符但完整 image 引用與鎖定行不同</mark> | <mark style="background-color:#c8f0c8">停下，不用這個 image</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0038`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">首次導入、只檢查或 `--repair`，建不出執行紀錄</mark> | <mark style="background-color:#c8f0c8">停下，不拉 image、不寫檔</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0010`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">取不到要用的引擎 image</mark> | <mark style="background-color:#c8f0c8">停下，不改用其他版本</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0036`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">首次導入帶 `-i`，缺必要的 digest 資訊</mark> | <mark style="background-color:#c8f0c8">停下，不退化成只寫 [tag](../../../GLOSSARY.md#工具與出貨)</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0031`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">首次導入，上層或下層已有安裝目錄</mark> | <mark style="background-color:#c8f0c8">拒絕巢狀安裝，不寫檔</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0029`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷</mark> |
+| <mark style="background-color:#c8f0c8">首次導入需要詢問，沒帶 `-y` 且不能互動</mark> | <mark style="background-color:#c8f0c8">除執行紀錄外不修改；依紀錄按未完成的首次導入處理，允許帶 `-y` 重跑</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0002`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷與加上 `-y` 的原指令</mark> |
+| <mark style="background-color:#c8f0c8">首次導入，其餘情況</mark> | <mark style="background-color:#c8f0c8">取得內嵌那版引擎並呼叫 `install`</mark> | <mark style="background-color:#c8f0c8">照 `install`</mark> | <mark style="background-color:#c8f0c8">照 `install`</mark> | <mark style="background-color:#c8f0c8">照 `install`</mark> |
+| <mark style="background-color:#c8f0c8">只檢查或 `--repair`，發現升引擎未完成的[進度檔](../../../GLOSSARY.md#repo-內的檔與狀態)</mark> | <mark style="background-color:#c8f0c8">停下，不報薄殼不符、不重產；下一步是重跑原本的 `upgrade` 指令，保留原 [tag](../../../GLOSSARY.md#工具與出貨) 與 `-y`</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0023`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷與完整原指令</mark> |
+| <mark style="background-color:#c8f0c8">既有安裝目錄，不帶 `--repair`，薄殼一致</mark> | <mark style="background-color:#c8f0c8">只檢查</mark> | <mark style="background-color:#c8f0c8">`0`</mark> | <mark style="background-color:#c8f0c8">—</mark> | <mark style="background-color:#c8f0c8">stdout：一致</mark> |
+| <mark style="background-color:#c8f0c8">既有安裝目錄，不帶 `--repair`，薄殼被改過或與模板不符</mark> | <mark style="background-color:#c8f0c8">停下，不重產</mark> | <mark style="background-color:#c8f0c8">`2`</mark> | <mark style="background-color:#c8f0c8">`VK0006`</mark> | <mark style="background-color:#c8f0c8">stderr：診斷與逐檔差異續行</mark> |
+| <mark style="background-color:#c8f0c8">`--repair`，薄殼一致</mark> | <mark style="background-color:#c8f0c8">不重產</mark> | <mark style="background-color:#c8f0c8">`0`</mark> | <mark style="background-color:#c8f0c8">—</mark> | <mark style="background-color:#c8f0c8">stdout：已一致，未重產</mark> |
+| <mark style="background-color:#c8f0c8">`--repair`，薄殼不符</mark> | <mark style="background-color:#c8f0c8">不詢問；寫入前逐檔列差異，再重產並報告結果</mark> | <mark style="background-color:#c8f0c8">`0`</mark> | <mark style="background-color:#c8f0c8">—</mark> | <mark style="background-color:#c8f0c8">stdout：差異與完成報告</mark> |
+
+<mark style="background-color:#c8f0c8">先判定目前目錄是否有 `.vendor_kit/`；有且讀不出恰好一行有效的引擎版本鎖定行時，才依最近一筆既有執行紀錄辨識上述未完成的首次導入例外，以判定是否接受 `-y`；再判用法、做主機前置檢查。往上找 `.git`、首次導入的巢狀檢查、非安裝目錄帶 `--repair` (`VK0039`)，以及上述未完成狀態帶 `--repair` (`VK0037`)，都在建紀錄之前判定，拒絕時不建紀錄、不寫檔。既有安裝目錄在建執行紀錄或取得 image 之前先檢查是否跨 X；只檢查與 `--repair` 都在比對薄殼之前辨識升引擎未完成的進度檔，若有則依表中行為停下，不進入後續薄殼檢查或重產。首次導入、只檢查與修復都檢查 docker；just 只在首次導入檢查，另外兩種模式不經過 just。VK 不在主機呼叫 git，只用 sh 往上找 `.git`；它是目錄或檔都算。</mark>
+
+### 寫入範圍與其他指令的關係
+<mark style="background-color:#c8f0c8">（本節新增）</mark>
+
+- <mark style="background-color:#c8f0c8">首次導入的寫入範圍、詢問與輸出照 `install`，見[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)。`-y` 只在首次導入傳給 `install`，語意照[共同選項](#共同選項)</mark>
+- <mark style="background-color:#c8f0c8">首次導入、只檢查與 `--repair` 都先建執行紀錄，再拉 image、起引擎；首次導入在呼叫 `install` 之前就建好紀錄，只檢查與修復則在比對前建好。建不出紀錄時報 `VK0010`，不拉 image、不寫檔。用法錯誤、主機前置檢查失敗、跨 X、往上找不到 `.git` (`VK0035`)、拒絕巢狀 (`VK0029`)、非安裝目錄帶 `--repair` (`VK0039`)，以及有 `.vendor_kit/` 卻讀不出有效鎖定行且不套用例外（含上述未完成狀態帶 `--repair`，`VK0037`），都在建紀錄之前判定，不建紀錄、不寫檔。執行紀錄規則見 [02 不變量第 4 條](../../contract/02_invariants.md#4-永不靜默失敗)</mark>
+- <mark style="background-color:#c8f0c8">`sh bootstrap.sh --repair` 是使用者明確打的指令，寫入薄殼檔符合 [02 不變量第 3 條](../../contract/02_invariants.md#3-自動化不寫追蹤檔)「使用者明確打的 recipe 才寫得到」的意思。只檢查除執行紀錄外不寫檔。`--repair` 除執行紀錄外只重產 `.vendor_kit/` 下的四檔：`entry.just`、`vendor.just`、`log.sh`、`.gitignore`；已一致則不重產</mark>
+- <mark style="background-color:#c8f0c8">檢查與修復不改版本鎖定行或其他檔，包括 VK 的設定檔、[metadata](../../../GLOSSARY.md#初始檔與合併)、[基準版](../../../GLOSSARY.md#初始檔與合併)、[納管](../../../GLOSSARY.md#初始檔與合併)紀錄、[印記](../../../GLOSSARY.md#repo-內的檔與狀態)、[cache/](../../../GLOSSARY.md#repo-內的檔與狀態)、[gen/](../../../GLOSSARY.md#repo-內的檔與狀態)、[本機覆寫](../../../GLOSSARY.md#版本與來源)、[進度檔](../../../GLOSSARY.md#repo-內的檔與狀態)、根 `justfile`、根 `.dockerignore`、使用者檔與 `bootstrap.sh` 本身</mark>
+- <mark style="background-color:#c8f0c8">`--repair` 不經過 `install`，不建立安裝目錄，也不補做其他安裝步驟；它只恢復鎖定引擎的薄殼，不更換引擎版本</mark>
+- <mark style="background-color:#c8f0c8">首次導入的 `-i <image>` 照[離線導入共通規則](#各指令專用選項)；既有安裝目錄的本機 image 或 image tar 須符合上面的 digest 與引用規則，再照原本的檢查或修復行為執行</mark>
+- <mark style="background-color:#c8f0c8">[救援路徑](../../../GLOSSARY.md#介面版與契約)分兩類：版本組合不合時用[說明與用法錯誤](#說明與用法錯誤)列出的 just 呼叫；薄殼被改過時用 `sh bootstrap.sh` 檢查、`sh bootstrap.sh --repair` 修復</mark>
 
 ## 指令
 
@@ -124,16 +194,16 @@ VK 對外只有兩個入口：
 
 依 [02 不變量第 2 條](../../contract/02_invariants.md#2-一個來源版本鎖定行只有一份進-git)：
 
-- <mark style="background-color:#f8c8c8">VK recipe 只准在安裝目錄執行；在別處執行就印出 [訊息](../../contract/03_output.csv) `VK0028` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外</mark>
-- <mark style="background-color:#c8f0c8">[VK recipe](../../../GLOSSARY.md#執行與結果) 只准在安裝目錄執行；在別處執行就印出 [訊息](../../contract/03_output.csv) `VK0028` [診斷](../../../GLOSSARY.md#執行與結果)，以[結束碼](../../contract/03_output.md#結束碼) `2` 拒絕，並印出該切到哪裡。[唯讀 recipe](../../../GLOSSARY.md#執行與結果) 也沒有例外</mark>
+- <mark style="background-color:#f8c8c8">VK recipe 只准在安裝目錄執行；在別處執行就印出 [訊息](../../contract/reason_codes.csv) `VK0028` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 拒絕，並印出該切到哪裡。唯讀 recipe 也沒有例外</mark>
+- <mark style="background-color:#c8f0c8">[VK recipe](../../../GLOSSARY.md#執行與結果) 只准在安裝目錄執行；在別處執行就印出 [訊息](../../contract/reason_codes.csv) `VK0028` [診斷](../../../GLOSSARY.md#執行與結果)，以[結束碼](../../contract/03_output.md#結束碼) `2` 拒絕，並印出該切到哪裡。[唯讀 recipe](../../../GLOSSARY.md#執行與結果) 也沒有例外</mark>
 - 工具 recipe 自動觸發的 `sync` 會先回到安裝目錄再呼叫，所以不受影響；工具自己的 recipe 要不要擋，由那個工具決定
-- `install` 時上層或下層已經有安裝目錄，就印出 [訊息](../../contract/03_output.csv) `VK0029` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 拒絕：安裝目錄不能巢狀
+- `install` 時上層或下層已經有安裝目錄，就印出 [訊息](../../contract/reason_codes.csv) `VK0029` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 拒絕：安裝目錄不能巢狀
 
 ### 命名空間
 
 - <mark style="background-color:#f8c8c8">一個工具可以提供多個 <ins>`<ns>` 命名空間</ins></mark>
 - <mark style="background-color:#c8f0c8">一個工具可以提供多個 [\<ns\> 命名空間](../../../GLOSSARY.md#工具與出貨)</mark>
-- `add` 時 `<ns>` 撞名就印出 [訊息](../../contract/03_output.csv) `VK0030` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 拒絕，而且在任何寫入之前檢查。比對的對象是：
+- `add` 時 `<ns>` 撞名就印出 [訊息](../../contract/reason_codes.csv) `VK0030` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 拒絕，而且在任何寫入之前檢查。比對的對象是：
   - 其他已裝進 repo 的工具
   - 根 `justfile` 既有的 recipe 或 module
   - 保留名 `vendor_kit`
@@ -143,8 +213,8 @@ VK 對外只有兩個入口：
 依 [02 不變量第 8 條](../../contract/02_invariants.md#8-使用者介面不可取代寫法一致)：
 
 - <mark style="background-color:#f8c8c8">各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](../../contract/03_output.md#結束碼) `0` 結束；沒有 `help` 指令。薄殼、VK 檔與引擎的版本組合不相符時 `-h` 怎麼反應，這一頁不定；一定能用的只有[救援路徑](../../../GLOSSARY.md#介面版與契約)，也就是這幾種呼叫：`install`、`upgrade --engine`、`sync` 的不符判定，以及四種印用法的呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）</mark>
-- <mark style="background-color:#c8f0c8">各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](../../contract/03_output.md#結束碼) `0` 結束；沒有 `help` 指令。只有[救援路徑](../../../GLOSSARY.md#介面版與契約)在[薄殼](../../../GLOSSARY.md#vk-組件)、[VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)與引擎的版本組合不相符時仍可用，也就是 `install`、`upgrade --engine`、`sync` 的不符判定，以及四種印用法的呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）；這些呼叫照各自原本的行為執行。版本組合不相符時，救援路徑以外的呼叫即使帶 `-h`／`--help`，也以結束碼 `3` 結束：stderr 印出 `fatal` 診斷並附救援指令，stdout 不印用法</mark>
-- 只打 `just vendor_kit`、不帶指令是用法錯誤，stderr 依序印版本行、[訊息](../../contract/03_output.csv) `VK0024` 診斷與簡短用法，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束：
+- <mark style="background-color:#c8f0c8">各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](../../contract/03_output.md#結束碼) `0` 結束；沒有 `help` 指令。只有救援路徑中的 just 呼叫在[薄殼](../../../GLOSSARY.md#vk-組件)、[VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)與引擎的版本組合不相符時仍可用，也就是 `install`、`upgrade --engine`、`sync` 的不符判定，以及四種印用法的呼叫：`just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同）；這些呼叫照各自原本的行為執行。薄殼被改過時的檢查與修復見 [bootstrap.sh](#bootstrapsh)。版本組合不相符時，救援路徑以外的呼叫即使帶 `-h`／`--help`，也以結束碼 `3` 結束：stderr 印出 `fatal` 診斷並附救援指令，stdout 不印用法</mark>
+- 只打 `just vendor_kit`、不帶指令是用法錯誤，stderr 依序印版本行、[訊息](../../contract/reason_codes.csv) `VK0024` 診斷與簡短用法，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束：
 
   ```text
   $ just vendor_kit
@@ -168,10 +238,10 @@ VK 對外只有兩個入口：
   <mark style="background-color:#c8f0c8">這個 `1` 是 just 回的，不是 VK 回的，因此不表示 VK 的 `warn`，也不和 [03 的結束碼規則](../../contract/03_output.md#結束碼)衝突。</mark>
 - <mark style="background-color:#c8f0c8">不支援 just 的 `--allow-missing` 或 `JUST_ALLOW_MISSING`；它們會讓不認得的 recipe 靜默以 `0` 成功，違反 [02 不變量第 4 條](../../contract/02_invariants.md#4-永不靜默失敗)</mark>
 - <mark style="background-color:#c8f0c8">用法錯誤：先在 stderr 印出 `error` [診斷](../../../GLOSSARY.md#執行與結果)，再接著印簡短用法，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束。算用法錯誤的有：</mark>
-  - 缺必要參數：[訊息](../../contract/03_output.csv) `VK0025`
-  - <mark style="background-color:#f8c8c8">不認得的指令或選項：[訊息](../../contract/03_output.csv) `VK0026`</mark>
-  - <mark style="background-color:#c8f0c8">VK recipe 帶了不認得的選項或多出的參數：[訊息](../../contract/03_output.csv) `VK0026`</mark>
-  - tag 格式不合：[訊息](../../contract/03_output.csv) `VK0027`，見下面的[指定版本](#指定版本)
+  - 缺必要參數：[訊息](../../contract/reason_codes.csv) `VK0025`
+  - <mark style="background-color:#f8c8c8">不認得的指令或選項：[訊息](../../contract/reason_codes.csv) `VK0026`</mark>
+  - <mark style="background-color:#c8f0c8">VK recipe 帶了不認得的選項或多出的參數：[訊息](../../contract/reason_codes.csv) `VK0026`</mark>
+  - tag 格式不合：[訊息](../../contract/reason_codes.csv) `VK0027`，見下面的[指定版本](#指定版本)
 
   ```text
   $ just vendor_kit add
@@ -183,7 +253,7 @@ VK 對外只有兩個入口：
   <mark style="background-color:#f8c8c8">$ just vendor_kit upgrde base</mark>
   <mark style="background-color:#f8c8c8">stderr: vendor_kit: error[VK0026]: 不認得的指令或選項：upgrde。</mark>
   <mark style="background-color:#c8f0c8">$ just vendor_kit sync --bogus</mark>
-  <mark style="background-color:#c8f0c8">stderr: vendor_kit: error[VK0026]: Unknown option or extra argument: --bogus.</mark>
+  <mark style="background-color:#c8f0c8">stderr: vendor_kit: error[VK0026]: Unknown, extra, or disallowed argument: --bogus.</mark>
   stderr: 用法：just vendor_kit <指令> [參數] [選項]
   exit code: 2
 
@@ -221,9 +291,9 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 - 工具與引擎的 tag 只接受 `vX.Y.Z`，不帶 pre-release、build 後綴，不收前導零
 - <mark style="background-color:#f8c8c8">最新版是把 X、Y、Z 當非負整數逐欄比數值，取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 digest 不算新版</mark>
 - <mark style="background-color:#c8f0c8">最新版是把 X、Y、Z 當非負整數逐欄比數值，取最大的那個，不看字串順序、registry 回傳順序或推送時間；同一個 tag 改指到別的 [digest](../../../GLOSSARY.md#工具與出貨) 不算新版</mark>
-- 寫出格式不合的 tag 是用法錯誤，印出 [訊息](../../contract/03_output.csv) `VK0027` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束
+- 寫出格式不合的 tag 是用法錯誤，印出 [訊息](../../contract/reason_codes.csv) `VK0027` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束
 - <mark style="background-color:#f8c8c8">不加 `init`、`ensure`、`diff`、`accept`、`rollback` 這類別名，也不加 `--purge`（VK 永不刪 repo 檔，這個選項沒有對象）。這些用途各自由既有指令的選項或 git 處理</mark>
-- <mark style="background-color:#c8f0c8">`upgrade --engine=<tag>` 指定舊版引擎，而目標引擎無法無損讀取現有 VK 檔時，才用 [訊息](../../contract/03_output.csv) `VK0007`：`fatal`、結束碼 `3`，這次降版失敗</mark>
+- <mark style="background-color:#c8f0c8">`upgrade --engine=<tag>` 指定舊版引擎，而目標引擎無法無損讀取現有 VK 檔時，才用 [訊息](../../contract/reason_codes.csv) `VK0007`：`fatal`、結束碼 `3`，這次降版失敗</mark>
 - <mark style="background-color:#c8f0c8">`upgrade <repo>@<tag>` 指定舊版工具不做上述引擎相容性判定，也不另設工具降版專用的原因代碼；正常完成時以結束碼 `0` 結束，出錯時依實際原因使用一般訊息與結束碼</mark>
 - <mark style="background-color:#c8f0c8">不加 `init`、`ensure`、`diff`、`accept`、`rollback` 這類別名，也不加 `--purge`（VK 永不刪 [repo 檔](../../../GLOSSARY.md#repo-內的檔與狀態)，這個選項沒有對象）。這些用途各自由既有指令的選項或 git 處理</mark>
 - 工具 repo 的命名空間也照這套寫法，例如 base ([base#1192](https://github.com/ycpss91255-docker/base/issues/1192))
@@ -248,16 +318,16 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 ## 共同選項
 
 <mark style="background-color:#f8c8c8">`-y` 只適用於<ins>可寫 recipe</ins>。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合：</mark>
-<mark style="background-color:#c8f0c8">`-y` 只適用於[可寫 recipe](../../../GLOSSARY.md#執行與結果)。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已被其他頁依賴的組合是 `upgrade <repo> -y`；其餘哪個指令接受 `-y`，實作時再定。</mark>
+<mark style="background-color:#c8f0c8">`-y` 只適用於[可寫 recipe](../../../GLOSSARY.md#執行與結果)。這一節只定它的語意，不承諾每個可寫 recipe 都接受。已定的組合是 `upgrade <repo> -y` 與 `install -y`；首次導入由 [bootstrap.sh](#bootstrapsh) 傳入。其餘哪個指令接受 `-y`，實作時再定。</mark>
 
-- <mark style="background-color:#f8c8c8">`upgrade <repo> -y`：以[結束碼](../../contract/03_output.md#結束碼) `2` 結束時，訊息會要求使用者照打；訊息見 [訊息](../../contract/03_output.csv) `VK0003`</mark>
+- <mark style="background-color:#f8c8c8">`upgrade <repo> -y`：以[結束碼](../../contract/03_output.md#結束碼) `2` 結束時，訊息會要求使用者照打；訊息見 [訊息](../../contract/reason_codes.csv) `VK0003`</mark>
 <mark style="background-color:#f8c8c8">其餘哪個指令接受 `-y`，實作時再定。</mark>
 - <mark style="background-color:#f8c8c8"><ins>`-y`</ins>：可代替原本允許的<ins>詢問</ins></mark>
 - <mark style="background-color:#c8f0c8">[-y](../../../GLOSSARY.md#執行與結果)：可代替原本允許的[詢問](../../../GLOSSARY.md#執行與結果)</mark>
   - 照樣把改了什麼印到 stdout，不加前綴
   - 只省略詢問，不授權覆蓋使用者既有的檔，依 [02 不變量第 1 條](../../contract/02_invariants.md#1-使用者寫的內容歸使用者可以建要改先問永不刪永不覆蓋)
   - <mark style="background-color:#f8c8c8">不能把已存在、尚未<ins>納管</ins>的檔改成 append 納管，見下面的[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)</mark>
-  - <mark style="background-color:#f8c8c8">不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，例如基準版落後時印出 [訊息](../../contract/03_output.csv) `VK0003`，與有沒有 `-y` 無關</mark>
+  - <mark style="background-color:#f8c8c8">不解除 <ins>CI 模式</ins>：CI 模式下可以帶 `-y` 省略詢問，但要改進 git 的檔照樣以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，例如基準版落後時印出 [訊息](../../contract/reason_codes.csv) `VK0003`，與有沒有 `-y` 無關</mark>
   - <mark style="background-color:#f8c8c8">不隱含 CI 模式</mark>
   - <mark style="background-color:#c8f0c8">不能把已存在、尚未納管的檔改成 append 納管，見下面的[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)</mark>
 
@@ -265,7 +335,7 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 
 - 一律不改
 - 以[結束碼](../../contract/03_output.md#結束碼) `2` 結束
-- 印出該打的指令，訊息見 [訊息](../../contract/03_output.csv) `VK0002`
+- 印出該打的指令，訊息見 [訊息](../../contract/reason_codes.csv) `VK0002`
 - 讀到輸入結束 (EOF) 不算同意
 
 <mark style="background-color:#f8c8c8">能互動時，詢問文字印到 stderr，不帶 <ins>[level](../../contract/03_output.md#結束碼)</ins> 前綴。使用者明確回答「否」是正常取消：不修改，並在 stdout 說明未變更，以[結束碼](../../contract/03_output.md#結束碼) `0` 結束。</mark>
@@ -273,14 +343,14 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 
 ## 各指令專用選項
 
-- <mark style="background-color:#c8f0c8">`upgrade --engine` 分兩段執行：第一段換上目標引擎後，若原指令尚未做完，就印出 [訊息](../../contract/03_output.csv) `VK0023` 的 `error` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束。診斷的 `next_step` 是重跑原指令；原指令在訊息定義中以占位符表示，實際輸出由 VK 填成完整、不需使用者代換的指令，保留原來的 tag 與 `-y`。照它重跑就會接著完成第二段</mark>
+- <mark style="background-color:#c8f0c8">`upgrade --engine` 分兩段執行：第一段換上目標引擎後，若原指令尚未做完，就印出 [訊息](../../contract/reason_codes.csv) `VK0023` 的 `error` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束。診斷的 `next_step` 是重跑原指令；原指令在訊息定義中以占位符表示，實際輸出由 VK 填成完整、不需使用者代換的指令，保留原來的 tag 與 `-y`。照它重跑就會接著完成第二段</mark>
 - <mark style="background-color:#c8f0c8">`sync` 的判定分階段：</mark>
   - <mark style="background-color:#c8f0c8">主機前置檢查照共同規則先判</mark>
-  - <mark style="background-color:#c8f0c8">安裝目錄層的零寫入阻擋要在逐工具處理前全部判完：薄殼不符用 [訊息](../../contract/03_output.csv) `VK0006`，版本組合不合用 `VK0008`；任一成立就不取件，兩者同時成立就兩條都印，結束碼取最大值</mark>
+  - <mark style="background-color:#c8f0c8">安裝目錄層的零寫入阻擋要在逐工具處理前全部判完：薄殼不符用 [訊息](../../contract/reason_codes.csv) `VK0006`，版本組合不合用 `VK0008`；任一成立就不取件，兩者同時成立就兩條都印，結束碼取最大值</mark>
   - <mark style="background-color:#c8f0c8">沒有安裝目錄層的零寫入阻擋，才逐工具處理。`VK0004`、`VK0013` 只擋各自所屬的工具，其他工具照常同步；`VK0014`、`VK0015` 全部判、全部印</mark>
   - <mark style="background-color:#c8f0c8">整次執行的結束碼取所有安全判出結果的最大值；同一階段內的判定次序與印出順序不承諾</mark>
 - `update`：查詢結果印到 stdout，不加前綴；不帶 `--exit-code` 時，查到新版仍以[結束碼](../../contract/03_output.md#結束碼) `0` 結束。
-- `update --exit-code`：給 CI 或腳本判斷有沒有新版；查到新版時 stdout 照樣印查詢結果，stderr 另印 [訊息](../../contract/03_output.csv) `VK0022` 的 `warn` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `1` 結束：
+- `update --exit-code`：給 CI 或腳本判斷有沒有新版；查到新版時 stdout 照樣印查詢結果，stderr 另印 [訊息](../../contract/reason_codes.csv) `VK0022` 的 `warn` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `1` 結束：
 
   ```text
   $ just vendor_kit update --exit-code
@@ -291,12 +361,13 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
   ```
 
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
-- `bootstrap.sh -i <image>`：離線導入，用本機 image 當引擎來源。
+- <mark style="background-color:#f8c8c8">`bootstrap.sh -i <image>`：離線導入，用本機 image 當引擎來源。</mark>
+- <mark style="background-color:#c8f0c8">`sh bootstrap.sh -i <image>`：用本機 image 當引擎來源，行為見 [bootstrap.sh](#bootstrapsh)。</mark>
 - 兩種離線導入共通：
   - `<image>` 可以是已載入的本機 image，或 image tar 檔
   - 寫進的版本鎖定行與線上導入相同
-  - <mark style="background-color:#f8c8c8">缺少必要的 <ins>digest</ins> 資訊時印出 [訊息](../../contract/03_output.csv) `VK0031` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替</mark>
-  - <mark style="background-color:#c8f0c8">缺少必要的 [digest](../../../GLOSSARY.md#工具與出貨) 資訊時印出 [訊息](../../contract/03_output.csv) `VK0031` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替</mark>
+  - <mark style="background-color:#f8c8c8">缺少必要的 <ins>digest</ins> 資訊時印出 [訊息](../../contract/reason_codes.csv) `VK0031` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替</mark>
+  - <mark style="background-color:#c8f0c8">缺少必要的 [digest](../../../GLOSSARY.md#工具與出貨) 資訊時印出 [訊息](../../contract/reason_codes.csv) `VK0031` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，不退化成只寫 tag，也不拿 image tar 本身的雜湊代替</mark>
 
 VK 沒有限時的選項。要限時就在外層包 `timeout(1)`，或用 CI 的逾時設定。
 
@@ -305,7 +376,7 @@ VK 沒有限時的選項。要限時就在外層包 `timeout(1)`，或用 CI 的
 
 <mark style="background-color:#c8f0c8">工具與引擎的新版由 Renovate regex preset 追蹤。Renovate 開的 PR 只改一行版本鎖定行；VK 沒有 bot，不 commit，也不開 PR。</mark>
 
-<mark style="background-color:#c8f0c8">PR 上跑 `just vendor_kit test`。版本鎖定行已更新、基準版尚未更新時，`test` 在 stderr 印出 [訊息](../../contract/03_output.csv) `VK0014` 的 `warn` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `1` 結束，CI 因而不通過。使用者要在該 PR 分支的本機執行 `just vendor_kit upgrade <repo> -y`，再自行 commit、push；CI 重跑通過後才 merge。</mark>
+<mark style="background-color:#c8f0c8">PR 上跑 `just vendor_kit test`。版本鎖定行已更新、基準版尚未更新時，`test` 在 stderr 印出 [訊息](../../contract/reason_codes.csv) `VK0014` 的 `warn` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `1` 結束，CI 因而不通過。使用者要在該 PR 分支的本機執行 `just vendor_kit upgrade <repo> -y`，再自行 commit、push；CI 重跑通過後才 merge。</mark>
 
 <mark style="background-color:#c8f0c8">`update --exit-code` 是給腳本判斷有沒有新版的另一條路，不取代 Renovate；它的行為見[各指令專用選項](#各指令專用選項)。</mark>
 
@@ -335,8 +406,8 @@ VK 沒有限時的選項。要限時就在外層包 `timeout(1)`，或用 CI 的
 - append 型初始檔第一次導入時向既有檔 append 內容，規則見下面「append 型的初始檔」
 - 已納管初始檔的基準版合併（VK 的設定檔沿用同一套規則）：
   - 使用者沒改過：詢問是否換新版
-  - <mark style="background-color:#f8c8c8">雙方都改過：詢問是否合併；<ins>合併衝突</ins>留下標記，由使用者解，印出 [訊息](../../contract/03_output.csv) `VK0021` 的 `warn` 診斷並以[結束碼](../../contract/03_output.md#結束碼) `1` 結束；這次執行做完但要人接手</mark>
-  - <mark style="background-color:#c8f0c8">雙方都改過：詢問是否合併；[合併衝突](../../../GLOSSARY.md#初始檔與合併)留下標記，由使用者解，印出 [訊息](../../contract/03_output.csv) `VK0021` 的 `warn` 診斷並以[結束碼](../../contract/03_output.md#結束碼) `1` 結束；這次執行做完，有警告</mark>
+  - <mark style="background-color:#f8c8c8">雙方都改過：詢問是否合併；<ins>合併衝突</ins>留下標記，由使用者解，印出 [訊息](../../contract/reason_codes.csv) `VK0021` 的 `warn` 診斷並以[結束碼](../../contract/03_output.md#結束碼) `1` 結束；這次執行做完但要人接手</mark>
+  - <mark style="background-color:#c8f0c8">雙方都改過：詢問是否合併；[合併衝突](../../../GLOSSARY.md#初始檔與合併)留下標記，由使用者解，印出 [訊息](../../contract/reason_codes.csv) `VK0021` 的 `warn` 診斷並以[結束碼](../../contract/03_output.md#結束碼) `1` 結束；這次執行做完，有警告</mark>
 
 append 型的初始檔：
 
@@ -353,12 +424,12 @@ append 型的初始檔：
 有紀錄、所以會被收回動作碰到的檔，就是根 `justfile`、根 `.dockerignore`，以及工具宣告為 append 的那些檔。收回時：
 
 - 整份檔裡恰好一處與當初插入的原文相同，才刪那一行
-- <mark style="background-color:#f8c8c8">一處也沒有、或有兩處以上，都不刪，講出是哪個檔、找到幾處；一處也沒有時印出 [訊息](../../contract/03_output.csv) `VK0016` 警告，有兩處以上時印出 [訊息](../../contract/03_output.csv) `VK0017` 警告，兩者都以[結束碼](../../contract/03_output.md#結束碼) `1` 結束</mark>
-- <mark style="background-color:#c8f0c8">一處也沒有、或有兩處以上，都不刪，講出是哪個檔、找到幾處；一處也沒有時印出 [訊息](../../contract/03_output.csv) `VK0016` [警告](../../../GLOSSARY.md#執行與結果)，有兩處以上時印出 [訊息](../../contract/03_output.csv) `VK0017` 警告，兩者都以[結束碼](../../contract/03_output.md#結束碼) `1` 結束</mark>
+- <mark style="background-color:#f8c8c8">一處也沒有、或有兩處以上，都不刪，講出是哪個檔、找到幾處；一處也沒有時印出 [訊息](../../contract/reason_codes.csv) `VK0016` 警告，有兩處以上時印出 [訊息](../../contract/reason_codes.csv) `VK0017` 警告，兩者都以[結束碼](../../contract/03_output.md#結束碼) `1` 結束</mark>
+- <mark style="background-color:#c8f0c8">一處也沒有、或有兩處以上，都不刪，講出是哪個檔、找到幾處；一處也沒有時印出 [訊息](../../contract/reason_codes.csv) `VK0016` [警告](../../../GLOSSARY.md#執行與結果)，有兩處以上時印出 [訊息](../../contract/reason_codes.csv) `VK0017` 警告，兩者都以[結束碼](../../contract/03_output.md#結束碼) `1` 結束</mark>
 
 其他情況：
 
-- `add` 遇到已存在的檔：不納管、不覆蓋，印出 [訊息](../../contract/03_output.csv) `VK0018` 警告並以[結束碼](../../contract/03_output.md#結束碼) `1` 結束
+- `add` 遇到已存在的檔：不納管、不覆蓋，印出 [訊息](../../contract/reason_codes.csv) `VK0018` 警告並以[結束碼](../../contract/03_output.md#結束碼) `1` 結束
 - `remove` 與 `uninstall`：不刪初始檔，只把清單印到 stdout，不加前綴，以[結束碼](../../contract/03_output.md#結束碼) `0` 結束
 
 ## 檢查 (test)
@@ -379,12 +450,12 @@ append 型的初始檔：
 <mark style="background-color:#c8f0c8">`test` 的嚴格規則不因執行環境改變：</mark>
 
 <mark style="background-color:#f8c8c8">CI 模式</mark>
-- <mark style="background-color:#c8f0c8">基準版落後版本鎖定行時，在 stderr 印出 [訊息](../../contract/03_output.csv) `VK0014` 的 `warn` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `1` 結束，並指出該執行的 `upgrade` 指令。</mark>
-- <mark style="background-color:#c8f0c8">發現任何本機覆寫時，在 stderr 印出 [訊息](../../contract/03_output.csv) `VK0032` 的 `error` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，並指出該執行的 `undev` 指令。</mark>
+- <mark style="background-color:#c8f0c8">基準版落後版本鎖定行時，在 stderr 印出 [訊息](../../contract/reason_codes.csv) `VK0014` 的 `warn` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `1` 結束，並指出該執行的 `upgrade` 指令。</mark>
+- <mark style="background-color:#c8f0c8">發現任何本機覆寫時，在 stderr 印出 [訊息](../../contract/reason_codes.csv) `VK0032` 的 `error` 診斷，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，並指出該執行的 `undev` 指令。</mark>
 
 <mark style="background-color:#f8c8c8">環境變數 `CI` 有值、而且不是 `0` 或 `false`（不分大小寫）時，就是 CI 模式。`just vendor_kit test` 不看環境變數，一律是 CI 模式。CI 模式下：</mark>
 - <mark style="background-color:#f8c8c8">進 git 的檔一律不寫，依 [02 不變量第 3 條](../../contract/02_invariants.md#3-自動化只碰不進-git-的東西)。</mark>
-- <mark style="background-color:#f8c8c8">遇到非寫不可的情況，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束並印出清單，例如基準版落後版本鎖定行時印出 [訊息](../../contract/03_output.csv) `VK0003` 診斷。</mark>
-- <mark style="background-color:#f8c8c8">有任何<ins>本機覆寫</ins>（`dev` 造成的）就印出 [訊息](../../contract/03_output.csv) `VK0032` 診斷，也以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，依 [02 不變量第 2 條](../../contract/02_invariants.md#2-一個來源版本鎖定行只有一份進-git)。</mark>
-<mark style="background-color:#f8c8c8">不在 CI 模式時，基準版落後版本鎖定行會印出 [訊息](../../contract/03_output.csv) `VK0014` 警告，以[結束碼](../../contract/03_output.md#結束碼) `1` 結束。</mark>
+- <mark style="background-color:#f8c8c8">遇到非寫不可的情況，以[結束碼](../../contract/03_output.md#結束碼) `2` 結束並印出清單，例如基準版落後版本鎖定行時印出 [訊息](../../contract/reason_codes.csv) `VK0003` 診斷。</mark>
+- <mark style="background-color:#f8c8c8">有任何<ins>本機覆寫</ins>（`dev` 造成的）就印出 [訊息](../../contract/reason_codes.csv) `VK0032` 診斷，也以[結束碼](../../contract/03_output.md#結束碼) `2` 結束，依 [02 不變量第 2 條](../../contract/02_invariants.md#2-一個來源版本鎖定行只有一份進-git)。</mark>
+<mark style="background-color:#f8c8c8">不在 CI 模式時，基準版落後版本鎖定行會印出 [訊息](../../contract/reason_codes.csv) `VK0014` 警告，以[結束碼](../../contract/03_output.md#結束碼) `1` 結束。</mark>
 <mark style="background-color:#c8f0c8">其他結束碼也是 `0`～`3`，意思見 [03 輸出](../../contract/03_output.md#結束碼)。</mark>
