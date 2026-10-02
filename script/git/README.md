@@ -1,6 +1,6 @@
 # script/git — git 相關工具
 
-檢查 commit 訊息這類 git 本身的東西，以及呼叫它的本機 hook（`.githooks/`）。
+檢查 commit 訊息這類 git 本身的東西、呼叫它的本機 hook（`.githooks/`），以及 commit、push 的包裝。
 
 ## check_commit_msg.py
 
@@ -35,9 +35,26 @@ git config core.hooksPath .githooks
 
 這是本機設定，每份 clone 設一次；同一份 clone 開出的 worktree 共用這個設定。CI 另外檢查 PR 標題與 PR 內每個 commit，沒設 hook 也擋得到，只是比較晚才發現。
 
+## commit_push.py
+
+[commit_push.py](commit_push.py) 檢查 commit 訊息後 commit，並 push 到自己的分支，取代 pr、pr-fix workflow 裡照文字做的「寫訊息檔 → `git commit -F` → `git push -u`」：
+
+1. 檢查 `--repo` 是 git worktree 的根目錄、目前分支等於 `--branch`、`--branch` 不是 main、有改動。
+2. `--message-file` 只寫標題（可加空行與內文），不含 footer。腳本在最後空一行加 `Refs: #<refs>`（已經有同一行就不重複加），寫到同目錄的 `<檔名>.final`，再用 `check_commit_msg.check_message` 檢查；有錯誤就停、不 stage。
+3. stage `--add` 給的路徑，或 `--all`（`git add -A`）。
+4. commit 與 push 都經 `script/workflow/hook_rules.py` 的 `guarded_run`：把即將執行的同一個 argv 交給 `.claude/settings.json` 註冊的 Bash hook，被擋就不執行。`--no-push` 時只 commit。
+
+跑法：
+
+```sh
+python3 script/git/commit_push.py --repo <worktree> --branch <分支> --message-file <檔> --refs <issue> (--add <路徑>… | --all) [--no-push]
+```
+
+輸出一行 JSON：`{"ok", "step", "branch", "commit", "files", "pushed", "problems", "denied", "error"}`。`step` 成功時是 `done`，失敗時是停下的那一步（usage、repo、message、stage、commit、push）；`files` 是這個 commit 的檔案清單；`problems` 是訊息檢查的錯誤；`denied` 是擋下的 hook。結束碼：成功 0；檢查、hook 或 git 失敗 1；用法錯 2。
+
 ## 測試
 
-測試在 [test/test_check_commit_msg.py](test/test_check_commit_msg.py)（檢查器）與 [test/test_commit_msg_hook.py](test/test_commit_msg_hook.py)（用暫存 git repo 設 `core.hooksPath` 實際跑 hook），跑法：
+測試在 [test/test_check_commit_msg.py](test/test_check_commit_msg.py)（檢查器）、[test/test_commit_msg_hook.py](test/test_commit_msg_hook.py)（用暫存 git repo 設 `core.hooksPath` 實際跑 hook）與 [test/test_commit_push.py](test/test_commit_push.py)（暫存 git repo 加暫存 bare remote，經真的 Bash hook commit、push），跑法：
 
 ```sh
 python3 -m unittest discover -s script/git/test
