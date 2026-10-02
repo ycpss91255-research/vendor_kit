@@ -9,28 +9,60 @@
 
 用法：
     python3 script/doc/polish_check.py <基準> <潤稿前> <潤稿後> [--fix]
+    python3 script/doc/polish_check.py --repo <R> --round <rNN> <file> <潤稿前> [--fix]
+
+第二種用法（doc-edit 用這個）自己取基準：<file> 是相對 <R> 的路徑（也可以給 <R> 底下的絕對路徑），
+潤稿後＝<R>/<file>；基準跟 `backup.py diff` 同一套順序：這一輪的基準備份存在就用它，否則用
+`git show HEAD:<file>`，都沒有就是空內容。判定用 backup.py 的 base_path、head_bytes，
+基準只在記憶體裡比，不寫暫存檔。
 
 輸出（stdout 一行 JSON）：
     {"ok": bool, "round_changed_lines": int, "violations": [...], "reverted": bool}
+    第二種用法多兩欄：base_kind（"backup"|"HEAD"|"none"）與 base（backup 時是基準備份的路徑，其他是 null）。
     violations 每筆 {"pre_lines": [起, 迄], "post_lines": [起, 迄], "post_text": "..."}，
     行號從 1 起算、迄為含；純插入或純刪除時起比迄大 1。
     ok 為 true：沒有越界，或越界已用 --fix 還原。
-    讀不到或寫不了檔：{"ok": false, "error": "..."}。
+    讀不到或寫不了檔、參數不對：{"ok": false, "error": "..."}。
 
 結束碼：
     0  沒有越界；或有越界且已 --fix 還原
     1  有越界、沒有還原
-    2  讀不到檔（或 --fix 寫不了檔）
+    2  讀不到檔（或 --fix 寫不了檔）；第二種用法的參數不對（位置參數個數、輪次格式、repo 不是 git repo、
+       檔案不在 repo 裡）
 """
 import argparse
 import difflib
+import io
 import json
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import backup  # noqa: E402
+
+
+def decode_lines(data):
+    """跟 read_lines 同一套解碼（UTF-8、通用換行）。"""
+    return io.TextIOWrapper(io.BytesIO(data), encoding="utf-8").read().splitlines(keepends=True)
 
 
 def read_lines(path):
     with open(path, encoding="utf-8") as f:
         return f.read().splitlines(keepends=True)
+
+
+def round_base(repo, rnd, file):
+    """依輪次取基準，順序同 backup.py diff。回傳 (root, rel, base_kind, base 路徑或 None, 基準的行)。"""
+    root = backup.repo_root(repo)
+    rnd = backup.check_round(rnd)
+    rel = backup.rel_path(root, file)
+    path = backup.base_path(root, rel, rnd)
+    if path.is_file():
+        return root, rel, "backup", str(path), read_lines(path)
+    data = backup.head_bytes(root, rel)
+    if data is not None:
+        return root, rel, "HEAD", None, decode_lines(data)
+    return root, rel, "none", None, []
 
 
 def allowed_lines(base, pre):
@@ -71,31 +103,60 @@ def emit(obj):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="潤稿越界檢查：找出（並可還原）落在這一輪改動範圍外的潤稿變動")
-    ap.add_argument("base", help="這一輪的基準（這一輪改之前的原檔）")
-    ap.add_argument("pre", help="潤稿前的備份")
-    ap.add_argument("post", help="潤稿後的檔（--fix 時就地還原）")
+    ap = argparse.ArgumentParser(
+        description="潤稿越界檢查：找出（並可還原）落在這一輪改動範圍外的潤稿變動",
+        usage="%(prog)s <基準> <潤稿前> <潤稿後> [--fix]\n"
+              "       %(prog)s --repo <R> --round <rNN> <file> <潤稿前> [--fix]")
+    ap.add_argument("paths", nargs="+",
+                    help="<基準> <潤稿前> <潤稿後>；帶 --repo、--round 時是 <file> <潤稿前>")
+    ap.add_argument("--repo", help="repo 根目錄；給了就依 --round 自己取基準")
+    ap.add_argument("--round", help="輪次 rNN，跟 --repo 一起給")
     ap.add_argument("--fix", action="store_true", help="把越界的變動還原成潤稿前的原文")
     args = ap.parse_args(argv)
 
-    try:
-        base, pre, cur = (read_lines(p) for p in (args.base, args.pre, args.post))
-    except (OSError, UnicodeDecodeError) as e:
-        emit({"ok": False, "error": f"讀不到檔：{e}"})
-        return 2
+    extra = {}
+    if args.repo is not None or args.round is not None:
+        if args.repo is None or args.round is None or len(args.paths) != 2:
+            emit({"ok": False, "error": "--repo 與 --round 要一起給，位置參數是 <file> <潤稿前>"})
+            return 2
+        try:
+            root, rel, kind, base_name, base = round_base(args.repo, args.round, args.paths[0])
+        except backup.UsageError as e:
+            emit({"ok": False, "error": str(e)})
+            return 2
+        except (OSError, UnicodeDecodeError) as e:
+            emit({"ok": False, "error": f"讀不到基準：{e}"})
+            return 2
+        pre_path, post_path = args.paths[1], str(root / rel)
+        extra = {"base_kind": kind, "base": base_name}
+        try:
+            pre, cur = read_lines(pre_path), read_lines(post_path)
+        except (OSError, UnicodeDecodeError) as e:
+            emit({"ok": False, "error": f"讀不到檔：{e}", **extra})
+            return 2
+    else:
+        if len(args.paths) != 3:
+            emit({"ok": False, "error": "位置參數是 <基準> <潤稿前> <潤稿後>"})
+            return 2
+        post_path = args.paths[2]
+        try:
+            base, pre, cur = (read_lines(p) for p in args.paths)
+        except (OSError, UnicodeDecodeError) as e:
+            emit({"ok": False, "error": f"讀不到檔：{e}"})
+            return 2
 
     allowed, bad, out = check(base, pre, cur)
     reverted = bool(args.fix and bad)
     if reverted:
         try:
-            with open(args.post, "w", encoding="utf-8") as f:
+            with open(post_path, "w", encoding="utf-8") as f:
                 f.write("".join(out))
         except OSError as e:
-            emit({"ok": False, "error": f"寫不了檔：{e}"})
+            emit({"ok": False, "error": f"寫不了檔：{e}", **extra})
             return 2
 
     ok = not bad or reverted
-    emit({"ok": ok, "round_changed_lines": len(allowed), "violations": bad, "reverted": reverted})
+    emit({"ok": ok, "round_changed_lines": len(allowed), "violations": bad, "reverted": reverted, **extra})
     return 0 if ok else 1
 
 

@@ -253,12 +253,15 @@ doc-edit 的潤稿只准改這一輪改過的行。這支比「潤稿前」與�
 
 ```sh
 python3 script/doc/polish_check.py <基準> <潤稿前> <潤稿後> [--fix]
+python3 script/doc/polish_check.py --repo <R> --round <rNN> <file> <潤稿前> [--fix]
 ```
+
+- 第二種用法自己取基準，doc-edit 的潤稿改用它，子代理不再自己準備基準檔：`<file>` 是相對 repo 的檔，潤稿後就是 `<R>/<file>`；基準跟 `backup.py diff` 同一套順序，這一輪的基準備份存在就用它，否則用 `git show HEAD:<file>`，都沒有就是空內容（整份算這一輪的新增）。判定直接 import [`backup.py`](backup.py) 的函式，基準只在記憶體裡比，不寫暫存檔。輸出多 `base_kind`（`backup`／`HEAD`／`none`）與 `base`（`backup` 時是基準備份的路徑，其他是 `null`）。
 
 - 範圍：`<基準>`（這一輪改之前的原檔）→ `<潤稿前>` 的新增或修改行。
 - 等長的替換逐行判斷；其他變動整段判斷，整段都要在範圍內；純插入只要緊鄰的前一行或後一行在範圍內就保留。
 - `<基準>` 與 `<潤稿前>` 相同（這一輪沒改這個檔）時，任何變動都算越界。
 
-輸出一行 JSON `{"ok", "round_changed_lines", "violations", "reverted"}`；`violations` 每筆有 `pre_lines`、`post_lines`（從 1 起算，含迄）與 `post_text`。結束碼：沒有越界回 0；有越界且已 `--fix` 還原回 0（`reverted` 為 `true`，再不帶 `--fix` 跑一次確認 `violations` 為空）；有越界沒還原回 1；讀不到檔回 2。
+輸出一行 JSON `{"ok", "round_changed_lines", "violations", "reverted"}`；`violations` 每筆有 `pre_lines`、`post_lines`（從 1 起算，含迄）與 `post_text`。結束碼：沒有越界回 0；有越界且已 `--fix` 還原回 0（`reverted` 為 `true`，再不帶 `--fix` 跑一次確認 `violations` 為空）；有越界沒還原回 1；讀不到檔回 2，第二種用法的參數不對（輪次格式、repo 不是 git repo、檔案不在 repo 裡）也回 2。
 
 各種情況的正反例在 [polish_check 測試](test/test_polish_check.py)。
