@@ -68,20 +68,20 @@ args 欄位：
 |---|---|---|
 | `parent` | 否 | 預設的父題 issue 編號，給沒帶 `parent` 的項目用。新 issue 第一行 `Part of #<parent>`，並掛成它的 sub-issue。每個項目都帶 `parent` 時可省；最後有項目沒有父題就 throw |
 | `items` | 是 | 陣列，每項 `{ no, branch, title, content, commit, parent?, label? }`：編號、分支、issue 標題、要做的內容、commit 訊息（第一行也當 PR 標題）、這一項的父題（正整數，不給就用最上層的 `parent`）、issue 標籤（預設 `enhancement`）。同一父題內 `no` 不能重複 |
-| `merge` | 否 | 預設 `false`。`true`＝CI 全過後 `gh pr merge --merge`，再 pull 主 repo、移除 worktree 與本機分支 |
+| `merge` | 否 | 預設 `false`。`true`＝CI 全過後跑主 repo 的 `script/workflow/merge_pr.py <pr> --repo <repoRoot> --scratch <scratchpad> --item <parent>-<no>`：merge（只用 `--merge`）、pull 主 repo、移除 worktree 與本機分支、刪這一項的暫存目錄 |
 | `parallel` | 否 | 預設 `false`。`true`＝items 同時跑、互不影響。這時 `merge` 必須是 `false`，否則 throw：多個 PR 同時 merge 會互相衝突，交給主對話依序 merge。各項的 `branch` 不能重複 |
 | `repoRoot` | 否 | 主 repo。不給就先派 effort low 的子代理跑 `git rev-parse --path-format=absolute --git-common-dir`，取它的上一層（在 linked worktree 裡跑也會回到主 repo）；查不到就 throw。worktree 開在它上一層的 `worktree/branch/<branch>` |
 
 每一項的步驟：
 
-1. 開 issue（本文先寫成檔、`body.py check` 自檢、`gh issue create --body-file`），再用 sub_issues API 掛到父題。
-2. `script/workflow/worktree.py add <branch>` 從 origin/main 開 worktree。之後的腳本（`verify.py`、`body.py`、`wait_ci.py`）一律用 worktree 自己的 `script/workflow/`，不用主 repo 的：主 repo 可能落後 main。
+1. 開 issue 並掛成 sub-issue：子代理用 Write 把標題寫成 `pr/<parent>-<no>/title.txt`、本文寫成 `issue.md`（第一行 `Part of #<parent>`），跑主 repo 的 `script/github/issue_open.py create --title-file <檔> --label <label> --body-file <檔> --parent <parent>`：自檢本文、開 issue、掛到父題，開成功就刪本文檔。JSON 的 `issue` 就是這一項的 issue。結束碼 3（issue 已開、掛 sub-issue 失敗）時跑一次 `issue_open.py attach --parent <parent> --issue <N>` 重試，不再 create。標題寫檔、不經 shell 雙引號，含反引號也不會多出反斜線。
+2. `script/workflow/worktree.py add <branch>` 從 origin/main 開 worktree。之後的腳本（`verify.py`、`commit_push.py`、`pr_open.py`、`wait_ci.py`、`rebase_push.py`）一律用 worktree 自己的 `script/`，不用主 repo 的：主 repo 可能落後 main。
 3. 照 `content` 修改。
 4. 驗證：`script/workflow/verify.py --root <worktree>`，跑 docs.yml 每個 `run:`、每個 `script/*/test` 的 unittest、`check_script_layout.py`、hooks 的測試，並檢查每個 `script/*/test` 都在 docs.yml 裡；輸出的 `ok` 是 true 才算過。
-5. commit（footer `Refs: #<issue>`，不加 Claude 署名）、push。
-6. 開 PR：本文第一行 `[claude] `、含 `Closes #<issue>`，用 `body.py check` 自檢，再跑 `script/github/check_pr_rules.py --body-file <本文> --git-diff`（改動檔由腳本自己以 `origin/main...HEAD` 取，子代理不自己組清單），都過才 `gh pr create --body-file`。
-7. `script/workflow/wait_ci.py <pr>` 等 CI。
-8. `merge: true` 且 CI 全過才 merge，之後 `worktree.py remove <branch>` 清理。
+5. 一個 commit 並 push：子代理用 Write 把 `commit` 寫成 `pr/<parent>-<no>/commit-msg.txt`，跑 `script/git/commit_push.py --repo <worktree> --branch <branch> --message-file <檔> --refs <issue> --all`：檢查訊息、補 footer `Refs: #<issue>`、`git add -A`、commit、push。
+6. 開 PR：本文寫成 `pr/<parent>-<no>/pr.md`（第一行 `[claude] `、含 `Closes #<issue>`），跑 `script/github/pr_open.py --repo <worktree> --branch <branch> --issue <issue> --body-file <檔> --title-from-commit`：確認分支已推齊、沒有重複的 PR，以 HEAD 的 commit 標題當 PR 標題，自檢標題、本文與 PR 規則（改動檔由腳本自己取），再開 PR，成功就刪本文檔。
+7. `script/workflow/wait_ci.py <pr> --failed-logs` 等 CI；失敗時看 JSON 的 `failed_logs`（每個失敗 check 的日誌尾段），是這次改動造成的就再修、驗證、用同一行 `commit_push.py` commit 並 push、再等。跟 main 衝突時跑 `script/git/rebase_push.py --repo <worktree> --branch <branch>`（fetch、rebase origin/main、`--force-with-lease` 只推這個分支）；`state` 是 `conflict` 時子代理照 `conflicts` 解衝突、`git add` 後跑同一行加 `--continue`。
+8. `merge: true` 且 CI 全過才跑主 repo 的 `script/workflow/merge_pr.py <pr> --repo <repoRoot> --scratch <scratchpad> --item <parent>-<no>`（用主 repo 的，因為它會移除 worktree）：再確認 CI 與 head 沒變、merge、pull 主 repo、移除 worktree 與本機分支、刪這一項的暫存目錄。`ok` 是 true 才回報 `merged`、`cleaned`。
 
 主對話自己 merge 時跑 `script/workflow/merge_pr.py <pr> --scratch <scratchpad> --item <parent>-<no>`：等 CI、`gh pr merge --merge`、pull 主 repo、移除 worktree 與本機分支、刪 `pr/<parent>-<no>/` 與 `pr-fix/<pr>/` 暫存目錄。
 
@@ -89,7 +89,7 @@ args 欄位：
 
 `pr` 本來就要 commit、push 與開 PR，所以不套下面「共用護欄」的不寫 git 與備份兩條；它自己的規則（只 push 自己的分支、本文先寫檔自檢、不加署名等）同樣組進每個子代理的 prompt。
 
-分工：機械步驟呼叫 [`script/workflow/`](../../script/workflow/README.md) 的腳本；會寫入 GitHub 的 `gh` 指令不包進腳本，由子代理逐一下，hook 才看得到。子代理自己判斷的只有怎麼修改、驗證失敗時要修還是停下。
+分工：機械步驟呼叫 [`script/workflow/`](../../script/workflow/README.md)、[`script/github/`](../../script/github/README.md)、[`script/git/`](../../script/git/README.md) 的腳本，讀它們輸出的 JSON 判斷成敗。GitHub 寫入（開 issue、掛 sub-issue、開 PR、merge）與 commit、push 都由腳本做：每個寫入前經 `script/workflow/hook_rules.py` 的 `guarded_run`，把即將執行的同一個 argv 交給 `.claude/settings.json` 註冊的 Bash hook 檢查，被擋就不執行；子代理不自己下這些寫入指令。子代理自己判斷的只有怎麼修改、驗證失敗時要修還是停下（含 rebase 時解衝突）。
 
 回傳 `{ parent, parents, merge, parallel, results, stopped, failed, skipped }`：`parent` 是最上層的 `parent`（沒給是 `null`），`parents` 是實際用到的父題清單；`results` 每項有 `no`、`parent`、`branch`、`issue`、`pr`、`pr_url`、`ci_pass`、`merged`、`cleaned`、`summary`、`error`。依序模式下 `stopped` 是停在哪一項與原因，`skipped` 是沒開始的編號；並行模式下 `stopped` 是 `null`、`skipped` 是空陣列，沒完成的項目列在 `failed`（每項 `{ no, parent, reason }`）。
 
