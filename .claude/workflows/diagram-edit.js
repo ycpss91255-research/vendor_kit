@@ -14,7 +14,8 @@ export const meta = {
 }
 
 // args 契約：
-//   file    string    必填，要改的 .drawio（相對 repo 根目錄，例如 'doc/diagram/architecture.drawio'）
+//   file    string    必填，要改的 .drawio（相對 repo 根目錄）；架構圖 'doc/diagram/architecture.drawio'（頁 arch-*）
+//                     或流程圖 'doc/diagram/flow.drawio'（頁 flow-*），一次一個檔
 //   pages   string[]  必填，這次只准改的頁的 <diagram id>（圖的持久鍵，不是頁名也不是頁序）
 //   task    string    必填，要改什麼
 //   round?  string    rNN；不給就用 script/doc/round.py next 取下一個，給了就用 round.py check 檢查（跟 doc-edit 共用編號）
@@ -35,10 +36,10 @@ if (repoArg !== undefined && (typeof repoArg !== 'string' || !repoArg.trim())) {
   throw new Error('args.repo 只能省略或是 repo 的路徑（省略就由子代理用 git rev-parse 查出主 repo）')
 }
 if (typeof file !== 'string' || !/\.drawio$/.test(file) || file.startsWith('/') || file.split('/').includes('..')) {
-  throw new Error('args.file 必填：相對 repo 根目錄的 .drawio 路徑，例如 "doc/diagram/architecture.drawio"（不准絕對路徑、不准 ..）')
+  throw new Error('args.file 必填：相對 repo 根目錄的 .drawio 路徑，例如 "doc/diagram/architecture.drawio" 或 "doc/diagram/flow.drawio"（不准絕對路徑、不准 ..）')
 }
 if (!Array.isArray(pages) || pages.length === 0 || pages.some(p => typeof p !== 'string' || !p.trim())) {
-  throw new Error('args.pages 必填：要改的頁的 <diagram id> 陣列，至少一個，例如 ["roles"]')
+  throw new Error('args.pages 必填：要改的頁的 <diagram id> 陣列，至少一個，例如 ["arch-components"] 或 ["flow-remove"]')
 }
 if (new Set(pages).size !== pages.length) {
   throw new Error(`args.pages 有重複的 <diagram id>：${JSON.stringify(pages)}`)
@@ -290,7 +291,7 @@ if (round) {
 result.round = round
 log(ID())
 
-// 備份：鍵含副檔名（doc_diagram_architecture.drawio），檔名與序號由 backup.py 算
+// 備份：鍵依 file 算、含副檔名（例如 doc_diagram_architecture.drawio、doc_diagram_flow.drawio），檔名與序號由 backup.py 算
 const bk = await sh('備份', '準備', `python3 ${DOC}/backup.py save --repo ${repo} --round ${round} ${file}`)
 const b0 = bk.results?.[0]
 if (!bk.ok || !b0 || b0.missing || !b0.backup) {
@@ -426,16 +427,17 @@ log(`${ID()}：改了 ${Object.keys(result.diff.cells ?? {}).join('、') || '（
 return { ...result, round }
 
 // ───────────────── args 範例（可直接貼進 Workflow 的 args） ─────────────────
+// 架構圖：
 // {
 //   "file": "doc/diagram/architecture.drawio",
-//   "pages": ["roles"],
-//   "task": "角色頁把「維護者」與「使用者」拆成兩格，各自連到 VK；名詞照 GLOSSARY.md。"
+//   "pages": ["arch-components"],
+//   "task": "元件頁把「維護者」與「使用者」拆成兩格，各自連到 VK；名詞照 GLOSSARY.md。"
 // }
 //
-// 指定輪次、一次改兩頁：
+// 流程圖，指定輪次、一次改兩頁（pages 只能是 file 裡的頁）：
 // {
 //   "round": "r170",
-//   "file": "doc/diagram/architecture.drawio",
-//   "pages": ["roles", "flow-init"],
+//   "file": "doc/diagram/flow.drawio",
+//   "pages": ["flow-add", "flow-remove"],
 //   "task": "照 #200 的定案重畫這兩頁。"
 // }
