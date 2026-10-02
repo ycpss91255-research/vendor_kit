@@ -31,7 +31,7 @@
     {"pattern": "^doc/decisions/README\\.md$", "scope": "decisions:README", "attach": "any"},
     {"pattern": "^doc/decisions/research/", "scope": "decisions:research"},
     {"pattern": "^doc/decisions/(?P<name>[^/]+)\\.md$", "scope": "decisions:{name}"},
-    {"pattern": "^doc/diagram/(?P<name>[^/]+)\\.drawio$", "scope": "diagram:{name}"}
+    {"pattern": "^doc/diagram/[^/]+\\.drawio$", "scope": "diagram:doc", "_why": "同一套圖、共用 script/diagram/STYLE.md 的圖例與樣式；拆檔或跨檔調整是同一個邏輯目的（#277）"}
   ],
   "groups": [
     {"name": "hook:pr_rules_guard", "scopes": ["hook:pr_rules_guard", "script:github"], "_why": "hook 呼叫 script/github/check_pr_rules.py 與這份範圍表"},
