@@ -77,3 +77,40 @@ python3 script/github/issue_open.py attach --parent <P> --issue <N>
 - 3：issue 已開但掛 sub-issue 失敗；JSON 帶 issue 編號，用 `attach` 重試，不要再 `create`。
 
 測試：`python3 -m unittest discover -s script/github/test`（假 gh 用環境變數 `ISSUE_OPEN_GH` 換掉，hook 用 repo 真的設定）。
+
+## post_comments.py
+
+[post_comments.py](post_comments.py) 依序把留言檔貼到 issue 或 PR，可選貼完關閉 issue，取代「逐則 `gh issue comment --body-file` → 記網址 → 遇錯停 →（可選）`gh issue close`」逐一下指令。
+
+跑法：
+
+```sh
+python3 script/github/post_comments.py --kind issue|pr --number <N> (--body-file <檔> [<檔> …] | --dir <目錄>) [--close] [--delete]
+```
+
+- 留言檔：`--body-file` 依給的順序；`--dir` 取目錄裡的 `post_*.md`，依檔名排序。一則都沒有、檔案不存在都算用法錯。
+- 先全部 precheck：每一則都先用 `.claude/settings.json` 裡每支 Bash hook 檢查 `gh <kind> comment <N> -R ycpss91255-research/vendor_kit --body-file <絕對路徑>`（例如 `comment_tag_guard.py` 查第一行的 `[claude]`／`[codex]`／`[agy]` 標記與本機絕對路徑，`attribution_guard.py` 擋 Claude 署名）。任何一則被擋就一則都不貼。
+- 再依序經 `guarded_run` 貼，從輸出取留言網址；某一則失敗就停，不貼後面的。
+- `--close`（只限 `--kind issue`）：全部貼完才經 `guarded_run` 跑 `gh issue close <N> -R <repo>`，不帶 `--comment`。
+- `--delete`：全部貼成功後刪掉留言檔。
+
+跟 `script/workflow/prepare_comment.py` 搭配（例如 research 把 agy、codex 原文與 Claude 結論貼到 issue）：
+
+```sh
+python3 script/workflow/prepare_comment.py prepare --out-dir <目錄> --workspace <ws> --item <tag> <來源檔> <標題> …
+python3 script/github/post_comments.py --kind issue --number <N> --dir <目錄>
+python3 script/workflow/prepare_comment.py clean --out-dir <目錄>
+```
+
+先留言再關 issue：`python3 script/github/post_comments.py --kind issue --number <N> --body-file <檔> --close`。
+
+輸出一行 JSON：`{"ok", "planned", "urls", "failed_at", "closed", "denied", "error"}`；`planned` 是要貼的留言檔（依貼出順序），`urls` 是已貼出的留言網址，`failed_at` 是失敗那一則的路徑，`denied` 是 hook 擋下的明細（每筆帶 `path`）。
+
+結束碼：
+
+- 0：全部成功。
+- 1：precheck 擋下，什麼都沒貼。
+- 2：用法錯，什麼都沒貼。
+- 3：貼到一半失敗（`urls` 是已貼的，`failed_at` 是失敗那一則），或留言全部貼完但關閉失敗（`failed_at` 是 null，只需重跑關閉）。不要整批重貼。
+
+測試：`python3 -m unittest discover -s script/github/test`（假 gh 用環境變數 `POST_COMMENTS_GH` 換掉，hook 用 repo 真的設定）。
