@@ -10,6 +10,7 @@ import json
 import sys
 import re
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -394,47 +395,240 @@ def get_git_status_summary(repo_dir):
     except Exception:
         return None
 
+def strip_heredoc_bodies(command):
+    """只移除 heredoc（`<<` 到結束標記），引號與其他內容原樣保留，長度與換行不變。
+
+    給拆詞用：引號要留著讓 shlex 正確切出帶空白的路徑，heredoc 本文是資料，不是指令。
+    與 strip_shell_data 不同，heredoc 那一行在結束標記之後的指令（例如 `&& git push`）會保留。
+    """
+    result = list(command)
+    n = len(command)
+    i = 0
+    while i < n:
+        ch = command[i]
+        if ch in '\'"':
+            # 跳過引號內容（引號裡的 << 不是 heredoc）
+            j = i + 1
+            while j < n and command[j] != ch:
+                if ch == '"' and command[j] == '\\':
+                    j += 1
+                j += 1
+            i = j + 1
+            continue
+        if ch == '<' and command.startswith('<<', i) and not command.startswith('<<<', i):
+            j = i + 2
+            if j < n and command[j] == '-':
+                j += 1
+            while j < n and command[j] in ' \t':
+                j += 1
+            delim = ''
+            if j < n and command[j] in '\'"':
+                quote = command[j]
+                j += 1
+                while j < n and command[j] != quote:
+                    delim += command[j]
+                    j += 1
+                j += 1
+            else:
+                while j < n and command[j] not in ' \t\n;&|<>()':
+                    delim += command[j]
+                    j += 1
+            if not delim:
+                i += 2
+                continue
+            for k in range(i, min(j, n)):
+                result[k] = ' '
+            # 本文從這一行的下一行開始，到單獨一行的結束標記為止
+            eol = command.find('\n', j)
+            if eol == -1:
+                break
+            k = eol + 1
+            while k < n:
+                line_end = command.find('\n', k)
+                if line_end == -1:
+                    line_end = n
+                done = command[k:line_end].strip() == delim
+                for m in range(k, line_end):
+                    result[m] = ' '
+                k = line_end + 1
+                if done:
+                    break
+            i = k
+            continue
+        i += 1
+    return ''.join(result)
+
+
+# shell 的控制運算子：分隔出各段簡單指令
+_SEPARATOR_CHARS = set(';&|()\n')
+# git 自己的全域選項裡，值放在下一個字的那些（--opt=value 形式是單一個字，不在此列）
+_GIT_GLOBAL_OPTS_WITH_VALUE = {
+    '-C', '-c', '--git-dir', '--work-tree', '--namespace',
+    '--config-env', '--super-prefix', '--exec-path',
+}
+# 放在指令前面、後面才是真正指令的包裝
+_COMMAND_WRAPPERS = {'env', 'command', 'exec', 'time', 'nohup', 'sudo', 'builtin'}
+# git push 的選項裡，值放在下一個字的那些
+_PUSH_OPTS_WITH_VALUE = {'-o', '--push-option', '--repo', '--receive-pack', '--exec'}
+
+
+def split_simple_commands(command):
+    """把 shell 指令拆成各段簡單指令的字詞串列（以 ; && || | & ( ) 換行分段，去掉重導）。
+
+    heredoc 本文先移除；引號內容由 shlex 正確處理，所以字串裡提到的 git push 只是某個字的一部分。
+    """
+    def tokenize(text):
+        lex = shlex.shlex(text, posix=True, punctuation_chars=';&|()<>\n')
+        lex.whitespace = ' \t\r'
+        lex.whitespace_split = True
+        lex.commenters = '#'
+        return list(lex)
+
+    text = strip_heredoc_bodies(command)
+    try:
+        tokens = tokenize(text)
+    except ValueError:
+        # 引號沒配對（shlex 解不開）：退回遮罩版，至少看得到引號外的指令
+        tokens = tokenize(strip_shell_data(command))
+
+    segments, current = [], []
+    skip_next = False
+    for tok in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok and all(c in ';&|()<>\n' for c in tok):
+            if tok[0] in '<>':
+                skip_next = True       # 重導運算子與它的目標檔都不是指令參數
+                continue
+            if any(c in _SEPARATOR_CHARS for c in tok):
+                if current:
+                    segments.append(current)
+                current = []
+                continue
+        current.append(tok)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def parse_git_push(words):
+    """一段簡單指令若是 git push，回傳 (-C 目錄串列, push 之後的參數)；否則 None。
+
+    跳過前置的環境變數指定與 env／command 之類的包裝，再跳過 git 的全域選項
+    （-C <dir>、-c <k=v>、--git-dir、--work-tree、--no-pager、-P …），才看子指令。
+    """
+    i = 0
+    while i < len(words):
+        w = words[i]
+        if re.match(r'^[A-Za-z_][A-Za-z0-9_]*=', w):
+            i += 1
+        elif w in _COMMAND_WRAPPERS:
+            i += 1
+            # 包裝自己的選項（env -i、sudo -u x 之類）不精確處理，只跳過以 - 開頭的字
+            while i < len(words) and words[i].startswith('-'):
+                i += 1
+        else:
+            break
+    if i >= len(words) or os.path.basename(words[i]) != 'git':
+        return None
+    i += 1
+
+    dirs = []
+    while i < len(words) and words[i].startswith('-'):
+        opt = words[i]
+        if opt in _GIT_GLOBAL_OPTS_WITH_VALUE:
+            if opt == '-C' and i + 1 < len(words):
+                dirs.append(words[i + 1])
+            i += 2
+        else:
+            i += 1
+    if i >= len(words) or words[i] != 'push':
+        return None
+    return dirs, words[i + 1:]
+
+
+def current_branch(dirs):
+    """依 -C 目錄（相對於 repo 根目錄，可多個疊加）取當前分支；取不到回傳 None。"""
+    base = Path(get_repo_dir())
+    for d in dirs:
+        base = base / d
+    try:
+        r = subprocess.run(
+            ['git', '-C', str(base), 'rev-parse', '--abbrev-ref', 'HEAD'],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.stdout.strip() if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def push_targets_main(dirs, args):
+    """回傳 (是否推到 main, 是否 force, 是否因「推當前分支而當前在 main」)。"""
+    forced = False
+    positionals = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == '--':
+            positionals.extend(args[i + 1:])
+            break
+        if a.startswith('-'):
+            if a in ('-f', '--force') or a.startswith('--force-with-lease'):
+                forced = True
+            elif re.match(r'^-[A-Za-z]+$', a) and 'f' in a[1:]:
+                forced = True          # 合併的短選項，例如 -uf
+            if a in _PUSH_OPTS_WITH_VALUE:
+                i += 1
+            i += 1
+            continue
+        positionals.append(a)
+        i += 1
+
+    refspecs = positionals[1:]          # 第一個位置參數是 remote
+    if not refspecs:
+        on_main = current_branch(dirs) == 'main'
+        return on_main, forced, on_main
+
+    for spec in refspecs:
+        if spec.startswith('+'):
+            forced = True
+            spec = spec[1:]
+        dst = spec.split(':', 1)[1] if ':' in spec else spec
+        if dst in ('main', 'refs/heads/main'):
+            return True, forced, False
+        if ':' not in spec and spec == 'HEAD' and current_branch(dirs) == 'main':
+            return True, forced, True
+    return False, forced, False
+
+
 def check_git(tool_input):
     """檢查 git push 的目標分支。
 
     規則（使用者定案）：commit 與 push 本身不需要詢問，但**一律不准 push 到 main**，
     force push 到 main 更不行。進 main 只能走 merge。所以這裡只擋目標是 main 的 push。
 
-    判定用 strip_shell_data 遮罩後的指令，所以文件裡寫到 git push 不算。
+    指令先拆成各段簡單指令（管線、&&、; 都會分段），每段用 shlex 拆詞，
+    跳過 git 的全域選項後才判斷子指令，所以 `git -C <dir> push origin main` 這類寫法也擋。
+    字串與 heredoc 裡寫到 git push 不算。
     """
     command = tool_input.get('command', '')
-    masked = strip_shell_data(command)
-
-    m = re.search(r'\bgit\s+push\b', masked)
-    if not m:
+    if 'git' not in command:
         return None
 
-    after = masked[m.end():]
-    forced = bool(re.search(r'(^|\s)(-f|--force|--force-with-lease\S*)(\s|$)', after))
-
-    # 明寫 main 當目標：git push origin main / HEAD:main / main:main / +main / refs/heads/main
-    targets_main = bool(re.search(r'(^|[\s:+])(main|refs/heads/main)(\s|$|:)', after))
-
-    # 沒給 refspec 時推的是當前分支：當前分支是 main 就等於 push to main
-    no_refspec = not re.search(r'(^|\s)[\w./+-]*:?[\w./+-]+(\s|$)',
-                               re.sub(r'(^|\s)-{1,2}[\w-]+(=\S*)?', ' ', after).strip())
-    on_main = False
-    if no_refspec or not targets_main:
-        try:
-            r = subprocess.run(
-                ['git', '-C', str(get_repo_dir()), 'rev-parse', '--abbrev-ref', 'HEAD'],
-                capture_output=True, text=True, timeout=5,
-            )
-            on_main = r.returncode == 0 and r.stdout.strip() == 'main'
-        except Exception:
-            on_main = False
-
-    if targets_main or (no_refspec and on_main):
+    for words in split_simple_commands(command):
+        parsed = parse_git_push(words)
+        if parsed is None:
+            continue
+        dirs, args = parsed
+        targets_main, forced, via_current = push_targets_main(dirs, args)
+        if not targets_main:
+            continue
         why = 'force push 到 main' if forced else 'push 到 main'
         return ('deny', '不准 ' + why + '。這個 repo 的規則是一律 push 到分支，'
                         '進 main 只能走 merge。\n'
                         '先開分支：git switch -c <branch>，再 git push -u origin <branch>。'
-                        + ('\n目前在 main 上，沒給 refspec 的 push 等於推 main。' if (no_refspec and on_main) else ''))
+                        + ('\n目前在 main 上，沒給 refspec 的 push 等於推 main。' if via_current else ''))
 
     return None
 
