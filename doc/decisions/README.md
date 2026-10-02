@@ -53,7 +53,7 @@
 
 **是什麼**：`dist_distribution.drawio`（主圖 12 頁）與 `discussion.drawio`（77 頁），畫的是舊模型。
 
-**結論（#35，#164 執行）**：舊圖不進 git，副本留在 workspace 的 `reference/diagram_legacy/`；舊內容也在 git 歷史。只有最新的一份（原 `research/diagram_proposals/proposal_claude_v3.drawio`）進 git，放在 `doc/diagram/architecture.drawio`，以舊模型畫成，之後依新名詞重畫（#138）。`research/diagram_proposals/` 的其他 proposal 一併移出，`research/` 因此移除。
+**結論（#35，#164 執行）**：舊圖不進 git，副本留在 workspace 的 `reference/diagram_legacy/`；舊內容也在 git 歷史。只有最新的一份（原 `research/diagram_proposals/proposal_claude_v3.drawio`）進 git，以舊模型畫成，之後依新名詞重畫（#138）。重畫後依 #278 拆成兩個檔：架構圖在 `doc/diagram/architecture.drawio`；流程圖在 `doc/diagram/flow.drawio`。`research/diagram_proposals/` 的其他 proposal 一併移出，`research/` 因此移除。
 
 ### 2. `script/diagram/` —— 已完成
 
