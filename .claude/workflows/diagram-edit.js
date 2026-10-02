@@ -3,7 +3,7 @@ export const meta = {
   description: '改圖：準備 → 改圖（drawio MCP）→ lint 歸零 → 匯出 PNG → codex 審查 → 套用必改 → 收尾檢查；不 commit',
   whenToUse: '改 repo 裡的 .drawio 圖時；主對話已持有 drawio 頁面（reference/drawio_session.txt 有效），workflow 不開新頁',
   phases: [
-    { title: '準備', detail: '沒給 repo 就派子代理跑 git rev-parse --path-format=absolute --git-common-dir，取其上一層當 repo；script/doc/round.py 取或檢查輪次；script/doc/backup.py save 備份；script/diagram/state.py check 確認頁面有效（失效就停、請維護者在主對話重新取得頁面）；state.py put 把檔載入頁面，並確認要改的頁都在檔裡' },
+    { title: '準備', detail: '不論有沒有給 repo，派子代理在 repo（沒給就用工作目錄）跑 git rev-parse --path-format=absolute --git-common-dir，取其上一層當主 repo；腳本與 workspace 預設一律從主 repo 取，repo 只決定改哪份圖、備份與審查輸出放哪；script/doc/round.py 取或檢查輪次；script/doc/backup.py save 備份；script/diagram/state.py check 確認頁面有效（失效就停、請維護者在主對話重新取得頁面）；state.py put 把檔載入頁面，並確認要改的頁都在檔裡' },
     { title: '改圖', detail: 'Claude 子代理用 drawio MCP 工具（list_pages、get_diagram、edit_diagram）只改 pages 指定的頁，不呼叫 start_session；改完由 state.py get 存回檔案' },
     { title: 'lint', detail: 'script/diagram/lint.py <file> --base <備份>；指定頁的違規（與 page-id 違規）交回改圖子代理修，最多 3 輪，還不行就停；其他頁的違規只回報' },
     { title: '匯出 PNG', detail: '先刪掉同名舊圖；子代理用 MCP export_diagram 每頁匯出一張到 workspace 的 reference/diagram_review/<round>/，再由 script/diagram/png.py flatten 與 resize 改白底、縮圖；每張的時間不准早於最後一次 state.py get。匯出逾時或失敗就停，請維護者打開或重新整理 drawio 分頁，不拿舊 PNG 當結果' },
@@ -19,9 +19,9 @@ export const meta = {
 //   pages   string[]  必填，這次只准改的頁的 <diagram id>（圖的持久鍵，不是頁名也不是頁序）
 //   task    string    必填，要改什麼
 //   round?  string    rNN；不給就用 script/doc/round.py next 取下一個，給了就用 round.py check 檢查（跟 doc-edit 共用編號）
-//   repo?       string  主 repo 的路徑；不給就在第一步由子代理跑 `git rev-parse --path-format=absolute --git-common-dir`，
-//                       取其上一層（在 worktree 裡跑也會得到主 repo）
-//   workspace?  string  放 PNG 的 workspace，預設 repo 的上一層；明確帶的 repo 是 worktree 時要明確帶主 repo 的上一層
+//   repo?       string  要改哪份圖的 repo 根目錄（絕對路徑）：file、備份、輪次與審查輸出都在這裡；不給就用主 repo。
+//                       可以是舊分支的 worktree；腳本（script/doc、script/diagram、script/workflow）不從這裡取，一律從主 repo 取
+//   workspace?  string  放 PNG 的 workspace，預設主 repo 的上一層；要放別處時才帶
 const {
   repo: repoArg,
   workspace,
@@ -32,8 +32,8 @@ const {
 } = args ?? {}
 
 // ───────────────── 參數檢查 ─────────────────
-if (repoArg !== undefined && (typeof repoArg !== 'string' || !repoArg.trim())) {
-  throw new Error('args.repo 只能省略或是 repo 的路徑（省略就由子代理用 git rev-parse 查出主 repo）')
+if (repoArg !== undefined && (typeof repoArg !== 'string' || !repoArg.trim().startsWith('/'))) {
+  throw new Error(`args.repo 只能省略或是 repo 根目錄的絕對路徑（收到 ${JSON.stringify(repoArg)}）；省略就用主 repo`)
 }
 if (typeof file !== 'string' || !/\.drawio$/.test(file) || file.startsWith('/') || file.split('/').includes('..')) {
   throw new Error('args.file 必填：相對 repo 根目錄的 .drawio 路徑，例如 "doc/diagram/architecture.drawio" 或 "doc/diagram/flow.drawio"（不准絕對路徑、不准 ..）')
@@ -52,17 +52,22 @@ if (roundArg !== undefined && (typeof roundArg !== 'string' || !/^r\d+$/.test(ro
 }
 
 if (workspace !== undefined && (typeof workspace !== 'string' || !workspace.trim())) {
-  throw new Error('args.workspace 只能省略或是路徑：放 PNG 的 workspace（預設 repo 的上一層）')
+  throw new Error('args.workspace 只能省略或是路徑：放 PNG 的 workspace（預設主 repo 的上一層）')
 }
-// repo 與由它推出的路徑：準備階段的第一步才定下來（setRepo），之後的步驟才用得到
-let repo = '', WS = '', FILE = '', DOC = '', DIA = '', WF = ''
-const setRepo = r => {
-  repo = r.trim().replace(/\/+$/, '')
-  WS = (workspace ?? repo.replace(/\/[^/]+$/, '')).trim().replace(/\/+$/, '')
+// 兩個值分開（#288，同 discuss 的 #269）：
+//   repo  改哪份圖：file、備份、輪次、審查輸出；給了就照用，可以是舊分支的 worktree
+//   main  腳本來源與 workspace 預設：主 repo 根目錄，script/ 一律從這裡取，舊分支沒有的腳本才不會找不到
+// 兩者都在準備階段的第一步才定下來（setRoots），之後的步驟才用得到
+const trimDir = x => (typeof x === 'string' ? x.trim().replace(/\/+$/, '') : '')
+let repo = trimDir(repoArg), main = '', WS = '', FILE = '', DOC = '', DIA = '', WF = ''
+const setRoots = m => {
+  main = trimDir(m)
+  if (!repo) repo = main
+  WS = trimDir(workspace ?? main.replace(/\/[^/]+$/, ''))
   FILE = `${repo}/${file}`
-  DOC = `${repo}/script/doc`
-  DIA = `${repo}/script/diagram`
-  WF = `${repo}/script/workflow`
+  DOC = `${main}/script/doc`
+  DIA = `${main}/script/diagram`
+  WF = `${main}/script/workflow`
 }
 const BASE = file.split('/').pop()
 const MAX_FIX = 3
@@ -99,7 +104,7 @@ const why = j => j?.message ?? j?.error ?? JSON.stringify(j)
 
 // 回傳值：每一步做完就填進去；停下時填 stopped 與 error
 const result = {
-  round: '', repo: '', file, pages, backup: '', edits: [], lint: null, png: [], review: null, applied: null, diff: null,
+  round: '', repo: '', main: '', file, pages, backup: '', edits: [], lint: null, png: [], review: null, applied: null, diff: null,
   stopped: null, error: '',
 }
 const stop = (where, error) => {
@@ -264,22 +269,28 @@ const checkScope = async (ph, step) => {
 
 // ───────────────── 準備 ─────────────────
 phase('準備')
-if (repoArg !== undefined) {
-  setRepo(repoArg)
-} else {
+// 主 repo 不寫死本機路徑：不論有沒有給 repo，都派子代理在 repo（沒給就用它的工作目錄）查 git common dir，
+// 取它的上一層（在 linked worktree 也會回到主 repo）
+{
+  const gitCmd = repo
+    ? `git -C ${repo} rev-parse --path-format=absolute --git-common-dir`
+    : 'git rev-parse --path-format=absolute --git-common-dir'
   const rp = await agent(`只跑下面這一行指令（Bash 工具前景執行，timeout 120000），不做任何其他事、不改任何檔、不呼叫任何 MCP 工具：
 
-git rev-parse --path-format=absolute --git-common-dir
+${gitCmd}
 
 回報：output 放它在 stdout 印出的那一行原文，一字不改；指令失敗就留空。`,
-    { label: L('查 repo'), phase: '準備', schema: SH, agentType: 'general-purpose', effort: 'low' })
-  const gitDir = (rp?.output ?? '').trim().replace(/\/+$/, '')
-  if (!/^\/.*[^/]\/[^/]+$/.test(gitDir) || gitDir.split('\n').length > 1) {
-    return stop('準備', `查不到 repo：git rev-parse --git-common-dir 的輸出不是絕對路徑（${JSON.stringify(rp?.output ?? null)}）；請明確帶 args.repo`)
+    { label: L('查主 repo'), phase: '準備', schema: SH, agentType: 'general-purpose', effort: 'low' })
+  const gitDir = trimDir(rp?.output ?? '')
+  if (!/^\/.*[^/]\/\.git$/.test(gitDir) || gitDir.split('\n').length > 1) {
+    return stop('準備', `查不到主 repo：git rev-parse --git-common-dir 的輸出不是以 /.git 結尾的絕對路徑（${JSON.stringify(rp?.output ?? null)}）`)
   }
-  setRepo(gitDir.replace(/\/[^/]+$/, ''))
+  setRoots(gitDir.replace(/\/\.git$/, ''))
 }
 result.repo = repo
+result.main = main
+log(`diagram-edit repo ${repo}（圖檔、備份、輪次、審查輸出）`)
+log(`diagram-edit main ${main}（腳本 ${main}/script/；workspace ${WS}）`)
 if (round) {
   const j = await sh('輪次', '準備', `python3 ${DOC}/round.py check ${round} --repo ${repo}`)
   if (!j.ok) return stop('準備', `round ${round} 不對：${why(j)}；這一輪要用 ${j.expected ?? j.next ?? '（round.py 沒給）'}，round 不能重用也不能跳號`)
