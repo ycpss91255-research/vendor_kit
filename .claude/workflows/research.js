@@ -5,7 +5,7 @@ export const meta = {
   phases: [
     { title: '定位', detail: '不論有沒有給 repo，effort low 子代理在 repo（沒給就用工作目錄）跑 git rev-parse --path-format=absolute --git-common-dir，取其上一層當主 repo；腳本與 workspace 一律從主 repo 推' },
     { title: '調查', detail: '每個 brief 一個 agy（script/workflow/agy_run.py）；輸出已存在且非空就沿用' },
-    { title: '核對', detail: '每份 agy 輸出交給 codex（script/workflow/codex_run.py，背景執行、逾時預設 2400 秒），逐條打開來源核對，標正確／有誤／查不到；輸出已存在且非空就沿用，model at capacity 時等 60 秒重試最多 2 次' },
+    { title: '核對', detail: '每份 agy 輸出交給 codex（script/workflow/codex_run.py，背景執行、逾時預設 2400 秒；JSON 導到 <id>_codex_run.json，前景等待迴圈等它出現），逐條打開來源核對，標正確／有誤／查不到；輸出已存在且非空就沿用，model at capacity 時等 60 秒重試最多 2 次' },
     { title: '整合', detail: 'Claude 讀全部 agy 與 codex 輸出，抽查來源，寫整合結論；兩方不一致列成分歧，不選邊' },
     { title: '貼 issue', detail: 'script/workflow/prepare_comment.py 準備留言檔，依序貼 [agy] 原文、[codex] 原文、[claude] 整合結論，核對則數' },
   ],
@@ -60,6 +60,8 @@ const brief = b => `${dir}/${b.id}_brief.md`
 const agyOut = b => `${dir}/${b.id}_agy.md`
 const codexOut = b => `${dir}/${b.id}_codex.md`
 const codexBrief = b => `${dir}/${b.id}_codex_brief.md`
+// 背景 codex_run.py 的 stdout JSON 導到這個檔，子代理用前景等待迴圈等它出現（#302）
+const runJson = b => `${dir}/${b.id}_codex_run.json`
 // 整合輸出帶 brief id，同一 issue 換一批 brief 再跑不會覆蓋前一次
 const claudeOut = `${dir}/claude_review_${briefs.map(b => b.id).join('_')}.md`
 const MODEL = agyModel.trim() ? ` --model ${agyModel.trim()}` : ''
@@ -79,6 +81,12 @@ const CODEX_RUN = {
 const BG_TIMEOUT_MS = (codexTimeout + 120) * 1000
 const CAPACITY_WAIT_S = 60
 const CAPACITY_RETRIES = 2
+// 前景等待迴圈：一輪 590 秒（前景 Bash 上限 600 秒，留 10 秒給 test 與 echo），
+// 總等待涵蓋 codex 逾時加收尾 120 秒；capacity 重試另加等待的秒數（#302）
+const WAIT_ROUND_S = 590
+const WAIT_ROUNDS = Math.ceil((codexTimeout + 120) / WAIT_ROUND_S)
+const RETRY_WAIT_ROUNDS = Math.ceil((codexTimeout + 120 + CAPACITY_WAIT_S) / WAIT_ROUND_S)
+const waitCmd = b => `timeout ${WAIT_ROUND_S} sh -c 'until [ -s ${runJson(b)} ]; do sleep 15; done'; test -s ${runJson(b)} && echo ready || echo waiting`
 
 const results = await pipeline(
   briefs,
@@ -102,13 +110,20 @@ const results = await pipeline(
 ${BG}調查目的：${topic}
 讀 ${agyOut(b)}（agy 的調查輸出）與它的題目 ${brief(b)}。逐條打開 agy 引用的來源（網址、workflow 檔、文件）核對：每條標「正確／有誤／查不到來源」，有誤就寫出正確內容與來源網址。agy 漏掉的重要事實自己補上，同樣附來源。最後一節「核對後結論」：依核對結果修正後的結論與數量統計。用繁體中文 markdown，不要改任何檔。
 ---
-3. 用 Bash 的 run_in_background 執行（timeout ${BG_TIMEOUT_MS}），指令一字不差：
-   \`${run}\`
-   **不要用前景執行**：前景 Bash 上限 600 秒，codex 逐條核對大份調查會超過。啟動後等它結束的通知，不要中途放棄、不要另外輪詢或 sleep；結束後讀這個背景指令輸出的那一行 JSON。
-4. 重試只限一種情況：JSON 的 ok 是 false，而且 stderr_tail 含 \`at capacity\`（codex 回報模型滿載）。這時重做第 2 步（腳本已刪掉 brief，要重寫），再用 run_in_background（timeout ${BG_TIMEOUT_MS + CAPACITY_WAIT_S * 1000}）執行，指令一字不差：
-   \`sleep ${CAPACITY_WAIT_S}; ${run}\`
-   同樣等它結束再讀 JSON。最多重試 ${CAPACITY_RETRIES} 次（連第一次共 ${CAPACITY_RETRIES + 1} 次）；逾時（timed_out true）或其他失敗不重試。
-5. 依最後一次的 JSON 照實回報：exit＝JSON 的 exit（逾時時 JSON 的 exit 是 null，回報 -1）、out_ok＝JSON 的 ok、reused false、timed_out＝JSON 的 timed_out、attempts＝實際跑 codex_run.py 的次數；ok 是 false 就把 JSON 的 error 與 stderr_tail 寫進 error。不要自己看 shell 的結束碼或輸出檔。`,
+3. 先清掉上一次的結果檔，前景執行一次（指令一字不差）：
+   \`rm -f ${runJson(b)}\`
+   再用 Bash 的 run_in_background 執行（timeout ${BG_TIMEOUT_MS}），指令一字不差（JSON 導到結果檔）：
+   \`${run} > ${runJson(b)} 2>&1\`
+   **codex 本身不要用前景執行**：前景 Bash 上限 600 秒，codex 逐條核對大份調查會超過。
+4. 啟動後馬上用**前景** Bash（timeout 600000）跑等待迴圈，指令一字不差：
+   \`${waitCmd(b)}\`
+   印 waiting 就再跑同一個指令；印 ready 就往下做。這一次 codex 最多跑 ${WAIT_ROUNDS} 次等待迴圈（總共約 ${WAIT_ROUNDS * WAIT_ROUND_S} 秒，涵蓋 codex 逾時 ${codexTimeout} 秒加收尾 120 秒）；跑滿還是 waiting 就算逾時：不重試，回報 exit -1、out_ok false、timed_out true，error 寫「等待 codex_run.py 結果逾時」，再做第 6 步的刪檔。
+   **只能這樣等**：不要用 Monitor（repo 的 monitor_guard hook 會擋）、不要單獨跑 sleep、不要只等背景通知就先輸出回報（背景工作會在你回報時被砍，codex 輸出就沒了）。
+5. 用 Read 讀 ${runJson(b)}，裡面是 codex_run.py 印出的那一行 JSON，取 ok／exit／timed_out／error／stderr_tail；內容不是一行 JSON（例如腳本本身報錯）就不重試，回報 exit -1、out_ok false，error 附檔案內容。重試只限一種情況：ok 是 false，而且 stderr_tail 含 \`at capacity\`（codex 回報模型滿載）。這時重做第 2 步（腳本已刪掉 brief，要重寫），再照第 3 步先前景執行 \`rm -f ${runJson(b)}\`，然後用 run_in_background（timeout ${BG_TIMEOUT_MS + CAPACITY_WAIT_S * 1000}）執行，指令一字不差：
+   \`sleep ${CAPACITY_WAIT_S}; ${run} > ${runJson(b)} 2>&1\`
+   接著照第 4 步跑等待迴圈（這次最多 ${RETRY_WAIT_ROUNDS} 次，多算等待的 ${CAPACITY_WAIT_S} 秒），ready 後同樣讀 JSON。最多重試 ${CAPACITY_RETRIES} 次（連第一次共 ${CAPACITY_RETRIES + 1} 次）；逾時（timed_out true）或其他失敗不重試。
+6. 結束前（成功、失敗、逾時都一樣）前景執行一次 \`rm -f ${runJson(b)}\`。
+7. 依最後一次的 JSON 照實回報：exit＝JSON 的 exit（逾時時 JSON 的 exit 是 null，回報 -1）、out_ok＝JSON 的 ok、reused false、timed_out＝JSON 的 timed_out、attempts＝實際跑 codex_run.py 的次數；ok 是 false 就把 JSON 的 error 與 stderr_tail 寫進 error。不要自己看 shell 的結束碼或 codex 的輸出檔。`,
       { label: `#${issue} codex:${b.id}`, phase: '核對', schema: CODEX_RUN }).then(c => ({ b, agy: r, codex: c }))
   },
 )
