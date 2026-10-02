@@ -1,4 +1,4 @@
-"""hook_rules.py：直接取用 .claude/hooks/comment_tag_guard.py 的規則。"""
+"""hook_rules.py：直接取用 .claude/hooks/comment_tag_guard.py 與 attribution_guard.py 的規則。"""
 import pathlib
 import sys
 import tempfile
@@ -21,6 +21,12 @@ class SameObject(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIs(getattr(hr, name), getattr(hr.hook, name))
 
+    def test_banned_comes_from_attribution_guard(self):
+        self.assertIs(hr.BANNED, hr.attribution.BANNED)
+        self.assertEqual(hr.ATTRIBUTION_HOOK.parts[-3:], (".claude", "hooks", "attribution_guard.py"))
+        self.assertTrue(hr.BANNED.search("Co-Authored-By: Claude <x>"))
+        self.assertIsNone(hr.BANNED.search("一般的 PR 本文"))
+
     def test_default_path_is_the_hook(self):
         self.assertEqual(hr.HOOK.parts[-3:], (".claude", "hooks", "comment_tag_guard.py"))
         self.assertTrue(hr.HOOK.is_file())
@@ -41,6 +47,14 @@ class LoadErrors(unittest.TestCase):
             with self.assertRaises(hr.HookRulesError) as cm:
                 hr.load(path)
             self.assertIn("LOCAL_PATHS", str(cm.exception))
+
+    def test_missing_attribution_names_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "attribution_guard.py"
+            path.write_text("X = 1\n", encoding="utf-8")
+            with self.assertRaises(hr.HookRulesError) as cm:
+                hr.load(path, hr.ATTRIBUTION_NAMES)
+            self.assertIn("BANNED", str(cm.exception))
 
     def test_broken_file_raises(self):
         with tempfile.TemporaryDirectory() as d:
