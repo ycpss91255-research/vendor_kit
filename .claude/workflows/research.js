@@ -5,9 +5,9 @@ export const meta = {
   phases: [
     { title: '定位', detail: '不論有沒有給 repo，effort low 子代理在 repo（沒給就用工作目錄）跑 git rev-parse --path-format=absolute --git-common-dir，取其上一層當主 repo；腳本與 workspace 一律從主 repo 推' },
     { title: '調查', detail: '每個 brief 一個 agy（script/workflow/agy_run.py）；輸出已存在且非空就沿用' },
-    { title: '核對', detail: '每份 agy 輸出交給 codex（script/workflow/codex_run.py，背景執行、逾時預設 2400 秒；JSON 導到 <id>_codex_run.json，前景等待迴圈等它出現），逐條打開來源核對，標正確／有誤／查不到；輸出已存在且非空就沿用，model at capacity 時等 60 秒重試最多 2 次' },
+    { title: '核對', detail: '每份 agy 輸出交給 codex（script/workflow/codex_run.py --delete-brief --reuse，背景執行、逾時預設 2400 秒；JSON 導到 <id>_codex_run.json，前景等待迴圈等它出現），逐條打開來源核對，標正確／有誤／查不到；輸出已存在且非空由 --reuse 沿用；JSON 的 capacity 是 true 時由 JS 再派一次子代理（指令前加 sleep 60），最多重試 2 次' },
     { title: '整合', detail: 'Claude 讀全部 agy 與 codex 輸出，抽查來源，寫整合結論；兩方不一致列成分歧，不選邊' },
-    { title: '貼 issue', detail: 'script/workflow/prepare_comment.py 準備留言檔，依序貼 [agy] 原文、[codex] 原文、[claude] 整合結論，核對則數' },
+    { title: '貼 issue', detail: 'script/workflow/prepare_comment.py prepare 準備留言檔 → script/github/post_comments.py --dir 依序貼 [agy] 原文、[codex] 原文、[claude] 整合結論 → prepare_comment.py clean；則數與網址由 JS 從兩個 JSON 取並核對' },
   ],
 }
 
@@ -52,6 +52,7 @@ if (!common.startsWith('/') || !/\/[^/]+$/.test(common)) throw new Error(`找不
 const ROOT = common.replace(/\/[^/]+$/, '')
 const WS = ROOT.replace(/\/[^/]+$/, '')
 const WF = `${ROOT}/script/workflow`
+const GH = `${ROOT}/script/github`
 log(`research #${issue} main ${ROOT}（腳本 ${WF}、workspace ${WS}）`)
 const dir = args.dir ?? `${WS}/reference/research/${issue}`
 const REPO = 'ycpss91255-research/vendor_kit'
@@ -71,11 +72,14 @@ const RUN = {
   properties: { exit: { type: 'integer' }, out_ok: { type: 'boolean' }, reused: { type: 'boolean' }, model: { type: 'string' }, error: { type: 'string' } },
   required: ['exit', 'out_ok'],
 }
-// codex 核對另外回報跑了幾次與最後一次是否逾時
-const CODEX_RUN = {
+// codex 核對的子代理每次只跑一次 codex_run.py，照抄它 JSON 的欄位；要不要重試由 JS 判斷
+const CODEX_ATTEMPT = {
   type: 'object',
-  properties: { ...RUN.properties, attempts: { type: 'integer' }, timed_out: { type: 'boolean' } },
-  required: ['exit', 'out_ok', 'reused', 'attempts'],
+  properties: {
+    ok: { type: 'boolean' }, exit: { type: 'integer' }, reused: { type: 'boolean' }, timed_out: { type: 'boolean' },
+    capacity: { type: 'boolean' }, error: { type: 'string' }, stderr_tail: { type: 'string' },
+  },
+  required: ['ok', 'exit', 'reused', 'timed_out', 'capacity'],
 }
 // 背景 Bash 的 timeout（毫秒）：codex 逾時再加 120 秒，讓 codex_run.py 砍掉 codex 後還來得及印 JSON
 const BG_TIMEOUT_MS = (codexTimeout + 120) * 1000
@@ -88,6 +92,33 @@ const WAIT_ROUNDS = Math.ceil((codexTimeout + 120) / WAIT_ROUND_S)
 const RETRY_WAIT_ROUNDS = Math.ceil((codexTimeout + 120 + CAPACITY_WAIT_S) / WAIT_ROUND_S)
 const waitCmd = b => `timeout ${WAIT_ROUND_S} sh -c 'until [ -s ${runJson(b)} ]; do sleep 15; done'; test -s ${runJson(b)} && echo ready || echo waiting`
 
+const codexRun = b => `python3 ${WF}/codex_run.py --cd ${dir} --brief ${codexBrief(b)} --out ${codexOut(b)} --timeout ${codexTimeout} --delete-brief --reuse`
+// 核對子代理的指示；retry 時背景指令前加 sleep，背景 timeout 與等待次數多算等待的秒數
+const codexPrompt = (b, retry) => {
+  const bg = `${retry ? `sleep ${CAPACITY_WAIT_S}; ` : ''}${codexRun(b)} > ${runJson(b)} 2>&1`
+  const bgTimeout = BG_TIMEOUT_MS + (retry ? CAPACITY_WAIT_S * 1000 : 0)
+  const rounds = retry ? RETRY_WAIT_ROUNDS : WAIT_ROUNDS
+  return `你的工作是用腳本啟動 codex 核對 agy 的調查結果，**你自己不核對、不加意見、不判斷要不要重試**。不改任何 repo、不 commit、不 push。每一步都照做，不要自己先檢查輸出檔在不在（沿用由腳本的 --reuse 判斷）。
+
+1. 用 Write 工具把下面的 brief 原文寫進 ${codexBrief(b)}（不要用 heredoc）：
+---
+${BG}調查目的：${topic}
+讀 ${agyOut(b)}（agy 的調查輸出）與它的題目 ${brief(b)}。逐條打開 agy 引用的來源（網址、workflow 檔、文件）核對：每條標「正確／有誤／查不到來源」，有誤就寫出正確內容與來源網址。agy 漏掉的重要事實自己補上，同樣附來源。最後一節「核對後結論」：依核對結果修正後的結論與數量統計。用繁體中文 markdown，不要改任何檔。
+---
+2. 先清掉上一次的結果檔，前景執行一次（指令一字不差）：
+   \`rm -f ${runJson(b)}\`
+   再用 Bash 的 run_in_background 執行（timeout ${bgTimeout}），指令一字不差（JSON 導到結果檔）：
+   \`${bg}\`
+   **codex 本身不要用前景執行**：前景 Bash 上限 600 秒，codex 逐條核對大份調查會超過。
+3. 啟動後馬上用**前景** Bash（timeout 600000）跑等待迴圈，指令一字不差：
+   \`${waitCmd(b)}\`
+   印 waiting 就再跑同一個指令；印 ready 就往下做。最多跑 ${rounds} 次等待迴圈（總共約 ${rounds * WAIT_ROUND_S} 秒，涵蓋 codex 逾時 ${codexTimeout} 秒加收尾 120 秒${retry ? `與等待的 ${CAPACITY_WAIT_S} 秒` : ''}）；跑滿還是 waiting 就算逾時：回報 ok false、exit -1、reused false、timed_out true、capacity false，error 寫「等待 codex_run.py 結果逾時」，再做第 5 步的刪檔。
+   **只能這樣等**：不要用 Monitor（repo 的 monitor_guard hook 會擋）、不要單獨跑 sleep、不要只等背景通知就先輸出回報（背景工作會在你回報時被砍，codex 輸出就沒了）。
+4. 用 Read 讀 ${runJson(b)}，裡面是 codex_run.py 印出的那一行 JSON。內容不是一行 JSON（例如腳本本身報錯）就回報 ok false、exit -1、reused false、timed_out false、capacity false，error 附檔案內容。
+5. 結束前（成功、失敗、逾時都一樣）前景執行一次 \`rm -f ${runJson(b)}\`。
+6. 依 JSON 照實回報：ok、reused、timed_out、capacity、error、stderr_tail 照抄 JSON 的同名欄位（error 是 null 就留空）；exit＝JSON 的 exit，是 null（逾時、沿用或沒跑起來）時：ok 是 true 回報 0，否則回報 -1。不要自己看 shell 的結束碼或 codex 的輸出檔，不要重跑。`
+}
+
 const results = await pipeline(
   briefs,
   b => agent(`你的工作是用腳本執行 agy 做資料調查，**你自己不調查、不改寫輸出**。不改任何 repo、不 commit、不 push。
@@ -97,34 +128,26 @@ const results = await pipeline(
    跑不完就用 run_in_background 重跑同一行並等它結束，不要中途放棄（腳本先寫 .part、成功才改名，不會沿用半成品）。輸出已存在且非空時腳本會直接沿用。
 2. 讀它印出的那一行 JSON，照實回報：exit＝JSON 的 exit、out_ok＝JSON 的 ok、reused＝JSON 的 reused、model＝JSON 的 model（沿用時可能是空的）；ok 是 false 就把 JSON 的 error 與 err_tail 寫進 error。不要自己判斷輸出檔、不要自己刪 .err。`,
     { label: `#${issue} agy:${b.id}`, phase: '調查', schema: RUN }),
-  (r, b) => {
+  async (r, b) => {
     if (!r || r.exit !== 0 || !r.out_ok) return { b, agy: r, codex: null }
-    const run = `python3 ${WF}/codex_run.py --cd ${dir} --brief ${codexBrief(b)} --out ${codexOut(b)} --timeout ${codexTimeout} --delete-brief`
-    return agent(`你的工作是用腳本啟動 codex 核對 agy 的調查結果，**你自己不核對、不加意見**。不改任何 repo、不 commit、不 push。
-
-1. 先看有沒有既有輸出，執行一次（指令一字不差）：
-   \`find ${codexOut(b)} -maxdepth 0 -type f -size +0c\`
-   有印出這個路徑＝已存在且非空：直接回報 exit 0、out_ok true、reused true、attempts 0，不跑 codex，到此結束。沒印出（不存在或是空的，指令報錯也算）就往下做。
-2. 用 Write 工具把下面的 brief 原文寫進 ${codexBrief(b)}（不要用 heredoc）：
----
-${BG}調查目的：${topic}
-讀 ${agyOut(b)}（agy 的調查輸出）與它的題目 ${brief(b)}。逐條打開 agy 引用的來源（網址、workflow 檔、文件）核對：每條標「正確／有誤／查不到來源」，有誤就寫出正確內容與來源網址。agy 漏掉的重要事實自己補上，同樣附來源。最後一節「核對後結論」：依核對結果修正後的結論與數量統計。用繁體中文 markdown，不要改任何檔。
----
-3. 先清掉上一次的結果檔，前景執行一次（指令一字不差）：
-   \`rm -f ${runJson(b)}\`
-   再用 Bash 的 run_in_background 執行（timeout ${BG_TIMEOUT_MS}），指令一字不差（JSON 導到結果檔）：
-   \`${run} > ${runJson(b)} 2>&1\`
-   **codex 本身不要用前景執行**：前景 Bash 上限 600 秒，codex 逐條核對大份調查會超過。
-4. 啟動後馬上用**前景** Bash（timeout 600000）跑等待迴圈，指令一字不差：
-   \`${waitCmd(b)}\`
-   印 waiting 就再跑同一個指令；印 ready 就往下做。這一次 codex 最多跑 ${WAIT_ROUNDS} 次等待迴圈（總共約 ${WAIT_ROUNDS * WAIT_ROUND_S} 秒，涵蓋 codex 逾時 ${codexTimeout} 秒加收尾 120 秒）；跑滿還是 waiting 就算逾時：不重試，回報 exit -1、out_ok false、timed_out true，error 寫「等待 codex_run.py 結果逾時」，再做第 6 步的刪檔。
-   **只能這樣等**：不要用 Monitor（repo 的 monitor_guard hook 會擋）、不要單獨跑 sleep、不要只等背景通知就先輸出回報（背景工作會在你回報時被砍，codex 輸出就沒了）。
-5. 用 Read 讀 ${runJson(b)}，裡面是 codex_run.py 印出的那一行 JSON，取 ok／exit／timed_out／error／stderr_tail；內容不是一行 JSON（例如腳本本身報錯）就不重試，回報 exit -1、out_ok false，error 附檔案內容。重試只限一種情況：ok 是 false，而且 stderr_tail 含 \`at capacity\`（codex 回報模型滿載）。這時重做第 2 步（腳本已刪掉 brief，要重寫），再照第 3 步先前景執行 \`rm -f ${runJson(b)}\`，然後用 run_in_background（timeout ${BG_TIMEOUT_MS + CAPACITY_WAIT_S * 1000}）執行，指令一字不差：
-   \`sleep ${CAPACITY_WAIT_S}; ${run} > ${runJson(b)} 2>&1\`
-   接著照第 4 步跑等待迴圈（這次最多 ${RETRY_WAIT_ROUNDS} 次，多算等待的 ${CAPACITY_WAIT_S} 秒），ready 後同樣讀 JSON。最多重試 ${CAPACITY_RETRIES} 次（連第一次共 ${CAPACITY_RETRIES + 1} 次）；逾時（timed_out true）或其他失敗不重試。
-6. 結束前（成功、失敗、逾時都一樣）前景執行一次 \`rm -f ${runJson(b)}\`。
-7. 依最後一次的 JSON 照實回報：exit＝JSON 的 exit（逾時時 JSON 的 exit 是 null，回報 -1）、out_ok＝JSON 的 ok、reused false、timed_out＝JSON 的 timed_out、attempts＝實際跑 codex_run.py 的次數；ok 是 false 就把 JSON 的 error 與 stderr_tail 寫進 error。不要自己看 shell 的結束碼或 codex 的輸出檔。`,
-      { label: `#${issue} codex:${b.id}`, phase: '核對', schema: CODEX_RUN }).then(c => ({ b, agy: r, codex: c }))
+    // at capacity 的重試由 JS 決定：每次派一個新的子代理，各自是單獨的背景指令（背景上限 7200 秒）
+    let last = null
+    let attempts = 0
+    for (let i = 0; i <= CAPACITY_RETRIES; i++) {
+      attempts = i + 1
+      last = await agent(codexPrompt(b, i > 0),
+        { label: `#${issue} codex:${b.id}${i > 0 ? ` 重試 ${i}` : ''}`, phase: '核對', schema: CODEX_ATTEMPT })
+      if (!last || last.ok || !last.capacity || last.timed_out) break
+      if (i < CAPACITY_RETRIES) log(`codex:${b.id} at capacity，${CAPACITY_WAIT_S} 秒後重試（第 ${i + 1} 次）`)
+    }
+    const codex = last
+      ? {
+          exit: last.exit, out_ok: last.ok, reused: !!last.reused, timed_out: !!last.timed_out,
+          capacity: !!last.capacity, attempts,
+          ...(last.ok ? {} : { error: [last.error, last.stderr_tail].filter(Boolean).join('\n') }),
+        }
+      : { exit: -1, out_ok: false, reused: false, timed_out: false, capacity: false, attempts, error: 'codex 核對的子代理沒有回傳結果' }
+    return { b, agy: r, codex }
   },
 )
 
@@ -152,7 +175,8 @@ ${ok.map(x => `- ${x.b.label}：${agyOut(x.b)}、${codexOut(x.b)}`).join('\n')}
 if (!post || !review) return { ok: ok.map(x => x.b.id), failed, review }
 
 phase('貼 issue')
-// 留言檔的標記、註記行、本機路徑替換與切分由 prepare_comment.py 做並自檢；gh 寫入由子代理逐則下，hook 才看得到
+// 留言檔的標記、註記行、本機路徑替換與切分由 prepare_comment.py 做並自檢；
+// 貼出由 post_comments.py 做，每則寫入前都把同一個 argv 交給 .claude/settings.json 註冊的 Bash hook 檢查
 const POST_DIR = `${dir}/post`
 // 標題用單引號包，bash 與 fish 都照字面讀；單引號與反斜線先換掉
 const q = s => `'${String(s).replace(/'/g, '’').replace(/\\/g, '/')}'`
@@ -163,30 +187,48 @@ const items = [
   ]),
   `--item claude ${claudeOut} ${q('整合結論')}`,
 ].join(' ')
-const posted = await agent(`把調查結果依序貼到 GitHub issue #${issue}（repo ${REPO}）。不改 repo、不 commit。留言檔由腳本準備，你不要自己加標記、寫註記行、換路徑或切分，也不要改留言檔內容。
+const POSTED = {
+  type: 'object',
+  properties: {
+    prepare_ok: { type: 'boolean' }, files: { type: 'integer' }, problems: { type: 'string' },
+    post_json: { type: 'string' }, clean_ok: { type: 'boolean' }, error: { type: 'string' },
+  },
+  required: ['prepare_ok', 'files', 'post_json'],
+}
+const posted = await agent(`把調查結果依序貼到 GitHub issue #${issue}（repo ${REPO}）。不改 repo、不 commit。留言檔的準備與貼出都由腳本做，你只照順序執行下面三個指令、照抄它們的輸出；不要自己加標記、寫註記行、換路徑、切分或改留言檔，也不要自己下任何 gh 指令。
 
 1. 執行一次（指令一字不差）：
    \`python3 ${WF}/prepare_comment.py prepare --out-dir ${POST_DIR} --workspace ${WS} ${items}\`
-   讀它印出的 JSON。ok 是 false：不貼任何留言，planned 回 0、urls 回空陣列，把 problems 寫進 error，然後停。
-2. planned＝JSON 的 files 則數。依 files 的順序，每則用一個獨立的指令貼出（不要用 && 串、不要用迴圈或變數代替路徑、不要在同一個指令裡寫檔）：
-   \`gh issue comment ${issue} -R ${REPO} --body-file <files[i].path 的絕對路徑>\`
-   記下每則印出的留言網址。某一則失敗（例如被 hook 擋下）就停下，不貼後面的，把原因寫進 error。
-3. 最後執行 \`python3 ${WF}/prepare_comment.py clean --out-dir ${POST_DIR}\`（貼失敗也要跑）。
+   讀它印出的 JSON：prepare_ok＝JSON 的 ok、files＝JSON 的 files 陣列長度；ok 是 false 就把 problems 原樣寫進 problems，跳過第 2 步（post_json 留空），直接做第 3 步。
+2. 執行一次（指令一字不差，不要拆成逐則、不要加旗標）：
+   \`python3 ${GH}/post_comments.py --kind issue --number ${issue} --dir ${POST_DIR}\`
+   把它印出的那一行 JSON 原樣填進 post_json（結束碼不是 0 也照填，不要重跑、不要自己補貼）。沒有印出 JSON 就把輸出原樣寫進 error。
+3. 最後執行一次 \`python3 ${WF}/prepare_comment.py clean --out-dir ${POST_DIR}\`（前兩步失敗也要跑），clean_ok＝JSON 的 ok。`,
+  { label: `#${issue} 貼 issue`, phase: '貼 issue', schema: POSTED })
 
-回報 planned（預計則數）、urls（實際貼出的每則網址，依序），有問題寫 error。`,
-  { label: `#${issue} 貼 issue`, phase: '貼 issue', schema: { type: 'object', properties: { planned: { type: 'integer' }, urls: { type: 'array', items: { type: 'string' } }, error: { type: 'string' } }, required: ['planned', 'urls'] } })
-
-const urls = posted?.urls ?? []
-const planned = posted?.planned ?? 0
-let postError = posted?.error ?? ''
+// 則數取 prepare 的 files，網址取 post_comments 的 urls
+let postRes = null
+let postError = ''
+if (posted?.post_json?.trim()) {
+  try { postRes = JSON.parse(posted.post_json.trim()) } catch { postError = `post_comments.py 的輸出不是 JSON：${posted.post_json.trim().slice(0, 500)}` }
+}
+const urls = Array.isArray(postRes?.urls) ? postRes.urls : []
+const planned = posted?.prepare_ok ? (posted.files ?? 0) : 0
 if (!posted) postError = '貼 issue 的子代理沒有回傳結果'
-else if (planned < 1) postError = postError || '沒有準備出任何留言檔（planned 為 0）'
-else if (urls.length !== planned) {
+else if (!posted.prepare_ok) postError = `prepare_comment.py 準備留言檔失敗：${posted.problems || posted.error || '沒有說明'}`
+else if (planned < 1) postError = '沒有準備出任何留言檔（planned 為 0）'
+else if (!postError && !postRes) postError = `post_comments.py 沒有輸出 JSON${posted.error ? `：${posted.error}` : ''}`
+else if (postRes && !postRes.ok) {
+  const why = [postRes.error, postRes.failed_at && `停在 ${postRes.failed_at}`, postRes.denied?.length && `hook 擋下：${JSON.stringify(postRes.denied)}`].filter(Boolean).join('；')
+  postError = `post_comments.py 失敗：${why || '沒有說明'}`
+}
+if (posted && planned >= 1 && urls.length !== planned) {
   const diff = planned - urls.length
   const msg = `預計 ${planned} 則，實際貼出 ${urls.length} 則，${diff > 0 ? `少了 ${diff}` : `多了 ${-diff}`} 則`
   log(`貼 issue 不齊：${msg}`)
   postError = postError ? `${msg}；${postError}` : msg
 }
+if (posted && posted.clean_ok === false) postError = postError ? `${postError}；prepare_comment.py clean 失敗` : 'prepare_comment.py clean 失敗'
 const out = { ok: ok.map(x => x.b.id), failed, summary: review.summary, planned, urls }
 if (postError) out.error = postError
 return out
