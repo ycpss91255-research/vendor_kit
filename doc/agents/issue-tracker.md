@@ -18,6 +18,16 @@ issue 的本文與標題開好後就不再修改；補充、進度、結論一�
 
 ## 慣例
 
+**用腳本寫入**：開 issue、留言、關閉、開 PR、merge 這些寫入，用 `script/github/` 與 `script/workflow/` 的腳本，不要逐一下 `gh`。用法、輸出 JSON 與結束碼見 [script/github/README.md](../../script/github/README.md)，`merge_pr.py` 見它的檔頭說明。
+
+- **開 issue**（可帶父題）：`python3 script/github/issue_open.py create --title "..." --label "..." --body-file <檔> [--parent <N>]`。結束碼 3 表示 issue 已開、只有掛 sub-issue 失敗，用 `python3 script/github/issue_open.py attach --parent <P> --issue <N>` 重試，不要再 `create`。
+- **留言**：`python3 script/github/post_comments.py --kind issue|pr --number <N> --body-file <檔> [<檔> …]`。
+- **先留言再關 issue**：`python3 script/github/post_comments.py --kind issue --number <N> --body-file <檔> --close`。
+- **開 PR**：`python3 script/github/pr_open.py --repo <worktree> --branch <分支> --issue <N> --body-file <檔> --title-from-commit`。
+- **等 CI 後 merge**：`python3 script/workflow/merge_pr.py <pr>`。
+
+這些腳本在每個寫入之前，都把即將執行的同一個指令交給 `.claude/settings.json` 註冊的同一批 Bash hook 檢查，被擋就不寫。下面的 `gh` 指令清單照舊：唯讀指令與腳本沒涵蓋的情況照用。
+
 - **建立 issue**：`gh issue create -R ycpss91255-research/vendor_kit --title "..." --body-file <檔> --label "..."`。
 - **讀 issue**：`gh issue view <number> -R ycpss91255-research/vendor_kit --comments`；需要時用 `jq` 過濾留言，並一併抓標籤。
 - **列 issue**：`gh issue list -R ycpss91255-research/vendor_kit --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`，視情況加 `--label`、`--state`。
