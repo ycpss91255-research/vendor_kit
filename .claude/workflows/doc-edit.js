@@ -493,7 +493,6 @@ ${BACKGROUND}
 **硬規則：只准改這一輪改過的行。** 違反就算這輪失敗。<暫存目錄> 是下面「暫存檔規則」給你的目錄。
 - 先跑 \`${diffOf(f)}\`，讀它印出的 JSON：diff 是這一輪的改動範圍，只在「新增或修改過的行」（diff 裡 + 開頭的行）內潤稿；diff 以外的行一個字都不准動，連標點都不准。
 - JSON 的 empty 是 true（這一輪沒改這個檔）：直接跳過，不備份、不呼叫 skill、不改任何東西；changed 與 backups 回空陣列，verify 寫「跳過：這一輪沒有改動」。
-- 這一輪的基準：base_kind 是 backup 時就是 JSON 的 base（不帶序號的那份，這一輪改之前的原檔）；是 HEAD 時把 \`git -C ${repo} show HEAD:${f}\` 的輸出存成 <暫存目錄>/base；是 none 時建一個空檔 <暫存目錄>/base。
 
 步驟：
 1. 取得上面的 diff；empty 是 true 就照上面跳過並回報。
@@ -502,8 +501,8 @@ ${BACKGROUND}
 4. 另外：不改意思、不加新事實、不刪承諾或「依 [頁名](連結) 第 N 條」的引用；不動程式碼區塊、行內程式碼、路徑、連結目標、數字、條號、表格結構；CSV 只改欄位裡的文字，不動表頭、逗號、引號與欄數；語氣直接，用「你」或省略主詞，不用「我認為」「建議」「也許」這類軟化詞。這一輪不做文字浮水印檢查，skill 最後的浮水印詢問略過。
 5. 跑 \`${LINT}\`（${LINT_READ}）；${f} 造成的失敗要修掉，修的時候也只准動第 1 步範圍內的行。
 6. 越界驗證（一律用腳本算）：跑
-   \`python3 ${DOC}/polish_check.py <基準> <潤稿前的備份> ${repo}/${f} --fix\`
-   它會找出落在這一輪範圍外的變動，並把那些行還原成潤稿前的原文。reverted 是 true 就再跑一次同一行指令（不帶 --fix），這次 ok 要是 true、violations 要是空的；有還原就再跑一次 lint。結束碼 2（讀不到檔）就停，error 寫原因。
+   \`python3 ${DOC}/polish_check.py --repo ${repo} --round ${round} ${f} <潤稿前的備份> --fix\`
+   基準由它依輪次自己取（跟第 1 步的 diff 同一套），不用自己準備。它會找出落在這一輪範圍外的變動，並把那些行還原成潤稿前的原文。reverted 是 true 就再跑一次同一行指令（不帶 --fix），這次 ok 要是 true、violations 要是空的；有還原就再跑一次 lint。結束碼 2（讀不到檔）就停，error 寫原因。
 7. 回報：changed 列每一處保留下來的改動（原句 → 新句，太長就寫位置與改法，並寫它修的是 humanizer-zh-tw 的哪個模式）；被腳本還原的不算進 changed；verify 放第 6 步每次 polish_check.py 輸出的 JSON 原文；backups 放第 2 步的備份路徑。`,
   { label: L('潤稿', f), tmp: `潤稿_${runKey(f)}`, phase: '潤稿', schema: POLISH_RESULT, agentType: 'general-purpose', ...(effort.polish ? { effort: effort.polish } : {}) })))
 const finalLint = await lintAgent(L('最後 lint'), '潤稿')
