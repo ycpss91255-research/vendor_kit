@@ -114,3 +114,36 @@ python3 script/workflow/prepare_comment.py clean --out-dir <目錄>
 - 3：貼到一半失敗（`urls` 是已貼的，`failed_at` 是失敗那一則），或留言全部貼完但關閉失敗（`failed_at` 是 null，只需重跑關閉）。不要整批重貼。
 
 測試：`python3 -m unittest discover -s script/github/test`（假 gh 用環境變數 `POST_COMMENTS_GH` 換掉，hook 用 repo 真的設定）。
+
+## pr_open.py
+
+[pr_open.py](pr_open.py) 開 PR，取代「本文寫檔 → `body.py check` → `check_pr_rules.py --git-diff` → `gh pr create` → 刪本文」逐一下指令。
+
+跑法：
+
+```sh
+python3 script/github/pr_open.py --repo <worktree> --branch <分支> --issue <N> --body-file <檔> (--title <標題> | --title-from-commit) [--base main] [--keep-body]
+```
+
+`--repo` 是分支所在的 worktree，git 指令與 hook 都在那裡跑；GitHub 上的 repo 固定是 `ycpss91255-research/vendor_kit`。依序：
+
+1. `push`：worktree 的 HEAD 要等於 `origin/<分支>`（不 fetch，只用已有的 ref）。沒 push 或沒推齊就停，先 push 再跑。
+2. `existing`：唯讀查 `gh pr list -R <repo> --head <分支> --state open --json number,url`，這個分支已有 open PR 就停，`existing` 帶那個 PR。
+3. `check`：
+   - 標題用 `script/git/check_commit_msg.py` 的 `check_title`（`--title-from-commit` 取 HEAD 的 subject）。
+   - 本文用 `script/workflow/body.py` 的規則（第一行 `[claude] `、有一行 `Closes #N`、不含本機絕對路徑）。
+   - PR 規則用 `check_pr_rules.py` 的 `check`，改動檔取 `git diff --name-only origin/<base>...origin/<分支>`（三點）；沒有改動檔也算問題。
+   - 問題原樣放進 `problems`，有任何一條就停，不寫入。
+4. `create`：經 `guarded_run` 跑 `gh pr create -R <repo> --base <base> --head <分支> --title … --body-file <絕對路徑>`，從輸出的網址取 PR 編號。成功就刪掉本文檔，`--keep-body` 保留；失敗不刪。
+
+寫入前的 precheck：`gh pr create` 先用 `.claude/settings.json` 裡每支 Bash hook 檢查同一個指令（例如 `pr_rules_guard.py` 用 `--head` 的遠端分支取改動檔再查一次範圍，`comment_tag_guard.py` 查本文的本機絕對路徑，`attribution_guard.py` 擋 Claude 署名）。任何一支擋下、出錯或逾時都不執行；這支腳本不另抄 hook 的規則。
+
+輸出一行 JSON：`{"ok", "step", "pr", "url", "existing", "problems", "denied", "error"}`；`step` 是停下或完成的步驟（`push`／`existing`／`check`／`create`／`done`），`existing` 是已存在的 open PR（`{"number", "url"}`，沒有是 null），`denied` 是 hook 擋下的明細。
+
+結束碼：
+
+- 0：成功。
+- 1：沒推齊、已有 PR、檢查不過、hook 擋下或 `gh pr create` 失敗，沒開 PR。
+- 2：用法錯。
+
+測試：`python3 -m unittest discover -s script/github/test`（暫存 bare remote 加 clone；假 gh 用環境變數 `PR_OPEN_GH` 換掉，hook 用 repo 真的設定）。
