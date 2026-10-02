@@ -102,7 +102,7 @@ VK 對外只有兩個入口：
 | 往上找不到 `.git` | 不寫檔，也不建立 repo | `2` | `VK0035` | stderr：診斷 |
 | 非安裝目錄帶 `--repair` | 停下，不改走首次導入、不建紀錄、不寫檔 | `2` | `VK0039` | stderr：診斷 |
 | 有 `.vendor_kit/`，但讀不出恰好一行有效的引擎版本鎖定行，且不屬上述未完成的首次導入例外；帶 `--repair` 時即使符合例外也同樣處理 | 停下，不改走首次導入、不建紀錄、不寫檔 | `2` | `VK0037` | stderr：診斷 |
-| 鎖定引擎與 `bootstrap.sh` 內嵌引擎跨 X | 任何寫入之前停下，指出要換哪個 X 的 `bootstrap.sh` | `3` | `VK0041` | stderr：診斷 |
+| 鎖定引擎與 `bootstrap.sh` 內嵌引擎跨 X | 任何寫入之前停下，指出要換哪個 X 的 `bootstrap.sh` | `3` | `VK0040` | stderr：診斷 |
 | 既有安裝目錄帶 `-i`，本機 image 或 image tar 缺必要的 digest 資訊，或 digest 與鎖定行不符 | 停下，不用這個 image | `2` | `VK0031` | stderr：診斷 |
 | 既有安裝目錄以 [image 引用](../../GLOSSARY.md#工具與出貨)帶 `-i`，digest 相符但完整 image 引用與鎖定行不同 | 停下，不用這個 image | `2` | `VK0038` | stderr：診斷 |
 | 首次導入、只檢查或 `--repair`，建不出執行紀錄 | 停下，不拉 image、不寫檔 | `2` | `VK0010` | stderr：診斷 |
