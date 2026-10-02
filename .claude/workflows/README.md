@@ -147,7 +147,7 @@ args 欄位：
 
 | 欄位 | 必填 | 說明 |
 |---|---|---|
-| `file` | 是 | 要改的 `.drawio`，相對 repo 根目錄 |
+| `file` | 是 | 要改的 `.drawio`，相對 repo 根目錄；架構圖 `doc/diagram/architecture.drawio`（頁 `arch-*`）或流程圖 `doc/diagram/flow.drawio`（頁 `flow-*`），一次一個檔 |
 | `pages` | 是 | 只准改的頁的 `<diagram id>` 陣列（圖的持久鍵，不是頁名也不是頁序） |
 | `task` | 是 | 要改什麼 |
 | `round` | 否 | `rNN`，跟 doc-edit 共用編號。不給就用 `script/doc/round.py next` 取，給了就用 `round.py check` 檢查 |
@@ -158,7 +158,7 @@ args 欄位：
 
 | 步驟 | 做法 |
 |---|---|
-| 準備 | 沒給 `repo` 就先用 `git rev-parse --path-format=absolute --git-common-dir` 查出主 repo；`script/doc/round.py next`／`check`；`script/doc/backup.py save`（鍵含副檔名，例如 `doc_diagram_architecture.drawio`）；`script/diagram/state.py check`，失效就停下，請維護者在主對話重新取得頁面；`state.py put` 載入檔案，並確認 `pages` 的 id 都在檔裡 |
+| 準備 | 沒給 `repo` 就先用 `git rev-parse --path-format=absolute --git-common-dir` 查出主 repo；`script/doc/round.py next`／`check`；`script/doc/backup.py save`（鍵依 `file` 算、含副檔名，例如 `doc_diagram_architecture.drawio`、`doc_diagram_flow.drawio`）；`script/diagram/state.py check`，失效就停下，請維護者在主對話重新取得頁面；`state.py put` 載入檔案，並確認 `pages` 的 id 都在檔裡 |
 | 改圖 | Claude 子代理用 MCP 的 `list_pages`、`get_diagram`、`edit_diagram`（一律帶 `page_id`）只改指定頁；改完由 `state.py get` 存回檔案 |
 | lint | `script/diagram/lint.py <file> --base <備份>`。指定頁的違規與 `page-id` 違規交回改圖子代理修，最多 3 輪，還不行就停；其他頁的違規只回報 |
 | 匯出 PNG | 先刪掉同名的舊 `.raw.png`／`.flat.png`／`.png`；子代理用 MCP `export_diagram` 每頁一張，存到 `<workspace>/reference/diagram_review/<round>/`；再用 `script/diagram/png.py flatten` 與 `resize --max-width 1600` 改白底、縮圖；最後比對每張的修改時間不早於 `file`（最後一次 `state.py get` 寫入的時間）。`export_diagram` 逾時或失敗（常見原因是瀏覽器的 drawio 分頁沒開或沒回應）就停，`error` 請維護者打開或重新整理 drawio 分頁，不拿舊 PNG 當結果 |
