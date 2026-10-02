@@ -76,7 +76,7 @@ class RulesTest(unittest.TestCase):
         # CSV 不准 Markdown，指令沒有反引號；掃 situation、message、next_step 三欄，錯誤位置報 <檔>:<代碼>:<欄名>
         self.write("01_a.md", "# 01\n\n## 目錄\n")
         self.write("03_m.md", "# 03\n\n## 目錄\n")
-        pathlib.Path("doc/contract/03_m.csv").write_text(
+        pathlib.Path("doc/contract/reason_codes.csv").write_text(
             "\ufeffcode,status,level,exit_code,disposition,situation,message,description,next_step\n"
             "VK0001,active,warn,1,,開發模式中執行 just vendor_kit undev …,"
             "Run just vendor_kit upgrade --engine and retry.,中文說明,just vendor_kit upgrade --engine\n"
@@ -88,14 +88,19 @@ class RulesTest(unittest.TestCase):
         code, out = self.run_main()
         self.assertEqual(code, 1)
         self.assertIn(
-            "03_m.csv:VK0002:message: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z",
+            "reason_codes.csv:VK0002:message: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z",
             out,
         )
         self.assertIn(
-            "03_m.csv:VK0002:next_step: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z",
+            "reason_codes.csv:VK0002:next_step: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z",
             out,
         )
-        self.assertIn("03_m.csv:VK0002:situation: 指令 `just vendor_kit add --bad` 用了 --bad", out)
+        self.assertIn("reason_codes.csv:VK0002:situation: 指令 `just vendor_kit add --bad` 用了 --bad", out)
+        # 訊息表明列 reason_codes.csv（#137）；其他 03_*.csv 不掃
+        pathlib.Path("doc/contract/03_other.csv").write_text(
+            "code,situation,message,next_step\nVK0009,just vendor_kit add --other,,\n", encoding="utf-8")
+        _, out = self.run_main()
+        self.assertNotIn("--other", out)
         self.assertNotIn("VK0001", out)
         self.assertNotIn("--description-only", out)
 
@@ -177,14 +182,14 @@ class RulesTest(unittest.TestCase):
 
     def test_l4_csv_short_recipes_and_separator_fail(self):
         self.write("03_m.md", "# 03\n\n## 目錄\n")
-        pathlib.Path("doc/contract/03_m.csv").write_text(
+        pathlib.Path("doc/contract/reason_codes.csv").write_text(
             "code,situation,message,next_step,description\n"
             "VK0001,update --missing,add <repo> --,upgrade --missing,update --ignored\n"
         )
         code, out = self.run_main()
         self.assertEqual(code, 1, out)
         for field in ("situation", "message", "next_step"):
-            self.assertIn(f"03_m.csv:VK0001:{field}:", out)
+            self.assertIn(f"reason_codes.csv:VK0001:{field}:", out)
         self.assertNotIn("--ignored", out)
 
     def test_allowlist_exact_match_is_waived_but_new_violation_fails(self):

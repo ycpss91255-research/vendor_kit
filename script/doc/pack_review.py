@@ -8,8 +8,10 @@
 
 頁鍵的寫法跟 mark_changes.py 相同：審閱頁傳頁名（03_output），其他檔傳路徑（GLOSSARY.md）。
 標示版照舊由 mark_changes.py 產生；這支只打包 doc/review/<鍵>/ 裡的
-<鍵>.marked.md、<鍵>.md，有 <鍵>.csv 也放進去。repo 裡的檔名不帶版本號，zip 裡的檔名才帶：
-<鍵>.v<N>.marked.md、<鍵>.v<N>.md、<鍵>.v<N>.csv；N 是該鍵最後送審的版號加一（從沒送審過是 1）。
+<鍵>.marked.md、<鍵>.md，有附屬 CSV（mark_changes.COMPANION_CSV，例如 reason_codes.csv）也放進去。
+repo 裡的檔名不帶版本號，zip 裡的檔名才帶：<鍵>.v<N>.marked.md、<鍵>.v<N>.md，CSV 用它自己的檔名
+<CSV 名>.v<N>.csv（例如 reason_codes.v17.csv，版號跟所屬的頁共用）；
+N 是該鍵最後送審的版號加一（從沒送審過是 1）。
 zip 名是 review_v<review_zip+1>.zip；zip 內檔名不帶目錄，有 --note 時審閱說明排第一個。
 --out 必填：送審 zip 是送審版本號的出處，要放在 workspace 裡的固定目錄
 （例如 vendor-kit_ws/reference/review_sent/），不放系統暫存目錄；目錄不存在就建立。
@@ -80,14 +82,14 @@ def collect(names: list[str], table: dict) -> tuple[list[tuple[pathlib.Path, str
         if copy.exists() and path.exists() and \
                 copy.read_text() != mark_changes.rewrite_links(path.read_text(), path, d):
             errors.append(f"{raw}：{copy} 跟 {path} 不一致，先重跑 mark_changes.py")
-        csv_copy = d / f"{key}.csv"
+        csv_copy = None if csv_path is None else d / csv_path.name
         if csv_path is not None:
             if not csv_copy.exists():
                 errors.append(f"{raw}：找不到 {csv_copy}（先跑 mark_changes.py）")
             elif csv_copy.read_bytes() != csv_path.read_bytes():
                 errors.append(f"{raw}：{csv_copy} 跟 {csv_path} 不一致，先重跑 mark_changes.py")
             else:
-                files.append((csv_copy, f"{key}.v{n}.csv"))
+                files.append((csv_copy, f"{csv_path.stem}.v{n}.csv"))
     if errors:
         raise SystemExit("沒有打包：\n" + "\n".join(f"  {e}" for e in errors))
     return files, versions

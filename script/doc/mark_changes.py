@@ -17,7 +17,7 @@
 第一個參數是 new、或對不到任何檔時，當成舊版後綴。
 
 輸出到送審資料夾 doc/review/<鍵>/，檔名固定、不帶版本號，每次產生就覆蓋：
-<鍵>.md（正文副本）、<鍵>.marked.md（標示版），有同名 CSV 的審閱頁再加 <鍵>.csv。
+<鍵>.md（正文副本）、<鍵>.marked.md（標示版），有附屬 CSV 的審閱頁再加那份 CSV（檔名照正式檔，例如 reason_codes.csv）。
 版本號不寫在檔名或檔內：送審的版號與送審當時的 commit 記在 doc/review/versions.json，
 由 pack_review.py 打包時取號並寫進 zip 內的檔名；維護者回覆後用 pack_review.py --replied 把那筆標成
 replied: true。這支只讀 versions.json，不寫。
@@ -45,13 +45,14 @@ replied: true。這支只讀 versions.json，不寫。
 表格列（以 | 開頭）在儲存格內標記，不把整列包起來——整列包住會讓那一列
 不再是合法的表格列，GitHub 與 VS Code 都會把表格切斷。
 
-審閱頁旁邊有同名的 CSV（例如 doc/contract/03_output.csv，#122）時，一個頁名同時處理兩個檔：
-輸出 <鍵>.md、<鍵>.csv，與一份合併的 <鍵>.marked.md——前半是
+審閱頁有附屬 CSV（COMPANION_CSV 明列：03_output ↔ doc/contract/reason_codes.csv，#122、#137）時，
+一個頁名同時處理兩個檔：輸出 <鍵>.md、CSV 副本（檔名照正式檔），與一份合併的 <鍵>.marked.md——前半是
 .md 的逐行差異，後半是 CSV 的逐碼差異（依 code 對齊、逐欄比較，只列有改動的代碼）。
 表頭改了（例如刪掉 note 欄）時，後半開頭先標出新舊表頭；刪掉的欄在各碼照樣列出舊值並標紅。
 表頭新增欄位（例如在 level 後新增 exit_code、在 message 後新增 description）也會依新表頭的位置
 列入逐碼差異；欄位順序一律以新版表頭為準，已刪欄位才接在最後。
-後綴模式下 CSV 的基準版是 _backup/doc_contract_<name>.<後綴>.csv；傳 doc/contract/<name>.csv 等於傳頁名。
+後綴模式下 CSV 的基準版是 _backup/<CSV 的攤平鍵>.<後綴>.csv（例如 doc_contract_reason_codes），
+找不到再依改名紀錄找舊名的備份（doc_contract_03_output）；傳 CSV 的路徑等於傳它所屬的頁名。
 兩個檔只有一個有基準版時，另一個視為這一輪沒改（CSV 不在 git 的 HEAD 裡則視為新建、整份標新增），
 並在輸出與標示版開頭註明。
 """
@@ -74,14 +75,21 @@ REVIEW_OUT = pathlib.Path("doc/review")
 # 每個鍵送審過的版號與送審當時的 commit；進 git。只有 pack_review.py 寫它
 VERSIONS = REVIEW_OUT / "versions.json"
 ZIP_KEY = "review_zip"
-# 改過名的正式檔：新路徑 → 改名前的路徑（#137：03_messages 改名為 03_output）。
-# 送審紀錄沒寫 path／csv_path 時，基準在紀錄的 commit 裡找不到新路徑，就改取改名前的路徑；
+# 審閱頁的附屬 CSV：頁名 → CSV 路徑。明列，不靠同名推（#137：訊息表叫 reason_codes.csv，不是 03 頁的附件名）。
+# 兩個檔共用頁名的鍵與版本號。
+COMPANION_CSV = {
+    "03_output": REVIEW / "reason_codes.csv",
+}
+COMPANION_PAGE = {csv_path: name for name, csv_path in COMPANION_CSV.items()}
+# 改過名的正式檔：新路徑 → 改名前的路徑，由新到舊（#137：03_messages 改名為 03_output，
+# 訊息表再從 03_output.csv 改名為 reason_codes.csv）。
+# 送審紀錄沒寫 path／csv_path 時，基準在紀錄的 commit 裡找不到新路徑，就依序改取改名前的路徑；
 # 基準裡連到改名前路徑的連結也換成新路徑，只因改名而不同的行不標成改動。
 RENAMED = {
-    REVIEW / "03_output.md": REVIEW / "03_messages.md",
-    REVIEW / "03_output.csv": REVIEW / "03_messages.csv",
+    REVIEW / "03_output.md": (REVIEW / "03_messages.md",),
+    REVIEW / "reason_codes.csv": (REVIEW / "03_output.csv", REVIEW / "03_messages.csv"),
 }
-RENAMED_FROM = {old: new for new, old in RENAMED.items()}
+RENAMED_FROM = {old: new for new, olds in RENAMED.items() for old in olds}
 
 
 def mark(body: str, tag: str) -> str:
@@ -274,15 +282,18 @@ def base_text(entry: dict, field: str, official: pathlib.Path) -> tuple[pathlib.
     """紀錄的基準內容：回傳（取用的路徑, git show 的內容或 None）。
 
     field 是 path 或 csv_path：紀錄有這欄就從那個路徑取，沒有就取正式檔路徑；正式檔改過名
-    （RENAMED）而那個 commit 裡還沒有新路徑時，取改名前的路徑。
+    （RENAMED）而那個 commit 裡還沒有新路徑時，由新到舊依序取改名前的路徑。
     從副本取的 .md 先把相對連結改寫回正式檔的位置（副本的連結是從副本所在目錄寫的），
     否則每一行連結都會被當成改動；紀錄帶 raw_links: true 時副本照正式檔位置寫，不改寫。
     """
     src = pathlib.Path(entry[field]) if entry.get(field) else official
     text = git_show(entry["commit"], src)
-    if text is None and not entry.get(field) and official in RENAMED:
-        src = RENAMED[official]
-        text = git_show(entry["commit"], src)
+    if text is None and not entry.get(field):
+        for old in RENAMED.get(official, ()):
+            text = git_show(entry["commit"], old)
+            if text is not None:
+                src = old
+                break
     if text is not None and src != official and official.suffix == ".md" and not entry.get("raw_links"):
         text = rewrite_links(text, src, official.parent)
     if text is not None and official.suffix == ".md":
@@ -291,19 +302,40 @@ def base_text(entry: dict, field: str, official: pathlib.Path) -> tuple[pathlib.
 
 
 def normalize(name: str) -> str:
-    """doc/contract/<頁>.csv 等於傳頁名：CSV 是那一頁的附屬資料，跟 .md 一起產標示版、共用版本號。"""
+    """附屬 CSV 的路徑等於傳它所屬的頁名（COMPANION_CSV）：跟 .md 一起產標示版、共用版本號。
+
+    改名前的路徑（例如 doc/contract/03_output.csv）也認。
+    """
     path = pathlib.Path(name)
-    if path.suffix == ".csv" and path.parent == REVIEW:
-        return path.stem
-    return name
+    path = RENAMED_FROM.get(path, path)
+    return COMPANION_PAGE.get(path, name)
+
+
+def companion_path(name: str) -> pathlib.Path | None:
+    """頁名明列的附屬 CSV 路徑（COMPANION_CSV），不管檔在不在；沒有就回 None。以路徑指定的檔沒有附屬 CSV。"""
+    if "/" in name or name.endswith(".md"):
+        return None
+    return COMPANION_CSV.get(name)
 
 
 def companion_csv(name: str) -> pathlib.Path | None:
-    """審閱頁旁邊的同名 CSV（例如 03_output.csv）；沒有就回 None。以路徑指定的檔沒有附屬 CSV。"""
-    if "/" in name or name.endswith(".md"):
-        return None
-    path = REVIEW / f"{name}.csv"
-    return path if path.exists() else None
+    """審閱頁的附屬 CSV（例如 03_output → reason_codes.csv）；沒列或檔不存在就回 None。"""
+    path = companion_path(name)
+    return path if path is not None and path.exists() else None
+
+
+def backup_key(path: pathlib.Path) -> str:
+    """備份檔名用的攤平鍵：去掉副檔名、/ 換成 _、去掉開頭的點（跟 backup.py 同一套）。"""
+    return str(path.with_suffix("")).replace("/", "_").lstrip(".")
+
+
+def find_csv_backup(csv_path: pathlib.Path, suffix: str) -> tuple[pathlib.Path | None, list[pathlib.Path]]:
+    """附屬 CSV 的後綴基準版：先找現名的攤平鍵，再依改名紀錄由新到舊找舊名的（改名前的備份）。"""
+    tried = [BACKUP / f"{backup_key(p)}.{suffix}.csv" for p in (csv_path, *RENAMED.get(csv_path, ()))]
+    for candidate in tried:
+        if candidate.exists():
+            return candidate, tried
+    return None, tried
 
 
 def target(name: str) -> tuple[pathlib.Path, str]:
@@ -351,7 +383,7 @@ def backup_path(name: str, suffix: str, ext: str = ".md") -> pathlib.Path:
     攤平是主要慣例（doc-edit 與各子代理都用它，因為它對任何路徑都成立）；
     後三種是搬目錄前的歷史寫法，留著讀得到舊備份就好，不要再產生新的。
     以路徑指定的檔同理：doc/<子目錄>/… 攤平成 doc_<子目錄>_…，也認併目錄前的 docs_<子目錄>_…。
-    ext 是副檔名：審閱頁旁的 CSV 用 ".csv"（doc_contract_<name>.<後綴>.csv；歷史命名不會有 CSV）。
+    ext 是副檔名，一般是 ".md"；附屬 CSV 的備份由 find_csv_backup() 找。
     """
     found, tried = find_backup(name, suffix, ext)
     if found is None:
@@ -453,7 +485,7 @@ COLUMN_REMOVED = mark("（本欄刪除）", "del")
 COLUMN_ADDED = mark("（本欄新增）", "ins")
 
 
-def diff_csv(old_text: str | None, new_text: str, name: str) -> tuple[list[str], int, int]:
+def diff_csv(old_text: str | None, new_text: str, filename: str) -> tuple[list[str], int, int]:
     """依 code 對齊、逐欄比較；只列有改動的代碼，每碼一段 #### VKnnnn。回傳（行, 新增數, 刪除數）。
 
     old_text 是 None 表示 CSV 是新建的：每個代碼都算新增。
@@ -466,7 +498,7 @@ def diff_csv(old_text: str | None, new_text: str, name: str) -> tuple[list[str],
     removed = [f for f in old_fields if f not in new_fields]
     added = [f for f in new_fields if f not in old_fields] if old_text is not None else []
     fields = new_fields + removed
-    out = ["---", "", f"## {name}.csv 的逐碼差異", "",
+    out = ["---", "", f"## {filename} 的逐碼差異", "",
            "依 code 對齊、逐欄比較，只列有改動的代碼；綠底是新值、紅底是舊值，沒改的欄照原樣列出。", ""]
     if removed or added:
         out += [f"- 表頭：{mark(','.join(old_fields), 'del')} → {mark(','.join(new_fields), 'ins')}"]
@@ -537,7 +569,7 @@ def diff_all(old: list[str], old_csv: str | None, path: pathlib.Path, csv_path: 
     """.md 逐行差異，有附屬 CSV 時接上逐碼差異。比的是原檔寫法，連結在輸出時才改寫。"""
     out, ins, dele = diff_md(old, path.read_text().splitlines())
     if csv_path is not None:
-        csv_out, c_ins, c_del = diff_csv(old_csv, csv_path.read_text(encoding="utf-8"), name)
+        csv_out, c_ins, c_del = diff_csv(old_csv, csv_path.read_text(encoding="utf-8"), csv_path.name)
         out += [""] + csv_out
         ins += c_ins
         dele += c_del
@@ -545,7 +577,7 @@ def diff_all(old: list[str], old_csv: str | None, path: pathlib.Path, csv_path: 
 
 
 def write_outputs(name: str, out: list[str], basis: str, notes: list[str]) -> None:
-    """寫進 doc/review/<鍵>/：<鍵>.md、<鍵>.marked.md，有附屬 CSV 時加 <鍵>.csv。檔名固定，每次覆蓋。
+    """寫進 doc/review/<鍵>/：<鍵>.md、<鍵>.marked.md，有附屬 CSV 時加它的副本（檔名照正式檔）。檔名固定，每次覆蓋。
 
     版本號不寫進檔名也不寫進檔內：送審的版號由 pack_review.py 取號，只出現在 zip 內的檔名。
     兩份 .md 都放在 doc/review/<鍵>/，相對連結改寫成從那裡出發才不會指錯；正式檔不動。
@@ -564,12 +596,14 @@ def write_outputs(name: str, out: list[str], basis: str, notes: list[str]) -> No
         print(f"{name}: {note}")
         header += [f"> 注意：{note}", ""]
     (d / f"{key}.md").write_text(rewrite_links(path.read_text(), path, d))
-    copy_csv = d / f"{key}.csv"
+    # 留下的 CSV 副本只會是現在的附屬 CSV；改名前的副本名（例如 03_output.csv）一併清掉
+    keep = None if csv_path is None else d / csv_path.name
+    for stale in [d / f"{key}.csv", *(d / old.name for old in RENAMED.get(companion_path(name), ()))]:
+        if stale != keep and stale.exists():
+            stale.unlink()
     if csv_path is not None:
         # CSV 逐位元組照抄（BOM、LF 都保留）；CSV 裡不准 Markdown，所以沒有連結要改寫
-        copy_csv.write_bytes(csv_path.read_bytes())
-    elif copy_csv.exists():
-        copy_csv.unlink()
+        keep.write_bytes(csv_path.read_bytes())
     (d / f"{key}.marked.md").write_text(rewrite_links("\n".join(header + out) + "\n", path, d))
 
 
@@ -592,7 +626,7 @@ def build(name: str, suffix: str) -> tuple[int, int]:
         old = follow_renames(backup_path(name, suffix).read_text(), path).splitlines()
     else:
         md_backup, md_tried = find_backup(name, suffix, ".md")
-        csv_backup, csv_tried = find_backup(name, suffix, ".csv")
+        csv_backup, csv_tried = find_csv_backup(csv_path, suffix)
         if md_backup is None and csv_backup is None:
             raise SystemExit(
                 f"找不到 {name} 的基準版（.md 與 .csv 都沒有）。試過：\n  "
@@ -666,9 +700,9 @@ def finalized_content_is_current(name: str, entry: dict) -> bool:
     _, old = base_text(entry, "path", path)
     if old is None or old != path.read_text():
         return False
-    if path.parent != REVIEW:
+    csv_path = companion_path(name)
+    if csv_path is None:
         return True
-    csv_path = path.with_suffix(".csv")
     _, old_csv = base_text(entry, "csv_path", csv_path)
     current_csv = csv_path.read_text(encoding="utf-8") if csv_path.exists() else None
     return old_csv == current_csv

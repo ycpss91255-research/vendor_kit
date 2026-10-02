@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""檢查訊息表 doc/contract/03_output.csv（每個原因代碼的唯一出處，#122）。
+"""檢查訊息表 doc/contract/reason_codes.csv（每個原因代碼的唯一出處，#122）。
 
 格式：UTF-8 加 BOM（恰好一個）、只准 LF、檔尾一個換行、逗號分隔、照 RFC 4180 跳脫；
 表頭逐字等於 FIELDS。規則：
@@ -15,7 +15,7 @@
 6. next_step 有值時必須逐字出現在 message 裡。
 7. 欄位不准 HTML 與 Markdown；不帶屬性的 <…> 算占位符；< 與 > 要成對。
 8. 引用：README.md、doc/contract/*.md、GLOSSARY.md 裡的每個 VKnnnn 都要在 CSV 且是 active；
-   doc/adr/*.md 只要求存在。連 03_output.csv 不准帶 #；連結文字是代碼時不准連 03_output.md
+   doc/adr/*.md 只要求存在。連 reason_codes.csv 不准帶 #；連結文字是代碼時不准連 03_output.md
    （03_output.md 不放逐碼內容，一律連 CSV）。01、02 不准連 CSV。
 9. 診斷範例：README.md、doc/contract/*.md、GLOSSARY.md 裡的
    `vendor_kit: <level>[VKnnnn]: <本文>`，level 要等於 CSV；本文要符合 message 第一行，
@@ -36,8 +36,8 @@ import sys
 
 ROOT = pathlib.Path(".")
 REVIEW = ROOT / "doc/contract"
-# 訊息表與說明頁的路徑只寫在這裡；之後改名 reason_codes.csv（#137）只改這兩行
-CSV_PATH = REVIEW / "03_output.csv"
+# 訊息表與說明頁的路徑只寫在這裡（#137：訊息表從 03_output.csv 改名為 reason_codes.csv）
+CSV_PATH = REVIEW / "reason_codes.csv"
 MD_PATH = REVIEW / "03_output.md"
 FIELDS = [
     "code", "status", "level", "exit_code", "disposition", "situation", "message", "description", "next_step",

@@ -350,14 +350,16 @@ class CsvTest(unittest.TestCase):
         pathlib.Path("doc/contract").mkdir(parents=True)
         pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
         pathlib.Path("doc/contract/03_output.md").write_text("# 03\n\n規則\n")
-        pathlib.Path("doc/contract/03_output.csv").write_text(self.NEW, encoding="utf-8")
+        pathlib.Path("doc/contract/reason_codes.csv").write_text(self.NEW, encoding="utf-8")
 
     def tearDown(self):
         os.chdir(self._cwd)
         self._tmp.cleanup()
 
     def backup(self, ext, text):
-        pathlib.Path(f"doc/decisions/_backup/doc_contract_03_output.pre_r1{ext}").write_text(text, encoding="utf-8")
+        # .md 的備份鍵是頁的攤平鍵，CSV 的是 reason_codes.csv 自己的攤平鍵（backup.py 同一套）
+        key = "doc_contract_reason_codes" if ext == ".csv" else "doc_contract_03_output"
+        pathlib.Path(f"doc/decisions/_backup/{key}.pre_r1{ext}").write_text(text, encoding="utf-8")
 
     def marked(self):
         return out("03_output").read_text()
@@ -368,18 +370,18 @@ class CsvTest(unittest.TestCase):
         mark_changes.build("03_output", "pre_r1")
         d = pathlib.Path("doc/review/03_output")
         self.assertEqual(sorted(p.name for p in d.iterdir()),
-                         ["03_output.csv", "03_output.marked.md", "03_output.md"])
+                         ["03_output.marked.md", "03_output.md", "reason_codes.csv"])
         # CSV 副本逐位元組照抄（BOM 保留）
-        self.assertEqual((d / "03_output.csv").read_bytes(),
-                         pathlib.Path("doc/contract/03_output.csv").read_bytes())
+        self.assertEqual((d / "reason_codes.csv").read_bytes(),
+                         pathlib.Path("doc/contract/reason_codes.csv").read_bytes())
         text = self.marked()
         # md 部分照舊逐行標示，CSV 部分接在後面
-        self.assertLess(text.index(self.GREEN + "規則</mark>"), text.index("## 03_output.csv 的逐碼差異"))
+        self.assertLess(text.index(self.GREEN + "規則</mark>"), text.index("## reason_codes.csv 的逐碼差異"))
 
     def test_csv_path_is_same_as_page_name(self):
         self.backup(".md", "# 03\n\n規則\n")
         self.backup(".csv", self.OLD)
-        mark_changes.build("doc/contract/03_output.csv", "pre_r1")
+        mark_changes.build("doc/contract/reason_codes.csv", "pre_r1")
         self.assertTrue(out("03_output").exists())
 
     def test_per_code_per_field(self):
@@ -494,12 +496,42 @@ class CsvTest(unittest.TestCase):
         mark_changes.build("03_output", "pre_r1")
         mark_changes.build("03_output", "pre_r1")
         names = sorted(p.name for p in pathlib.Path("doc/review/03_output").iterdir())
-        self.assertEqual(names, ["03_output.csv", "03_output.marked.md", "03_output.md"])
+        self.assertEqual(names, ["03_output.marked.md", "03_output.md", "reason_codes.csv"])
 
     def test_csv_backup_path(self):
         self.backup(".csv", self.OLD)
-        self.assertEqual(mark_changes.backup_path("03_output", "pre_r1", ".csv"),
-                         pathlib.Path("doc/decisions/_backup/doc_contract_03_output.pre_r1.csv"))
+        found, _ = mark_changes.find_csv_backup(pathlib.Path("doc/contract/reason_codes.csv"), "pre_r1")
+        self.assertEqual(found, pathlib.Path("doc/decisions/_backup/doc_contract_reason_codes.pre_r1.csv"))
+
+    def test_csv_backup_under_old_name(self):
+        # 改名前存的 CSV 備份（doc_contract_03_output.<後綴>.csv）也認得（#137）
+        self.backup(".md", "# 03\n\n規則\n")
+        pathlib.Path("doc/decisions/_backup/doc_contract_03_output.pre_r1.csv").write_text(self.OLD, encoding="utf-8")
+        mark_changes.build("03_output", "pre_r1")
+        text = self.marked()
+        self.assertIn(f"- `situation`：{self.RED}舊情境</mark> → {self.GREEN}新情境</mark>", text.splitlines())
+
+    def test_companion_is_listed_not_same_name(self):
+        # 附屬 CSV 明列（03_output ↔ reason_codes.csv），同名的 03_output.csv 不算
+        self.assertEqual(mark_changes.companion_csv("03_output"), pathlib.Path("doc/contract/reason_codes.csv"))
+        pathlib.Path("doc/contract/04_interface.md").write_text("# 04\n")
+        pathlib.Path("doc/contract/04_interface.csv").write_text("code\n")
+        self.assertIsNone(mark_changes.companion_csv("04_interface"))
+
+    def test_old_csv_path_is_same_as_page_name(self):
+        self.assertEqual(mark_changes.normalize("doc/contract/reason_codes.csv"), "03_output")
+        self.assertEqual(mark_changes.normalize("doc/contract/03_output.csv"), "03_output")
+
+    def test_stale_old_name_copy_removed(self):
+        # 改名前產的 doc/review/03_output/03_output.csv 重產時刪掉，只留 reason_codes.csv
+        self.backup(".md", "# 03\n\n規則\n")
+        self.backup(".csv", self.OLD)
+        d = pathlib.Path("doc/review/03_output")
+        d.mkdir(parents=True)
+        (d / "03_output.csv").write_text(self.OLD, encoding="utf-8")
+        mark_changes.build("03_output", "pre_r1")
+        self.assertEqual(sorted(p.name for p in d.iterdir()),
+                         ["03_output.marked.md", "03_output.md", "reason_codes.csv"])
 
 
 class BaseVersionTest(unittest.TestCase):
@@ -518,7 +550,7 @@ class BaseVersionTest(unittest.TestCase):
         init_repo()
         pathlib.Path("doc/contract").mkdir(parents=True)
         pathlib.Path("doc/contract/03_output.md").write_text(self.PAGE)
-        pathlib.Path("doc/contract/03_output.csv").write_text(self.CSV, encoding="utf-8")
+        pathlib.Path("doc/contract/reason_codes.csv").write_text(self.CSV, encoding="utf-8")
         pathlib.Path("GLOSSARY.md").write_text("# 名詞\n\n[03](doc/contract/03_output.md)\n")
         self.v13 = commit_all("v13")
         write_versions({"03_output": [{"v": 13, "commit": self.v13, "replied": True}]}, review_zip=2)
@@ -532,7 +564,7 @@ class BaseVersionTest(unittest.TestCase):
 
     def change(self):
         pathlib.Path("doc/contract/03_output.md").write_text(self.PAGE.replace("不變的段落", "改過的段落"))
-        pathlib.Path("doc/contract/03_output.csv").write_text(
+        pathlib.Path("doc/contract/reason_codes.csv").write_text(
             self.CSV.replace("Message text.", "New message text."), encoding="utf-8")
 
     def test_same_content_has_no_marks(self):
@@ -716,10 +748,10 @@ class BaseVersionTest(unittest.TestCase):
         self.assertNotEqual(mark_changes.build_from_version("03_output")[:2], (0, 0))
 
     def test_renamed_page_uses_old_path_and_old_links_follow(self):
-        # 正式檔改過名（RENAMED，#137）：紀錄的 commit 裡只有改名前的檔，基準照改名前的路徑取；
-        # 基準裡連到改名前路徑的連結換成新路徑，只因改名而不同的行不標成改動
+        # 正式檔改過名兩次（RENAMED，#137）：紀錄的 commit 裡只有最早的檔名（03_messages），
+        # 基準照改名前的路徑取；基準裡連到改名前路徑的連結換成新路徑，只因改名而不同的行不標成改動
         old_md, old_csv = pathlib.Path("doc/contract/03_messages.md"), pathlib.Path("doc/contract/03_messages.csv")
-        new_md, new_csv = pathlib.Path("doc/contract/03_output.md"), pathlib.Path("doc/contract/03_output.csv")
+        new_md, new_csv = pathlib.Path("doc/contract/03_output.md"), pathlib.Path("doc/contract/reason_codes.csv")
         new_md.rename(old_md)
         new_csv.rename(old_csv)
         p04 = pathlib.Path("doc/contract/04_interface.md")
@@ -727,13 +759,31 @@ class BaseVersionTest(unittest.TestCase):
         before = commit_all("before rename")
         old_md.rename(new_md)
         old_csv.rename(new_csv)
-        p04.write_text("# 04\n\n見 [03](03_output.md#結束碼) 與 [訊息](03_output.csv) `VK0001`。\n")
+        p04.write_text("# 04\n\n見 [03](03_output.md#結束碼) 與 [訊息](reason_codes.csv) `VK0001`。\n")
         write_versions({"03_output": [{"v": 13, "commit": before, "replied": True}],
                         "04_interface": [{"v": 20, "commit": before, "replied": True}]})
         self.assertEqual(mark_changes.build_from_version("03_output")[:2], (0, 0))
         self.assertNotIn("#### VK0001", self.marked())
         self.assertEqual(mark_changes.build_from_version("04_interface")[:2], (0, 0))
         self.assertIn("../../contract/03_output.md#結束碼", out("04_interface").read_text())
+
+    def test_csv_renamed_once_uses_middle_name(self):
+        # 紀錄的 commit 裡 CSV 還叫 03_output.csv（改名 reason_codes.csv 之前）：基準取 03_output.csv，
+        # 04 連到 03_output.csv 的行只因改名而不同，不標成改動
+        mid_csv, new_csv = pathlib.Path("doc/contract/03_output.csv"), pathlib.Path("doc/contract/reason_codes.csv")
+        new_csv.rename(mid_csv)
+        p04 = pathlib.Path("doc/contract/04_interface.md")
+        p04.write_text("# 04\n\n見 [訊息](03_output.csv) `VK0001`。\n")
+        before = commit_all("before csv rename")
+        mid_csv.rename(new_csv)
+        p04.write_text("# 04\n\n見 [訊息](reason_codes.csv) `VK0001`。\n")
+        write_versions({"03_output": [{"v": 13, "commit": before, "replied": True}],
+                        "04_interface": [{"v": 20, "commit": before, "replied": True}]})
+        self.assertEqual(mark_changes.build_from_version("03_output")[:2], (0, 0))
+        self.assertNotIn("#### VK0001", self.marked())
+        self.assertIn("## reason_codes.csv 的逐碼差異", self.marked())
+        self.assertEqual(mark_changes.build_from_version("04_interface")[:2], (0, 0))
+        self.assertIn("../../contract/reason_codes.csv", out("04_interface").read_text())
 
     def test_missing_path_in_commit_fails(self):
         write_versions({"03_output": [{"v": 13, "commit": self.v13, "replied": True,
@@ -744,9 +794,9 @@ class BaseVersionTest(unittest.TestCase):
         self.assertFalse(out("03_output").exists())
 
     def test_csv_missing_in_commit_is_new(self):
-        pathlib.Path("doc/contract/03_output.csv").unlink()
+        pathlib.Path("doc/contract/reason_codes.csv").unlink()
         no_csv = commit_all("no csv")
-        pathlib.Path("doc/contract/03_output.csv").write_text(self.CSV, encoding="utf-8")
+        pathlib.Path("doc/contract/reason_codes.csv").write_text(self.CSV, encoding="utf-8")
         write_versions({"03_output": [{"v": 13, "commit": no_csv}]})
         mark_changes.build_from_version("03_output", 13)
         text = self.marked()

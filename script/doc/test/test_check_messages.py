@@ -293,8 +293,8 @@ class FieldTest(Base):
 
 class RefTest(Base):
     def test_good_links(self):
-        self.write("04_interface.md", "# 04\n\n見[訊息](03_output.csv) `VK0002`、[`VK0001`](03_output.csv)。\n")
-        pathlib.Path("doc/adr/0001-x.md").write_text("歷史：曾用 [`VK0004`](../contract/03_output.csv)。\n")
+        self.write("04_interface.md", "# 04\n\n見[訊息](reason_codes.csv) `VK0002`、[`VK0001`](reason_codes.csv)。\n")
+        pathlib.Path("doc/adr/0001-x.md").write_text("歷史：曾用 [`VK0004`](../contract/reason_codes.csv)。\n")
         self.assert_ok()
 
     def test_unknown_code(self):
@@ -309,17 +309,17 @@ class RefTest(Base):
         self.assert_fail("GLOSSARY.md:1: VK0004 已停用")
 
     def test_csv_link_without_fragment(self):
-        self.write("04_interface.md", "# 04\n\n[`VK0002`](03_output.csv#L3)\n")
+        self.write("04_interface.md", "# 04\n\n[`VK0002`](reason_codes.csv#L3)\n")
         self.assert_fail("連 CSV 不帶 #")
 
     def test_code_link_to_md_goes_to_csv(self):
         for target in ("03_output.md#vk0002", "03_output.md#訊息", "03_output.md"):
             with self.subTest(target=target):
                 self.write("04_interface.md", f"# 04\n\n[`VK0002`]({target})\n")
-                self.assert_fail("改連 03_output.csv")
+                self.assert_fail("改連 reason_codes.csv")
 
     def test_01_02_must_not_link_csv(self):
-        self.write("01_purpose.md", "# 01\n\n[訊息表](03_output.csv)\n")
+        self.write("01_purpose.md", "# 01\n\n[訊息表](reason_codes.csv)\n")
         self.assert_fail("01、02 不准連 CSV")
 
 

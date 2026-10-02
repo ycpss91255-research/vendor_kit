@@ -31,7 +31,7 @@ class PackReviewTest(unittest.TestCase):
         git("config", "commit.gpgsign", "false")
         pathlib.Path("doc/contract").mkdir(parents=True)
         pathlib.Path("doc/contract/03_output.md").write_text("# 03\n\n[名詞](../../GLOSSARY.md)\n")
-        pathlib.Path("doc/contract/03_output.csv").write_text("code,status\nVK0001,active\n")
+        pathlib.Path("doc/contract/reason_codes.csv").write_text("code,status\nVK0001,active\n")
         pathlib.Path("doc/contract/04_interface.md").write_text("# 04\n")
         pathlib.Path("GLOSSARY.md").write_text("# 名詞\n")
         self.first = self.commit()
@@ -63,7 +63,7 @@ class PackReviewTest(unittest.TestCase):
                                           pathlib.Path("note.md"))
         self.assertEqual(path.name, "review_v2.zip")
         expected = ["note.md",
-                    "03_output.v13.marked.md", "03_output.v13.md", "03_output.v13.csv",
+                    "03_output.v13.marked.md", "03_output.v13.md", "reason_codes.v13.csv",
                     "04_interface.v18.marked.md", "04_interface.v18.md",
                     "GLOSSARY.v1.marked.md", "GLOSSARY.v1.md"]
         self.assertEqual(arcnames, expected)
@@ -72,7 +72,7 @@ class PackReviewTest(unittest.TestCase):
             self.assertEqual(zf.read("GLOSSARY.v1.md").decode(), "# 名詞\n")
         # repo 裡的檔名不帶版本號
         self.assertEqual(sorted(p.name for p in pathlib.Path("doc/review/03_output").iterdir()),
-                         ["03_output.csv", "03_output.marked.md", "03_output.md"])
+                         ["03_output.marked.md", "03_output.md", "reason_codes.csv"])
 
     def test_records_version_and_head(self):
         pack_review.pack(["03_output", "GLOSSARY.md"], self.out)
@@ -105,11 +105,11 @@ class PackReviewTest(unittest.TestCase):
         self.assert_not_bumped()
 
     def test_uncommitted_csv_fails(self):
-        pathlib.Path("doc/contract/03_output.csv").write_text("code,status\nVK0001,retired\n")
+        pathlib.Path("doc/contract/reason_codes.csv").write_text("code,status\nVK0001,retired\n")
         mark_changes.build_from_version("03_output")
         with self.assertRaises(SystemExit) as cm:
             pack_review.pack(["03_output"], self.out)
-        self.assertIn("03_output.csv", str(cm.exception))
+        self.assertIn("reason_codes.csv", str(cm.exception))
 
     def test_staged_official_fails(self):
         pathlib.Path("doc/contract/04_interface.md").write_text("# 04\n\n改了\n")
