@@ -39,6 +39,11 @@
 
 ## 圖檔位置
 
-- 最新的架構圖在 `doc/diagram/architecture.drawio`，以舊模型畫成，之後依新名詞重畫。
+- 圖分兩個檔（#278）：
+  - `doc/diagram/architecture.drawio`：架構圖，畫模組邊界與呼叫關係。
+  - `doc/diagram/flow.drawio`：流程圖，畫步驟與分支，資料流、時序也放這裡。
+- 頁 id 依檔案加前綴：架構圖用 `arch-`，流程圖用 `flow-`，例如 `arch-components`、`flow-fetch`。
+- 頁 id 是頁的持久鍵，定下後不改；頁名與頁序可以改。`c-` 是早期提案用的前綴，已廢，不再使用。
+- 新頁照內容放：畫模組怎麼切、誰呼叫誰，放 `architecture.drawio`；畫一件事的步驟、分支、資料怎麼流或先後順序，放 `flow.drawio`。
 - 舊模型的其他圖與它們的產生器不進 git（#35），副本在 workspace 的 `reference/diagram_legacy/`。
 - 新的圖由 `diagram-edit` workflow 處理（#138）。
