@@ -20,15 +20,16 @@ python3 script/workflow/worktree.py remove <branch>    # 移除 worktree 與本�
 
 ## wait_ci.py
 
-等 PR 的 CI 跑完並讀出結果，只呼叫唯讀的 `gh pr checks`。
+等 PR 的 CI 跑完並讀出結果，只呼叫唯讀的 `gh pr checks` 與 `gh run view`。
 
 ```sh
-python3 script/workflow/wait_ci.py <pr> [--timeout 600] [--interval 15]
+python3 script/workflow/wait_ci.py <pr> [--timeout 600] [--interval 15] [--failed-logs [--log-lines 80]]
 ```
 
 - 每隔 `--interval` 秒查一次，直到每個 check 都結束或過了 `--timeout` 秒（預設 600）。還沒有任何 check 時算還在跑。
 - 輸出一行 JSON：`{"pr", "all_pass", "timed_out", "checks": [{"name", "state"}]}`。
-- 結束碼：全過 0；有失敗或取消 1；逾時 2；`gh` 本身出錯 3。skipping 算通過。
+- `--failed-logs`：多一個 `failed_logs: [{"name", "run_id", "tail", "error"}]`，每個失敗或取消的 check 一筆，沒有失敗時是空陣列。run id 從 check 的 link（`/actions/runs/<id>/`）取，每個 run 只跑一次 `gh run view <id> --log-failed`，`tail` 是最後 `--log-lines` 行（預設 80）。取不到 run id 或 `gh run view` 失敗時 `run_id`／`tail` 為 null、`error` 寫原因。沒給這個旗標時輸出不變，`merge_pr.py` 就是這樣呼叫。
+- 結束碼：全過 0；有失敗或取消 1；逾時 2；`gh` 本身出錯 3。skipping 算通過。取日誌失敗不改結束碼。
 
 ## body.py
 
