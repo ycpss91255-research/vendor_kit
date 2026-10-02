@@ -1,14 +1,17 @@
-"""PR 等 CI、merge、收尾一次做完：等 CI → 查 mergeable 與署名 → gh pr merge --merge → 主 repo pull
+"""PR 等 CI、merge、收尾一次做完：記下 head → 等 CI → 查 mergeable、head 與署名 → gh pr merge --merge → 主 repo pull
 → 移除 worktree 與本機分支 → 刪慣例暫存目錄。
 
 用法：
   python3 script/workflow/merge_pr.py <pr> [--no-merge] [--repo <主 repo>] [--scratch <scratchpad 根>] [--item <父題>-<no> ...]
 
-1. 跑同目錄的 wait_ci.py <pr>；不是全部必過檢查都 SUCCESS（失敗或逾時）就以 1 結束，不 merge。
-2. gh pr view <pr> --json mergeable,...：UNKNOWN 時每 5 秒重查，最多 6 次；CONFLICTING 就以 1 結束，要先 rebase。
-   PR 不是 OPEN 也停下（已經 merge 過就改用 --no-merge）。
+1. 先唯讀 gh pr view <pr> --json headRefOid 記下 head sha（取不到就以 1 結束），再跑同目錄的 wait_ci.py <pr>；
+   不是全部必過檢查都 SUCCESS（失敗或逾時）就以 1 結束，不 merge。
+2. gh pr view <pr> --json mergeable,headRefOid,...：UNKNOWN 時每 5 秒重查，最多 6 次；CONFLICTING 就以 1 結束，要先 rebase。
+   PR 不是 OPEN 也停下（已經 merge 過就改用 --no-merge）。headRefOid 跟步驟 1 記下的不同（等 CI 的期間有新 push，
+   CI 跑過的不是現在的 head）就以 1 結束，不 merge。
 3. PR 標題與本文經 hook_rules.BANNED（attribution_guard.py 的規則）確認沒有 Claude 署名，
-   再 gh pr merge <pr> -R ycpss91255-research/vendor_kit --merge（只用 merge，不 squash、不 rebase）。
+   再經 hook_rules.guarded_run 跑 gh pr merge <pr> -R ycpss91255-research/vendor_kit --merge --match-head-commit <sha>
+   （只用 merge，不 squash、不 rebase；GitHub 端也確認 head 沒變）。被 hook 擋就不執行，以 1 結束。
 4. 確認已 merge（state=MERGED 且有 mergedAt），主 repo git pull --ff-only；主 repo 有未提交的改動
    （未追蹤檔不算）或不在 main 時停下，不 stash、不 checkout。要 merge 時這項在步驟 1 之前就先查，不過就不 merge。
 5. worktree.py 的 remove <headRefName>；worktree 與本機分支都不存在就跳過，算成功。
@@ -16,11 +19,12 @@
    <scratch>/pr/<父題>-<no>/（pr.js）。不做萬用刪除。
 --no-merge：PR 已經 merge 過時用，跳過 1–3，只做 4–6（沒 merge 就以 1 結束，什麼都不動）。
 
-輸出一行 JSON：{"ok", "pr", "branch", "ci", "mergeable", "merge", "merged", "pulled", "worktree_removed",
-"worktree_skipped", "scratch_removed", "error"}；ci 是 wait_ci.py 輸出的 JSON（--no-merge 時 null），
-mergeable 是最後查到的值，merge 是這次有沒有執行 gh pr merge，pulled 是 pull 後主 repo 的 HEAD。
+輸出一行 JSON：{"ok", "pr", "branch", "head", "ci", "mergeable", "merge", "merged", "pulled", "worktree_removed",
+"worktree_skipped", "scratch_removed", "denied", "error"}；head 是步驟 1 記下的 sha（--no-merge 時 null），
+ci 是 wait_ci.py 輸出的 JSON（--no-merge 時 null），mergeable 是最後查到的值，merge 是這次有沒有執行 gh pr merge，
+pulled 是 pull 後主 repo 的 HEAD，denied 是 hook 擋下 gh pr merge 時 precheck 的 denied 與 errors（沒擋時空陣列）。
 結束碼：成功 0；任何一步失敗 1，失敗的那一步之後都不做。
-gh 的位置可用環境變數 MERGE_PR_GH、wait_ci 可用 MERGE_PR_WAIT_CI（可執行檔）換掉（測試用）。
+gh 的位置可用環境變數 MERGE_PR_GH（gh pr merge 經 guarded_run 的 bin_env 換，hook 仍檢查字面的 gh）、wait_ci 可用 MERGE_PR_WAIT_CI（可執行檔）換掉（測試用）。
 """
 import argparse
 import json
@@ -86,7 +90,7 @@ def wait_ci(pr: int) -> dict:
 
 def check_mergeable(pr: int, sleep=None) -> dict:
     """查 mergeable；UNKNOWN 時每 UNKNOWN_INTERVAL 秒重查，最多 UNKNOWN_RETRIES 次。回傳最後一次的 gh pr view。"""
-    fields = "state,headRefName,mergedAt,mergeable,title,body"
+    fields = "state,headRefName,headRefOid,mergedAt,mergeable,title,body"
     info = pr_info(pr, fields)
     for _ in range(UNKNOWN_RETRIES):
         if info.get("mergeable") != "UNKNOWN":
@@ -104,8 +108,15 @@ def attribution_problem(info: dict):
     return None
 
 
-def merge(pr: int, out: dict, sleep=None) -> dict:
-    """等 CI → 查 mergeable 與署名 → gh pr merge --merge。回傳 merge 後的 gh pr view。"""
+def merge(pr: int, out: dict, cwd: Path, sleep=None) -> dict:
+    """記下 head → 等 CI → 查 mergeable、head 與署名 → guarded_run 的 gh pr merge --merge --match-head-commit。
+
+    回傳 merge 後的 gh pr view。cwd 是 hook 檢查與執行 gh 的目錄。
+    """
+    head = pr_info(pr, "state,headRefOid").get("headRefOid")
+    if not head:
+        raise Fail(f"PR #{pr} 取不到 headRefOid，不 merge")
+    out["head"] = head
     out["ci"] = wait_ci(pr)
     info = check_mergeable(pr, sleep)
     out["mergeable"] = info.get("mergeable")
@@ -118,12 +129,21 @@ def merge(pr: int, out: dict, sleep=None) -> dict:
         raise Fail(f"PR #{pr} 跟 main 衝突（mergeable=CONFLICTING），先 rebase origin/main、push 後再跑")
     if out["mergeable"] != "MERGEABLE":
         raise Fail(f"PR #{pr} 的 mergeable 是 {out['mergeable']}（重查 {UNKNOWN_RETRIES} 次後），不 merge")
+    now = info.get("headRefOid")
+    if now != head:
+        raise Fail(f"PR #{pr} 的 head 在等 CI 的期間變了（{head} → {now}），CI 跑過的不是現在的 head，不 merge；"
+                   "重跑一次等新的 CI")
     problem = attribution_problem(info)
     if problem:
         raise Fail(problem)
-    r = gh("pr", "merge", str(pr), "-R", REPO, "--merge")
-    if r.returncode != 0:
-        raise Fail(f"gh pr merge {pr} 失敗：{(r.stderr or r.stdout).strip()}")
+    run = hook_rules.guarded_run(["gh", "pr", "merge", str(pr), "-R", REPO, "--merge", "--match-head-commit", head],
+                                 cwd, bin_env="MERGE_PR_GH")
+    if not run["ok"]:
+        check = run.get("precheck") or {}
+        out["denied"] = list(check.get("denied") or []) + list(check.get("errors") or [])
+        if run.get("ran"):
+            raise Fail(f"gh pr merge {pr} 失敗：{(run['stderr'] or run['stdout']).strip()}")
+        raise Fail(run.get("error") or f"hook 擋下 gh pr merge {pr}，不 merge")
     out["merge"] = True
     return pr_info(pr)
 
@@ -167,9 +187,9 @@ def remove_scratch(dirs: list) -> list:
 
 
 def run(a, sleep=None) -> dict:
-    out = {"ok": False, "pr": a.pr, "branch": None, "ci": None, "mergeable": None, "merge": False,
+    out = {"ok": False, "pr": a.pr, "branch": None, "head": None, "ci": None, "mergeable": None, "merge": False,
            "merged": False, "pulled": None,
-           "worktree_removed": False, "worktree_skipped": False, "scratch_removed": [], "error": None}
+           "worktree_removed": False, "worktree_skipped": False, "scratch_removed": [], "denied": [], "error": None}
     try:
         scratch = None
         if a.scratch:
@@ -180,7 +200,7 @@ def run(a, sleep=None) -> dict:
         repo = worktree.main_repo(Path(a.repo) if a.repo else Path(__file__).resolve().parent)
         if not a.no_merge:
             check_repo(repo)  # merge 前先確認收尾做得了，免得 merge 了卻卡在 pull
-        info = pr_info(a.pr) if a.no_merge else merge(a.pr, out, sleep)
+        info = pr_info(a.pr) if a.no_merge else merge(a.pr, out, repo, sleep)
         out["branch"] = info.get("headRefName")
         out["merged"] = info.get("state") == "MERGED" and bool(info.get("mergedAt"))
         if not out["merged"]:

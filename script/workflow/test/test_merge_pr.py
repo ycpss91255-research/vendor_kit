@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
+from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -44,14 +45,20 @@ if args[:2] == ["pr", "merge"]:
     json.dump(d, open(path, "w"))
     sys.exit(0)
 view = dict(d)
-m = d.get("mergeable")
-if isinstance(m, list):
-    view["mergeable"] = m[0]
-    if len(m) > 1:
-        d["mergeable"] = m[1:]
-        json.dump(d, open(path, "w"))
+fields = args[args.index("--json") + 1].split(",") if "--json" in args else []
+for key in ("mergeable", "headRefOid"):  # 清單：有要這個欄位時每次取出第一個
+    m = d.get(key)
+    if isinstance(m, list) and key in fields:
+        view[key] = m[0]
+        if len(m) > 1:
+            d[key] = m[1:]
+            json.dump(d, open(path, "w"))
+    elif isinstance(m, list):
+        view[key] = m[0]
 print(json.dumps(view))
 """
+HEAD = "a" * 40
+MERGE_CALL = f"pr merge 5 -R ycpss91255-research/vendor_kit --merge --match-head-commit {HEAD}"
 
 
 class MergePr(unittest.TestCase):
@@ -103,9 +110,10 @@ class MergePr(unittest.TestCase):
         self.tmp.cleanup()
 
     def set_pr(self, state="MERGED", merged_at="2026-01-01T00:00:00Z", branch="feat/x", mergeable="MERGEABLE",
-               title="feat: x", body="[claude] x\n\nCloses #1\n"):
-        self.pr_json.write_text(json.dumps({"state": state, "headRefName": branch, "mergedAt": merged_at,
-                                            "mergeable": mergeable, "title": title, "body": body}))
+               title="feat: x", body="[claude] x\n\nCloses #1\n", head=HEAD):
+        self.pr_json.write_text(json.dumps({"state": state, "headRefName": branch, "headRefOid": head,
+                                            "mergedAt": merged_at, "mergeable": mergeable, "title": title,
+                                            "body": body}))
 
     def set_open(self, **kw):
         self.set_pr(state="OPEN", merged_at=None, **kw)
@@ -119,7 +127,8 @@ class MergePr(unittest.TestCase):
 
     def run_main(self, *extra):
         buf = StringIO()
-        with redirect_stdout(buf), mock.patch.object(t.time, "sleep", self.sleeps.append):
+        # 只換 merge_pr 自己的 time：guarded_run 裡 subprocess 的逾時輪詢也用 time.sleep，不能一起換掉
+        with redirect_stdout(buf), mock.patch.object(t, "time", SimpleNamespace(sleep=self.sleeps.append)):
             code = t.main(["5", "--repo", str(self.repo), *extra])
         return code, json.loads(buf.getvalue())
 
@@ -246,9 +255,11 @@ class MergePr(unittest.TestCase):
         self.assertTrue(out["ok"] and out["merge"] and out["merged"])
         self.assertTrue(out["ci"]["all_pass"])
         self.assertEqual(out["mergeable"], "MERGEABLE")
-        self.assertEqual(self.merge_calls(), ["pr merge 5 -R ycpss91255-research/vendor_kit --merge"])
+        self.assertEqual(out["head"], HEAD)
+        self.assertEqual(self.merge_calls(), [MERGE_CALL])
         lines = self.call_lines()
-        self.assertTrue(lines[0].startswith("wait_ci 5"), lines)
+        self.assertTrue(lines[0].startswith("pr view 5 ") and "headRefOid" in lines[0], lines)  # 等 CI 前先記 head
+        self.assertTrue(lines[1].startswith("wait_ci 5"), lines)
         self.assertLess(lines.index(self.merge_calls()[0]), len(lines) - 1)  # merge 後再查一次 state
         self.assertEqual(self.head(), self.merged_head)
         self.assertFalse(self.wt.exists())
@@ -321,6 +332,55 @@ class MergePr(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("未提交", out["error"])
         self.assertEqual(self.call_lines(), [])  # 連 CI 都還沒等
+
+    def test_head_changed_does_not_merge(self):
+        new = "b" * 40
+        self.set_open(head=[HEAD, new])
+        before = self.head()
+        code, out = self.run_main("--scratch", str(self.scratch))
+        self.assertEqual(code, 1)
+        self.assertEqual(out["head"], HEAD)
+        self.assertIn("head", out["error"])
+        self.assertIn(new, out["error"])
+        self.assertFalse(out["merge"])
+        self.assert_untouched(before)
+
+    def test_missing_head_does_not_wait_or_merge(self):
+        self.set_open(head=None)
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("headRefOid", out["error"])
+        self.assertFalse(any(line.startswith("wait_ci") for line in self.call_lines()))
+        self.assertEqual(self.merge_calls(), [])
+
+    def test_merge_goes_through_guarded_run(self):
+        self.set_open()
+        seen = []
+        real = t.hook_rules.precheck
+
+        def spy(argv, cwd, **kw):
+            seen.append(list(argv))
+            return real(argv, cwd, **kw)
+
+        with mock.patch.object(t.hook_rules, "precheck", spy):
+            code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(seen, [["gh", "pr", "merge", "5", "-R", "ycpss91255-research/vendor_kit", "--merge",
+                                 "--match-head-commit", HEAD]])
+        self.assertEqual(out["denied"], [])
+
+    def test_hook_denied_does_not_merge(self):
+        self.set_open()
+        before = self.head()
+        denied = {"ok": False, "command": "gh pr merge", "errors": [],
+                  "denied": [{"hook": "guard.py", "decision": "deny", "reason": "no"}]}
+        with mock.patch.object(t.hook_rules, "precheck", return_value=denied):
+            code, out = self.run_main("--scratch", str(self.scratch))
+        self.assertEqual(code, 1)
+        self.assertIn("hook 擋下", out["error"])
+        self.assertEqual(out["denied"], denied["denied"])
+        self.assertFalse(out["merge"])
+        self.assert_untouched(before)
 
     def test_gh_merge_failure(self):
         self.set_open()
