@@ -46,9 +46,9 @@ python3 script/workflow/body.py check <file> --kind pr --issue <issue 編號>
 
 ## hook_rules.py
 
-給其他腳本 import 的模組，沒有命令列介面。從 `.claude/hooks/comment_tag_guard.py` 載入 hook 模組，匯出 `LOCAL_PATHS`、`TAGS`、`RAW_TAGS`、`NOTE_PREFIXES`、`tagged`、`local_path_problem`。
+給其他腳本 import 的模組，沒有命令列介面。從 `.claude/hooks/comment_tag_guard.py` 載入 hook 模組，匯出 `LOCAL_PATHS`、`TAGS`、`RAW_TAGS`、`NOTE_PREFIXES`、`tagged`、`local_path_problem`；從 `.claude/hooks/attribution_guard.py` 匯出 `BANNED`（Claude 署名樣式）。
 
-- 給誰用：`body.py`（本機絕對路徑樣式），以及 [`prepare_comment.py`](#prepare_commentpy)（標記、`[codex]`／`[agy]` 原文的註記行、本機路徑樣式）。
+- 給誰用：`body.py`（本機絕對路徑樣式）、[`prepare_comment.py`](#prepare_commentpy)（標記、`[codex]`／`[agy]` 原文的註記行、本機路徑樣式），以及 [`merge_pr.py`](#merge_prpy)（merge 前查 PR 標題與本文的署名）。
 - 為什麼不另抄一份：送出前的自檢跟 hook 用兩份規則，改一邊另一邊不會跟著變，自檢過了 hook 還是會擋（或反過來）。直接 import，規則只寫在 hook 一處。
 - hook 檔不存在或缺上面的名稱時 raise `HookRulesError`，訊息寫明哪個檔；不退回自己的副本。
 
@@ -82,6 +82,24 @@ python3 script/workflow/pr_target.py <pr> [--repo <主 repo>]
 - worktree 位置跟 `worktree.py` 相同（`worktree/branch/<分支>`）。先 `git fetch origin`，不存在就從 `origin/<分支>` 建（本機分支已存在就直接掛上），存在就沿用。
 - 檢查：worktree 在 PR 分支、沒有未提交或未追蹤的改動、沒有還沒推的 commit；落後 `origin/<分支>` 就 fast-forward，跟遠端分岔就報錯。
 - 輸出一行 JSON：成功 `{"ok": true, "pr", "branch", "issue", "repo", "path", "url", "created", "head", "fast_forwarded", "behind_main"}`，失敗 `{"ok": false, "error"}` 並以 1 結束。
+
+## merge_pr.py
+
+等 CI、merge、收尾一次做完：等 CI 全過、確認可 merge 且沒有署名、`gh pr merge --merge`，再 pull 主 repo、移除 worktree 與本機分支、刪這個 PR 的暫存目錄。PR 已經 merge 過時用 `--no-merge`，只做收尾。
+
+```sh
+python3 script/workflow/merge_pr.py <pr> [--no-merge] [--repo <主 repo>] [--scratch <scratchpad 根>] [--item <父題>-<no> ...]
+```
+
+- 主 repo（`--repo` 不給時同 `worktree.py`，由 git common dir 推）要在 main、沒有未提交的改動（未追蹤檔不算），否則停下報錯，不 stash、不 checkout；要 merge 時這項最先查，不過就不 merge。
+- 等 CI：跑同目錄的 [`wait_ci.py`](#wait_cipy) `<pr>`；不是全過（有失敗或逾時）就以 1 結束，不 merge。
+- 查 mergeable：`gh pr view <pr> --json mergeable,...`，`UNKNOWN` 時每 5 秒重查，最多 6 次；`CONFLICTING` 就以 1 結束，錯誤寫明要先 rebase。PR 不是 OPEN 也停下（已經 merge 過就提示改用 `--no-merge`）。
+- 查署名：PR 標題與本文經 [`hook_rules.py`](#hook_rulespy) 的 `BANNED`（`attribution_guard.py` 的規則）確認沒有 Claude 署名或 session 連結。
+- merge：`gh pr merge <pr> -R ycpss91255-research/vendor_kit --merge`，只用 merge，不 squash、不 rebase（照 ruleset）；之後再查一次確認 `state=MERGED` 且有 `mergedAt`。`--no-merge` 時跳過上面三項，直接確認已 merge，沒 merge 就以 1 結束，什麼都不動。
+- 主 repo `git pull --ff-only`。
+- 用 `worktree.py` 的 remove 移除 `headRefName` 的 worktree 與本機分支；兩者都不存在就跳過（`worktree_skipped`），算成功。worktree 有未提交的改動或分支有沒推的 commit 時照 `worktree.py` 的規則拒絕。
+- 有給 `--scratch` 才刪暫存目錄，只刪慣例路徑：`pr-fix/<pr>/`（`pr-fix` workflow），以及每個 `--item` 的 `pr/<父題>-<no>/`（`pr` workflow，`/`、空白、`:` 換成 `_`，同 `pr.js`）。不做萬用刪除；`--item` 格式不對時什麼都不動。
+- 輸出一行 JSON：`{"ok", "pr", "branch", "ci", "mergeable", "merge", "merged", "pulled", "worktree_removed", "worktree_skipped", "scratch_removed", "error"}`。`ci` 是 `wait_ci.py` 的 JSON 加上它的結束碼 `code`（`--no-merge` 時 `null`），`mergeable` 是最後查到的值，`merge` 是這次有沒有執行 `gh pr merge`，`pulled` 是 pull 後的 HEAD。成功 0；任何一步失敗 1，失敗的那一步之後都不做。
 
 ## verify.py
 
@@ -127,7 +145,7 @@ python3 script/workflow/agy_run.py --cd <dir> --brief <brief 檔> --out <輸出�
 
 ## 測試
 
-測試在 [test/](test/)，用暫存的 git repo、暫存的根目錄與假的 `gh`、`codex`、`agy`（環境變數 `WAIT_CI_GH`、`PR_TARGET_GH`、`CODEX_BIN`、`AGY_BIN`），不打 GitHub。跑法：
+測試在 [test/](test/)，用暫存的 git repo、暫存的根目錄與假的 `gh`、`codex`、`agy`（環境變數 `WAIT_CI_GH`、`PR_TARGET_GH`、`MERGE_PR_GH`、`MERGE_PR_WAIT_CI`、`CODEX_BIN`、`AGY_BIN`），不打 GitHub。跑法：
 
 ```sh
 python3 -m unittest discover -s script/workflow/test
