@@ -6,10 +6,10 @@ export const meta = {
     { title: '準備', detail: '沒給 repo 就派子代理跑 git rev-parse --path-format=absolute --git-common-dir，取其上一層當 repo；script/doc/round.py 取或檢查輪次；script/doc/backup.py save 備份；script/diagram/state.py check 確認頁面有效（失效就停、請維護者在主對話重新取得頁面）；state.py put 把檔載入頁面，並確認要改的頁都在檔裡' },
     { title: '改圖', detail: 'Claude 子代理用 drawio MCP 工具（list_pages、get_diagram、edit_diagram）只改 pages 指定的頁，不呼叫 start_session；改完由 state.py get 存回檔案' },
     { title: 'lint', detail: 'script/diagram/lint.py <file> --base <備份>；指定頁的違規（與 page-id 違規）交回改圖子代理修，最多 3 輪，還不行就停；其他頁的違規只回報' },
-    { title: '匯出 PNG', detail: '子代理用 MCP export_diagram 每頁匯出一張到 workspace 的 reference/diagram_review/<round>/，再由 script/diagram/png.py flatten 與 resize 改白底、縮圖' },
+    { title: '匯出 PNG', detail: '先刪掉同名舊圖；子代理用 MCP export_diagram 每頁匯出一張到 workspace 的 reference/diagram_review/<round>/，再由 script/diagram/png.py flatten 與 resize 改白底、縮圖；每張的時間不准早於最後一次 state.py get。匯出逾時或失敗就停，請維護者打開或重新整理 drawio 分頁，不拿舊 PNG 當結果' },
     { title: '審查', detail: 'codex 經 script/workflow/codex_run.py 只讀審查 PNG 與 state.py diff，輸出必改與建議' },
-    { title: '套用必改', detail: '必改交回改圖子代理（跟改圖同一套做法），存回後重跑 lint 與匯出 PNG；建議只回報給維護者；沒有必改就跳過' },
-    { title: '收尾檢查', detail: '再跑一次 lint.py 與 state.py diff：<diagram id> 不准變、不准新增或刪除頁、只有 pages 指定的頁有改動' },
+    { title: '套用必改', detail: '必改交回改圖子代理（跟改圖同一套做法），存回後重跑 lint，再重新匯出 PNG 覆寫同名檔；建議只回報給維護者；沒有必改就跳過' },
+    { title: '收尾檢查', detail: '再跑一次 lint.py 與 state.py diff：<diagram id> 不准變、不准新增或刪除頁、只有 pages 指定的頁有改動；回報的每張 PNG 時間不准早於最後一次 state.py get' },
   ],
 }
 
@@ -124,6 +124,14 @@ const EDIT = {
   },
   required: ['changed'],
 }
+const EXPORT = {
+  type: 'object',
+  properties: {
+    ...EDIT.properties,
+    timeout: { type: 'boolean', description: 'export_diagram 逾時填 true；其他錯誤或成功填 false' },
+  },
+  required: ['changed'],
+}
 
 // 改圖子代理：首次改圖、修 lint、套用必改都用這一個，只換 work 的內容
 let editCount = 0
@@ -181,29 +189,51 @@ ${JSON.stringify(lr.blocking, null, 2)}
 }
 
 // ───────────────── 匯出 PNG：MCP export_diagram 每頁一張，再 png.py 白底＋縮圖 ─────────────────
+// 每次匯出都覆寫同名檔，所以先刪掉舊的 raw／flat／png：匯出沒寫出新檔時，後面的 flatten 讀不到檔就會失敗，
+// 不會把上一次匯出的舊圖當成這次的結果（#274：套用必改後回報的 PNG 是套用之前那張）。
 const PNG_DIR = () => `${WS}/reference/diagram_review/${round}`
+const raw = p => `${PNG_DIR()}/${safe(p)}.raw.png`
+const flatOf = p => `${PNG_DIR()}/${safe(p)}.flat.png`
+const pngOf = p => `${PNG_DIR()}/${safe(p)}.png`
+const EXPORT_FAIL_HINT = '請維護者打開或重新整理 drawio 分頁（主對話持有的那一頁）後再跑；不拿舊 PNG 當結果'
+// 清掉舊圖、比對時間：一行 python3 -c，印一行 JSON（不用反斜線與 $，fish 與 bash 都照字面傳）
+const PY_CLEAR = `import json,os,sys; gone=[p for p in sys.argv[1:] if os.path.exists(p)]; [os.remove(p) for p in gone]; print(json.dumps({"ok": not [p for p in sys.argv[1:] if os.path.exists(p)], "removed": gone}, ensure_ascii=False))`
+// 第一個參數是基準檔（state.py get 最後一次寫入的 .drawio），其餘每個檔的修改時間都不准早於它
+const PY_FRESH = `import json,os,sys; ref=sys.argv[1]; t=os.path.getmtime(ref); bad=[{"file": p, "mtime": os.path.getmtime(p) if os.path.exists(p) else None} for p in sys.argv[2:] if not os.path.exists(p) or os.path.getmtime(p) < t]; print(json.dumps({"ok": not bad, "ref": ref, "ref_mtime": t, "stale": bad}, ensure_ascii=False))`
+const checkFresh = async (ph, step, files) => {
+  const j = await sh(step, ph, `python3 -c '${PY_FRESH}' ${FILE} ${files.join(' ')}`)
+  if (j.ok === true) return null
+  if (!Array.isArray(j.stale)) return `時間比對失敗：${why(j)}`
+  return `PNG 比最後一次 state.py get 舊（不是目前檔案的圖）：${j.stale.map(s => s.file).join('、')}`
+}
 const exportPng = async ph => {
-  const raw = p => `${PNG_DIR()}/${safe(p)}.raw.png`
+  result.png = []
+  const old = pages.flatMap(p => [raw(p), flatOf(p), pngOf(p)])
+  const c = await sh('清舊圖', ph, `mkdir -p ${PNG_DIR()}; python3 -c '${PY_CLEAR}' ${old.join(' ')}`)
+  if (c.ok !== true) return { error: `刪不掉舊 PNG：${why(c)}` }
   const ex = await agent(`你負責用 drawio MCP 工具匯出 PNG。不改圖、不改任何檔；不准呼叫 start_session、edit_diagram、load_diagram、add_page、delete_page、rename_page。
 
 步驟：
-1. \`mkdir -p ${PNG_DIR()}\`。
-2. 對每一頁各呼叫一次 drawio MCP 的 export_diagram（format "png"，帶 page_id，path 用下面的絕對路徑）：
+1. 對每一頁各呼叫一次 drawio MCP 的 export_diagram（format "png"，帶 page_id，path 用下面的絕對路徑）：
 ${pages.map(p => `   - page_id "${p}" → ${raw(p)}`).join('\n')}
-3. 用 \`ls -l\` 確認每個檔都在、大小不是 0。
-回報：changed 一行一條（頁 id → 檔案路徑）；有任何一頁匯出失敗，error 寫是哪一頁、工具回了什麼。`,
-    { label: L('匯出'), phase: ph, schema: EDIT, agentType: 'general-purpose', effort: 'low' })
-  if (!ex || ex.error) return { error: `export_diagram 失敗：${ex?.error ?? '子代理沒有回傳'}` }
+2. 用 \`ls -l\` 確認每個檔都在、大小不是 0。舊檔已由 workflow 刪掉，檔不在就是這次沒匯出成功。
+3. export_diagram 逾時或報錯：同一頁最多再試一次，還是不行就停，不要改用別的方法產生 PNG、不要開新頁面；timeout 填 true（逾時）或 false（其他錯誤），error 寫是哪一頁、工具回了什麼。常見原因是瀏覽器裡的 drawio 分頁沒開或沒回應，這要維護者處理，不是你能修的。
+回報：changed 一行一條（頁 id → 檔案路徑）；有任何一頁匯出失敗就填 error。`,
+    { label: L('匯出'), phase: ph, schema: EXPORT, agentType: 'general-purpose', effort: 'low' })
+  if (!ex || ex.error) {
+    const kind = !ex ? '子代理沒有回傳' : ex.timeout ? `export_diagram 逾時：${ex.error}` : `export_diagram 失敗：${ex.error}`
+    return { error: `${kind}。${EXPORT_FAIL_HINT}` }
+  }
   const out = []
   for (const p of pages) {
-    const flat = `${PNG_DIR()}/${safe(p)}.flat.png`
-    const png = `${PNG_DIR()}/${safe(p)}.png`
-    const f = await sh(`白底:${p}`, ph, `python3 ${DIA}/png.py flatten ${raw(p)} ${flat}`)
-    if (!f.ok) return { error: `png.py flatten ${p} 失敗：${why(f)}` }
-    const r = await sh(`縮圖:${p}`, ph, `python3 ${DIA}/png.py resize ${flat} ${png} --max-width 1600`)
+    const f = await sh(`白底:${p}`, ph, `python3 ${DIA}/png.py flatten ${raw(p)} ${flatOf(p)}`)
+    if (!f.ok) return { error: `png.py flatten ${p} 失敗（匯出的檔不在或壞掉）：${why(f)}。${EXPORT_FAIL_HINT}` }
+    const r = await sh(`縮圖:${p}`, ph, `python3 ${DIA}/png.py resize ${flatOf(p)} ${pngOf(p)} --max-width 1600`)
     if (!r.ok) return { error: `png.py resize ${p} 失敗：${why(r)}` }
-    out.push(png)
+    out.push(pngOf(p))
   }
+  const stale = await checkFresh(ph, '比對時間', [...pages.map(raw), ...out])
+  if (stale) return { error: `${stale}。${EXPORT_FAIL_HINT}` }
   result.png = out
   return { png: out }
 }
@@ -385,6 +415,11 @@ result.lint = lf
 if (!lf.ok) return stop('收尾檢查', `最後 lint 指定頁還有 ${lf.blocking.length} 條違規`)
 const scf = await checkScope('收尾檢查', '最後範圍')
 if (scf.length) return stop('收尾檢查', `改到範圍外：${scf.join('；')}`)
+// 回報給維護者的 PNG 必須是目前檔案的圖：每張的時間都不早於最後一次 state.py get（它會重寫 file）。
+// raw 也要比：flatten／resize 從舊的 raw 重做時，產出的 png 時間是新的、內容卻是舊圖
+if (!result.png.length) return stop('收尾檢查', `沒有 PNG 可回報。${EXPORT_FAIL_HINT}`)
+const pf = await checkFresh('收尾檢查', '最後比對時間', [...pages.map(raw), ...result.png])
+if (pf) return stop('收尾檢查', `${pf}。${EXPORT_FAIL_HINT}`)
 if (!result.diff.changed) log(`${ID()}：state.py diff 顯示這一輪沒有任何改動`)
 
 log(`${ID()}：改了 ${Object.keys(result.diff.cells ?? {}).join('、') || '（無）'}；lint 指定頁 0 條、其他頁 ${lf.outside.length} 條（只回報）；PNG ${result.png.length} 張；必改 ${rev.must_fix.length}（已交改圖子代理）、建議 ${rev.suggest.length}（只回報）；沒有 commit`)
