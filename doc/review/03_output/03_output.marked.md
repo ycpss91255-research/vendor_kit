@@ -143,7 +143,7 @@ exit code: 2
 - `level`：error
 - `exit_code`：2
 - `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
-- `situation`：<mark style="background-color:#f8c8c8">操作需要詢問，但沒帶 -y 又不能互動（沒有終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後</mark> → <mark style="background-color:#c8f0c8">操作需要詢問，但沒帶 -y 又不能互動（沒有終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後；bootstrap.sh 首次導入時，&lt;command_with_y&gt; 以這次呼叫的 sh 與腳本路徑 ($0) 開頭，後接這次的參數，依同一規則重組</mark>
+- `situation`：<mark style="background-color:#f8c8c8">操作需要詢問，但沒帶 -y 又不能互動（沒有終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後</mark> → <mark style="background-color:#c8f0c8">操作需要詢問，但沒帶 -y 又不能互動（stdin 或 stderr 不是終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後；bootstrap.sh 首次導入時，&lt;command_with_y&gt; 以這次呼叫的 sh 與腳本路徑 ($0) 開頭，後接這次的參數，依同一規則重組</mark>
 - `message`：Confirmation is required, but no terminal is available for interaction. No files were modified except the run log. Run from a terminal, or rerun with -y: &lt;command_with_y&gt;
 - `description`：需要確認，但沒有終端可以互動。除執行紀錄外，未修改任何檔。請在終端執行，或加上 -y 重新執行：&lt;command_with_y&gt;
 - `next_step`：&lt;command_with_y&gt;
@@ -154,7 +154,7 @@ exit code: 2
 - `level`：error
 - `exit_code`：2
 - `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
-- `situation`：sync 發現某個工具未完成導入
+- `situation`：<mark style="background-color:#f8c8c8">sync 發現某個工具未完成導入</mark> → <mark style="background-color:#c8f0c8">sync 發現某個工具未完成導入，或唯讀 recipe 讀到該工具導入未完成的進度檔</mark>
 - `message`：Import of &lt;repo&gt; is incomplete. Run: just vendor_kit add &lt;repo&gt;
 - `description`：&lt;repo&gt; 未完成導入，請執行：just vendor_kit add &lt;repo&gt;
 - `next_step`：just vendor_kit add &lt;repo&gt;
@@ -212,13 +212,22 @@ exit code: 2
 - `message`：Cannot write run log &lt;path&gt;: &lt;reason&gt;. vendor_kit does not run without a log; no files were modified. Free disk space or fix the permissions and retry.
 - `description`：無法寫入執行紀錄 &lt;path&gt;：&lt;reason&gt;。vendor_kit 不在沒有紀錄的情況下執行，未修改任何檔。請清出磁碟空間或修正權限後重試。
 
+#### VK0015
+
+- `status`：active
+- `level`：warn
+- `exit_code`：1
+- `situation`：<mark style="background-color:#f8c8c8">sync 發現 cache/ 的逐檔指紋不符，已重新取件</mark> → <mark style="background-color:#c8f0c8">sync 發現已鎖定工具的 cache/ 檔案集合或逐檔指紋不符，已依版本鎖定行重新取件；不在版本鎖定行的工具目錄不屬於這個情況</mark>
+- `message`：<mark style="background-color:#f8c8c8">Per-file digests in cache/ for &lt;repo&gt; did not match; refetched according to the lock version line.</mark> → <mark style="background-color:#c8f0c8">The file set or per-file digests in cache/ for &lt;repo&gt; did not match; refetched according to the lock version line.</mark>
+- `description`：<mark style="background-color:#f8c8c8">&lt;repo&gt; 的 cache/ 逐檔指紋不符，已依版本鎖定行重新取件。</mark> → <mark style="background-color:#c8f0c8">&lt;repo&gt; 的 cache/ 檔案集合或逐檔指紋不符，已依版本鎖定行重新取件。</mark>
+
 #### VK0023
 
 - `status`：active
 - `level`：error
 - `exit_code`：2
 - `disposition`：<mark style="background-color:#f8c8c8">需人處理</mark> → <mark style="background-color:#c8f0c8">待處理</mark>
-- `situation`：<mark style="background-color:#f8c8c8">upgrade --engine 換上新引擎後停下，要求重跑</mark> → <mark style="background-color:#c8f0c8">upgrade --engine 換上新引擎後原指令尚未做完；bootstrap.sh 只檢查或 --repair 時讀到記錄引擎升級未完成的進度檔，也報此碼，不比對或重產薄殼；&lt;original_command&gt; 由 VK 依進度檔填成原本的完整 upgrade 指令，保留原 tag 與 -y，不需使用者代換</mark>
+- `situation`：<mark style="background-color:#f8c8c8">upgrade --engine 換上新引擎後停下，要求重跑</mark> → <mark style="background-color:#c8f0c8">upgrade --engine 換上新引擎後原指令尚未做完，或唯讀 recipe 讀到引擎升級未完成的進度檔；bootstrap.sh 只檢查或 --repair 時讀到記錄引擎升級未完成的進度檔，也報此碼，不比對或重產薄殼；&lt;original_command&gt; 由 VK 依進度檔填成原本的完整 upgrade 指令，保留原 tag 與 -y，不需使用者代換</mark>
 - `message`：<mark style="background-color:#f8c8c8">Engine &lt;vY&gt; is now installed. Run again: just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">Engine &lt;vY&gt; is now installed. Run again: &lt;original_command&gt;</mark>
 - `description`：<mark style="background-color:#f8c8c8">已換上引擎 &lt;vY&gt;，請再執行一次：just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">已換上引擎 &lt;vY&gt;，請再執行一次原指令：&lt;original_command&gt;</mark>
 - `next_step`：<mark style="background-color:#f8c8c8">just vendor_kit upgrade --engine</mark> → <mark style="background-color:#c8f0c8">&lt;original_command&gt;</mark>
@@ -237,7 +246,7 @@ exit code: 2
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `situation`：<mark style="background-color:#f8c8c8">用法錯誤：不認得指令或選項</mark> → <mark style="background-color:#c8f0c8">用法錯誤：VK recipe 或 bootstrap.sh 帶了不認得的選項或多出的參數；bootstrap.sh 帶 --repair -y，或在既有安裝目錄帶 -y／--yes（排除 VK0037 所述、依執行紀錄判定的未完成首次導入），或 -h／--help 與其他參數並用；&lt;value&gt; 印第一個不認得或不允許的參數；-h／--help 與其他參數並用時，印第一個不是 -h／--help 的參數，若全部都是 -h／--help，則印第二個參數</mark>
+- `situation`：<mark style="background-color:#f8c8c8">用法錯誤：不認得指令或選項</mark> → <mark style="background-color:#c8f0c8">用法錯誤：VK recipe 或 bootstrap.sh 帶了不認得的選項或多出的參數；bootstrap.sh 帶 --repair -y，或在既有安裝目錄帶 -y／--yes（排除 VK0037 所述、依執行紀錄判定的未完成首次導入），或 -h／--help 與其他參數並用；&lt;value&gt; 印第一個不認得或不允許的參數；-h／--help 與其他參數並用時，印第一個不是 -h／--help 的參數，若全部都是 -h／--help，則印第二個參數；VK recipe 的 -h／--help 與 --engine 以外的參數並用時，&lt;value&gt; 印第一個不是 -h／--help 或 --engine 的參數</mark>
 - `message`：<mark style="background-color:#f8c8c8">Unknown command or option: &lt;value&gt;.</mark> → <mark style="background-color:#c8f0c8">Unknown, extra, or disallowed argument: &lt;value&gt;.</mark>
 - `description`：<mark style="background-color:#f8c8c8">不認得的指令或選項：&lt;value&gt;。</mark> → <mark style="background-color:#c8f0c8">不認得、多出或此處不允許的參數：&lt;value&gt;。</mark>
 
@@ -362,4 +371,175 @@ exit code: 2
 - `message`：<mark style="background-color:#c8f0c8">This bootstrap.sh is for major version &lt;bootstrap_X&gt;, but the locked engine requires major version &lt;engine_X&gt;. No files were modified. Download bootstrap.sh for major version &lt;engine_X&gt; from the Release and retry.</mark>
 - `description`：<mark style="background-color:#c8f0c8">這份 bootstrap.sh 適用於 X 為 &lt;bootstrap_X&gt; 的版本，但鎖定引擎的 X 為 &lt;engine_X&gt;。未修改任何檔。請從 Release 下載 X 為 &lt;engine_X&gt; 的 bootstrap.sh 後重試。</mark>
 
-沒改動的代碼 19 個：VK0001、VK0003、VK0007、VK0011、VK0012、VK0013、VK0014、VK0015、VK0016、VK0017、VK0018、VK0019、VK0020、VK0021、VK0022、VK0024、VK0027、VK0029、VK0030。
+#### VK0041
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">待處理</mark>
+- `situation`：<mark style="background-color:#c8f0c8">唯讀 recipe 讀到工具 upgrade 未完成的進度檔；不恢復、不刪進度檔；&lt;original_command&gt; 由 VK 依進度檔重組完整的工具 upgrade 指令，保留指定 tag 與 -y，各參數依 POSIX shell 規則加引號，不需使用者代換</mark>
+- `message`：<mark style="background-color:#c8f0c8">Upgrade of &lt;repo&gt; is incomplete. Run again: &lt;original_command&gt;</mark>
+- `description`：<mark style="background-color:#c8f0c8">&lt;repo&gt; 的 upgrade 未完成，請重跑：&lt;original_command&gt;</mark>
+- `next_step`：<mark style="background-color:#c8f0c8">&lt;original_command&gt;</mark>
+
+#### VK0042
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">等待安裝目錄的共享鎖或排他鎖逾時；預設 60 秒，VENDOR_KIT_LOCK_TIMEOUT 設 0 時立即失敗、設 -1 時無限等待；除執行紀錄外不寫入</mark>
+- `message`：<mark style="background-color:#c8f0c8">Timed out waiting for the lock in &lt;install_dir&gt;. No files were modified except the run log. Wait for the other execution to finish and retry.</mark>
+- `description`：<mark style="background-color:#c8f0c8">等待 &lt;install_dir&gt; 的鎖逾時。除執行紀錄外，未修改任何檔。請等另一個執行結束後重試。</mark>
+
+#### VK0043
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">sync 下載的工具 image 內容不符版本鎖定行的 digest；不把這份內容當成已驗證的工具內容，不報 VK0015</mark>
+- `message`：<mark style="background-color:#c8f0c8">Downloaded image &lt;image&gt; for &lt;repo&gt; does not match locked digest &lt;digest&gt;. Synchronization did not complete.</mark>
+- `description`：<mark style="background-color:#c8f0c8">&lt;repo&gt; 下載的 image &lt;image&gt; 不符鎖定的 digest &lt;digest&gt;。同步未完成。</mark>
+
+#### VK0044
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">warn</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">1</mark>
+- `situation`：<mark style="background-color:#c8f0c8">sync 發現 &lt;repo&gt; 的既有印記損壞，已依版本鎖定行重新取件並重建印記；首次取件尚無印記不屬於此情況</mark>
+- `message`：<mark style="background-color:#c8f0c8">The existing stamp for &lt;repo&gt; was corrupt; refetched according to the lock version line and rebuilt the stamp.</mark>
+- `description`：<mark style="background-color:#c8f0c8">&lt;repo&gt; 的既有印記損壞；已依版本鎖定行重新取件並重建印記。</mark>
+
+#### VK0045
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">待處理</mark>
+- `situation`：<mark style="background-color:#c8f0c8">add 在確認工具已完整導入後，收到不同於目前鎖定版本的 tag；&lt;upgrade_command&gt; 由 VK 填成 just vendor_kit upgrade &lt;repo&gt;@&lt;tag&gt;，使用這次指定的 tag，參數依 POSIX shell 規則加引號</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot add &lt;repo&gt; at &lt;tag&gt;: it is already imported at &lt;current_tag&gt;. Run: &lt;upgrade_command&gt;</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法以 &lt;tag&gt; 加入 &lt;repo&gt;：它已完整導入，目前為 &lt;current_tag&gt;。請執行：&lt;upgrade_command&gt;</mark>
+- `next_step`：<mark style="background-color:#c8f0c8">&lt;upgrade_command&gt;</mark>
+
+#### VK0046
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">remove 或 undev 指定的工具不在版本鎖定行；先辨識未完成進度，再判斷對象不存在</mark>
+- `message`：<mark style="background-color:#c8f0c8">Tool &lt;repo&gt; is not in the lock version lines. The requested operation did not complete.</mark>
+- `description`：<mark style="background-color:#c8f0c8">版本鎖定行裡沒有工具 &lt;repo&gt;。要求的操作未完成。</mark>
+
+#### VK0047
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">待處理</mark>
+- `situation`：<mark style="background-color:#c8f0c8">test 因 cache/ 或 gen/ 缺件而無法完成檢查；不取件、不準備或修復 cache/、gen/、進度檔，執行紀錄照寫；CI 全新 checkout 尚未取件時是否算缺件，待確認（見 #47、#124）</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot complete checks for &lt;target&gt;: required local files are missing: &lt;files&gt;. Run: just vendor_kit sync</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法完成 &lt;target&gt; 的檢查：缺少必要的本機檔 &lt;files&gt;。請執行：just vendor_kit sync</mark>
+- `next_step`：<mark style="background-color:#c8f0c8">just vendor_kit sync</mark>
+
+#### VK0048
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">test dist 在沒有工具交付內容的 repo 執行</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot check tool delivery content: &lt;path&gt; contains no delivery content.</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法檢查工具交付內容：&lt;path&gt; 沒有交付內容。</mark>
+
+#### VK0049
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">test 或 test dist 因環境不足而未完成檢查；&lt;reason&gt; 指明缺少的環境條件</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot complete checks for &lt;target&gt;: &lt;reason&gt;.</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法完成 &lt;target&gt; 的檢查：&lt;reason&gt;。</mark>
+
+#### VK0050
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">待處理</mark>
+- `situation`：<mark style="background-color:#c8f0c8">dev 指定不同於現有本機覆寫的來源；不取代現有覆寫；&lt;undev_command&gt; 依對象填成 just vendor_kit undev &lt;repo&gt; 或 just vendor_kit undev --engine</mark>
+- `message`：<mark style="background-color:#c8f0c8">A different local override is already active for &lt;target&gt;. Run first: &lt;undev_command&gt;</mark>
+- `description`：<mark style="background-color:#c8f0c8">&lt;target&gt; 已有不同來源的本機覆寫。請先執行：&lt;undev_command&gt;</mark>
+- `next_step`：<mark style="background-color:#c8f0c8">&lt;undev_command&gt;</mark>
+
+#### VK0051
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">dev 指定的本機目錄不存在，或內容不符合該工具的交付格式；相對路徑以安裝目錄為準</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot use local source &lt;path&gt; for &lt;repo&gt;: &lt;reason&gt;. The local override was not enabled.</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法以 &lt;path&gt; 作為 &lt;repo&gt; 的本機開發來源：&lt;reason&gt;。未啟用本機覆寫。</mark>
+
+#### VK0052
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">待處理</mark>
+- `situation`：<mark style="background-color:#c8f0c8">需要讀取本機覆寫來源的動作發現來源失效；只擋需要讀取它的動作；undev 不讀來源即可解除，test 仍報 VK0032，bootstrap.sh 忽略覆寫，update 照版本鎖定行查版本；&lt;undev_command&gt; 依對象填成 just vendor_kit undev &lt;repo&gt; 或 just vendor_kit undev --engine</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot read the local override source &lt;source&gt; for &lt;target&gt;: &lt;reason&gt;. Run: &lt;undev_command&gt;</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法讀取 &lt;target&gt; 的本機覆寫來源 &lt;source&gt;：&lt;reason&gt;。請執行：&lt;undev_command&gt;</mark>
+- `next_step`：<mark style="background-color:#c8f0c8">&lt;undev_command&gt;</mark>
+
+#### VK0053
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">待處理</mark>
+- `situation`：<mark style="background-color:#c8f0c8">undev 解除覆寫後同步失敗，或唯讀 recipe 偵測到未完成的 undev 進度檔；sync 不代替 undev 清掉進度檔；&lt;undev_command&gt; 依進度檔填成原本的 just vendor_kit undev &lt;repo&gt; 或 just vendor_kit undev --engine</mark>
+- `message`：<mark style="background-color:#c8f0c8">The undev operation for &lt;target&gt; is incomplete. Run again: &lt;undev_command&gt;</mark>
+- `description`：<mark style="background-color:#c8f0c8">&lt;target&gt; 的 undev 未完成。請重跑：&lt;undev_command&gt;</mark>
+- `next_step`：<mark style="background-color:#c8f0c8">&lt;undev_command&gt;</mark>
+
+#### VK0054
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">待處理</mark>
+- `situation`：<mark style="background-color:#c8f0c8">唯讀 recipe 偵測到未完成導入、工具 upgrade、引擎 upgrade、undev 這四種以外的可寫 recipe（如 remove、install、uninstall、dev）未完成的進度檔；不恢復、不刪進度檔；bootstrap.sh 仍依 VK0037 與 VK0023 的既有判定，不擴大首次導入例外；&lt;original_command&gt; 由 VK 依進度檔重組原本完整指令，保留參數並依 POSIX shell 規則加引號</mark>
+- `message`：<mark style="background-color:#c8f0c8">Operation &lt;operation&gt; in &lt;install_dir&gt; is incomplete. Run again: &lt;original_command&gt;</mark>
+- `description`：<mark style="background-color:#c8f0c8">&lt;install_dir&gt; 的 &lt;operation&gt; 未完成。請重跑：&lt;original_command&gt;</mark>
+- `next_step`：<mark style="background-color:#c8f0c8">&lt;original_command&gt;</mark>
+
+#### VK0055
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">失敗</mark>
+- `situation`：<mark style="background-color:#c8f0c8">update、add、upgrade 或 sync 列 tag 或取得工具 image 時發生網路、registry 或認證錯誤（含逾時）；缺少列版本的 registry 憑證仍報 VK0001；update 不以舊快取回報已是最新版，不跳出認證詢問</mark>
+- `message`：<mark style="background-color:#c8f0c8">Cannot access &lt;source&gt; for &lt;target&gt;: &lt;reason&gt;. The requested operation did not complete.</mark>
+- `description`：<mark style="background-color:#c8f0c8">無法存取 &lt;target&gt; 的來源 &lt;source&gt;：&lt;reason&gt;。要求的操作未完成。</mark>
+
+沒改動的代碼 18 個：VK0001、VK0003、VK0007、VK0011、VK0012、VK0013、VK0014、VK0016、VK0017、VK0018、VK0019、VK0020、VK0021、VK0022、VK0024、VK0027、VK0029、VK0030。
