@@ -50,7 +50,7 @@ Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東�
 | 改前快照、備份、備份與範圍外檢查、這一輪的 diff | `script/doc/backup.py snapshot`／`save`／`verify`／`diff` |
 | 呼叫 codex（改寫、套用必改、跨檔修正、審查） | `script/workflow/codex_run.py` |
 | lint | `script/workflow/verify.py --root <repo>`（docs.yml 每一步與工具測試；清單以 docs.yml 為準） |
-| 潤稿越界檢查與還原 | `script/doc/polish_check.py` |
+| 潤稿越界檢查與還原 | `script/doc/polish_check.py --repo --round`（基準由它依輪次自己取，跟 `backup.py diff` 同一套順序） |
 
 codex 改稿時，包裝子代理在 codex 動手前做快照與備份，給 codex 的 brief 寫明不要備份；改完用 `backup.py verify` 檢查。規則是改前的內容等於這一輪某一份既有備份就算可還原，所以內容沒變、不必另存備份的情況不再誤判（#133）。
 
