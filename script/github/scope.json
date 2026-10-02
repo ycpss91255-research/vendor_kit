@@ -2,6 +2,7 @@
   "_說明": "PR「一個邏輯目的」的範圍表（#140）。本機 hook（.claude/hooks/pr_rules_guard.py）與之後的 CI 共用這一份，規則只寫在這裡。rules 由上往下比，第一條 pattern（Python re，對 repo 相對路徑做 search）符合的就是這個檔的範圍；scope 裡的 {名稱} 換成 pattern 的同名群組。attach 標示附屬檔：same＝只在同一個範圍已經有主檔時才算附屬（例如測試），沒有就自己算一個範圍；any＝附在這個 PR 的任何主檔上（例如 README 段、docs.yml 步驟、AGENTS 一句、hook 在 settings.json 的註冊與 test_settings_hooks 白名單），整個 PR 只有附屬檔時才自己算一個範圍。groups 把同一個邏輯目的、分散在兩處的範圍併成一個（例如 hook 跟它呼叫的 script 類別）。表上沒列到的檔一律算違規，要先補表。",
   "rules": [
     {"pattern": "^\\.claude/hooks/test/test_settings_hooks\\.py$", "scope": "claude:settings", "attach": "any", "_why": "檢查 settings.json 註冊的 hook 白名單；登記一支 hook，跟 settings.json 的註冊一起附在 hook 上（#253）"},
+    {"pattern": "^\\.claude/hooks/test/test_review_guards\\.py$", "scope": "hook:review_guards", "attach": "any", "_why": "一個測試檔測 ask_guard、decision_guard、contract_edit_guard 三支 hook，沒有同名主檔；附在這次改的 hook 上（#290）"},
     {"pattern": "^\\.claude/hooks/test/test_(?P<name>[A-Za-z0-9_]+)\\.py$", "scope": "hook:{name}", "attach": "same"},
     {"pattern": "^\\.claude/hooks/test_guard\\.py$", "scope": "hook:guard", "attach": "same"},
     {"pattern": "^\\.claude/hooks/(?P<name>[A-Za-z0-9_]+)\\.py$", "scope": "hook:{name}"},
