@@ -83,6 +83,20 @@ python3 script/workflow/pr_target.py <pr> [--repo <主 repo>]
 - 檢查：worktree 在 PR 分支、沒有未提交或未追蹤的改動、沒有還沒推的 commit；落後 `origin/<分支>` 就 fast-forward，跟遠端分岔就報錯。
 - 輸出一行 JSON：成功 `{"ok": true, "pr", "branch", "issue", "repo", "path", "url", "created", "head", "fast_forwarded", "behind_main"}`，失敗 `{"ok": false, "error"}` 並以 1 結束。
 
+## after_merge.py
+
+PR merge 之後的收尾：pull 主 repo、移除 worktree 與本機分支、刪這個 PR 的暫存目錄。只呼叫唯讀的 `gh pr view`；`gh pr merge` 由呼叫端自己下，腳本不做任何 GitHub 寫入。
+
+```sh
+python3 script/workflow/after_merge.py <pr> [--repo <主 repo>] [--scratch <scratchpad 根>] [--item <父題>-<no> ...]
+```
+
+- 先用 `gh pr view <pr> --json state,headRefName,mergedAt` 確認已 merge；沒 merge 就以 1 結束，什麼都不動。
+- 主 repo（`--repo` 不給時同 `worktree.py`，由 git common dir 推）`git pull --ff-only`。不在 main 或有未提交的改動（未追蹤檔不算）就停下報錯，不 stash、不 checkout。
+- 用 `worktree.py` 的 remove 移除 `headRefName` 的 worktree 與本機分支；兩者都不存在就跳過（`worktree_skipped`），算成功。worktree 有未提交的改動或分支有沒推的 commit 時照 `worktree.py` 的規則拒絕。
+- 有給 `--scratch` 才刪暫存目錄，只刪慣例路徑：`pr-fix/<pr>/`（`pr-fix` workflow），以及每個 `--item` 的 `pr/<父題>-<no>/`（`pr` workflow，`/`、空白、`:` 換成 `_`，同 `pr.js`）。不做萬用刪除；`--item` 格式不對時什麼都不動。
+- 輸出一行 JSON：`{"ok", "pr", "branch", "merged", "pulled", "worktree_removed", "worktree_skipped", "scratch_removed", "error"}`，`pulled` 是 pull 後的 HEAD。成功 0；沒 merge 或任何一步失敗 1，失敗的那一步之後都不做。
+
 ## verify.py
 
 送 PR 前的全部驗證，在 worktree 根目錄跑。
@@ -127,7 +141,7 @@ python3 script/workflow/agy_run.py --cd <dir> --brief <brief 檔> --out <輸出�
 
 ## 測試
 
-測試在 [test/](test/)，用暫存的 git repo、暫存的根目錄與假的 `gh`、`codex`、`agy`（環境變數 `WAIT_CI_GH`、`PR_TARGET_GH`、`CODEX_BIN`、`AGY_BIN`），不打 GitHub。跑法：
+測試在 [test/](test/)，用暫存的 git repo、暫存的根目錄與假的 `gh`、`codex`、`agy`（環境變數 `WAIT_CI_GH`、`PR_TARGET_GH`、`AFTER_MERGE_GH`、`CODEX_BIN`、`AGY_BIN`），不打 GitHub。跑法：
 
 ```sh
 python3 -m unittest discover -s script/workflow/test

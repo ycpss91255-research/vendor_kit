@@ -83,6 +83,8 @@ args 欄位：
 7. `script/workflow/wait_ci.py <pr>` 等 CI。
 8. `merge: true` 且 CI 全過才 merge，之後 `worktree.py remove <branch>` 清理。
 
+主對話自己 merge 時，merge 後跑 `script/workflow/after_merge.py <pr> --scratch <scratchpad> --item <parent>-<no>`：pull 主 repo、移除 worktree 與本機分支、刪 `pr/<parent>-<no>/` 與 `pr-fix/<pr>/` 暫存目錄。
+
 子代理的暫存檔（commit 訊息、issue／PR 本文、一次性腳本）一律放 scratchpad 下的 `pr/<parent>-<no>/`：並行的子代理共用同一個 scratchpad，固定檔名會互相覆蓋（#234、#235 互蓋過，#241）。
 
 `pr` 本來就要 commit、push 與開 PR，所以不套下面「共用護欄」的不寫 git 與備份兩條；它自己的規則（只 push 自己的分支、本文先寫檔自檢、不加署名等）同樣組進每個子代理的 prompt。
@@ -135,7 +137,7 @@ args 欄位：
 
 子代理的暫存檔（commit 訊息、留言本文、一次性腳本）一律放 scratchpad 下的 `pr-fix/<pr>/`：並行的子代理共用同一個 scratchpad，固定檔名會互相覆蓋（#241）。
 
-不 merge、不開 PR、不碰主 repo（不改檔、不 pull、不動未追蹤檔）。單一 PR 回傳 `{ pr, branch, issue, url, ci_pass, pushed, commit, summary, error }`；陣列時回傳 `{ prs, results, failed }`：`results` 是每個 PR 一筆上面的結果（順序同 `pr`），`failed` 是沒有 CI 全過的 `{ pr, reason }`。
+不 merge、不開 PR、不碰主 repo（不改檔、不 pull、不動未追蹤檔）。merge 後跑 `script/workflow/after_merge.py <pr> --scratch <scratchpad>` 收尾（pull、移除 worktree、刪 `pr-fix/<pr>/`）。單一 PR 回傳 `{ pr, branch, issue, url, ci_pass, pushed, commit, summary, error }`；陣列時回傳 `{ prs, results, failed }`：`results` 是每個 PR 一筆上面的結果（順序同 `pr`），`failed` 是沒有 CI 全過的 `{ pr, reason }`。
 
 args 範例（單一與陣列各一）在 `pr-fix.js` 檔尾。
 
