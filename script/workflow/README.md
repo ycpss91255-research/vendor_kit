@@ -2,7 +2,7 @@
 
 命名 workflow（`.claude/workflows/`）裡固定、不需要判斷的步驟寫成這裡的腳本，子代理只負責呼叫並讀 JSON 結果。目前給 [`pr`](../../.claude/workflows/pr.js) 與 [`pr-fix`](../../.claude/workflows/pr-fix.js) 用。
 
-會寫入 GitHub 的動作（`gh issue create`、sub_issues API、`gh pr create`、`gh pr merge`、留言）**不包進腳本**：hook 要看得到這些 `gh` 指令才擋得了，所以由子代理逐一下指令。這裡的腳本只做本機的事、唯讀的查詢，以及送出前的本文自檢。
+會寫入 GitHub 的動作（`gh issue create`、sub_issues API、`gh issue`／`gh pr comment`、`gh issue close`、`gh pr create`、`gh pr merge`）與 `git commit`／`push` 可以寫進腳本，但**一律經 [`hook_rules.py`](#hook_rulespy) 的 `guarded_run`**：腳本內部的指令 Claude 的 hook 看不到，所以寫入前先把即將執行的同一個 argv 交給 `.claude/settings.json` 註冊的每支 Bash hook 檢查，被擋、hook 出錯或逾時都不執行（fail closed）。不准在腳本裡另抄一份 hook 的規則，也不自己呼叫 `subprocess` 做寫入。
 
 ## worktree.py
 
@@ -46,11 +46,26 @@ python3 script/workflow/body.py check <file> --kind pr --issue <issue 編號>
 
 ## hook_rules.py
 
-給其他腳本 import 的模組，沒有命令列介面。從 `.claude/hooks/comment_tag_guard.py` 載入 hook 模組，匯出 `LOCAL_PATHS`、`TAGS`、`RAW_TAGS`、`NOTE_PREFIXES`、`tagged`、`local_path_problem`；從 `.claude/hooks/attribution_guard.py` 匯出 `BANNED`（Claude 署名樣式）。
+給其他腳本 import 的模組，另有一個除錯用的命令列。從 `.claude/hooks/comment_tag_guard.py` 載入 hook 模組，匯出 `LOCAL_PATHS`、`TAGS`、`RAW_TAGS`、`NOTE_PREFIXES`、`tagged`、`local_path_problem`；從 `.claude/hooks/attribution_guard.py` 匯出 `BANNED`（Claude 署名樣式）。
 
 - 給誰用：`body.py`（本機絕對路徑樣式）、[`prepare_comment.py`](#prepare_commentpy)（標記、`[codex]`／`[agy]` 原文的註記行、本機路徑樣式），以及 [`merge_pr.py`](#merge_prpy)（merge 前查 PR 標題與本文的署名）。
 - 為什麼不另抄一份：送出前的自檢跟 hook 用兩份規則，改一邊另一邊不會跟著變，自檢過了 hook 還是會擋（或反過來）。直接 import，規則只寫在 hook 一處。
 - hook 檔不存在或缺上面的名稱時 raise `HookRulesError`，訊息寫明哪個檔；不退回自己的副本。
+
+寫入前的關卡：腳本內部執行的 `gh`、`git` 指令，Claude 的 PreToolUse hook 看不到（hook 只看到 `python3 <腳本>` 這一行），所以腳本要自己 precheck。做法是用每支 hook 自己的入口跑，不 import hook 的函式、也不改 hook：判斷路徑跟 Claude 直接下指令時一樣，之後新增的 Bash hook 自動涵蓋。
+
+```sh
+python3 script/workflow/hook_rules.py precheck [--cwd <dir>] -- <argv…>   # 臨時確認某個指令會不會被擋
+```
+
+- `bash_hooks(settings=None)`：讀這個 repo 的 `.claude/settings.json`，取 PreToolUse 裡 matcher 用 `re.fullmatch` 對得上 `Bash` 的每個 hook 指令（`Workflow|Bash` 算，`Edit|Write` 不算；matcher 空的算），順序照檔案，不寫死清單。
+- `precheck(argv, cwd, *, settings=None, project_dir=None, timeout=60)`：指令字串是 `shlex.join(argv)`，`argv[0]` 取檔名（字面的 `gh`、`git`）。每支 hook 用 shell 執行，`CLAUDE_PROJECT_DIR` 取 `project_dir`，不給沿用環境變數，再沒有用這個 repo 的根目錄；stdin 是 Claude Code 給 hook 的同一種 JSON（`hook_event_name`、`tool_name: "Bash"`、`tool_input.command`、`cwd`）。
+  - 放行：stdout 空且結束碼 0，或 `permissionDecision` 是 `allow`。
+  - 擋：`deny`、`ask`（腳本裡沒有人可以回答），以及結束碼 2（理由取 stderr）。
+  - 錯誤，同樣不放行：其他非 0 結束碼、逾時、stdout 不是 JSON、JSON 裡沒有 `permissionDecision`、settings 讀不到或沒有任何 Bash hook。
+  - 回傳 `{"ok", "command", "denied": [{"hook", "decision", "reason"}], "errors": [{"hook", "error"}]}`，`denied` 與 `errors` 都空才 `ok`。
+- `guarded_run(argv, cwd, *, bin_env=None, settings=None, project_dir=None)`：先 `precheck`，不 ok 就不執行，回傳 `{"ok": false, "ran": false, "precheck"}`；過了才不經 shell 執行同一個 argv，回傳 `{"ok", "ran": true, "returncode", "stdout", "stderr", "precheck"}`。有給 `bin_env` 且該環境變數有值時執行檔換成它（測試用來換假 `gh`），precheck 仍用字面的 `argv[0]`。
+- 命令列輸出一行 precheck 的 JSON；結束碼 ok 0、被擋或錯誤 1、用法錯 2。例如 `precheck -- git push origin main` 會印 `ok: false`，`denied` 含 `guard.py`。
 
 ## prepare_comment.py
 
