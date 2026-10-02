@@ -132,12 +132,12 @@ args 欄位：
 1. 準備：`script/workflow/pr_target.py <pr>` 用唯讀的 `gh pr view` 取分支（headRefName）與本文，issue 取本文第一個 `Closes`／`Refs #N`；worktree 在 `worktree/branch/<分支>`，不存在就從 `origin/<分支>` 建；確認乾淨、沒有沒推的 commit，落後遠端就 fast-forward。失敗就停，不進下一步。動到主 repo 的 fetch 與 worktree add 用檔案鎖（git common dir 的 `pr_target.lock`）排隊，同時準備幾個 PR 不會撞到 git 的 ref 鎖。
 2. 照 `problem`、`todo` 在 worktree 修改。
 3. 驗證：`script/workflow/verify.py --root <worktree>`，跑 docs.yml 每個 `run:`、每個 `script/*/test`、`check_script_layout.py`、hooks 的測試，並檢查每個 `script/*/test` 都在 docs.yml 裡。
-4. 一個 commit（footer `Refs: #<issue>`，不加 Claude 署名），一般 push；只有要 rebase 到 origin/main 時才 `--force-with-lease`，只限這個分支。
-5. `script/workflow/wait_ci.py <pr>` 等 CI；失敗且是這次改動造成的就再修、commit、push、再等。CI 全過就停。
+4. 一個 commit 並 push：子代理用 Write 把 `commit` 寫成 `pr-fix/<pr>/commit-msg.txt`，跑 `script/git/commit_push.py --repo <worktree> --branch <分支> --message-file <檔> --refs <issue> --all`：檢查訊息、補 footer `Refs: #<issue>`、`git add -A`、commit、push，每個寫入前經 hook 檢查。回傳的 `commit` 取它 JSON 的 `commit`。標題寫檔、不經 shell 雙引號，含反引號也不會多出反斜線。
+5. `script/workflow/wait_ci.py <pr> --failed-logs` 等 CI；失敗時看 JSON 的 `failed_logs`（每個失敗 check 的日誌尾段），是這次改動造成的就再修、驗證、用同一行 `commit_push.py` commit 並 push、再等。CI 全過就停。
 
 子代理的暫存檔（commit 訊息、留言本文、一次性腳本）一律放 scratchpad 下的 `pr-fix/<pr>/`：並行的子代理共用同一個 scratchpad，固定檔名會互相覆蓋（#241）。
 
-不 merge、不開 PR、不碰主 repo（不改檔、不 pull、不動未追蹤檔）。要 merge 時跑 `script/workflow/merge_pr.py <pr> --scratch <scratchpad>`（等 CI、merge、pull、移除 worktree、刪 `pr-fix/<pr>/`）。單一 PR 回傳 `{ pr, branch, issue, url, ci_pass, pushed, commit, summary, error }`；陣列時回傳 `{ prs, results, failed }`：`results` 是每個 PR 一筆上面的結果（順序同 `pr`），`failed` 是沒有 CI 全過的 `{ pr, reason }`。
+不 merge、不開 PR、不碰主 repo（不改檔、不 pull、不動未追蹤檔）。腳本一律從主 repo 的 `script/` 取（worktree 的分支可能還沒有這些腳本）。要 rebase 到 origin/main 時跑 `script/git/rebase_push.py --repo <worktree> --branch <分支>`（fetch、rebase、`--force-with-lease` 只推這個分支）；`state` 是 `conflict` 時子代理照 `conflicts` 解衝突、`git add` 後跑同一行加 `--continue`。要留言時本文先寫成檔（第一行 `[claude]`），跑 `script/github/post_comments.py --kind pr --number <pr> --body-file <檔>`，不自己下 `gh pr comment`。要 merge 時跑 `script/workflow/merge_pr.py <pr> --scratch <scratchpad>`（等 CI、merge、pull、移除 worktree、刪 `pr-fix/<pr>/`）。單一 PR 回傳 `{ pr, branch, issue, url, ci_pass, pushed, commit, summary, error }`；陣列時回傳 `{ prs, results, failed }`：`results` 是每個 PR 一筆上面的結果（順序同 `pr`），`failed` 是沒有 CI 全過的 `{ pr, reason }`。
 
 args 範例（單一與陣列各一）在 `pr-fix.js` 檔尾。
 
