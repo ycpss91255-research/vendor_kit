@@ -75,6 +75,69 @@ class PrRulesGuardTest(unittest.TestCase):
         cmd = f"cd {self.repo} && gh pr create --body 'Refs: #3'"
         self.assertIsNone(run_hook(cmd, sub))
 
+    def branch(self, name, *paths, remote=True):
+        """從 main 開分支 name、commit paths；remote 為真時設 origin/<name>。結束後切回 main。"""
+        git(self.repo, "checkout", "-q", "-b", name, "main")
+        self.change(*paths)
+        if remote:
+            git(self.repo, "update-ref", f"refs/remotes/origin/{name}", "HEAD")
+        git(self.repo, "checkout", "-q", "main")
+
+    def stale_cwd(self):
+        """hook 的 cwd 停在另一個舊分支（改了兩個範圍，用它會被擋）。"""
+        self.branch("old", ".claude/workflows/doc-edit.js", "CONTEXT.md", remote=False)
+        git(self.repo, "checkout", "-q", "old")
+
+    def test_head_branch_diff_used_over_stale_cwd(self):
+        self.branch("feat", "CONTEXT.md")
+        self.stale_cwd()
+        b = self.body("Refs: #3\n")
+        cmd = f"gh pr create -R o/r --base main --head feat --body-file {b}"
+        self.assertIsNone(run_hook(cmd, self.repo))
+        spec = run_hook(f"gh pr create -R o/r --base main --body-file {b}", self.repo)
+        self.assertEqual(spec["permissionDecision"], "deny")
+        self.assertIn("2 個範圍", spec["permissionDecisionReason"])
+
+    def test_head_branch_with_owner_prefix(self):
+        self.branch("feat", "CONTEXT.md")
+        self.stale_cwd()
+        b = self.body("Refs: #3\n")
+        self.assertIsNone(run_hook(f"gh pr create --head=o:feat --body-file {b}", self.repo))
+
+    def test_head_without_remote_ref_falls_back_to_cwd(self):
+        self.change("CONTEXT.md")
+        b = self.body("Refs: #3\n")
+        self.assertIsNone(run_hook(f"gh pr create --head nope --body-file {b}", self.repo))
+
+    def test_cd_prefix_used_over_stale_cwd(self):
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        stale = Path(other.name) / "stale"
+        git(self.repo, "worktree", "add", "-q", "-b", "old", str(stale), "main")
+        (stale / "CONTEXT.md").write_text("y\n")
+        (stale / "x.js").write_text("y\n")
+        git(stale, "add", ".")
+        git(stale, "commit", "-qm", "old")
+        self.change("CONTEXT.md")
+        b = self.body("Refs: #3\n")
+        cmd = f"cd {self.repo} && gh pr create --body-file {b}"
+        self.assertIsNone(run_hook(cmd, stale))
+        cmd = f"git -C {self.repo} status && gh pr create --body-file {self.repo / b}"
+        self.assertIsNone(run_hook(cmd, stale))
+
+    def test_no_changed_files_is_denied(self):
+        b = self.body("Refs: #3\n")
+        spec = run_hook(f"gh pr create --body-file {b}", self.repo)
+        self.assertEqual(spec["permissionDecision"], "deny")
+        self.assertIn("--head", spec["permissionDecisionReason"])
+
+    def test_not_a_repo_is_denied(self):
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        spec = run_hook("gh pr create --body 'Refs: #3'", other.name)
+        self.assertEqual(spec["permissionDecision"], "deny")
+        self.assertIn("取不到", spec["permissionDecisionReason"])
+
     def test_missing_body_is_denied(self):
         spec = run_hook("gh pr create --fill", self.repo)
         self.assertEqual(spec["permissionDecision"], "deny")
