@@ -3,7 +3,7 @@ export const meta = {
   description: '改文件：改寫 → lint → 審查 → 潤稿；mode=light 只改寫、審查',
   whenToUse: '改任何現行文件（README、doc/contract/、GLOSSARY.md、ADR）時；主對話不自己改',
   phases: [
-    { title: '改寫', detail: '先用 script/doc/round.py 查 round 是不是已用過的最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理用 script/doc/backup.py 備份並驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過；mode=light 一律由 Claude 子代理改，機械式改動用腳本做並用腳本驗證' },
+    { title: '改寫', detail: '先派 effort low 子代理用 git rev-parse --git-common-dir 查出主 repo（腳本一律從主 repo 取，repo 只決定改哪份檔）；再用 script/doc/round.py 查 round 是不是已用過的最大編號加一（不對就停）；每個檔一條並行，由改稿方（預設 codex，editor=claude 時是 Claude 子代理）照 ask 改；codex 改時由包裝子代理用 script/doc/backup.py 備份並驗證備份與有沒有動到範圍外的檔；沒給 ask 就跳過；mode=light 一律由 Claude 子代理改，機械式改動用腳本做並用腳本驗證' },
     { title: 'lint', detail: '全部改完後一個 Claude 子代理跑 script/workflow/verify.py（docs.yml 每一步與工具測試），只修 lint 指出的地方；mode=light 最後再跑一次當收尾' },
     { title: '審查', detail: '每個檔一條並行，由審查方（改稿方的另一方：預設 Claude，editor=claude 時是 codex）只讀審查；先核對 wayfinder map #78 列的已定案決定；審完的檔立刻進入套用必改；mode=light 一律由另一個 Claude 子代理只看這一輪的 diff 審查' },
     { title: '套用必改', detail: '每個檔由改稿方套用自己的必改，逐條寫已改或未改的理由；建議不改，只回報；mode=light 由 Claude 子代理套用，沒有必改就跳過' },
@@ -13,7 +13,9 @@ export const meta = {
 }
 
 // args 契約：
-//   repo?        string    repo 根目錄的絕對路徑；不給就由第一個子代理跑
+//   repo?        string    改哪份檔的 repo 根目錄（絕對路徑）：改檔、備份、lint 的目標、輪次計算、codex 的 --cd 都用它；
+//                          不給就用主 repo。要改 PR worktree 的檔時明確帶。腳本（round.py、backup.py、codex_run.py、
+//                          verify.py、polish_check.py）不從這裡取，一律從主 repo 取：第一個子代理在 repo（沒給就用工作目錄）跑
 //                          `git rev-parse --path-format=absolute --git-common-dir`，取其上一層（在 worktree 裡也指回主 repo）
 //   round        string    必填，格式 rNN，必須是已用過的最大編號加一（script/doc/round.py 算）；備份與審查輸出檔名用
 //   topic?       string    短主題（例如 '#121'），跟 round 一起組成這次執行的識別（log 與子代理 label 用）
@@ -63,7 +65,7 @@ if (typeof topic !== 'string') {
   throw new Error(`args.topic 只能是字串（收到 ${JSON.stringify(topic)}）：短主題，例如 "#121"`)
 }
 if (repoArg !== undefined && (typeof repoArg !== 'string' || !repoArg.startsWith('/'))) {
-  throw new Error(`args.repo 只能是絕對路徑字串（收到 ${JSON.stringify(repoArg)}）；不給就自動查出`)
+  throw new Error(`args.repo 只能是絕對路徑字串（收到 ${JSON.stringify(repoArg)}）；不給就用主 repo`)
 }
 const LIGHT = mode === 'light'
 // 這次執行的識別：meta.name 只能是固定文字，所以每次執行先印出輪次＋主題，子代理 label 也加上輪次（#131）
@@ -74,23 +76,32 @@ const reviewer = LIGHT ? 'claude' : (editor === 'codex' ? 'claude' : 'codex')
 const editEffort = effort.edit ?? (LIGHT ? 'low' : undefined)
 const reviewEffort = effort.review ?? (LIGHT ? 'low' : undefined)
 
-// repo 不寫死本機路徑（#240）：不給就派子代理查 git common dir，取其上一層當 repo 根目錄
-const repo = repoArg ? repoArg.replace(/\/+$/, '') : await (async () => {
-  const r = await agent(`跑這行，回報它印出的那一行（去掉頭尾空白）到 git_common_dir；不要做任何其他事：
-git rev-parse --path-format=absolute --git-common-dir
-指令失敗就 git_common_dir 回空字串、error 寫它印出的錯誤。`, { label: `${round} 查 repo`, phase: '改寫', agentType: 'general-purpose', effort: 'low',
-    schema: { type: 'object', properties: { git_common_dir: { type: 'string' }, error: { type: 'string' } }, required: ['git_common_dir'] } })
-  const dir = String(r?.git_common_dir ?? '').trim().replace(/\/+$/, '')
-  if (!dir.startsWith('/') || !dir.endsWith('/.git')) {
-    throw new Error(`查不到 repo 根目錄：git rev-parse --git-common-dir 回 ${JSON.stringify(dir)}${r?.error ? `（${r.error}）` : ''}；請明確帶 args.repo`)
-  }
-  return dir.slice(0, -'/.git'.length)
-})()
-log(`repo ${repo}`)
+// 兩個值分開（#289，同 discuss 的 #269）：
+//   repo  改哪份檔：改檔、備份、lint 的目標、round.py 的輪次計算、codex 的 --cd 都用它；給了就照用，可以是舊分支的 worktree
+//   main  腳本來源：主 repo 根目錄，script/doc/ 與 script/workflow/ 一律從這裡取，舊分支沒有的腳本才不會找不到
+// main 不寫死本機路徑（#240）：不論有沒有給 repo，都派子代理在 repo（沒給就用它的工作目錄）查 git common dir，
+// 取它的上一層（在 linked worktree 也會回到主 repo）；沒給 repo 時 repo 就等於 main
+const trimDir = x => String(x ?? '').trim().replace(/\/+$/, '')
+const repoGiven = repoArg ? trimDir(repoArg) : ''
+const gitCmd = repoGiven
+  ? `git -C ${repoGiven} rev-parse --path-format=absolute --git-common-dir`
+  : 'git rev-parse --path-format=absolute --git-common-dir'
+const r = await agent(`跑這行，回報它印出的那一行（去掉頭尾空白）到 git_common_dir；不要做任何其他事、不要改任何檔：
+${gitCmd}
+指令失敗就 git_common_dir 回空字串、error 寫它印出的錯誤。`, { label: `${round} 查主 repo`, phase: '改寫', agentType: 'general-purpose', effort: 'low',
+  schema: { type: 'object', properties: { git_common_dir: { type: 'string' }, error: { type: 'string' } }, required: ['git_common_dir'] } })
+const commonDir = trimDir(r?.git_common_dir)
+if (!commonDir.startsWith('/') || !commonDir.endsWith('/.git')) {
+  throw new Error(`查不到主 repo 根目錄：${gitCmd} 回 ${JSON.stringify(commonDir)}${r?.error ? `（${r.error}）` : ''}`)
+}
+const main = commonDir.slice(0, -'/.git'.length)
+const repo = repoGiven || main
 
-// 機械步驟一律呼叫腳本（#139），子代理只跑指令、讀它印出的 JSON
-const DOC = `${repo}/script/doc`
-const WF = `${repo}/script/workflow`
+// 機械步驟一律呼叫腳本（#139），子代理只跑指令、讀它印出的 JSON；腳本從 main 取，對 repo 跑
+const DOC = `${main}/script/doc`
+const WF = `${main}/script/workflow`
+log(`repo ${repo}（改檔、備份、lint 目標、輪次、codex --cd）`)
+log(`main ${main}（腳本 ${DOC}、${WF}）`)
 // 備份鍵：去掉 .md 或 .csv、/ 換成 _、去掉開頭的點（跟 script/doc/mark_changes.py 同一套）；備份檔名由 backup.py 算
 const key = f => f.replace(/\.(md|csv)$/, '').replace(/\//g, '_').replace(/^\./, '')
 // 暫存鍵：備份鍵後面再接 _md 或 _csv，給暫存目錄、子代理 tmp 與 review_log 檔名用。
