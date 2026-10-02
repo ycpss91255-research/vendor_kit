@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: 'PR 已經開了、CI 或審查要求再改時；每個 PR 一次修一個問題，CI 通過就停；好幾個 PR 要同時修（例如一起 rebase）時給 pr 陣列',
   phases: [
     { title: '準備', detail: 'pr_target.py 查分支、worktree、issue，並確認 worktree 乾淨且在 PR 分支最新' },
-    { title: '修改', detail: '子代理在 worktree 修改；verify.py 跑全部驗證；commit、push；wait_ci.py 等 CI' },
+    { title: '修改', detail: '子代理在 worktree 修改；verify.py 跑全部驗證；commit_push.py commit 並 push；wait_ci.py --failed-logs 等 CI' },
   ],
 }
 
@@ -60,7 +60,6 @@ if (multiline.length) {
 }
 
 const SLUG = 'ycpss91255-research/vendor_kit'
-const q = x => x.replace(/["\\$`]/g, m => '\\' + m)   // 放進 shell 雙引號用
 log(`pr-fix ${prs.map(n => `#${n}`).join(' ')}${many ? '（並行）' : ''}`)
 
 const TARGET = {
@@ -120,13 +119,17 @@ async function fixOne(n) {
   log(`${tag} 分支 ${t.branch}，issue #${t.issue}${t.created ? '，新建 worktree' : ''}`)
 
   // ───────────────── 修改：改檔 → 驗證 → commit → push → 等 CI ─────────────────
+  // 腳本一律從主 repo 的 script/ 取：worktree 的分支可能還沒有這些腳本
   const S = `${t.repo}/script/workflow`
+  const G = `${t.repo}/script/git`
+  const H = `${t.repo}/script/github`
+  const MSG = `${tmp}/commit-msg.txt`
   const RULES = `硬性規則（違反就算失敗）：
 - 只動 worktree ${t.path}。不碰主 repo ${t.repo}：不在那裡改檔、不 pull、不動它的未追蹤檔。
-- 不 merge、不開新 PR、不改 PR 本文。要留言的話自己逐一下 gh 指令並帶 \`-R ${SLUG}\`，不要包進腳本或用 && 串。
+- 不 merge、不開新 PR、不改 PR 本文。要留言的話本文先寫成檔（第一行 \`[claude]\` 開頭），再跑 \`python3 ${H}/post_comments.py --kind pr --number ${n} --body-file <檔>\`，讀它的 JSON 判斷成敗；不要自己下 \`gh pr comment\`。
 - 只改這次要修的問題；不要順手改別的東西。內容不准有本機絕對路徑。
 - commit 剛好一個，照 repo 格式；不加 Claude 署名、Co-Authored-By 或 session 連結。
-- 只准 push 到 ${t.branch}，一般 push；不准 push main、不准 force push main。只有需要 rebase（PR 跟 main 衝突，或 push 被拒且原因是跟 origin/main 衝突）時才 \`git -C ${t.path} fetch origin\`、\`git -C ${t.path} rebase origin/main\`，再 \`git -C ${t.path} push --force-with-lease origin ${t.branch}\`，只限這個分支。
+- 只准 push 到 ${t.branch}；不准 push main、不准 force push main。push 只經 \`${G}/commit_push.py\` 與 \`${G}/rebase_push.py\`，不自己下 \`git push\`。只有需要 rebase（PR 跟 main 衝突，或 push 被拒且原因是跟 origin/main 衝突）時才跑 \`python3 ${G}/rebase_push.py --repo ${t.path} --branch ${t.branch}\`（fetch、rebase origin/main、\`--force-with-lease\` 推回這個分支）；JSON 的 state 是 conflict 時照 conflicts 解衝突（這是要判斷的），\`git -C ${t.path} add\` 解好的檔後跑同一行加 \`--continue\`，直到 state 是 rebased 或 up_to_date；ok 是 false 就停下回報。
 ${TMP_RULE}
 - 機械步驟用 ${S}/ 的腳本，讀它輸出的 JSON 判斷成敗，不要自己重寫一遍。
 - 子代理自己判斷的只有兩件事：怎麼修改，以及驗證失敗時要修還是停下。其他步驟照順序做，任何一步失敗就停下回報。`
@@ -142,11 +145,14 @@ ${RULES}
 步驟（照順序）：
 1. 修改：照「要做」在 ${t.path} 裡改。
 2. 驗證：\`python3 ${S}/verify.py --root ${t.path}\`。它跑 docs.yml 每個 \`run:\`、每個 \`script/*/test\` 的 unittest、check_script_layout、hooks 的守門測試（hooks 的測試由 \`.claude/hooks/test\` 跑），並檢查每個 \`script/*/test\` 都在 docs.yml 裡；ok 是 true 才算過。失敗時看 steps 裡 ok 是 false 的 output 自己判斷：是這次改動造成的就修好再重跑一次 verify.py；修不了或跟這次無關就停下，不要 commit，在 error 寫清楚。
-3. commit 一個：\`git -C ${t.path} add\` 這次改的檔，再 \`git -C ${t.path} commit -m "${q(commitN)}" -m "Refs: #${t.issue}"\`。
-4. push：\`git -C ${t.path} push origin ${t.branch}\`。
-5. 等 CI：\`python3 ${S}/wait_ci.py ${n}\`（預設最多 600 秒）。結束碼 0＝全過；1＝有失敗：看 \`gh run view --log-failed -R ${SLUG}\`，是這次改動造成的就修，再 commit（同樣格式、footer \`Refs: #${t.issue}\`）、push、再等一次，修不了就停；2＝逾時，停下回報。CI 全過就停，不 merge。
+3. commit 一個並 push：用 Write 工具把下面這一行（commit 訊息第一行，不含 footer）原樣寫成檔 ${MSG}：
 
-回報：ci_pass（最後一次 wait_ci 是否全過）、pushed（有沒有 push 成功）、commit（最後一個 commit 的 hash）、summary（改了什麼、驗證結果、特別處理例如 rebase）、error（失敗時寫停在哪一步、為什麼）。`, { label: `${tag} 修改`, phase: '修改', schema: RES })
+${commitN}
+
+再跑 \`python3 ${G}/commit_push.py --repo ${t.path} --branch ${t.branch} --message-file ${MSG} --refs ${t.issue} --all\`。它檢查訊息、補 footer \`Refs: #${t.issue}\`、\`git add -A\`、commit、push 到 ${t.branch}，每個寫入前都經 hook 檢查。讀它的 JSON：ok 是 true 才算 commit 與 push 成功，commit 回報 JSON 的 commit，pushed 回報 JSON 的 pushed；ok 是 false 就照 step、problems、denied、error 停下回報，不要自己改用 git commit／git push 補做。
+4. 等 CI：\`python3 ${S}/wait_ci.py ${n} --failed-logs\`（預設最多 600 秒）。結束碼 0＝全過；1＝有失敗：看 JSON 的 failed_logs（每個失敗 check 的日誌尾段 tail；tail 是 null 時看 error），是這次改動造成的就修，修好後重跑一次 verify.py，再照第 3 步用同一個訊息檔跑同一行 commit_push.py，再等一次，修不了就停；2＝逾時，停下回報。CI 全過就停，不 merge。
+
+回報：ci_pass（最後一次 wait_ci 是否全過）、pushed（有沒有 push 成功）、commit（最後一次 commit_push.py JSON 的 commit）、summary（改了什麼、驗證結果、特別處理例如 rebase）、error（失敗時寫停在哪一步、為什麼）。`, { label: `${tag} 修改`, phase: '修改', schema: RES })
 
   log(`${tag} ${r?.ci_pass ? 'CI 全過' : `沒有完成：${r?.error || 'CI 沒有全過'}`}`)
 
