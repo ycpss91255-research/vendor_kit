@@ -1,6 +1,6 @@
 # script/git — git 相關工具
 
-檢查 commit 訊息這類 git 本身的東西、呼叫它的本機 hook（`.githooks/`），以及 commit、push 的包裝。
+檢查 commit 訊息這類 git 本身的東西、呼叫它的本機 hook（`.githooks/`），以及 commit、push、rebase 的包裝。
 
 ## check_commit_msg.py
 
@@ -52,9 +52,26 @@ python3 script/git/commit_push.py --repo <worktree> --branch <分支> --message-
 
 輸出一行 JSON：`{"ok", "step", "branch", "commit", "files", "pushed", "problems", "denied", "error"}`。`step` 成功時是 `done`，失敗時是停下的那一步（usage、repo、message、stage、commit、push）；`files` 是這個 commit 的檔案清單；`problems` 是訊息檢查的錯誤；`denied` 是擋下的 hook。結束碼：成功 0；檢查、hook 或 git 失敗 1；用法錯 2。
 
+## rebase_push.py
+
+[rebase_push.py](rebase_push.py) 把自己的分支 rebase 到 `origin/main`，再用 `--force-with-lease` 推回自己的分支，取代 pr、pr-fix workflow 裡 PR 跟 main 衝突時照文字做的「`git fetch` → `git rebase origin/main` → `git push --force-with-lease`」。解衝突要判斷，留給子代理；腳本只停在衝突、列出檔：
+
+1. 開始：檢查 `--branch` 不是 main、`--repo` 是 worktree 根目錄、目前分支等於 `--branch`、沒有進行中的 rebase、worktree 乾淨。接著 `git fetch origin`，記下 `origin/<分支>` 的 sha 當 lease（遠端還沒有這個分支就要求推的時候仍然沒有），寫進 git dir 的 `rebase_push.lease`。
+2. 已經包含 `--onto`（merge-base 等於 `--onto`）就回 `up_to_date`，不 rebase、不 push；否則 `git rebase <onto>`。
+3. 衝突時不 abort：回 `conflict`，`conflicts` 列出未合併的檔，結束碼 3。子代理解完、`git add` 後，同一行指令加 `--continue` 接著做；還有衝突就再回 3。要放棄用 `--abort`。
+4. push 經 `script/workflow/hook_rules.py` 的 `guarded_run`，lease 一律用開始時記下的 sha，所以衝突停下期間別人推了同一個分支，push 會失敗、不會蓋掉。push 之後刪掉 `rebase_push.lease`；`--no-push` 時只 rebase。push 用 cwd 而不用 `git -C`，因為 `guard.py` 只認得字面的 `git push`。
+
+跑法：
+
+```sh
+python3 script/git/rebase_push.py --repo <worktree> --branch <分支> [--onto origin/main] [--continue | --abort] [--no-push]
+```
+
+輸出一行 JSON：`{"ok", "state", "branch", "before", "after", "pushed", "conflicts", "denied", "error"}`。`state` 是 `up_to_date`、`rebased`、`conflict`、`aborted`（還沒走到這些狀態就失敗時是 null）；`before` 是開始時的 HEAD，`after` 是目前的 HEAD；`denied` 是擋下的 hook。結束碼：成功 0；檢查、hook 或 git 失敗 1；用法錯 2；衝突 3。
+
 ## 測試
 
-測試在 [test/test_check_commit_msg.py](test/test_check_commit_msg.py)（檢查器）、[test/test_commit_msg_hook.py](test/test_commit_msg_hook.py)（用暫存 git repo 設 `core.hooksPath` 實際跑 hook）與 [test/test_commit_push.py](test/test_commit_push.py)（暫存 git repo 加暫存 bare remote，經真的 Bash hook commit、push），跑法：
+測試在 [test/test_check_commit_msg.py](test/test_check_commit_msg.py)（檢查器）、[test/test_commit_msg_hook.py](test/test_commit_msg_hook.py)（用暫存 git repo 設 `core.hooksPath` 實際跑 hook）、[test/test_commit_push.py](test/test_commit_push.py)（暫存 git repo 加暫存 bare remote，經真的 Bash hook commit、push）與 [test/test_rebase_push.py](test/test_rebase_push.py)（暫存 bare remote 加兩個 clone 讓 main 前進，經真的 Bash hook push），跑法：
 
 ```sh
 python3 -m unittest discover -s script/git/test
