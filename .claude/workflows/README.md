@@ -153,14 +153,16 @@ args 欄位：
 | `pages` | 是 | 只准改的頁的 `<diagram id>` 陣列（圖的持久鍵，不是頁名也不是頁序） |
 | `task` | 是 | 要改什麼 |
 | `round` | 否 | `rNN`，跟 doc-edit 共用編號。不給就用 `script/doc/round.py next` 取，給了就用 `round.py check` 檢查 |
-| `repo` | 否 | 主 repo。不給就在準備的第一步由子代理（effort low）跑 `git rev-parse --path-format=absolute --git-common-dir`，取其上一層；在 worktree 裡跑也會得到主 repo |
-| `workspace` | 否 | 放 PNG 的 workspace，預設 `repo` 的上一層；明確帶的 `repo` 是 worktree 時要明確帶 |
+| `repo` | 否 | 要改哪份圖的 repo 根目錄，絕對路徑：`file`、備份、輪次與審查輸出都在這裡；不給就用主 repo。可以是舊分支的 worktree |
+| `workspace` | 否 | 放 PNG 的 workspace，預設主 repo 的上一層；要放別處時才帶 |
+
+`diagram-edit` 分開兩個值（#288，同 `discuss` 的 #269）：`repo` 只決定改哪份圖、備份與審查輸出放哪；腳本（`script/doc/`、`script/diagram/`、`script/workflow/`）與 workspace 預設一律從主 repo 取，所以 `repo` 指向沒有新腳本的舊分支 worktree 也找得到腳本，PNG 也放在主 repo 的 workspace。主 repo 由準備的第一步的 effort low 子代理查出：不論有沒有給 `repo`，都在 `repo`（沒給就用它的工作目錄）跑 `git rev-parse --path-format=absolute --git-common-dir`，取結果的上一層，在 linked worktree 也會回到主 repo；開頭的 log 印出兩個值，回傳值的 `main` 是主 repo。
 
 步驟與腳本（子代理只跑一行指令、回報它印出的 JSON，成敗在 workflow 裡判斷）：
 
 | 步驟 | 做法 |
 |---|---|
-| 準備 | 沒給 `repo` 就先用 `git rev-parse --path-format=absolute --git-common-dir` 查出主 repo；`script/doc/round.py next`／`check`；`script/doc/backup.py save`（鍵依 `file` 算、含副檔名，例如 `doc_diagram_architecture.drawio`、`doc_diagram_flow.drawio`）；`script/diagram/state.py check`，失效就停下，請維護者在主對話重新取得頁面；`state.py put` 載入檔案，並確認 `pages` 的 id 都在檔裡 |
+| 準備 | 先在 `repo`（沒給就用工作目錄）用 `git rev-parse --path-format=absolute --git-common-dir` 查出主 repo；`script/doc/round.py next`／`check`；`script/doc/backup.py save`（鍵依 `file` 算、含副檔名，例如 `doc_diagram_architecture.drawio`、`doc_diagram_flow.drawio`）；`script/diagram/state.py check`，失效就停下，請維護者在主對話重新取得頁面；`state.py put` 載入檔案，並確認 `pages` 的 id 都在檔裡 |
 | 改圖 | Claude 子代理用 MCP 的 `list_pages`、`get_diagram`、`edit_diagram`（一律帶 `page_id`）只改指定頁；改完由 `state.py get` 存回檔案 |
 | lint | `script/diagram/lint.py <file> --base <備份>`。指定頁的違規與 `page-id` 違規交回改圖子代理修，最多 3 輪，還不行就停；其他頁的違規只回報 |
 | 匯出 PNG | 先刪掉同名的舊 `.raw.png`／`.flat.png`／`.png`；子代理用 MCP `export_diagram` 每頁一張，存到 `<workspace>/reference/diagram_review/<round>/`；再用 `script/diagram/png.py flatten` 與 `resize --max-width 1600` 改白底、縮圖；最後比對每張的修改時間不早於 `file`（最後一次 `state.py get` 寫入的時間）。`export_diagram` 逾時或失敗（常見原因是瀏覽器的 drawio 分頁沒開或沒回應）就停，`error` 請維護者打開或重新整理 drawio 分頁，不拿舊 PNG 當結果 |
@@ -168,7 +170,7 @@ args 欄位：
 | 套用必改 | 必改交回改圖子代理，存回後重跑 lint，再重新匯出 PNG（覆寫同名檔）；建議只回報 |
 | 收尾檢查 | 再跑一次 `lint.py` 與 `state.py diff`：不准新增或刪除頁、`<diagram id>` 不准變、只有 `pages` 的頁有改動或改名；回報的每張 PNG 修改時間不准早於最後一次 `state.py get` |
 
-任何一步失敗就停，回傳值的 `stopped` 是停在哪一步、`error` 是原因。回傳 `{ round, repo, file, pages, backup, edits, lint, png, review, applied, diff, stopped, error }`：`lint` 有 `blocking`（指定頁）與 `outside`（其他頁，只回報），`png` 是最後一次匯出的 PNG 路徑（套用必改後就是套用後那張，跟最終的 `file` 一致），`review.suggest` 是給維護者的建議。
+任何一步失敗就停，回傳值的 `stopped` 是停在哪一步、`error` 是原因。回傳 `{ round, repo, main, file, pages, backup, edits, lint, png, review, applied, diff, stopped, error }`：`lint` 有 `blocking`（指定頁）與 `outside`（其他頁，只回報），`png` 是最後一次匯出的 PNG 路徑（套用必改後就是套用後那張，跟最終的 `file` 一致），`review.suggest` 是給維護者的建議。
 
 args 範例在 `diagram-edit.js` 檔尾。
 
