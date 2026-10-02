@@ -27,6 +27,8 @@ elif mode == "empty":
 elif mode == "sleep":
     time.sleep(30)
 print("codex 的 stdout", flush=True)
+if mode == "capacity":
+    sys.stderr.write("ERROR: Selected model is AT CAPACITY. Please try again.\n")
 sys.stderr.write("E" * 2500 + "尾巴")
 sys.exit(int(os.environ.get("FAKE_EXIT", "0")))
 '''
@@ -153,6 +155,63 @@ class CodexRun(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIsNone(res["exit"])
         self.assertIn("跑不起來", res["error"])
+
+    def test_new_fields_default_false(self):
+        _, res = self.go()
+        self.assertFalse(res["reused"])
+        self.assertFalse(res["capacity"])
+
+    def test_capacity_detected(self):
+        code, res = self.go(mode="capacity", exit_code=1)
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertTrue(res["capacity"])
+        self.assertFalse(res["reused"])
+
+    def test_reuse_existing_output(self):
+        self.out.parent.mkdir(parents=True)
+        self.out.write_text("舊結果\n", encoding="utf-8")
+        code, res = self.go("--reuse")
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["reused"])
+        self.assertIsNone(res["exit"])
+        self.assertEqual(res["out_bytes"], len("舊結果\n".encode()))
+        self.assertFalse(self.log.exists())
+        self.assertEqual(self.out.read_text(encoding="utf-8"), "舊結果\n")
+        self.assertTrue(self.brief.exists())
+
+    def test_reuse_deletes_brief(self):
+        self.out.parent.mkdir(parents=True)
+        self.out.write_text("舊結果\n", encoding="utf-8")
+        code, res = self.go("--reuse", "--delete-brief")
+        self.assertEqual(code, 0)
+        self.assertTrue(res["reused"])
+        self.assertFalse(self.log.exists())
+        self.assertFalse(self.brief.exists())
+
+    def test_reuse_runs_on_empty_output(self):
+        self.out.parent.mkdir(parents=True)
+        self.out.write_text("", encoding="utf-8")
+        code, res = self.go("--reuse")
+        self.assertEqual(code, 0)
+        self.assertFalse(res["reused"])
+        self.assertTrue(self.log.exists())
+        self.assertEqual(self.out.read_text(encoding="utf-8"), "結果\n")
+
+    def test_reuse_runs_without_output(self):
+        code, res = self.go("--reuse")
+        self.assertEqual(code, 0)
+        self.assertFalse(res["reused"])
+        self.assertTrue(self.log.exists())
+
+    def test_existing_output_rerun_without_reuse(self):
+        self.out.parent.mkdir(parents=True)
+        self.out.write_text("舊結果\n", encoding="utf-8")
+        code, res = self.go()
+        self.assertEqual(code, 0)
+        self.assertFalse(res["reused"])
+        self.assertTrue(self.log.exists())
 
 
 if __name__ == "__main__":

@@ -133,13 +133,14 @@ python3 script/workflow/verify.py [--root <worktree 根目錄>]
 呼叫 codex 執行一份 brief，結束碼由腳本直接讀，呼叫端的 shell 是 bash 還是 fish 都一樣。
 
 ```sh
-python3 script/workflow/codex_run.py --cd <dir> --brief <brief 檔> --out <輸出檔> [--timeout 570] [--delete-brief]
+python3 script/workflow/codex_run.py --cd <dir> --brief <brief 檔> --out <輸出檔> [--timeout 570] [--delete-brief] [--reuse]
 ```
 
+- `--reuse`：`--out` 已存在且非空就不執行 codex，回報 `reused=true`、`ok=true`、結束碼 0；有 `--delete-brief` 時照樣刪 brief。
 - 執行 `codex exec --skip-git-repo-check -C <dir> -o <out> <brief 全文>`：stdin 固定接 /dev/null（不接 codex 會停在等 stdin），不帶任何 `--sandbox` 旗標；先建 `<out>` 的上層目錄。brief 用 Write 工具寫檔即可，不必用 heredoc。
 - `--timeout` 預設 570 秒，前景 Bash 的 600000 毫秒上限內一定回得來；到了就砍掉 codex。`--delete-brief`：結束後刪掉 brief 檔，不論成敗。
-- 輸出一行 JSON：`{"ok", "exit", "out", "out_bytes", "timed_out", "elapsed_s", "stderr_tail", "error"}`；`exit` 是 codex 的結束碼（沒跑起來或逾時是 null），`stderr_tail` 是 codex stderr 的最後 2000 字元。
-- 結束碼：成功（codex 結束碼 0 且輸出檔存在、非空）0；codex 結束碼非 0 或跑不起來 1；輸出檔不存在或是空的 2；逾時 3；brief 檔不存在或用法錯 4。
+- 輸出一行 JSON：`{"ok", "exit", "out", "out_bytes", "timed_out", "elapsed_s", "stderr_tail", "reused", "capacity", "error"}`；`exit` 是 codex 的結束碼（沒跑起來、逾時或沿用是 null），`stderr_tail` 是 codex stderr 的最後 2000 字元，`reused` 表示沿用既有輸出、沒執行 codex，`capacity` 表示 codex 的 stderr 含 `at capacity`（不分大小寫），呼叫端據此決定要不要重試。
+- 結束碼：成功（codex 結束碼 0 且輸出檔存在、非空）或沿用 0；codex 結束碼非 0 或跑不起來 1；輸出檔不存在或是空的 2；逾時 3；brief 檔不存在或用法錯 4。
 - codex 執行檔可用環境變數 `CODEX_BIN` 換掉（測試用）。
 
 ## agy_run.py
