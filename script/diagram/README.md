@@ -25,8 +25,13 @@ drawio MCP `export_diagram` 匯出的 PNG 是透明底（#138）。`png.py` 只�
 - `python3 script/diagram/png.py info <png>`：寬高、位元深度、色彩型態，以及是否支援。
 - `python3 script/diagram/png.py flatten <in.png> <out.png>`：RGBA 合成到白底，輸出 RGB PNG。
 - `python3 script/diagram/png.py resize <in.png> <out.png> [--max-width 1600]`：寬度超過上限才等比縮（最近鄰取樣），色彩型態沿用輸入。
+- `python3 script/diagram/png.py clear <file>…`：刪掉存在的檔，輸出 `{"ok", "cmd", "removed"}`；刪完還有任何一個存在就 ok false。
+- `python3 script/diagram/png.py finish --ref <drawio 檔> [--max-width 1600] <名.raw.png>…`：檔名都要以 `.raw.png` 結尾（否則結束碼 2）；每頁 `<名>.raw.png` → flatten → `<名>.flat.png` → resize → `<名>.png`，全部做完再比對時間（成功的每頁，raw 與產出的 png 修改時間都不准早於 `--ref`）。輸出 `{"ok", "cmd", "pngs", "stale": [{"file", "mtime"}], "errors": [{"file", "error"}], "ref", "ref_mtime"}`；某頁讀不到或壞掉記進 `errors`、其他頁照做。
+- `python3 script/diagram/png.py fresh --ref <檔> <file>…`：只比對時間，每個檔的修改時間都不准早於 `--ref`；檔不存在也算 stale（`mtime` 為 null）。輸出 `{"ok", "cmd", "ref", "ref_mtime", "stale"}`。
 
-只支援 drawio 實際會輸出的 8-bit RGBA／RGB、非交錯；其他型態回結束碼 2。輸出一行 JSON；結束碼 0 過、1 有問題（讀不到、不是 PNG、內容壞掉）、2 用法錯。測試在 `test/`（`python3 -m unittest discover -s script/diagram/test`）。
+`diagram-edit` workflow 匯出 PNG 時這樣用（由 #139 的後續項目改過去）：匯出前 `clear` 刪掉每頁舊的 `.raw.png`／`.flat.png`／`.png`，匯出沒寫出新檔時後面就讀不到檔而失敗，不會把舊圖當成這次的結果；匯出後一次 `finish --ref <最後一次 state.py get 寫的 .drawio>` 做完所有頁的白底、縮圖與時間比對；收尾檢查再用 `fresh` 確認回報的 raw 與 png 都不早於最後一次 `state.py get`。
+
+只支援 drawio 實際會輸出的 8-bit RGBA／RGB、非交錯；其他型態回結束碼 2。輸出一行 JSON；結束碼 0 過、1 有問題（讀不到、不是 PNG、內容壞掉）、2 用法錯；`clear` 沒刪乾淨、`finish`／`fresh` 有 stale 或 errors、`--ref` 讀不到都算有問題（結束碼 1）。測試在 `test/`（`python3 -m unittest discover -s script/diagram/test`）。
 
 ## lint.py
 

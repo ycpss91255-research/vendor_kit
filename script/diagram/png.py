@@ -1,4 +1,4 @@
-"""drawio 匯出 PNG 的後處理：透明底改白底、等比縮圖、看基本資訊。
+"""drawio 匯出 PNG 的後處理：透明底改白底、等比縮圖、看基本資訊、清舊圖、比對時間。
 
 drawio MCP 的 export_diagram 匯出的 PNG 是透明底（#138）。這支只用標準函式庫，
 用 zlib＋struct 自己解碼／編碼 PNG，不需要主機另外安裝影像套件。
@@ -7,20 +7,34 @@ drawio MCP 的 export_diagram 匯出的 PNG 是透明底（#138）。這支只�
   python3 script/diagram/png.py info <png>
   python3 script/diagram/png.py flatten <in.png> <out.png>
   python3 script/diagram/png.py resize <in.png> <out.png> [--max-width 1600]
+  python3 script/diagram/png.py clear <file>…
+  python3 script/diagram/png.py finish --ref <drawio 檔> [--max-width 1600] <名.raw.png>…
+  python3 script/diagram/png.py fresh --ref <檔> <file>…
 
 - info：寬高、位元深度、色彩型態。
 - flatten：RGBA 以 alpha 合成到白底，輸出 RGB PNG；輸入已是 RGB 就原樣重新編碼。
 - resize：寬度大於 --max-width 時等比縮到該寬度（最近鄰取樣），否則尺寸不變；
   色彩型態沿用輸入。
+- clear：刪掉存在的檔。輸出 removed（這次刪掉的檔）；刪完還有任何一個存在就 ok false。
+- finish：每個檔名都要以 .raw.png 結尾（否則用法錯）。對每個做
+  <名>.raw.png → flatten → <名>.flat.png → resize → <名>.png；某頁讀不到、壞掉或型態不支援就記進
+  errors（{file, error}），其他頁照做。全部做完再做時間比對：成功的每頁，raw 與產出的
+  png 的修改時間都不准早於 --ref。輸出 pngs（產出的 png）、stale、errors、ref、ref_mtime；
+  有 errors 或 stale 就 ok false。
+- fresh：只做時間比對。每個檔的修改時間都不准早於 --ref；檔不存在也算 stale（mtime null）。
+  輸出 ref、ref_mtime、stale（[{file, mtime}]）；有 stale 就 ok false。
+  --ref 讀不到時 finish／fresh 都回結束碼 1。
 - 支援的型態只有 drawio 實際會輸出的：8-bit RGBA（color type 6）與 8-bit RGB（color type 2），
   非交錯。其他型態回結束碼 2 並說明。
 - 輸出只保留 IHDR／IDAT／IEND，其他附屬 chunk 丟掉。
 
-輸出一行 JSON 到 stdout：{"ok", "cmd", ...}；結束碼 0 過、1 有問題（檔案讀不到、不是 PNG、內容壞掉）、
+輸出一行 JSON 到 stdout：{"ok", "cmd", ...}；結束碼 0 過、1 有問題（檔案讀不到、不是 PNG、內容壞掉、
+clear 沒刪乾淨、finish／fresh 有 stale 或 errors）、
 2 用法錯（參數錯、不支援的 PNG 型態）。
 """
 import argparse
 import json
+import os
 import struct
 import sys
 import zlib
@@ -224,25 +238,106 @@ def cmd_info(args) -> dict:
     return out
 
 
-def cmd_flatten(args) -> dict:
-    hdr, rows = decode(_read(args.input))
+def flatten_file(src: str, dst: str) -> dict:
+    hdr, rows = decode(_read(src))
     ctype, rows = flatten_rows(hdr["color_type"], rows)
-    _write(args.output, encode(hdr["width"], hdr["height"], ctype, rows))
-    return {"input": args.input, "output": args.output,
+    _write(dst, encode(hdr["width"], hdr["height"], ctype, rows))
+    return {"input": src, "output": dst,
             "width": hdr["width"], "height": hdr["height"],
             "from": COLOR_NAMES[hdr["color_type"]], "to": COLOR_NAMES[ctype]}
 
 
-def cmd_resize(args) -> dict:
-    if args.max_width < 1:
-        raise UsageError("--max-width 要是正整數")
-    hdr, rows = decode(_read(args.input))
+def resize_file(src: str, dst: str, max_width: int) -> dict:
+    hdr, rows = decode(_read(src))
     bpp = CHANNELS[hdr["color_type"]]
-    nw, nh, rows = resize_rows(hdr["width"], hdr["height"], bpp, rows, args.max_width)
-    _write(args.output, encode(nw, nh, hdr["color_type"], rows))
-    return {"input": args.input, "output": args.output,
+    nw, nh, rows = resize_rows(hdr["width"], hdr["height"], bpp, rows, max_width)
+    _write(dst, encode(nw, nh, hdr["color_type"], rows))
+    return {"input": src, "output": dst,
             "from": [hdr["width"], hdr["height"]], "to": [nw, nh],
             "resized": nw != hdr["width"], "color": COLOR_NAMES[hdr["color_type"]]}
+
+
+def _check_max_width(max_width: int) -> None:
+    if max_width < 1:
+        raise UsageError("--max-width 要是正整數")
+
+
+def cmd_flatten(args) -> dict:
+    return flatten_file(args.input, args.output)
+
+
+def cmd_resize(args) -> dict:
+    _check_max_width(args.max_width)
+    return resize_file(args.input, args.output, args.max_width)
+
+
+def cmd_clear(args) -> dict:
+    removed = []
+    for path in args.files:
+        if os.path.lexists(path):
+            try:
+                os.remove(path)
+                removed.append(path)
+            except OSError:
+                pass
+    left = [p for p in args.files if os.path.lexists(p)]
+    out = {"ok": not left, "removed": removed}
+    if left:
+        out["left"] = left
+    return out
+
+
+def _ref_mtime(ref: str) -> float:
+    try:
+        return os.path.getmtime(ref)
+    except OSError as e:
+        raise PngError(f"讀不到基準檔 {ref}：{e.strerror}") from None
+
+
+def stale_files(ref_mtime: float, files) -> list:
+    """修改時間早於 ref_mtime 或不存在的檔：[{file, mtime}]，不存在的 mtime 是 None。"""
+    bad = []
+    for path in files:
+        try:
+            t = os.path.getmtime(path)
+        except OSError:
+            bad.append({"file": path, "mtime": None})
+            continue
+        if t < ref_mtime:
+            bad.append({"file": path, "mtime": t})
+    return bad
+
+
+def cmd_fresh(args) -> dict:
+    t = _ref_mtime(args.ref)
+    stale = stale_files(t, args.files)
+    return {"ok": not stale, "ref": args.ref, "ref_mtime": t, "stale": stale}
+
+
+RAW_SUFFIX = ".raw.png"
+
+
+def cmd_finish(args) -> dict:
+    _check_max_width(args.max_width)
+    bad = [p for p in args.raws if not p.endswith(RAW_SUFFIX)]
+    if bad:
+        raise UsageError(f"檔名要以 {RAW_SUFFIX} 結尾：{'、'.join(bad)}")
+    t = _ref_mtime(args.ref)
+    pngs, errors, done = [], [], []
+    for raw in args.raws:
+        stem = raw[:-len(RAW_SUFFIX)]
+        flat, out = f"{stem}.flat.png", f"{stem}.png"
+        try:
+            flatten_file(raw, flat)
+            resize_file(flat, out, args.max_width)
+        except (PngError, Unsupported) as e:
+            errors.append({"file": raw, "error": str(e)})
+            continue
+        pngs.append(out)
+        done += [raw, out]
+    stale = stale_files(t, done)
+    return {"ok": not errors and not stale, "pngs": pngs, "stale": stale, "errors": errors,
+            "ref": args.ref, "ref_mtime": t}
 
 
 class _Parser(argparse.ArgumentParser):
@@ -262,10 +357,20 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("input")
     r.add_argument("output")
     r.add_argument("--max-width", type=int, default=DEFAULT_MAX_WIDTH)
+    c = sub.add_parser("clear")
+    c.add_argument("files", nargs="+")
+    fi = sub.add_parser("finish")
+    fi.add_argument("--ref", required=True)
+    fi.add_argument("--max-width", type=int, default=DEFAULT_MAX_WIDTH)
+    fi.add_argument("raws", nargs="+")
+    fr = sub.add_parser("fresh")
+    fr.add_argument("--ref", required=True)
+    fr.add_argument("files", nargs="+")
     return p
 
 
-COMMANDS = {"info": cmd_info, "flatten": cmd_flatten, "resize": cmd_resize}
+COMMANDS = {"info": cmd_info, "flatten": cmd_flatten, "resize": cmd_resize,
+            "clear": cmd_clear, "finish": cmd_finish, "fresh": cmd_fresh}
 
 
 def main(argv=None) -> int:
@@ -274,7 +379,7 @@ def main(argv=None) -> int:
         args = build_parser().parse_args(argv)
         cmd = args.cmd
         result = {"ok": True, "cmd": cmd, **COMMANDS[cmd](args)}
-        code = 0
+        code = 0 if result["ok"] else 1
     except (UsageError, Unsupported) as e:
         result, code = {"ok": False, "cmd": cmd, "error": str(e)}, 2
     except PngError as e:

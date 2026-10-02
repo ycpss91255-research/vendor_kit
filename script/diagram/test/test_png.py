@@ -1,7 +1,9 @@
-"""png.py：PNG 白底、縮圖、資訊。測試用的 PNG 都由程式產生。"""
+"""png.py：PNG 白底、縮圖、資訊、清舊圖、批次收尾、時間比對。測試用的 PNG 都由程式產生。"""
 import json
+import os
 import pathlib
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -166,6 +168,161 @@ class Info(Base):
         code, res = run("info", src)
         self.assertEqual(code, 0)
         self.assertEqual((res["color"], res["supported"]), ("gray", False))
+
+
+def small_rgba(width=4, height=2):
+    """用 png.py 自己的 encode 產生小 RGBA PNG。"""
+    rows = [bytearray(v for px in r for v in px) for r in gradient(width, height)]
+    return png.encode(width, height, 6, rows)
+
+
+class TimeBase(Base):
+    REF_T = 1_700_000_000
+
+    def setUp(self):
+        super().setUp()
+        self.ref = self.write("x.drawio", b"<mxfile/>")
+        os.utime(self.ref, (self.REF_T, self.REF_T))
+
+    def age(self, path, delta):
+        """把 path 的修改時間設成 ref 加 delta 秒。"""
+        os.utime(path, (self.REF_T + delta, self.REF_T + delta))
+
+
+class Clear(Base):
+    def test_removes_existing_and_ignores_missing(self):
+        a = self.write("a.raw.png", b"x")
+        b = self.write("a.png", b"y")
+        missing = str(self.dir / "nope.png")
+        code, res = run("clear", a, missing, b)
+        self.assertEqual(code, 0, res)
+        self.assertEqual((res["ok"], res["cmd"], res["removed"]), (True, "clear", [a, b]))
+        self.assertFalse(os.path.exists(a) or os.path.exists(b))
+
+    def test_all_missing_ok(self):
+        code, res = run("clear", str(self.dir / "nope.png"))
+        self.assertEqual((code, res["ok"], res["removed"]), (0, True, []))
+
+    def test_cannot_remove_not_ok(self):
+        d = self.dir / "dir.png"
+        d.mkdir()  # 目錄刪不掉（os.remove 不刪目錄）
+        code, res = run("clear", str(d))
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["removed"], [])
+
+    def test_needs_a_file(self):
+        code, res = run("clear")
+        self.assertEqual(code, 2)
+
+
+class Fresh(TimeBase):
+    def test_all_newer_ok(self):
+        a = self.write("a.png", b"x")
+        self.age(a, 5)
+        same = self.write("b.png", b"x")
+        self.age(same, 0)
+        code, res = run("fresh", "--ref", self.ref, a, same)
+        self.assertEqual(code, 0, res)
+        self.assertEqual((res["ok"], res["cmd"], res["ref"], res["ref_mtime"], res["stale"]),
+                         (True, "fresh", self.ref, self.REF_T, []))
+
+    def test_older_and_missing_are_stale(self):
+        old = self.write("old.png", b"x")
+        self.age(old, -5)
+        new = self.write("new.png", b"x")
+        self.age(new, 5)
+        missing = str(self.dir / "nope.png")
+        code, res = run("fresh", "--ref", self.ref, old, new, missing)
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["stale"], [{"file": old, "mtime": self.REF_T - 5},
+                                        {"file": missing, "mtime": None}])
+
+    def test_missing_ref_exit_1(self):
+        code, res = run("fresh", "--ref", str(self.dir / "nope.drawio"), self.ref)
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+
+    def test_needs_ref(self):
+        code, res = run("fresh", self.ref)
+        self.assertEqual(code, 2)
+
+
+class Finish(TimeBase):
+    def test_flatten_resize_each_page(self):
+        a = self.write("p1.raw.png", small_rgba(40, 20))
+        b = self.write("p2.raw.png", small_rgba(4, 2))
+        code, res = run("finish", "--ref", self.ref, "--max-width", "10", a, b)
+        self.assertEqual(code, 0, res)
+        pa, pb = str(self.dir / "p1.png"), str(self.dir / "p2.png")
+        self.assertEqual((res["ok"], res["cmd"], res["pngs"], res["stale"], res["errors"]),
+                         (True, "finish", [pa, pb], [], []))
+        self.assertEqual((res["ref"], res["ref_mtime"]), (self.ref, self.REF_T))
+        self.assertTrue((self.dir / "p1.flat.png").exists())
+        hdr, _ = png.decode(pathlib.Path(pa).read_bytes())
+        self.assertEqual((hdr["width"], hdr["height"], hdr["color_type"]), (10, 5, 2))
+        hdr, _ = png.decode(pathlib.Path(pb).read_bytes())
+        self.assertEqual((hdr["width"], hdr["height"], hdr["color_type"]), (4, 2, 2))
+
+    def test_default_max_width(self):
+        args = png.build_parser().parse_args(["finish", "--ref", "x.drawio", "a.raw.png"])
+        self.assertEqual(args.max_width, 1600)
+
+    def test_bad_page_recorded_others_done(self):
+        good = self.write("good.raw.png", small_rgba())
+        broken = self.write("broken.raw.png", b"hello")
+        missing = str(self.dir / "missing.raw.png")
+        code, res = run("finish", "--ref", self.ref, broken, missing, good)
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["pngs"], [str(self.dir / "good.png")])
+        self.assertEqual([e["file"] for e in res["errors"]], [broken, missing])
+        self.assertTrue(all(e["error"] for e in res["errors"]))
+        self.assertEqual(res["stale"], [])
+
+    def test_raw_older_than_ref_is_stale(self):
+        raw = self.write("p.raw.png", small_rgba())
+        self.age(raw, -5)
+        code, res = run("finish", "--ref", self.ref, raw)
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["stale"], [{"file": raw, "mtime": self.REF_T - 5}])
+        self.assertEqual(res["pngs"], [str(self.dir / "p.png")])
+
+    def test_ref_newer_than_outputs_is_stale(self):
+        raw = self.write("p.raw.png", small_rgba())
+        future = 4_000_000_000
+        os.utime(self.ref, (future, future))
+        code, res = run("finish", "--ref", self.ref, raw)
+        self.assertEqual(code, 1)
+        self.assertEqual([s["file"] for s in res["stale"]], [raw, str(self.dir / "p.png")])
+
+    def test_name_must_end_with_raw_png_exit_2(self):
+        a = self.write("a.png", small_rgba())
+        code, res = run("finish", "--ref", self.ref, a)
+        self.assertEqual(code, 2)
+        self.assertFalse(res["ok"])
+        self.assertIn(".raw.png", res["error"])
+        self.assertFalse((self.dir / "a.flat.png").exists())
+
+    def test_cli_exit_2_on_bad_name(self):
+        script = pathlib.Path(png.__file__)
+        p = subprocess.run([sys.executable, str(script), "finish", "--ref", self.ref, "a.png"],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 2)
+        self.assertFalse(json.loads(p.stdout)["ok"])
+
+    def test_bad_max_width_exit_2(self):
+        raw = self.write("p.raw.png", small_rgba())
+        code, res = run("finish", "--ref", self.ref, "--max-width", "0", raw)
+        self.assertEqual(code, 2)
+
+    def test_missing_ref_exit_1(self):
+        raw = self.write("p.raw.png", small_rgba())
+        code, res = run("finish", "--ref", str(self.dir / "nope.drawio"), raw)
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
 
 
 class Errors(Base):
