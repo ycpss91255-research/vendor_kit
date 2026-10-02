@@ -21,14 +21,14 @@
 - 結束碼固定為 `0` info（成功）、`1` warn（做完了，但有警告）、`2` error（沒做完：待處理、失敗或用法錯誤）、`3` fatal（只限版本組合不合）；一次有多個結果時取最大值。是否成功只看有沒有做到該 VK recipe 的契約承諾，不看診斷名稱或輸出串流。
 - 所有警告都回 `1`。原決議另設 CI 模式的兩條附加規則；該分流已由 [ADR-0013](0013-no-ci-mode-strict-checks-in-test.md) 取代，僅作歷史記錄。
 - 原決議以環境變數 `CI` 判定 CI 模式；該判定已由 [ADR-0013](0013-no-ci-mode-strict-checks-in-test.md) 取消，VK 不再據此改變行為。
-- 需要寫追蹤檔的情境各有固定的訊息與結束碼，改訊息或結束碼等於改介面。原決議曾讓基準版落後依執行環境回不同結束碼；該分流已由 [ADR-0013](0013-no-ci-mode-strict-checks-in-test.md) 取代。現行訊息與結束碼以 [03 輸出的訊息表](../contract/03_output.csv)為準。
+- 需要寫追蹤檔的情境各有固定的訊息與結束碼，改訊息或結束碼等於改介面。原決議曾讓基準版落後依執行環境回不同結束碼；該分流已由 [ADR-0013](0013-no-ci-mode-strict-checks-in-test.md) 取代。現行訊息與結束碼以 [03 輸出的訊息表](../contract/reason_codes.csv)為準。
 - 內部機制（之後搬到實作 issue）：
   - 轉發形狀：每個 recipe 一行 `<recipe> *args`，以 `[group('常用')]` 與 `[group('進階')]` 分段；轉發行不解讀參數、不判斷狀態。`vendor.just` 屬於四個薄殼追蹤檔之一（依 [不變量頁第 6 條](../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)）。
   - 原決議讓 `just vendor_kit test` 自己開啟 CI 模式，並讓 `update` 在 CI 模式下仍然查 registry；CI 模式已由 [ADR-0013](0013-no-ci-mode-strict-checks-in-test.md) 取消，這段只記錄歷史。
   - 原決議的 CI 模式附加 `error` 規則是封閉清單：需要改追蹤檔時一律不寫，以及有任何本機覆寫；兩者都以結束碼 `2` 結束。這組附加規則已由 [ADR-0013](0013-no-ci-mode-strict-checks-in-test.md) 取代，不再是現行規則。現行結果依 [03 輸出的結束碼表](../contract/03_output.md#結束碼)：任何警告回 `1`，版本組合不合回 `3`，其他沒做完的結果（待處理、失敗或用法錯誤）回 `2`，多個結果取最大值。
-  - `sync` 的未完成導入回 `2`；快取逐檔指紋驗不過就重裝並以 `warn` 回 `1`，重裝只動 VK 自己的 `cache/`，不違反寫入邊界。原決議曾讓基準版落後版本鎖定行依執行環境回不同結束碼，該分流已由 [ADR-0013](0013-no-ci-mode-strict-checks-in-test.md) 取代。現行訊息與結束碼以 [03 輸出的訊息表](../contract/03_output.csv)為準。
+  - `sync` 的未完成導入回 `2`；快取逐檔指紋驗不過就重裝並以 `warn` 回 `1`，重裝只動 VK 自己的 `cache/`，不違反寫入邊界。原決議曾讓基準版落後版本鎖定行依執行環境回不同結束碼，該分流已由 [ADR-0013](0013-no-ci-mode-strict-checks-in-test.md) 取代。現行訊息與結束碼以 [03 輸出的訊息表](../contract/reason_codes.csv)為準。
   - 可寫 recipe 的時序：
-    1. 主機前置檢查依 [ADR-0007 主機薄層決議](0007-host-thin-layer-and-shell-integrity.md)與 [使用者介面頁的主機需求](../contract/04_interface.md#主機需求)執行。Docker 版本不足與偵測到 Podman，首次導入與已有安裝目錄都由啟動器檢查；檢查沒有副作用，排在建執行紀錄之前，失敗時不留執行紀錄、不動任何 VK 檔，只在 stderr 印 `vendor_kit: error[VKnnnn]: <message>` 診斷、以 `2` 結束，訊息依 [03 輸出的訊息表](../contract/03_output.csv)。just 版本不足只有首次導入由 `bootstrap.sh` 檢查，失敗時同樣不留執行紀錄、不動任何 VK 檔，只在 stderr 印 `vendor_kit: error[VKnnnn]: <message>` 診斷、以 `2` 結束，訊息依 [03 輸出的訊息表](../contract/03_output.csv)；已有安裝目錄時由 just 解析 justfile 時自己拒絕，不承諾 VK 的訊息與結束碼，也不留執行紀錄。
+    1. 主機前置檢查依 [ADR-0007 主機薄層決議](0007-host-thin-layer-and-shell-integrity.md)與 [使用者介面頁的主機需求](../contract/04_interface.md#主機需求)執行。Docker 版本不足與偵測到 Podman，首次導入與已有安裝目錄都由啟動器檢查；檢查沒有副作用，排在建執行紀錄之前，失敗時不留執行紀錄、不動任何 VK 檔，只在 stderr 印 `vendor_kit: error[VKnnnn]: <message>` 診斷、以 `2` 結束，訊息依 [03 輸出的訊息表](../contract/reason_codes.csv)。just 版本不足只有首次導入由 `bootstrap.sh` 檢查，失敗時同樣不留執行紀錄、不動任何 VK 檔，只在 stderr 印 `vendor_kit: error[VKnnnn]: <message>` 診斷、以 `2` 結束，訊息依 [03 輸出的訊息表](../contract/reason_codes.csv)；已有安裝目錄時由 just 解析 justfile 時自己拒絕，不承諾 VK 的訊息與結束碼，也不留執行紀錄。
     2. 建執行紀錄，早於任何寫入、拉 image、起引擎。
     3. 建進度檔（`.tmp.<verb>.<id>.toml`、metadata 的 `[progress]`），早於第一個 repo 檔或 VK 檔的寫入。
     4. 一次處理多個工具時，先對全部工具做完整預檢；任一項不過就整體不動，列出每一個原因，結束碼依各原因的結束碼取最大值。

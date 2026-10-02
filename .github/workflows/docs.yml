@@ -21,7 +21,7 @@ jobs:
         run: python3 script/doc/check_context.py
       - name: check_review_pages（對外文件寫法：只准 <ins>、錨點、只能向前依賴）
         run: python3 script/doc/check_review_pages.py
-      - name: check_messages（訊息表 03_output.csv：格式、代碼、欄位規則、引用）
+      - name: check_messages（訊息表 reason_codes.csv：格式、代碼、欄位規則、引用）
         run: python3 script/doc/check_messages.py
       - name: check_typography（排版：ASCII 括號用半形、中文與英數之間空一格）
         run: python3 script/doc/check_typography.py

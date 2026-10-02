@@ -10,12 +10,12 @@ r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫�
 4. 相對連結的檔案與錨點都存在（錨點照 GitHub 的標題轉換規則算）。
 5. 內容只能往前依賴；導覽指標可以往後指。README 是入口，不是第 0 頁。
    L1、L2：01、02 不寫原因代碼與結束碼數字；L3：README 不以「依」連結審閱頁。
-6. L4：README 與 03 的行內程式碼、03 CSV 指令欄，掃 VK recipe 開頭的片段，
+6. L4：README 與 03 的行內程式碼、訊息表 reason_codes.csv 的指令欄，掃 VK recipe 開頭的片段，
    選項 token（含單獨的 --）與 @<tag> 必須在 GLOSSARY.md、01、02 行內程式碼定義過。
 7. 引用別頁條目不寫舊寫法「[名字](連結) 第 N 條」：一律寫「依 [頁名第 N 條](連結#錨點)」；
    行內程式碼（反引號內）不算。
 8. 連結文字不得含反引號：碼放在連結外，寫「[結束碼](03_output.md#結束碼) `2`」、
-   「[訊息](03_output.csv) `VK0028`」；行內程式碼裡的連結例子不算。
+   「[訊息](reason_codes.csv) `VK0028`」；行內程式碼裡的連結例子不算。
    程式碼名詞本身當連結時直接寫名詞，例如「[dist/](…)」。
 9. 連結文字裡的 <…> 要跳脫：寫「[\<repo\>](../../GLOSSARY.md#工具與出貨)」；沒跳脫的 <repo> 會被當成
    HTML 標籤吃掉。<ins> 也一樣要跳脫。
@@ -29,6 +29,8 @@ import sys
 
 ROOT = pathlib.Path(".")
 REVIEW = ROOT / "doc/contract"
+# 03 的訊息表（#137：從 03_output.csv 改名為 reason_codes.csv）
+MESSAGES_CSV = REVIEW / "reason_codes.csv"
 PAGE = re.compile(r"^(\d\d)_.+\.md$")
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
@@ -159,7 +161,7 @@ def check_page(path: pathlib.Path, errors: list[str]) -> None:
         if OLD_CITE.search(re.sub(r"`[^`]*`", "", line)):
             errors.append(f"{where}: 引用條目的舊寫法「[名字](連結) 第 N 條」；改成「依 [頁名第 N 條](連結#錨點)」")
         for link in backtick_link_texts(line):
-            errors.append(f"{where}: 連結文字不得含反引號：{link}；碼放在連結外，寫「[結束碼](03_output.md#結束碼) `2`」「[訊息](03_output.csv) `VK0028`」；程式碼名詞本身當連結時直接寫名詞，例如「[dist/](…)」")
+            errors.append(f"{where}: 連結文字不得含反引號：{link}；碼放在連結外，寫「[結束碼](03_output.md#結束碼) `2`」「[訊息](reason_codes.csv) `VK0028`」；程式碼名詞本身當連結時直接寫名詞，例如「[dist/](…)」")
         for link, raw in raw_angle_link_texts(line):
             fixed = "\\<" + raw[1:-1] + "\\>"
             errors.append(f"{where}: 連結文字裡的 {raw} 沒跳脫：{link}；改成 {fixed}，例如「[\\<repo\\>](../../GLOSSARY.md#工具與出貨)」")
@@ -254,7 +256,8 @@ def check_commands(errors: list[str]) -> None:
             # 單獨的 -- 也可能在說明文字的行內程式碼出現。
             cmds.extend(code for code in inline_texts(line) if code == "--")
             errors.extend(command_errors(cmds, f"{path}:{i}", defined))
-    for path in sorted(REVIEW.glob("03_*.csv")):
+    # 03 的訊息表明列檔名（#137），不靠 03_ 前綴推；還不存在就少掃
+    for path in [MESSAGES_CSV] if MESSAGES_CSV.exists() else []:
         for where, value in csv_command_texts(path):
             cmds = CMD_CSV.findall(value)
             if "--" in option_tokens(value) and not any("--" in option_tokens(cmd) for cmd in cmds):
@@ -268,8 +271,8 @@ TEMP_ALLOWLIST = {
     'README.md:37: L3：README 不能以論據依賴審閱頁：[02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化不寫追蹤檔)': "#135 待修；審完 README 後移除",
     'doc/contract/03_output.md:26: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
     'doc/contract/03_output.md:30: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
-    'doc/contract/03_output.csv:VK0002:situation: 指令 `--` 用了 --，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
-    'doc/contract/03_output.csv:VK0022:situation: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+    'doc/contract/reason_codes.csv:VK0002:situation: 指令 `--` 用了 --，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
+    'doc/contract/reason_codes.csv:VK0022:situation: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
 }
 
 

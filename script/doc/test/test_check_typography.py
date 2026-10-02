@@ -22,7 +22,7 @@ SCRIPT_DIR = pathlib.Path(__file__).resolve().parent.parent
 FIELDS = [
     "code", "status", "level", "exit_code", "disposition", "situation", "message", "description", "next_step",
 ]
-CSV_REL = "doc/contract/03_output.csv"
+CSV_REL = "doc/contract/reason_codes.csv"
 
 
 def row(**kw):
@@ -48,7 +48,7 @@ def encode(rows):
 
 
 class Base(unittest.TestCase):
-    """暫存 repo：README.md、GLOSSARY.md、doc/contract/01_purpose.md、03_output.csv，初始全乾淨。"""
+    """暫存 repo：README.md、GLOSSARY.md、doc/contract/01_purpose.md、reason_codes.csv，初始全乾淨。"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
