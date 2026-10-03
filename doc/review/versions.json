@@ -1,5 +1,5 @@
 {
-  "review_zip": 11,
+  "review_zip": 12,
   "pages": {
     "01_purpose": [
       {
@@ -64,6 +64,11 @@
       {
         "v": 23,
         "commit": "61356db8feae1a89e0a7b2d2215f36fc3154019f",
+        "replied": true
+      },
+      {
+        "v": 24,
+        "commit": "480f5c2b3756a20fb505d71b55e44eec3917b586",
         "replied": false
       }
     ],
@@ -113,6 +118,11 @@
       {
         "v": 21,
         "commit": "61356db8feae1a89e0a7b2d2215f36fc3154019f",
+        "replied": true
+      },
+      {
+        "v": 22,
+        "commit": "480f5c2b3756a20fb505d71b55e44eec3917b586",
         "replied": false
       }
     ],
