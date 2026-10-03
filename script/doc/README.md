@@ -144,6 +144,19 @@ python3 script/doc/pack_review.py --finalized 03_output=14 README=3
 
 版號遞增、內容、缺檔報錯（含還沒有 `doc/review/` 的情況：三種模式都報錯停下，不建 `versions.json`）與定案處理由 [pack_review 測試](test/test_pack_review.py) 涵蓋。
 
+## 送審副本路徑與版本表（`review_paths.py`）
+
+給 `review-pack` workflow 用：列出每頁送審副本的本機路徑、這次打包的版號與基準，以及送審 zip 的內容，都印成一行 JSON。
+
+```sh
+python3 script/doc/review_paths.py pages --repo <repo> 02_invariants 03_output 04_interface GLOSSARY.md
+python3 script/doc/review_paths.py zip <review_vN.zip>
+```
+
+`pages` 在 `--repo` 讀 `doc/review/versions.json` 與 `doc/review/<鍵>/`，頁鍵寫法跟 `mark_changes.py` 相同；鍵、送審資料夾、版號與基準都呼叫 `mark_changes.py` 的函式算。輸出的 `zip_next` 是這次打包會用的 zip 號（`review_zip`＋1）；`pages` 每筆有送審資料夾的絕對路徑 `dir`、相對路徑 `rel_dir`、資料夾裡 `.md`、`.marked.md`、`.csv` 的絕對路徑 `files`、這次的版號 `version`（最後送審的版號＋1），以及 `mark_changes.py` 預設的基準 `base`（`kind` 是 `finalized` 定案版、`replied` 維護者最後回覆的版本、或 `none` 整份標新增）；`dirty` 是送審資料夾裡未 commit 的 `git status --porcelain` 行。版號與基準要在 `pack_review.py` 打包之前取：打包會追加這一版的紀錄並清掉 `finalized`。`zip` 印出 zip 內的檔名（照 zip 內順序）。成功結束碼 0；找不到檔或不是 git repo 時結束碼 1，JSON 的 `ok` 是 false、`error` 寫原因。
+
+版號、三種基準、附屬 CSV、絕對路徑與 zip 清單由 [review_paths 測試](test/test_review_paths.py) 涵蓋。
+
 ## 名詞表自檢（`check_context.py`）
 
 根 `CONTEXT.md` 每改一次就跑，不要目視：

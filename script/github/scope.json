@@ -38,6 +38,7 @@
     {"name": "hook:pr_rules_guard", "scopes": ["hook:pr_rules_guard", "script:github"], "_why": "hook 呼叫 script/github/check_pr_rules.py 與這份範圍表"},
     {"name": "hook:monitor_guard", "scopes": ["hook:monitor_guard", "script:github"], "_why": "hook 擋下 Monitor 時指向 script/github/watch_github.sh（#175）"},
     {"name": "workflow:pr-fix", "scopes": ["workflow:pr-fix", "script:workflow"], "_why": "workflow 只呼叫 script/workflow/pr_target.py 與 verify.py 做機械步驟（#187）"},
+    {"name": "workflow:review-pack", "scopes": ["workflow:review-pack", "script:doc"], "_why": "workflow 只呼叫 script/doc/review_paths.py、mark_changes.py、pack_review.py 做機械步驟（#351）"},
     {"name": "githooks:commit-msg", "scopes": ["githooks:commit-msg", "script:git"], "_why": "hook 只呼叫 script/git/check_commit_msg.py（#110）"}
   ]
 }
