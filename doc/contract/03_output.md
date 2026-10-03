@@ -33,8 +33,8 @@
 沿用 A、B、C 的例子，三個工具都會印出結果。以下是輸出示意：
 
 ```text
-stdout: A 已是最新。
-stdout: B 有新版 v1.3.0（目前為 v1.2.0）。
+stdout: A is up to date.
+stdout: B: new version v1.3.0 available (current v1.2.0).
 stderr: vendor_kit: error[VK0001]: Cannot list versions for C: registry read access is required. Set VENDOR_KIT_REGISTRY_TOKEN (or VENDOR_KIT_REGISTRY_TOKEN_FILE), or specify a version directly: just vendor_kit upgrade C@<tag> (pulling uses the host's Docker credentials).
 exit code: 2
 ```
@@ -47,9 +47,9 @@ exit code: 2
 
   ```text
   $ just vendor_kit
-  stderr: vendor_kit <版本>
+  stderr: vendor_kit <version>
   stderr: vendor_kit: error[VK0024]: No command was specified.
-  stderr: 用法：just vendor_kit <指令> [參數] [選項]
+  stderr: Usage: just vendor_kit <command> [arguments] [options]
   exit code: 2
   ```
 - 主機前置檢查（檢查主機上的 Docker 與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。各入口檢查哪幾項見 [04 使用者介面](04_interface.md#bootstrapsh)
@@ -70,8 +70,8 @@ exit code: 2
   vendor_kit: <level>[VKnnnn]: <message>
   ```
 - stderr 的診斷只用 `warn`、`error`、`fatal`；`info` 只用在成功的結果與執行紀錄，不印成 stderr 的診斷。
-- 只有診斷本文固定使用英文；stdout 的[正常輸出](../../GLOSSARY.md#執行與結果)、詢問與用法不在這條語言規則內。診斷本文以完整英文句子書寫，句首大寫並以句點結尾；以占位符或小寫的指令名開頭時照原樣，以指令結尾時不加句點，免得複製到句點。本文可能同時包含原因與下一步，需要保留完整句子的邊界。
-- 中文說明見訊息表的 `description` 欄。
+- VK 自己寫的字句（stdout 的[正常輸出](../../GLOSSARY.md#執行與結果)、詢問、用法（含 `-h`／`--help` 與用法錯誤後附的簡短用法）、版本行、執行紀錄、stderr 診斷）都用英文；換進占位符的值（路徑、檔名、`<repo>`、[tag](../../GLOSSARY.md#工具與出貨)、使用者給的參數）照原樣印出。每條訊息的中文說明見訊息表的 `description` 欄。
+- 診斷本文以完整英文句子書寫，句首大寫並以句點結尾；以占位符或小寫的指令名開頭時照原樣，以指令結尾時不加句點，免得複製到句點。本文可能同時包含原因與下一步，需要保留完整句子的邊界。這些句型規則只適用於診斷本文。
 - 多行診斷的續行也印到 stderr。
 
 [原因代碼](../../GLOSSARY.md#執行與結果)是 `VK` 加四位數字。每個代碼以訊息表的 `situation` 欄為唯一意思；發出後永不重用。停用的代碼不刪列，`status` 改成 `retired`，留作空號。

@@ -69,13 +69,13 @@ VK 對外只有兩個入口：
 `bootstrap.sh` 是啟動器之一；首次導入時取得內嵌那一版[引擎](../../GLOSSARY.md#vk-組件)，再呼叫 `install`（把 VK 裝進目前目錄）。在既有安裝目錄則依[版本鎖定行](../../GLOSSARY.md#版本與來源)指定的引擎模板，檢查或重產薄殼。它不執行 repo 內的薄殼，也不從薄殼讀取版本或模板；薄殼內容只用於逐檔比對。
 
 ```text
-用法：sh bootstrap.sh [選項]
+Usage: sh bootstrap.sh [options]
 
-  （不帶參數）         尚非安裝目錄或未完成的首次導入：首次導入；其他安裝目錄：只檢查薄殼
-  -i, --image <image>   使用本機 image 或 image tar 作為引擎來源
-  --repair             用鎖定引擎的模板重產薄殼
-  -y, --yes            首次導入時傳給 install，代替原本允許的詢問
-  -h, --help           單獨使用時印出用法
+  (no arguments)       Perform initial import outside an install directory or when initial import is incomplete; otherwise, check shell files only
+  -i, --image <image>  Use a local image or image tar as the engine source
+  --repair             Regenerate shell files from the locked engine's templates
+  -y, --yes            Pass to install during initial import to answer permitted prompts
+  -h, --help           Print usage when used alone
 ```
 
 不收位置參數，也沒有 `--version`；依 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)版號選擇 `bootstrap.sh`，沿用 [bootstrap 介面決議](https://github.com/ycpss91255-research/vendor_kit/issues/107)的作業前提。短長選項意思相同，選項順序不限；`--repair` 只有長選項。`-h`／`--help` 只准單獨使用，不印內嵌引擎版本；與任何其他參數並用都算用法錯誤。這是 VK 自己的規則：並用時不替使用者選擇要執行還是只看用法。只檢查與修復都不詢問，因此不接受 `-y`，避免把它誤當成寫入授權。
@@ -136,29 +136,29 @@ VK 對外只有兩個入口：
 第一版的 `add`、`upgrade`、`remove`、`dev`、`undev` 一次只處理一個工具，或明確指定引擎；不提供批次或「全部」操作。這是 VK 自己的規則：[詢問](../../GLOSSARY.md#執行與結果)、失敗範圍與下一步各自清楚；`update`、`sync`、`test` 已處理全部工具，追蹤全部新版則交給 Renovate。之後增加批次入口可以相容地擴充。
 
 ```
-用法：just vendor_kit <指令> [參數] [選項]
+Usage: just vendor_kit <command> [arguments] [options]
 
-常用指令：
-  add <repo>                  把一個工具納入這個安裝目錄
-  add <repo>@<tag>            導入指定版本，不必列出版本
-  upgrade <repo>              把鎖定版本換成新版
-  upgrade <repo>@<tag>        換成指定版本；指定舊 tag 就是退版
-  dev <repo> -p <dir>         讓工具改用本機目錄
-  dev --engine -i <image>     讓引擎改用本機 image
+Common commands:
+  add <repo>                  Import a tool into this install directory
+  add <repo>@<tag>            Import a specified version without listing versions
+  upgrade <repo>              Upgrade the locked version to a newer version
+  upgrade <repo>@<tag>        Switch to a specified version; an older tag downgrades the tool
+  dev <repo> -p <dir>         Use a local directory for the tool
+  dev --engine -i <image>     Use a local image for the engine
 
-進階指令：
-  remove <repo>               把一個工具解除。初始檔不刪，只收回當初插入的行
-  undev <repo>                回到鎖定版本
-  undev --engine              回到鎖定的引擎版本
-  upgrade --engine            升引擎
-  upgrade --engine=<tag>      換成指定版本的引擎
-  update                      只查有沒有新版，不改任何檔
-  sync                        使本機的工具內容與版本鎖定行或本機覆寫一致；每次跑工具 recipe 都會自動先跑它
-  install                     把 VK 裝進 repo 的一個目錄，使它成為安裝目錄
-  uninstall                   把 VK 從那個目錄移除。初始檔不刪
-  prune                       清掉 VK 產生、但已不再使用的本機資源
-  test                        跑全部檢查；本機與 CI 用同一個
-  test dist                   只檢查工具交付的內容
+Advanced commands:
+  remove <repo>               Remove a tool. Preserve init files; remove only previously inserted lines
+  undev <repo>                Return to the locked version
+  undev --engine              Return to the locked engine version
+  upgrade --engine            Upgrade the engine
+  upgrade --engine=<tag>      Switch to a specified engine version
+  update                      Check for new versions without modifying any files
+  sync                        Synchronize local tool content with lock version lines or local overrides; runs automatically before each tool recipe
+  install                     Install VK in a directory within a repo, making it an install directory
+  uninstall                   Remove VK from the install directory. Preserve init files
+  prune                       Remove local resources created by VK that are no longer in use
+  test                        Run all checks; use the same command locally and in CI
+  test dist                   Check only tool delivery content
 ```
 
 清單裡的名詞見名詞表：
@@ -201,9 +201,9 @@ VK 對外只有兩個入口：
 
   ```text
   $ just vendor_kit
-  stderr: vendor_kit <版本>
+  stderr: vendor_kit <version>
   stderr: vendor_kit: error[VK0024]: No command was specified.
-  stderr: 用法：just vendor_kit <指令> [參數] [選項]
+  stderr: Usage: just vendor_kit <command> [arguments] [options]
   exit code: 2
   ```
 
@@ -225,17 +225,17 @@ VK 對外只有兩個入口：
   ```text
   $ just vendor_kit add
   stderr: vendor_kit: error[VK0025]: Required argument is missing: <repo>.
-  stderr: 用法：just vendor_kit <指令> [參數] [選項]
+  stderr: Usage: just vendor_kit <command> [arguments] [options]
   exit code: 2
 
   $ just vendor_kit sync --bogus
   stderr: vendor_kit: error[VK0026]: Unknown, extra, or disallowed argument: --bogus.
-  stderr: 用法：just vendor_kit <指令> [參數] [選項]
+  stderr: Usage: just vendor_kit <command> [arguments] [options]
   exit code: 2
 
   $ just vendor_kit upgrade base@1.2.0
   stderr: vendor_kit: error[VK0027]: Invalid tag format: 1.2.0. Use vX.Y.Z with no leading zeros in X, Y, or Z.
-  stderr: 用法：just vendor_kit <指令> [參數] [選項]
+  stderr: Usage: just vendor_kit <command> [arguments] [options]
   exit code: 2
   ```
 
@@ -342,7 +342,7 @@ stdin 與 stderr 都是終端 (TTY) 才算能互動；管線輸入不算，不�
   - 本機內容被改過時重新取件，照 `VK0015`／`1`；既有印記損壞時重新取件並重建印記，印 `VK0044` 的 `warn` 並回 `1`。首次取件原本沒有印記不算損壞，不因此警告；下載內容不符鎖定 digest 時以 `VK0043` 的 `error`／`2` 報失敗，不借用表示已修好的 `VK0015`
   - cache 是可重建工作狀態，自動修復而保留警告有局部前例，完整行為是 VK 自己的規則：修好也要讓使用者知道。基準版合併需要寫追蹤檔，`sync` 只印 `VK0014` 並指向 `upgrade`，不自動合併
   - 工具 recipe 前自動觸發的 `sync` 回 `1` 時是否執行本體、整次呼叫如何回碼，待確認（依 [延期決議](https://github.com/ycpss91255-research/vendor_kit/issues/119)，留到 [自動同步與結果討論](https://github.com/ycpss91255-research/vendor_kit/issues/120)）
-- `update`：不帶工具參數時查全部工具與引擎；每次即時列 tag，不用舊查詢快取，列不到就以 `2` 報失敗，不報已最新。開著覆寫仍以版本鎖定行查詢，並印出所用覆寫。查詢結果印到 stdout，不加前綴；查到新版仍以[結束碼](03_output.md#結束碼) `0` 結束，查詢失敗照上面的規則以 `2` 結束。stdout 的可解析格式待確認（見 [update 結束碼討論](https://github.com/ycpss91255-research/vendor_kit/issues/342)）。
+- `update`：不帶工具參數時查全部工具與引擎；每次即時列 tag，不用舊查詢快取，列不到就以 `2` 報失敗，不報已最新。開著覆寫仍以版本鎖定行查詢，並印出所用覆寫。查詢結果印到 stdout，不加前綴；查到新版仍以[結束碼](03_output.md#結束碼) `0` 結束，查詢失敗照上面的規則以 `2` 結束。stdout 的可解析格式待確認（見 [update 可解析輸出討論](https://github.com/ycpss91255-research/vendor_kit/issues/342)）。
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
 - `sh bootstrap.sh -i <image>`：用本機 image 當引擎來源，行為見 [bootstrap.sh](#bootstrapsh)。
 - 兩種離線導入共通：

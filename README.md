@@ -46,14 +46,15 @@ sh bootstrap.sh
 ## 使用方式
 
 ```
-用法：just vendor_kit <指令> [參數] [選項]
+Usage: just vendor_kit <command> [arguments] [options]
 
-常用指令：
-  add <repo>                  把一個工具納入這個安裝目錄
-  upgrade <repo>              把鎖定版本換成新版
-  upgrade <repo>@<tag>        換成指定版本；指定舊 tag 就是退版
-  dev <repo> -p <dir>         讓工具改用本機目錄
-  dev --engine -i <image>     讓引擎改用本機 image
+Common commands:
+  add <repo>                  Import a tool into this install directory
+  add <repo>@<tag>            Import a specified version without listing versions
+  upgrade <repo>              Upgrade the locked version to a newer version
+  upgrade <repo>@<tag>        Switch to a specified version; an older tag downgrades the tool
+  dev <repo> -p <dir>         Use a local directory for the tool
+  dev --engine -i <image>     Use a local image for the engine
 ```
 
 - 每個指令都支援 `-h`／`--help`，印出該指令的用法
