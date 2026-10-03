@@ -87,7 +87,9 @@ def raw_angle_link_texts(line: str) -> list[tuple[str, str]]:
 
 
 def pages() -> list[pathlib.Path]:
-    return [ROOT / "README.md"] + sorted(p for p in REVIEW.glob("*.md") if PAGE.match(p.name))
+    """要掃的對外文件；README.md 或 doc/contract/ 還不存在時就少掃那些，不當錯誤。"""
+    found = [ROOT / "README.md"] + sorted(p for p in REVIEW.glob("*.md") if PAGE.match(p.name))
+    return [p for p in found if p.is_file()]
 
 
 def slug(text: str) -> str:
@@ -200,7 +202,8 @@ CMD_CSV = re.compile(
     r"(?<![\w-])(?:just vendor_kit\s+(?:" + RECIPE + r"|<command>)|" + RECIPE + r")\b"
     r"[ -~]*?(?=\s+and\s+retry\.(?:\s|$)|[;,(]|\.(?:\s|$)|[^ -~]|$)"
 )
-CSV_COMMAND_FIELDS = ("situation", "message", "next_step")
+# 訊息表給人看的欄照語言分組（situation.<lang>、message.<lang>），依首行欄名找，不寫死語言。
+CSV_COMMAND_PREFIXES = ("situation.", "message.")
 OPTION = re.compile(r"(?<![\w<-])(?:--?[a-zA-Z][\w-]*|--(?![\w-])|@<[^>]+>)(?![\w-])")
 
 
@@ -228,17 +231,22 @@ def command_errors(cmds, where: str, defined) -> list[str]:
 def csv_command_texts(path: pathlib.Path):
     """03 的 CSV 裡會印出指令的欄：（位置 `<檔>:<代碼>:<欄名>`, 欄位文字）。讀不了的格式交給 check_messages.py。"""
     try:
-        rows = list(csv.DictReader(path.read_text(encoding="utf-8-sig").splitlines(keepends=True)))
+        reader = csv.DictReader(path.read_text(encoding="utf-8-sig").splitlines(keepends=True))
+        rows = list(reader)
     except (csv.Error, UnicodeDecodeError):
         return
+    fields = [f for f in reader.fieldnames or () if f.startswith(CSV_COMMAND_PREFIXES)]
     for row in rows:
-        for field in CSV_COMMAND_FIELDS:
+        for field in fields:
             value = row.get(field) or ""
             if value:
                 yield f"{path}:{row.get('code', '?')}:{field}", value
 
 
 def check_commands(errors: list[str]) -> None:
+    # 選項要先在名詞表定義；還沒有 GLOSSARY.md（main 上仍是 CONTEXT.md）時整段跳過。
+    if not (ROOT / "GLOSSARY.md").is_file():
+        return
     defined = set()
     for path in [ROOT / "GLOSSARY.md", *sorted(REVIEW.glob("0[12]_*.md"))]:
         if path.exists():
@@ -266,14 +274,7 @@ def check_commands(errors: list[str]) -> None:
 
 
 # 僅豁免已盤點的原文與位置；新增或改動的違規不會自動列入。
-TEMP_ALLOWLIST = {
-    'README.md:15: L3：README 不能以論據依賴審閱頁：[02 不變量第 5 條](doc/contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)': "#135 待修；審完 README 後移除",
-    'README.md:37: L3：README 不能以論據依賴審閱頁：[02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化不寫追蹤檔)': "#135 待修；審完 README 後移除",
-    'doc/contract/03_output.md:26: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
-    'doc/contract/03_output.md:30: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
-    'doc/contract/reason_codes.csv:VK0002:situation: 指令 `--` 用了 --，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
-    'doc/contract/reason_codes.csv:VK0022:situation: 指令 `update --exit-code` 用了 --exit-code，但 GLOSSARY.md、01、02 都沒出現過；先補進前面的頁': "#135 待修；審完 03 後移除",
-}
+TEMP_ALLOWLIST: dict[str, str] = {}
 
 
 def main() -> int:
@@ -284,7 +285,7 @@ def main() -> int:
     check_commands(errors)
     waived = [error for error in errors if error in TEMP_ALLOWLIST]
     errors = [error for error in errors if error not in TEMP_ALLOWLIST]
-    print(f"暫時白名單：{len(TEMP_ALLOWLIST)} 筆；本次命中 {len(waived)} 筆（#135 待修）")
+    print(f"暫時白名單：{len(TEMP_ALLOWLIST)} 筆；本次命中 {len(waived)} 筆")
     for e in errors:
         print(e)
     if errors:
