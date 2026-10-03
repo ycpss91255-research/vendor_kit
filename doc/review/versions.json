@@ -1,5 +1,5 @@
 {
-  "review_zip": 10,
+  "review_zip": 11,
   "pages": {
     "01_purpose": [
       {
@@ -60,6 +60,11 @@
         "v": 22,
         "commit": "5770e20a603f05d7670cbf37693334eb48af4da5",
         "replied": true
+      },
+      {
+        "v": 23,
+        "commit": "61356db8feae1a89e0a7b2d2215f36fc3154019f",
+        "replied": false
       }
     ],
     "03_output": [
@@ -104,6 +109,11 @@
         "v": 20,
         "commit": "5770e20a603f05d7670cbf37693334eb48af4da5",
         "replied": true
+      },
+      {
+        "v": 21,
+        "commit": "61356db8feae1a89e0a7b2d2215f36fc3154019f",
+        "replied": false
       }
     ],
     "04_interface": [
@@ -147,6 +157,11 @@
         "v": 25,
         "commit": "5770e20a603f05d7670cbf37693334eb48af4da5",
         "replied": true
+      },
+      {
+        "v": 26,
+        "commit": "61356db8feae1a89e0a7b2d2215f36fc3154019f",
+        "replied": false
       }
     ],
     "GLOSSARY": [
@@ -190,6 +205,11 @@
         "v": 13,
         "commit": "5770e20a603f05d7670cbf37693334eb48af4da5",
         "replied": true
+      },
+      {
+        "v": 14,
+        "commit": "61356db8feae1a89e0a7b2d2215f36fc3154019f",
+        "replied": false
       }
     ],
     "README": [
@@ -241,14 +261,6 @@
     "01_purpose": {
       "v": 19,
       "commit": "33877cc7c1f04d6197d03d2a76493e65780ea500"
-    },
-    "02_invariants": {
-      "v": 22,
-      "commit": "5770e20a603f05d7670cbf37693334eb48af4da5"
-    },
-    "03_output": {
-      "v": 20,
-      "commit": "5770e20a603f05d7670cbf37693334eb48af4da5"
     }
   }
 }
