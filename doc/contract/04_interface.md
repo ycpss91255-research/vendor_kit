@@ -243,7 +243,7 @@ VK 對外只有兩個入口：
 - 同一個概念一種寫法：對象是引擎一律寫 `--engine`，本機 image 一律寫 `-i <image>`。管理工具自身有局部前例，統一用選項是 VK 自己的規則：`upgrade`、`dev`、`undev` 共用 `--engine`，工具名留在位置參數，也避免與名叫 engine 的工具混淆
 - 選項的寫法：
   - 有短也有長：`-h`／`--help`、`-y`／`--yes`、`-i`／`--image`、`-p`／`--path`
-  - 只有長：`--engine`、`--exit-code`
+  - 只有長：`--engine`
   - 選項放在位置參數之前或之後都可以，意思相同
   - 單獨的 `--` 結束選項：它之後的參數一律當位置參數，以 `-` 開頭也一樣，例如 `just vendor_kit add -- <repo>`
 - `--engine` 是值可帶可不帶的長選項：不帶值時只表示對象是引擎；要帶值只接受 `=` 形式 `--engine=<tag>`，不接受 `--engine <tag>`，例如 `--engine=v1.2.0`。工具的指定版本維持 `<repo>@<tag>`
@@ -342,16 +342,7 @@ stdin 與 stderr 都是終端 (TTY) 才算能互動；管線輸入不算，不�
   - 本機內容被改過時重新取件，照 `VK0015`／`1`；既有印記損壞時重新取件並重建印記，印 `VK0044` 的 `warn` 並回 `1`。首次取件原本沒有印記不算損壞，不因此警告；下載內容不符鎖定 digest 時以 `VK0043` 的 `error`／`2` 報失敗，不借用表示已修好的 `VK0015`
   - cache 是可重建工作狀態，自動修復而保留警告有局部前例，完整行為是 VK 自己的規則：修好也要讓使用者知道。基準版合併需要寫追蹤檔，`sync` 只印 `VK0014` 並指向 `upgrade`，不自動合併
   - 工具 recipe 前自動觸發的 `sync` 回 `1` 時是否執行本體、整次呼叫如何回碼，待確認（依 [延期決議](https://github.com/ycpss91255-research/vendor_kit/issues/119)，留到 [自動同步與結果討論](https://github.com/ycpss91255-research/vendor_kit/issues/120)）
-- `update`：不帶工具參數時查全部工具與引擎；每次即時列 tag，不用舊查詢快取，列不到就以 `2` 報失敗，不報已最新。開著覆寫仍以版本鎖定行查詢，並印出所用覆寫。查詢結果印到 stdout，不加前綴；不帶 `--exit-code` 時，查到新版仍以[結束碼](03_output.md#結束碼) `0` 結束。
-- `update --exit-code`：給 CI 或腳本判斷有沒有新版；這是 VK 自己的規則，非零碼須有對應嚴重度的診斷；查到新版時 stdout 照樣印查詢結果，stderr 另印 [訊息](reason_codes.csv) `VK0022` 的 `warn` 診斷，以[結束碼](03_output.md#結束碼) `1` 結束：
-
-  ```text
-  $ just vendor_kit update --exit-code
-  stdout: base 有新版 v1.3.0（目前為 v1.2.0）。
-  stderr: vendor_kit: warn[VK0022]: A newer version of base is available: current v1.2.0; new v1.3.0. Run: just vendor_kit upgrade base
-  exit code: 1
-  ```
-
+- `update`：不帶工具參數時查全部工具與引擎；每次即時列 tag，不用舊查詢快取，列不到就以 `2` 報失敗，不報已最新。開著覆寫仍以版本鎖定行查詢，並印出所用覆寫。查詢結果印到 stdout，不加前綴；查到新版仍以[結束碼](03_output.md#結束碼) `0` 結束，查詢失敗照上面的規則以 `2` 結束。stdout 的可解析格式待確認（見 [update 結束碼討論](https://github.com/ycpss91255-research/vendor_kit/issues/342)）。
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
 - `sh bootstrap.sh -i <image>`：用本機 image 當引擎來源，行為見 [bootstrap.sh](#bootstrapsh)。
 - 兩種離線導入共通：
@@ -371,8 +362,6 @@ VK 沒有整次執行限時的命令列選項；上面的鎖等待逾時是另�
 工具與引擎的新版由 Renovate regex preset 追蹤。Renovate 開的 PR 只改一行版本鎖定行；VK 沒有 bot，不 commit，也不開 PR。
 
 以下流程假設 cache 已備妥；CI 全新 checkout 缺 cache 的處理見[檢查 (test)](#檢查-test) 的待確認項。PR 上跑 `just vendor_kit test`。版本鎖定行已更新、基準版尚未更新時，`test` 在 stderr 印出 [訊息](reason_codes.csv) `VK0014` 的 `warn` 診斷，以[結束碼](03_output.md#結束碼) `1` 結束，CI 因而不通過。使用者要在該 PR 分支的本機執行 `just vendor_kit upgrade <repo> -y`，再自行 commit、push；CI 重跑通過後才 merge。鎖定行比基準版新時，不帶指定 tag 的 `upgrade <repo>` 只完成鎖定行指定版本的合併，不再查最新版，避免升過 PR 提出的版本。警告在本機與 CI 都非零，這是 VK 自己的規則。
-
-`update --exit-code` 是給腳本判斷有沒有新版的另一條路，不取代 Renovate；它的行為見[各指令專用選項](#各指令專用選項)。
 
 ## 輸出
 

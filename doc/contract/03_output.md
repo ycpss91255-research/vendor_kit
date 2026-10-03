@@ -23,11 +23,11 @@
 
 這張表只列 VK 回的結束碼；指令到不了 VK 時由 just 回的碼不在內。
 
-留下[合併衝突](../../GLOSSARY.md#初始檔與合併)、`update --exit-code` 查到新版都屬於警告，碼仍是 `1`。`bootstrap.sh` 與每個 recipe 不論在哪個環境執行，都使用同一套規則。是否成功看有沒有做到該指令契約承諾的結果，不看訊息名稱或輸出串流。
+留下[合併衝突](../../GLOSSARY.md#初始檔與合併)屬於警告，碼仍是 `1`。`bootstrap.sh` 與每個 recipe 不論在哪個環境執行，都使用同一套規則。是否成功看有沒有做到該指令契約承諾的結果，不看訊息名稱或輸出串流。
 
 一次處理多個[工具](../../GLOSSARY.md#工具與出貨)時：
 
-- 結束碼取各工具結果裡數字最大的那個，沒有特例。例如用 `update --exit-code` 一次查 A、B、C：A 已是最新 (`0`)、B 查到新版 (`1`)、C 查詢失敗 (`2`)，就以 `2` 結束
+- 結束碼取各工具結果裡數字最大的那個，沒有特例。例如一次查 A、B、C：A 已是最新 (`0`)、B 查到新版 (`0`，查到新版不是警告)、C 查詢失敗 (`2`)，就以 `2` 結束
 - 每個工具的結果仍然各自印出，不因為只回一個碼就省略
 
 沿用 A、B、C 的例子，三個工具都會印出結果。以下是輸出示意：
@@ -35,7 +35,6 @@
 ```text
 stdout: A 已是最新。
 stdout: B 有新版 v1.3.0（目前為 v1.2.0）。
-stderr: vendor_kit: warn[VK0022]: A newer version of B is available: current v1.2.0; new v1.3.0. Run: just vendor_kit upgrade B
 stderr: vendor_kit: error[VK0001]: Cannot list versions for C: registry read access is required. Set VENDOR_KIT_REGISTRY_TOKEN (or VENDOR_KIT_REGISTRY_TOKEN_FILE), or specify a version directly: just vendor_kit upgrade C@<tag> (pulling uses the host's Docker credentials).
 exit code: 2
 ```
