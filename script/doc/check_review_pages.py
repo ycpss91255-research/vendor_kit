@@ -202,7 +202,8 @@ CMD_CSV = re.compile(
     r"(?<![\w-])(?:just vendor_kit\s+(?:" + RECIPE + r"|<command>)|" + RECIPE + r")\b"
     r"[ -~]*?(?=\s+and\s+retry\.(?:\s|$)|[;,(]|\.(?:\s|$)|[^ -~]|$)"
 )
-CSV_COMMAND_FIELDS = ("situation", "message", "next_step")
+# 訊息表給人看的欄照語言分組（situation.<lang>、message.<lang>），依首行欄名找，不寫死語言。
+CSV_COMMAND_PREFIXES = ("situation.", "message.")
 OPTION = re.compile(r"(?<![\w<-])(?:--?[a-zA-Z][\w-]*|--(?![\w-])|@<[^>]+>)(?![\w-])")
 
 
@@ -230,11 +231,13 @@ def command_errors(cmds, where: str, defined) -> list[str]:
 def csv_command_texts(path: pathlib.Path):
     """03 的 CSV 裡會印出指令的欄：（位置 `<檔>:<代碼>:<欄名>`, 欄位文字）。讀不了的格式交給 check_messages.py。"""
     try:
-        rows = list(csv.DictReader(path.read_text(encoding="utf-8-sig").splitlines(keepends=True)))
+        reader = csv.DictReader(path.read_text(encoding="utf-8-sig").splitlines(keepends=True))
+        rows = list(reader)
     except (csv.Error, UnicodeDecodeError):
         return
+    fields = [f for f in reader.fieldnames or () if f.startswith(CSV_COMMAND_PREFIXES)]
     for row in rows:
-        for field in CSV_COMMAND_FIELDS:
+        for field in fields:
             value = row.get(field) or ""
             if value:
                 yield f"{path}:{row.get('code', '?')}:{field}", value

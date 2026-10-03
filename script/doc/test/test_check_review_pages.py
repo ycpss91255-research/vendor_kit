@@ -73,36 +73,35 @@ class RulesTest(unittest.TestCase):
         self.assertNotIn("用了 --engine", out)
 
     def test_messages_csv_commands_must_be_defined_earlier(self):
-        # CSV 不准 Markdown，指令沒有反引號；掃 situation、message、next_step 三欄，錯誤位置報 <檔>:<代碼>:<欄名>
+        # CSV 不准 Markdown，指令沒有反引號；掃所有 situation.<lang>、message.<lang> 欄（依首行欄名），錯誤位置報 <檔>:<代碼>:<欄名>
         self.write("01_a.md", "# 01\n\n## 目錄\n")
         self.write("03_m.md", "# 03\n\n## 目錄\n")
         pathlib.Path("doc/contract/reason_codes.csv").write_text(
-            "\ufeffcode,status,level,exit_code,disposition,situation,message,description,next_step\n"
-            "VK0001,active,warn,1,,開發模式中執行 just vendor_kit undev …,"
-            "Run just vendor_kit upgrade --engine and retry.,中文說明,just vendor_kit upgrade --engine\n"
-            "VK0002,active,error,2,待處理,執行 just vendor_kit add --bad 也不行,"
-            "Run just vendor_kit upgrade <repo> -z and retry.,中文說明 just vendor_kit test --description-only,"
-            "just vendor_kit upgrade <repo> -z\n",
+            "\ufeffcode,status,level,exit_code,disposition,situation.en,message.en,situation.zh-TW,message.zh-TW\n"
+            "VK0001,active,warn,1,,Running just vendor_kit undev …,"
+            "Run just vendor_kit upgrade --engine and retry.,開發模式中執行 just vendor_kit undev …,"
+            "執行 just vendor_kit upgrade --engine 後重試。\n"
+            "VK0002,active,error,2,pending,Even just vendor_kit add --bad.,"
+            "Run just vendor_kit upgrade <repo> -z and retry.,執行 just vendor_kit test --zh-only 也不行,"
+            "執行 just vendor_kit upgrade <repo> -y 後重試。\n",
             encoding="utf-8",
         )
         code, out = self.run_main()
         self.assertEqual(code, 1)
         self.assertIn(
-            "reason_codes.csv:VK0002:message: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z",
+            "reason_codes.csv:VK0002:message.en: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z",
             out,
         )
-        self.assertIn(
-            "reason_codes.csv:VK0002:next_step: 指令 `just vendor_kit upgrade <repo> -z` 用了 -z",
-            out,
-        )
-        self.assertIn("reason_codes.csv:VK0002:situation: 指令 `just vendor_kit add --bad` 用了 --bad", out)
+        self.assertIn("reason_codes.csv:VK0002:situation.en: 指令 `just vendor_kit add --bad` 用了 --bad", out)
+        # zh-TW 欄裡的指令一樣要查
+        self.assertIn("reason_codes.csv:VK0002:situation.zh-TW: 指令 `just vendor_kit test --zh-only` 用了 --zh-only", out)
+        self.assertIn("reason_codes.csv:VK0002:message.zh-TW: 指令 `just vendor_kit upgrade <repo> -y` 用了 -y", out)
         # 訊息表明列 reason_codes.csv（#137）；其他 03_*.csv 不掃
         pathlib.Path("doc/contract/03_other.csv").write_text(
-            "code,situation,message,next_step\nVK0009,just vendor_kit add --other,,\n", encoding="utf-8")
+            "code,situation.en,message.en\nVK0009,just vendor_kit add --other,\n", encoding="utf-8")
         _, out = self.run_main()
         self.assertNotIn("--other", out)
         self.assertNotIn("VK0001", out)
-        self.assertNotIn("--description-only", out)
 
     def test_l1_reason_codes_fail_in_early_pages_including_inline_code(self):
         for page in ("01_a.md", "02_b.md"):
@@ -183,12 +182,13 @@ class RulesTest(unittest.TestCase):
     def test_l4_csv_short_recipes_and_separator_fail(self):
         self.write("03_m.md", "# 03\n\n## 目錄\n")
         pathlib.Path("doc/contract/reason_codes.csv").write_text(
-            "code,situation,message,next_step,description\n"
-            "VK0001,update --missing,add <repo> --,upgrade --missing,update --ignored\n"
+            "code,situation.en,message.en,situation.zh-TW,message.zh-TW,next_step\n"
+            "VK0001,update --missing,add <repo> --,upgrade --missing,dev --missing,update --ignored\n"
         )
         code, out = self.run_main()
         self.assertEqual(code, 1, out)
-        for field in ("situation", "message", "next_step"):
+        # 只掃 situation.<lang>、message.<lang>；舊欄 next_step 不再掃
+        for field in ("situation.en", "message.en", "situation.zh-TW", "message.zh-TW"):
             self.assertIn(f"reason_codes.csv:VK0001:{field}:", out)
         self.assertNotIn("--ignored", out)
 
