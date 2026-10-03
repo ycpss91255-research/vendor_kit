@@ -231,7 +231,7 @@ Advanced commands:
   undev --engine              Return to the locked engine version
   upgrade --engine            Upgrade the engine
   upgrade --engine=<tag>      Switch to a specified engine version
-  update                      Check for new versions without modifying any files
+  update                      Check for new versions; write only the run log
   update <repo>               Check only the specified tool for a new version
   sync                        Synchronize local tool content with lock version lines or local overrides; runs automatically before each tool recipe
   install                     Install VK in a directory within a repo, making it an install directory
@@ -493,7 +493,7 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 
 逐工具處理：
 
-- 工具未完成導入，或 metadata 缺失、損壞而無法可靠還原時，在 stderr 印出診斷，這個工具的結果是 `2`。只擋各自所屬的工具，其他工具照常同步
+- 工具未完成導入，或 metadata 缺失、損壞而無法可靠還原時，在 stderr 印出診斷，這個工具的結果是 `2`。若在動到任何一個工具之前就判定有工具不能做，就一個工具都不動，並列出每個原因；開始改動後才發現的阻擋只擋各自所屬的工具，其他工具照常同步
 - 基準版落後版本鎖定行、已鎖定工具的 cache 檔案集合或[逐檔指紋](../../GLOSSARY.md#repo-內的檔與狀態)不符，都要判定並印出各自的診斷
 - 不刪未列在版本鎖定行的工具目錄，交給 `prune`；已鎖定工具的快取多出檔案則屬不一致，須修復
 - cache 是可重建的工作狀態：自動修復但保留警告，修好也要讓使用者知道
@@ -653,7 +653,7 @@ append 型的初始檔：
 | 指令 | 情況 | 處置 | 結束碼 |
 |---|---|---|---|
 | `add` | 遇到已存在的檔 | 不納管、不覆蓋，印出警告。這次 `add` 不接管該檔，後續升版不會替它做基準版合併；第一版不提供把既有檔改為納管的選項 | `1` |
-| `upgrade` | 上游不再提供的初始檔，或使用者已刪掉的納管初始檔 | 不刪、不重建，只列清單到 stdout | 沒有其他診斷時 `0` |
+| `upgrade` | 新版工具不再提供的初始檔，或使用者已刪掉的納管初始檔 | 不刪、不重建，只列清單到 stdout | 沒有其他診斷時 `0` |
 | `remove`、`uninstall` | 初始檔 | 不刪，只把保留清單印到 stdout，不加前綴 | 沒有其他診斷時 `0`；有零處或多處命中而未收回的殘留時，是做完但有警告，回 `1` |
 
 ### remove 與 uninstall 的收回範圍

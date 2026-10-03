@@ -54,7 +54,7 @@ exit code: 2
   exit code: 2
   ```
 - 主機前置檢查（檢查主機上的 Docker 與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。各入口檢查哪幾項見 [04 使用者介面](04_interface.md#bootstrapsh)
-- `remove`／`uninstall` 依契約保留[初始檔](../../GLOSSARY.md#初始檔與合併)時，把保留清單印到 stdout，以 `0` 結束
+- `remove`／`uninstall` 依契約保留[初始檔](../../GLOSSARY.md#初始檔與合併)時，把保留清單印到 stdout，沒有其他診斷時以 `0` 結束
 - 詢問時[使用者](../../GLOSSARY.md#角色與情境)明確回答「否」，是正常取消：不做變更，在 stdout 說明未變更，以 `0` 結束
 - 顏色照這幾條：
   - 只在那個輸出串流是終端 (TTY) 時上色；stdout 與 stderr 各自判斷
@@ -77,7 +77,7 @@ exit code: 2
 
 [原因代碼](../../GLOSSARY.md#執行與結果)是 `VK` 加四位數字。每個代碼以訊息表的 `situation.<lang>` 欄為唯一意思；發出後永不重用。
 
-每個代碼的嚴重度、處置、情況與本文，只寫在[訊息表](reason_codes.csv)，一列一個代碼。訊息表只收 warn、error、fatal 的診斷；info（stdout 的正常輸出、詢問、用法、執行紀錄的一般條目）不登錄。
+每個代碼的嚴重度、處置、情況與本文，只寫在[訊息表](reason_codes.csv)，一列一個代碼。訊息表只收 warn、error、fatal 的診斷；不是診斷的字句（stdout 的正常輸出、詢問、用法、版本行、本機覆寫提醒、執行紀錄的一般條目）不登錄。
 
 處置與下一步：
 
@@ -98,7 +98,7 @@ exit code: 2
   - 依首行的欄名讀，不依欄序
 - 欄位
   - 左邊五欄給程式讀，只用英文：
-    - `code`：原因代碼，從 `VK0001` 起逐列加一，不缺列
+    - `code`：原因代碼，依代碼升冪排列；新代碼持續遞增，大版本清理停用列後可留下缺號
     - `status`：`active` 使用中；`retired` 已停用
     - `level`：現行值為 `warn`、`error`、`fatal`，對應的結束碼見[結束碼](#結束碼)
     - `exit_code`：該 `level` 欄對應的結束碼；`warn` 為 `1`、`error` 為 `2`、`fatal` 為 `3`；`retired` 列留空
