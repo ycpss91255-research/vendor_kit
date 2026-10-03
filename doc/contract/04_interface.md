@@ -153,6 +153,7 @@ Advanced commands:
   upgrade --engine            Upgrade the engine
   upgrade --engine=<tag>      Switch to a specified engine version
   update                      Check for new versions without modifying any files
+  update <repo>               Check only the specified tool for a new version
   sync                        Synchronize local tool content with lock version lines or local overrides; runs automatically before each tool recipe
   install                     Install VK in a directory within a repo, making it an install directory
   uninstall                   Remove VK from the install directory. Preserve init files

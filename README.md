@@ -12,7 +12,7 @@ vendor_kit ([VK](GLOSSARY.md#角色與情境)) 把一套[工具](GLOSSARY.md#工
 
 ### 主機需求
 
-依 [02 不變量第 5 條](doc/contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)，主機只需要這三個：
+主機只需要這三個（詳見 [02 不變量第 5 條](doc/contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)）：
 
 - [Docker](https://www.docker.com/)
   - 19.03 以上
@@ -34,7 +34,7 @@ vendor_kit ([VK](GLOSSARY.md#角色與情境)) 把一套[工具](GLOSSARY.md#工
 
 > 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，下面的網址目前找不到檔案，照做會[失敗](GLOSSARY.md#執行與結果)。進度見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
 
-發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化不寫追蹤檔)。
+發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡（詳見 [02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化不寫追蹤檔)）。
 
 ```sh
 curl -fsSLO https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh
