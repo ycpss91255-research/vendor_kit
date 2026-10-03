@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """產生審閱頁的標示版：新增用綠底 <mark>，刪除（被取代或拿掉的舊文字）用紅底 <mark>。
 
+程式碼區塊（``` 或 ~~~ 圍起來的那段）裡不能放 HTML，Markdown 不解析：區塊內有改動時整個區塊改成
+```diff，刪除的行前加 -、新增的行前加 +、沒改的行前加一個空白；區塊沒改動就照原樣。
+
 名詞連到 GLOSSARY.md 分群、不用底線；改動也不用底線。
 
 用法：
@@ -420,16 +423,113 @@ def heading_text(line: str) -> str:
     return HEADING.match(line).group(1)
 
 
+def code_lines(lines: list[str]) -> list[bool]:
+    """每一行是否屬於程式碼區塊（``` 或 ~~~ 圍起來的那段，圍欄行本身也算）。"""
+    flags, fence = [], None
+    for line in lines:
+        m = FENCE.match(line)
+        if fence:
+            flags.append(True)
+            if m and m.group(1) == fence:
+                fence = None
+            continue
+        flags.append(bool(m))
+        if m:
+            fence = m.group(1)
+    return flags
+
+
+def runs(indices: range, flags: list[bool]) -> list[tuple[bool, list[int]]]:
+    """把連續的行號依「是否在程式碼區塊」切成段：[(是否程式碼, 行號…)]。"""
+    out: list[tuple[bool, list[int]]] = []
+    for k in indices:
+        if out and out[-1][0] == flags[k]:
+            out[-1][1].append(k)
+        else:
+            out.append((flags[k], [k]))
+    return out
+
+
+def render_code(group: list[tuple[str, str, str]]) -> list[str]:
+    """一段連續的程式碼區塊行 → 輸出行。
+
+    Markdown 不解析程式碼區塊裡的 HTML，<mark> 放進去只會原樣顯示（#355），所以有改動的區塊
+    整個改成 ```diff：刪除的行前加 -、新增的行前加 +、沒改的行前加一個空白；原本的圍欄行
+    （含語言標記）拿掉，改用 diff 的圍欄。整段都沒改就照原樣輸出。
+    """
+    if all(sign == " " for _, sign, _ in group):
+        return [text for _, _, text in group]
+    # 清單裡的區塊圍欄是縮排的：diff 圍欄沿用原圍欄的縮排，前綴放在縮排之後，區塊才不會跳出清單
+    indent = next((re.match(r"^\s*", text).group(0) for _, _, text in group if FENCE.match(text)), "")
+    body = []
+    for _, sign, text in group:
+        if FENCE.match(text):
+            continue
+        if not text.strip() and sign == " ":
+            body.append("")  # 沒改的空行不加空白，免得留下行尾空白
+        elif text.startswith(indent):
+            body.append(indent + sign + text[len(indent):])
+        else:
+            body.append(sign + text)
+    # 內容行若有以反引號圍欄開頭的（只可能是前綴空白的那種），外層圍欄要比它長才不會被提早關掉
+    longest = max((len(m.group(1)) for line in body for m in [re.match(r"^\s*(`{3,})", line)] if m),
+                  default=2)
+    fence = indent + "`" * max(3, longest + 1)
+    return [fence + "diff", *body, fence]
+
+
 def diff_md(old: list[str], new: list[str]) -> tuple[list[str], int, int]:
-    """逐行比較，回傳（標示後的行, 新增數, 刪除數）。"""
+    """逐行比較，回傳（標示後的行, 新增數, 刪除數）。
+
+    程式碼區塊外的行用 <mark> 標；區塊內的行先收成 ("code", 前綴, 原文)，最後由 render_code()
+    把每段連續的區塊行輸出成 diff 區塊（有改動時）或原樣（沒改動時）。
+    """
     old_heads, new_heads = headings(old), headings(new)
-    out = []
+    old_code, new_code = code_lines(old), code_lines(new)
+    out: list = []
     ins = dele = 0
+
+    def emit_del(i: int, renamed: dict) -> None:
+        nonlocal dele
+        line = old[i]
+        if old_code[i]:
+            out.append(("code", "-", line))
+            if line.strip():
+                dele += 1
+            return
+        if not line.strip() or i in renamed.values():
+            return
+        # 刪掉的標題：去掉行首的 #，當成普通文字標紅，不產生錨點
+        out.append(mark(heading_text(line), "del") if i in old_heads else wrap(line, "del"))
+        dele += 1
+
+    def emit_ins(j: int, renamed: dict) -> None:
+        nonlocal ins, dele
+        line = new[j]
+        if new_code[j]:
+            out.append(("code", "+", line))
+        elif j in new_heads:
+            out.append(line)
+            if j in renamed:
+                out.append(mark("舊標題：" + heading_text(old[renamed[j]]), "del"))
+                out.append(CHANGED_NOTE)
+                dele += 1
+            else:
+                out.append(ADDED_NOTE)
+            # 註記自成一段，不跟下一行的清單或表格黏在一起
+            if j + 1 < len(new) and new[j + 1].strip():
+                out.append("")
+        else:
+            out.append(wrap(line, "ins"))
+        if line.strip():
+            ins += 1
+
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
         None, old, new, autojunk=False
     ).get_opcodes():
         if tag == "equal":
-            out.extend(new[j1:j2])
+            for j in range(j1, j2):
+                out.append(("code", " ", new[j]) if new_code[j] else new[j])
             continue
         # 標題行保持原樣、不加任何標籤：檢視器用標題的文字產生錨點，
         # 標籤混進去錨點就變了，目錄連結跳不過去。改動改在標題下一行註記。
@@ -437,31 +537,31 @@ def diff_md(old: list[str], new: list[str]) -> tuple[list[str], int, int]:
         gone = [i for i in range(i1, i2) if i in old_heads]
         came = [j for j in range(j1, j2) if j in new_heads]
         renamed = dict(zip(came, gone))
-        for i in range(i1, i2):
-            line = old[i]
-            if not line.strip() or i in renamed.values():
-                continue
-            # 刪掉的標題：去掉行首的 #，當成普通文字標紅，不產生錨點
-            out.append(mark(heading_text(line), "del") if i in old_heads else wrap(line, "del"))
-            dele += 1
-        for j in range(j1, j2):
-            line = new[j]
-            if j in new_heads:
-                out.append(line)
-                if j in renamed:
-                    out.append(mark("舊標題：" + heading_text(old[renamed[j]]), "del"))
-                    out.append(CHANGED_NOTE)
-                    dele += 1
-                else:
-                    out.append(ADDED_NOTE)
-                # 註記自成一段，不跟下一行的清單或表格黏在一起
-                if j + 1 < len(new) and new[j + 1].strip():
-                    out.append("")
-            else:
-                out.append(wrap(line, "ins"))
-            if line.strip():
-                ins += 1
-    return out, ins, dele
+        # 舊行與新行各自依「在不在程式碼區塊」切段，同類的段配對，刪除段緊接在對應的新增段之前，
+        # 程式碼區塊裡的刪除與新增才會落在同一個 diff 區塊。
+        old_runs, new_runs = runs(range(i1, i2), old_code), runs(range(j1, j2), new_code)
+        while old_runs or new_runs:
+            paired = old_runs and new_runs and old_runs[0][0] == new_runs[0][0]
+            if old_runs:
+                for i in old_runs.pop(0)[1]:
+                    emit_del(i, renamed)
+            if paired or not old_runs and new_runs:
+                for j in new_runs.pop(0)[1]:
+                    emit_ins(j, renamed)
+
+    result: list[str] = []
+    group: list[tuple[str, str, str]] = []
+    for item in out:
+        if isinstance(item, tuple):
+            group.append(item)
+            continue
+        if group:
+            result.extend(render_code(group))
+            group = []
+        result.append(item)
+    if group:
+        result.extend(render_code(group))
+    return result, ins, dele
 
 
 def read_rows(text: str) -> tuple[list[str], dict[str, dict[str, str]]]:
@@ -588,7 +688,7 @@ def write_outputs(name: str, out: list[str], basis: str, notes: list[str]) -> No
     d.mkdir(parents=True, exist_ok=True)
     official = f"/{path.as_posix()}" + ("" if csv_path is None else f" 與 /{csv_path.as_posix()}")
     header = [
-        f"<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；"
+        f"<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除，程式碼區塊的改動改成 diff 區塊（+ 新增、- 刪除）；本檔進 git，定案時刪除該鍵的送審資料夾；"
         f"{basis}。正式內容看 {official} -->",
         "",
     ]
