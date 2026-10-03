@@ -1,4 +1,4 @@
-<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit a49bca0。正式內容看 /GLOSSARY.md -->
+<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit 5770e20。正式內容看 /GLOSSARY.md -->
 
 # vendor_kit
 
@@ -33,8 +33,8 @@ _Avoid_: 接入
 `.vendor_kit/` 內由引擎產生、隨 repo 進 git、供使用者呼叫 VK 的一組檔。
 
 **啟動器** (launcher)：
-<mark style="background-color:#f8c8c8">從主機啟動引擎的入口；薄殼內的 POSIX sh 片段與首次導入用的 `bootstrap.sh` 都是啟動器。</mark>
-<mark style="background-color:#c8f0c8">從主機啟動引擎的入口；薄殼內的 POSIX sh 片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。後者用於首次導入，以及既有安裝目錄的薄殼檢查與修復。</mark>
+<mark style="background-color:#f8c8c8">從主機啟動引擎的入口；薄殼內的 POSIX sh 片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。後者用於首次導入，以及既有安裝目錄的薄殼檢查與修復。</mark>
+<mark style="background-color:#c8f0c8">從主機啟動引擎的入口；薄殼內的啟動片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。後者用於首次導入，以及既有安裝目錄的薄殼檢查與修復。</mark>
 
 ### 工具與出貨
 
@@ -103,12 +103,9 @@ _Avoid_: 專案檔
 **VK 檔** (VK file)：
 由 VK 建立及管理、位於 `.vendor_kit/` 的檔。
 
-<mark style="background-color:#f8c8c8">**進 git 的檔** (tracked file)：</mark>
-<mark style="background-color:#f8c8c8">隨 repo 一起 commit 進 git 的檔。</mark>
-<mark style="background-color:#f8c8c8">_Avoid_: tracked 檔、版控檔</mark>
-<mark style="background-color:#c8f0c8">**追蹤檔** (tracked file)：</mark>
-<mark style="background-color:#c8f0c8">隨 repo 一起由 git 追蹤並 commit 的檔，含還沒建出來、建出來就要 commit 的檔。</mark>
-<mark style="background-color:#c8f0c8">_Avoid_: 進 git 的檔、tracked 檔、版控檔</mark>
+**追蹤檔** (tracked file)：
+隨 repo 一起由 git 追蹤並 commit 的檔，含還沒建出來、建出來就要 commit 的檔。
+_Avoid_: 進 git 的檔、tracked 檔、版控檔
 
 **`cache/`**：
 VK 在 repo 本機保存已展開工具內容的目錄。
@@ -125,8 +122,7 @@ _Avoid_: 簽章、信任來源
 `cache/` 內每個檔的 sha256，記在印記裡。
 
 **自描述標頭** (self-describing header)：
-<mark style="background-color:#f8c8c8">薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼一致性檢查，見[檢查](../../contract/04_interface.md#檢查-test)。</mark>
-<mark style="background-color:#c8f0c8">薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼被改過時的檢查，見[不變量第 6 條](../../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)。</mark>
+薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼被改過時的檢查，見[不變量第 6 條](../../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)。
 
 **執行紀錄** (run log)：
 記錄一次 VK 執行以供事後追溯的 VK 檔。
@@ -143,7 +139,8 @@ _Avoid_: 簽章、信任來源
 版本鎖定行以 image 引用指定的版本與內容；相關指令見[指令](../../contract/04_interface.md#指令)。
 
 **本機覆寫** (local override)：
-讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見[成對與無害](../../contract/04_interface.md#成對與無害)。
+<mark style="background-color:#f8c8c8">讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
+<mark style="background-color:#c8f0c8">讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見[本機覆寫](../../contract/04_interface.md#本機覆寫)。</mark>
 
 **本機開發來源** (local source)：
 本機覆寫指到的來源：工具是一個本機目錄，引擎是一個本機 image；不進 git。
@@ -172,17 +169,15 @@ _Avoid_: 三方合併
 ### 執行與結果
 
 **VK recipe**：
-VK 自己的指令，寫法 `just vendor_kit <recipe>`。
-<mark style="background-color:#f8c8c8">_Avoid_: 動詞、子命令</mark>
-<mark style="background-color:#c8f0c8">_Avoid_: 動詞、子命令、子指令</mark>
+<mark style="background-color:#f8c8c8">VK 自己的指令，寫法 `just vendor_kit <recipe>`。</mark>
+<mark style="background-color:#c8f0c8">VK 自己提供、收在 `vendor_kit` 命名空間下的 recipe，相對於工具 recipe；`bootstrap.sh` 不是 VK recipe。</mark>
+_Avoid_: 動詞、子命令、子指令
 
 **可寫 recipe** (writing recipe)：
-<mark style="background-color:#f8c8c8">會動到進 git 的檔或進度檔的 VK recipe。</mark>
-<mark style="background-color:#c8f0c8">會動到追蹤檔或進度檔的 VK recipe。</mark>
+會動到追蹤檔或進度檔的 VK recipe。
 
 **唯讀 recipe** (read-only recipe)：
-<mark style="background-color:#f8c8c8">不動進 git 的檔、也不動進度檔的 VK recipe。</mark>
-<mark style="background-color:#c8f0c8">不動追蹤檔、也不動進度檔的 VK recipe。</mark>
+不動追蹤檔、也不動進度檔的 VK recipe。
 
 **詢問** (prompt)：
 VK 在修改 repo 檔前，向使用者取得同意的互動。
@@ -191,40 +186,44 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 讓使用者預先回答詢問的選項。
 寫法：`-y`，長選項 `--yes`。
 
-<mark style="background-color:#c8f0c8">**選項結束標記** (end of options)：表示選項到此為止的記號。</mark>
-<mark style="background-color:#c8f0c8">寫法：單獨的 `--`；它之後的參數一律當位置參數，即使以 `-` 開頭。</mark>
+<mark style="background-color:#f8c8c8">**選項結束標記** (end of options)：表示選項到此為止的記號。</mark>
+<mark style="background-color:#c8f0c8">**`--engine`** (engine option)：</mark>
+<mark style="background-color:#c8f0c8">讓 VK recipe 的對象改為引擎、而不是工具的選項。</mark>
+<mark style="background-color:#c8f0c8">寫法：`--engine`；要帶版本時只接受 `--engine=<tag>`。</mark>
+
+<mark style="background-color:#c8f0c8">**`@<tag>`** (version suffix)：</mark>
+<mark style="background-color:#c8f0c8">接在 `<repo>` 後、指定工具版本的寫法。</mark>
+<mark style="background-color:#c8f0c8">寫法：`<repo>@<tag>`。</mark>
+
+<mark style="background-color:#c8f0c8">**選項結束標記** (end of options)：</mark>
+<mark style="background-color:#c8f0c8">表示選項到此為止的記號。</mark>
+寫法：單獨的 `--`；它之後的參數一律當位置參數，即使以 `-` 開頭。
 
 **診斷** (diagnostic)：
-<mark style="background-color:#f8c8c8">VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。</mark>
-<mark style="background-color:#c8f0c8">VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。</mark>
+<mark style="background-color:#f8c8c8">VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。</mark>
+<mark style="background-color:#c8f0c8">VK 印到 stderr、說明執行結果與原因的訊息。診斷使用的[嚴重度](#執行與結果)見下個詞條。</mark>
 
-<mark style="background-color:#f8c8c8">**level** (log level)：</mark>
-<mark style="background-color:#f8c8c8">診斷的嚴重程度，只有 info、warn、error、fatal，依序對應結束碼 0、1、2、3；info 不印前綴。</mark>
-<mark style="background-color:#c8f0c8">**嚴重度** (level)：</mark>
-<mark style="background-color:#c8f0c8">診斷的嚴重程度；可用的值以及它和結束碼的對應見[結束碼](../../contract/03_output.md#結束碼)。</mark>
+**嚴重度** (level)：
+診斷的嚴重程度；可用的值以及它和結束碼的對應見[結束碼](../../contract/03_output.md#結束碼)。
 
 **正常輸出** (normal output)：
 成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。
 
-<mark style="background-color:#f8c8c8">**需人處理** (needs human)：</mark>
-<mark style="background-color:#f8c8c8">診斷的處置屬性，表示這次執行沒有做完，而且 VK 知道使用者接下來要做什麼；必須附上可直接複製的下一步指令。</mark>
-<mark style="background-color:#c8f0c8">**待處理** (action required)：</mark>
-<mark style="background-color:#c8f0c8">診斷的處置屬性，表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令。</mark>
-<mark style="background-color:#c8f0c8">_Avoid_: 待續、需人處理、needs human</mark>
+**待處理** (action required)：
+診斷的處置屬性，表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令。
+_Avoid_: 待續、需人處理、needs human
 
 **失敗** (failure)：
 診斷的處置屬性，表示這次執行沒有做完；不承諾可執行的修法，但可以附一般建議。
 
 **警告** (warning)：
-<mark style="background-color:#f8c8c8">指出可能有問題、需要人確認的 warn 診斷；與其他 warn 結果的區分見[結束碼](../../contract/03_output.md#結束碼)。</mark>
-<mark style="background-color:#c8f0c8">這次指令承諾的結果已做完，但有要使用者知道或確認的事的 `warn` 診斷；可以附下一步指令。</mark>
+這次指令承諾的結果已做完，但有要使用者知道或確認的事的 `warn` 診斷；可以附下一步指令。
 
 **原因代碼** (reason code)：
 每條診斷的固定識別碼；格式與生命週期見[訊息](../../contract/03_output.md#訊息)。
 
 **結束碼** (exit code)：
-<mark style="background-color:#f8c8c8">VK recipe 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見[結束碼](../../contract/03_output.md#結束碼)。</mark>
-<mark style="background-color:#c8f0c8">VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見[結束碼](../../contract/03_output.md#結束碼)。</mark>
+VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見[結束碼](../../contract/03_output.md#結束碼)。
 
 ### VK recipe 與用途
 
@@ -233,8 +232,8 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 
 **`update`、`upgrade`**：
 `update` 只查有沒有新版；`upgrade` 把鎖定版本換成新版或指定版本。
-<mark style="background-color:#f8c8c8">寫法：`just vendor_kit update`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。</mark>
-<mark style="background-color:#c8f0c8">寫法：`just vendor_kit update`，指定工具用 `just vendor_kit update <repo>`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。</mark>
+<mark style="background-color:#f8c8c8">寫法：`just vendor_kit update`，指定工具用 `just vendor_kit update <repo>`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。</mark>
+<mark style="background-color:#c8f0c8">介面見[指令](../../contract/04_interface.md#指令)；指定版本見[指定版本](../../contract/04_interface.md#指定版本)。</mark>
 
 **`dev` / `undev`**：
 `dev` 讓引擎或工具改用本機開發來源，`undev` 使它回到鎖定版本；兩者的關係見[成對與無害](../../contract/04_interface.md#成對與無害)。
@@ -249,8 +248,7 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 `install` 使 repo 裡的一個目錄成為安裝目錄，`uninstall` 將 VK 從該處移除；兩者的介面與保留使用者檔規則見[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。
 
 **`test`**：
-<mark style="background-color:#f8c8c8">檢查安裝目錄狀態或工具交付內容、且不寫進 git 之檔案的 VK recipe；範圍與用法見[檢查](../../contract/04_interface.md#檢查-test)。</mark>
-<mark style="background-color:#c8f0c8">檢查安裝目錄狀態或工具交付內容、且不寫入追蹤檔的 VK recipe；範圍與用法見[檢查](../../contract/04_interface.md#檢查-test)。</mark>
+檢查安裝目錄狀態或工具交付內容、且不寫入追蹤檔的 VK recipe；範圍與用法見[檢查](../../contract/04_interface.md#檢查-test)。
 
 ### 介面版與契約
 
@@ -264,8 +262,7 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 VK 寫入檔案時用來標示該檔資料格式的整數版號。
 
 **救援路徑** (rescue path)：
-<mark style="background-color:#f8c8c8">版本組合不相符時仍可用來升級或修復的幾種呼叫；完整清單見[說明與用法錯誤](../../contract/04_interface.md#說明與用法錯誤)。</mark>
-<mark style="background-color:#c8f0c8">版本組合不相符或薄殼被改過時，仍可用來檢查、升級或修復的呼叫；兩類的清單見[寫入範圍與其他指令的關係](../../contract/04_interface.md#寫入範圍與其他指令的關係)。</mark>
+版本組合不相符或薄殼被改過時，仍可用來檢查、升級或修復的呼叫；兩類的清單見[寫入範圍與其他指令的關係](../../contract/04_interface.md#寫入範圍與其他指令的關係)。
 
 **契約** (contract)：
 VK 對使用者承諾不會隨意改變的那組介面；引擎內部實作不屬契約。

@@ -31,7 +31,7 @@ _Avoid_: 接入
 `.vendor_kit/` 內由引擎產生、隨 repo 進 git、供使用者呼叫 VK 的一組檔。
 
 **啟動器** (launcher)：
-從主機啟動引擎的入口；薄殼內的 POSIX sh 片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。後者用於首次導入，以及既有安裝目錄的薄殼檢查與修復。
+從主機啟動引擎的入口；薄殼內的啟動片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。後者用於首次導入，以及既有安裝目錄的薄殼檢查與修復。
 
 ### 工具與出貨
 
@@ -136,7 +136,7 @@ _Avoid_: 簽章、信任來源
 版本鎖定行以 image 引用指定的版本與內容；相關指令見[指令](../../contract/04_interface.md#指令)。
 
 **本機覆寫** (local override)：
-讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見[成對與無害](../../contract/04_interface.md#成對與無害)。
+讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見[本機覆寫](../../contract/04_interface.md#本機覆寫)。
 
 **本機開發來源** (local source)：
 本機覆寫指到的來源：工具是一個本機目錄，引擎是一個本機 image；不進 git。
@@ -165,7 +165,7 @@ _Avoid_: 三方合併
 ### 執行與結果
 
 **VK recipe**：
-VK 自己的指令，寫法 `just vendor_kit <recipe>`。
+VK 自己提供、收在 `vendor_kit` 命名空間下的 recipe，相對於工具 recipe；`bootstrap.sh` 不是 VK recipe。
 _Avoid_: 動詞、子命令、子指令
 
 **可寫 recipe** (writing recipe)：
@@ -181,11 +181,20 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 讓使用者預先回答詢問的選項。
 寫法：`-y`，長選項 `--yes`。
 
-**選項結束標記** (end of options)：表示選項到此為止的記號。
+**`--engine`** (engine option)：
+讓 VK recipe 的對象改為引擎、而不是工具的選項。
+寫法：`--engine`；要帶版本時只接受 `--engine=<tag>`。
+
+**`@<tag>`** (version suffix)：
+接在 `<repo>` 後、指定工具版本的寫法。
+寫法：`<repo>@<tag>`。
+
+**選項結束標記** (end of options)：
+表示選項到此為止的記號。
 寫法：單獨的 `--`；它之後的參數一律當位置參數，即使以 `-` 開頭。
 
 **診斷** (diagnostic)：
-VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。
+VK 印到 stderr、說明執行結果與原因的訊息。診斷使用的[嚴重度](#執行與結果)見下個詞條。
 
 **嚴重度** (level)：
 診斷的嚴重程度；可用的值以及它和結束碼的對應見[結束碼](../../contract/03_output.md#結束碼)。
@@ -216,7 +225,7 @@ VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整
 
 **`update`、`upgrade`**：
 `update` 只查有沒有新版；`upgrade` 把鎖定版本換成新版或指定版本。
-寫法：`just vendor_kit update`，指定工具用 `just vendor_kit update <repo>`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。
+介面見[指令](../../contract/04_interface.md#指令)；指定版本見[指定版本](../../contract/04_interface.md#指定版本)。
 
 **`dev` / `undev`**：
 `dev` 讓引擎或工具改用本機開發來源，`undev` 使它回到鎖定版本；兩者的關係見[成對與無害](../../contract/04_interface.md#成對與無害)。
