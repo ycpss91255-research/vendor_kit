@@ -30,11 +30,12 @@
 - 結束碼取各工具結果裡數字最大的那個，沒有特例。例如一次查 A、B、C：A 已是最新 (`0`)、B 查到新版 (`0`，查到新版不是警告)、C 查詢失敗 (`2`)，就以 `2` 結束
 - 每個工具的結果仍然各自印出，不因為只回一個碼就省略
 
-沿用 A、B、C 的例子，三個工具都會印出結果。以下是輸出示意：
+沿用 A、B、C 的例子，三個工具都會印出結果。以下是輸出示意，省略引擎那一行：
 
 ```text
-stdout: A is up to date.
-stdout: B: new version v1.3.0 available (current v1.2.0).
+stdout: A current: v1.2.0 latest: v1.2.0
+stdout: B current: v1.2.0 latest: v1.3.0
+stdout: C current: v2.0.0 latest: none
 stderr: vendor_kit: error[VK0001]: Cannot list versions for C: registry read access is required; pulling still uses the host's Docker credentials. Set VENDOR_KIT_REGISTRY_TOKEN (or VENDOR_KIT_REGISTRY_TOKEN_FILE), or specify a version directly: just vendor_kit upgrade C@<tag>
 exit code: 2
 ```
@@ -42,7 +43,7 @@ exit code: 2
 ## 輸出
 
 - 成功時改了什麼、查詢或檢查結果，以及 `bootstrap.sh` 與各 recipe 的 `-h`／`--help` 用法只印到 stdout，不加前綴
-- stderr 只放診斷及其續行、[詢問](../../GLOSSARY.md#執行與結果)文字、不帶指令時第一行的版本行，以及用法錯誤後附的用法
+- stderr 只放診斷及其續行、[詢問](../../GLOSSARY.md#執行與結果)文字、不帶指令時第一行的版本行、用法錯誤後附的用法，以及 [update](../../GLOSSARY.md#vk-recipe-與用途) 印的[本機覆寫](../../GLOSSARY.md#版本與來源)提醒（不加前綴）
 - 只打 `just vendor_kit`、不帶指令時，stderr 依序印版本行、下列診斷與簡短用法，以 `2` 結束：
 
   ```text
@@ -70,7 +71,7 @@ exit code: 2
   vendor_kit: <level>[VKnnnn]: <message>
   ```
 - stderr 的診斷只用 `warn`、`error`、`fatal`；`info` 只用在成功的結果與執行紀錄，不印成 stderr 的診斷。
-- VK 自己寫的字句（stdout 的[正常輸出](../../GLOSSARY.md#執行與結果)、詢問、用法（含 `-h`／`--help` 與用法錯誤後附的簡短用法）、版本行、執行紀錄、stderr 診斷）目前都用英文；換進占位符的值（路徑、檔名、`<repo>`、[tag](../../GLOSSARY.md#工具與出貨)、使用者給的參數）照原樣印出。之後若做多語系 (i18n)，診斷以訊息表的語言欄切換，其他字句另議。每條診斷的中文見訊息表的 `message.zh-TW`、`situation.zh-TW` 欄。
+- VK 自己寫的字句（stdout 的[正常輸出](../../GLOSSARY.md#執行與結果)、詢問、用法（含 `-h`／`--help` 與用法錯誤後附的簡短用法）、版本行、本機覆寫提醒、執行紀錄、stderr 診斷）目前都用英文；換進占位符的值（路徑、檔名、`<repo>`、[tag](../../GLOSSARY.md#工具與出貨)、使用者給的參數）照原樣印出。之後若做多語系 (i18n)，診斷以訊息表的語言欄切換，其他字句另議。每條診斷的中文見訊息表的 `message.zh-TW`、`situation.zh-TW` 欄。
 - 診斷本文以完整英文句子書寫，句首大寫並以句點結尾；以占位符或小寫的指令名開頭時照原樣，以指令結尾時不加句點，免得複製到句點。本文可能同時包含原因與下一步，需要保留完整句子的邊界。這些句型規則只適用於診斷本文。
 - 多行診斷的續行也印到 stderr。
 

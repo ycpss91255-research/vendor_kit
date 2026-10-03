@@ -343,20 +343,23 @@ stdin 與 stderr 都是終端 (TTY) 才算能互動；管線輸入不算，不�
   - 本機內容被改過時重新取件，照 `VK0015`／`1`；既有印記損壞時重新取件並重建印記，印 `VK0044` 的 `warn` 並回 `1`。首次取件原本沒有印記不算損壞，不因此警告；下載內容不符鎖定 digest 時以 `VK0043` 的 `error`／`2` 報失敗，不借用表示已修好的 `VK0015`
   - cache 是可重建工作狀態，自動修復而保留警告有局部前例，完整行為是 VK 自己的規則：修好也要讓使用者知道。基準版合併需要寫追蹤檔，`sync` 只印 `VK0014` 並指向 `upgrade`，不自動合併
   - 工具 recipe 前自動觸發的 `sync` 回 `1` 時是否執行本體、整次呼叫如何回碼，待確認（依 [延期決議](https://github.com/ycpss91255-research/vendor_kit/issues/119)，留到 [自動同步與結果討論](https://github.com/ycpss91255-research/vendor_kit/issues/120)）
-- `update`：不帶工具參數時查全部工具與引擎；`update <repo>` 只查指定工具。每次即時列 tag，不用舊查詢快取；開著覆寫仍以版本鎖定行查詢，所用覆寫的提醒印到 stderr。已是最新或查到新版都以[結束碼](03_output.md#結束碼) `0` 結束；任何查詢失敗，整次以 `2` 結束。沒有 `--exit-code` 選項。
-  - 查詢結果的 stdout 是[契約](../../GLOSSARY.md#介面版與契約)明定、可以解析的固定格式，呼應 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)。每個查詢的工具與引擎各印一行，已是最新的也印；不論查全部或指定工具、不論終端或管線、不論查詢結果，都用同一格式：`<repo> current: <tag> latest: <tag|none>`。引擎那行第一欄是 `engine`。
-  - 第一欄是工具名（引擎用 `engine`），之後是「標籤: 值」成對；欄位以單一 ASCII 空白分隔。標籤以半形冒號結尾、不含空白，值是緊接的下一個欄位。腳本靠標籤取值，不靠欄號；同一個 X 內只會增加新的成對，不改既有標籤的意思。
-  - `current:` 的值是鎖定版本的 tag。已是最新時，`latest:` 的值等於 `current:`；有新版時是最新 tag；查不到時印 `none`，同時在 stderr 印出錯誤診斷，整次以 `2` 結束，不報已最新。`none` 只是顯示值；tag 只接受 `vX.Y.Z`，不會與它撞名。
-  - stdout 只有這些行，不加表頭、進度、顏色或前綴；其他訊息都走 stderr。標籤目前是英文，以後若做 i18n 可能翻譯標籤，比照 apt：腳本要穩定解析就設 `LC_ALL=C`，固定格式以 C locale 下的輸出為準。
+- `update`：不帶工具參數時查全部工具與引擎；`update <repo>` 只查指定工具。每次即時列 tag，不用舊查詢快取；開著覆寫仍以版本鎖定行查詢，所用覆寫的提醒印到 stderr。已是最新或查到新版、沒有其他診斷時以[結束碼](03_output.md#結束碼) `0` 結束；任何查詢失敗，整次以 `2` 結束。沒有 `--exit-code` 選項。
+  - 查詢結果的 stdout 是[契約](../../GLOSSARY.md#介面版與契約)明定、可以解析的固定格式，呼應 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)。每個查詢的工具與引擎各印一行，已是最新的也印；不論查全部或指定工具、不論終端或管線、不論查詢結果，都用同一格式：`<repo> current: <tag> latest: <tag>`。查詢失敗時，`latest:` 的值是字面的 `none`；行的順序不承諾。
+  - 第一欄是工具名；引擎用 `vendor_kit`。之後是「欄名: 值」成對；欄位以單一 ASCII 空白分隔。欄名以半形冒號結尾、不含空白，值是緊接的下一個欄位。腳本靠欄名取值，不靠欄號；同一個 X 內只會增加新的成對，不改既有欄名的意思。
+  - `current:` 的值是鎖定版本的 tag。`latest:` 一律印依[指定版本](#指定版本)算出的最新 tag，可能比 `current:` 舊。查詢失敗時，同時在 stderr 印出錯誤診斷，整次以 `2` 結束，不報已最新。判斷查詢是否失敗看結束碼與 stderr，不看 `none`；`none` 只是顯示值，tag 只接受 `vX.Y.Z`，不會與它撞名。
+  - stdout 只有這些行，不加表頭、進度、顏色或前綴；其他訊息都走 stderr。做 i18n 之前輸出一律英文，設不設 `LC_ALL=C` 結果相同。以後若做 i18n 可能翻譯欄名，比照 apt：腳本要穩定解析就設 `LC_ALL=C`，固定格式以 C locale 下的輸出為準。
+  - 工具名能不能叫 `vendor_kit`，待確認（見 [update 固定格式討論](https://github.com/ycpss91255-research/vendor_kit/issues/342)）。
+  - `update <repo>` 指定的工具不在版本鎖定行時回什麼，待確認（見 [update 固定格式討論](https://github.com/ycpss91255-research/vendor_kit/issues/342)）。
+  - registry 列得到 tag、但沒有任何合格 `vX.Y.Z` 時怎麼印、回什麼結束碼，待確認（見 [update 固定格式討論](https://github.com/ycpss91255-research/vendor_kit/issues/342)）。
 
-  示例：`base` 已是最新，`lint` 有新版，`format` 查不到，引擎已是最新。下列 `stdout:`、`stderr:` 與 `exit code:` 是示例的串流與結束碼標示，不是實際輸出內容。
+  示例：`base` 已是最新，`lint` 有新版，`format` 查詢失敗，引擎已是最新。下列 `stdout:`、`stderr:` 與 `exit code:` 是示例的串流與結束碼標示，不是實際輸出內容；行的排列只是示例。
 
   ```text
   $ LC_ALL=C just vendor_kit update
   stdout: base current: v1.2.0 latest: v1.2.0
   stdout: lint current: v1.0.0 latest: v1.3.0
   stdout: format current: v2.0.0 latest: none
-  stdout: engine current: v1.4.0 latest: v1.4.0
+  stdout: vendor_kit current: v1.4.0 latest: v1.4.0
   stderr: vendor_kit: error[VK0055]: Cannot access registry for format: request timed out. The requested operation did not complete.
   exit code: 2
   ```

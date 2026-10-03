@@ -12,7 +12,7 @@ vendor_kit ([VK](GLOSSARY.md#角色與情境)) 把一套[工具](GLOSSARY.md#工
 
 ### 主機需求
 
-主機只需要這三個（詳見 [02 不變量第 5 條](doc/contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)）：
+除平台本來就有的 shell 與基本指令外，主機只需要這三個（詳見 [02 不變量第 5 條](doc/contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)）：
 
 - [Docker](https://www.docker.com/)
   - 19.03 以上
