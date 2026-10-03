@@ -36,11 +36,12 @@
 - <mark style="background-color:#f8c8c8">有警告</mark>
 - <mark style="background-color:#f8c8c8">做完但要人接手（不算警告）：留下[合併衝突](../../../GLOSSARY.md#初始檔與合併)、`update --exit-code` 查到新版</mark>
 <mark style="background-color:#f8c8c8">只有警告也以 `1` 結束。每個 recipe 不論在哪個環境執行，都使用同一套規則。是否成功看有沒有做到該指令契約承諾的結果，不看訊息名稱或輸出串流。</mark>
-<mark style="background-color:#c8f0c8">留下[合併衝突](../../../GLOSSARY.md#初始檔與合併)、`update --exit-code` 查到新版都屬於警告，碼仍是 `1`。`bootstrap.sh` 與每個 recipe 不論在哪個環境執行，都使用同一套規則。是否成功看有沒有做到該指令契約承諾的結果，不看訊息名稱或輸出串流。</mark>
+<mark style="background-color:#c8f0c8">留下[合併衝突](../../../GLOSSARY.md#初始檔與合併)屬於警告，碼仍是 `1`。`bootstrap.sh` 與每個 recipe 不論在哪個環境執行，都使用同一套規則。是否成功看有沒有做到該指令契約承諾的結果，不看訊息名稱或輸出串流。</mark>
 
 一次處理多個[工具](../../../GLOSSARY.md#工具與出貨)時：
 
-- 結束碼取各工具結果裡數字最大的那個，沒有特例。例如用 `update --exit-code` 一次查 A、B、C：A 已是最新 (`0`)、B 查到新版 (`1`)、C 查詢失敗 (`2`)，就以 `2` 結束
+- <mark style="background-color:#f8c8c8">結束碼取各工具結果裡數字最大的那個，沒有特例。例如用 `update --exit-code` 一次查 A、B、C：A 已是最新 (`0`)、B 查到新版 (`1`)、C 查詢失敗 (`2`)，就以 `2` 結束</mark>
+- <mark style="background-color:#c8f0c8">結束碼取各工具結果裡數字最大的那個，沒有特例。例如一次查 A、B、C：A 已是最新 (`0`)、B 查到新版 (`0`，查到新版不是警告)、C 查詢失敗 (`2`)，就以 `2` 結束</mark>
 - 每個工具的結果仍然各自印出，不因為只回一個碼就省略
 
 沿用 A、B、C 的例子，三個工具都會印出結果。以下是輸出示意：
@@ -48,7 +49,7 @@
 ```text
 stdout: A 已是最新。
 stdout: B 有新版 v1.3.0（目前為 v1.2.0）。
-stderr: vendor_kit: warn[VK0022]: A newer version of B is available: current v1.2.0; new v1.3.0. Run: just vendor_kit upgrade B
+<mark style="background-color:#f8c8c8">stderr: vendor_kit: warn[VK0022]: A newer version of B is available: current v1.2.0; new v1.3.0. Run: just vendor_kit upgrade B</mark>
 stderr: vendor_kit: error[VK0001]: Cannot list versions for C: registry read access is required. Set VENDOR_KIT_REGISTRY_TOKEN (or VENDOR_KIT_REGISTRY_TOKEN_FILE), or specify a version directly: just vendor_kit upgrade C@<tag> (pulling uses the host's Docker credentials).
 exit code: 2
 ```
@@ -220,6 +221,17 @@ exit code: 2
 - `situation`：<mark style="background-color:#f8c8c8">sync 發現 cache/ 的逐檔指紋不符，已重新取件</mark> → <mark style="background-color:#c8f0c8">sync 發現已鎖定工具的 cache/ 檔案集合或逐檔指紋不符，已依版本鎖定行重新取件；不在版本鎖定行的工具目錄不屬於這個情況</mark>
 - `message`：<mark style="background-color:#f8c8c8">Per-file digests in cache/ for &lt;repo&gt; did not match; refetched according to the lock version line.</mark> → <mark style="background-color:#c8f0c8">The file set or per-file digests in cache/ for &lt;repo&gt; did not match; refetched according to the lock version line.</mark>
 - `description`：<mark style="background-color:#f8c8c8">&lt;repo&gt; 的 cache/ 逐檔指紋不符，已依版本鎖定行重新取件。</mark> → <mark style="background-color:#c8f0c8">&lt;repo&gt; 的 cache/ 檔案集合或逐檔指紋不符，已依版本鎖定行重新取件。</mark>
+
+#### VK0022
+<mark style="background-color:#f8c8c8">（本碼停用）</mark>
+
+- `status`：<mark style="background-color:#f8c8c8">active</mark> → <mark style="background-color:#c8f0c8">retired</mark>
+- `level`：<mark style="background-color:#f8c8c8">warn</mark> → <mark style="background-color:#c8f0c8">（空）</mark>
+- `exit_code`：<mark style="background-color:#f8c8c8">1</mark> → <mark style="background-color:#c8f0c8">（空）</mark>
+- `situation`：update --exit-code 查到新版
+- `message`：<mark style="background-color:#f8c8c8">A newer version of &lt;repo&gt; is available: current &lt;current_tag&gt;; new &lt;new_tag&gt;. Run: just vendor_kit upgrade &lt;repo&gt;</mark> → <mark style="background-color:#c8f0c8">（空）</mark>
+- `description`：<mark style="background-color:#f8c8c8">&lt;repo&gt; 有新版：目前為 &lt;current_tag&gt;，新版為 &lt;new_tag&gt;。可執行：just vendor_kit upgrade &lt;repo&gt;</mark> → <mark style="background-color:#c8f0c8">（空）</mark>
+- `next_step`：<mark style="background-color:#f8c8c8">just vendor_kit upgrade &lt;repo&gt;</mark> → <mark style="background-color:#c8f0c8">（空）</mark>
 
 #### VK0023
 
@@ -542,4 +554,4 @@ exit code: 2
 - `message`：<mark style="background-color:#c8f0c8">Cannot access &lt;source&gt; for &lt;target&gt;: &lt;reason&gt;. The requested operation did not complete.</mark>
 - `description`：<mark style="background-color:#c8f0c8">無法存取 &lt;target&gt; 的來源 &lt;source&gt;：&lt;reason&gt;。要求的操作未完成。</mark>
 
-沒改動的代碼 18 個：VK0001、VK0003、VK0007、VK0011、VK0012、VK0013、VK0014、VK0016、VK0017、VK0018、VK0019、VK0020、VK0021、VK0022、VK0024、VK0027、VK0029、VK0030。
+沒改動的代碼 17 個：VK0001、VK0003、VK0007、VK0011、VK0012、VK0013、VK0014、VK0016、VK0017、VK0018、VK0019、VK0020、VK0021、VK0024、VK0027、VK0029、VK0030。

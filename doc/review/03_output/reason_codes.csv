@@ -24,7 +24,7 @@ VK0018,active,warn,1,,add 遇到已存在、尚未納管的檔,<file> already ex
 VK0019,active,warn,1,,檔案沒有納管，本次不處理,<file> is unmanaged and was not processed.,<file> 沒有納管；本次未處理這個檔。,
 VK0020,active,warn,1,,這個版本先前已由使用者拒絕,Version <tag> of <repo> was previously rejected; it was not prompted again or applied.,<repo> 的版本 <tag> 先前已被拒絕；本次不再詢問，也未套用。,
 VK0021,active,warn,1,,基準版合併留下合併衝突,<file> contains merge conflicts. Review and resolve them: git status,<file> 留下合併衝突，請檢視後解決：git status,git status
-VK0022,active,warn,1,,update --exit-code 查到新版,A newer version of <repo> is available: current <current_tag>; new <new_tag>. Run: just vendor_kit upgrade <repo>,<repo> 有新版：目前為 <current_tag>，新版為 <new_tag>。可執行：just vendor_kit upgrade <repo>,just vendor_kit upgrade <repo>
+VK0022,retired,,,,update --exit-code 查到新版,,,
 VK0023,active,error,2,待處理,upgrade --engine 換上新引擎後原指令尚未做完，或唯讀 recipe 讀到引擎升級未完成的進度檔；bootstrap.sh 只檢查或 --repair 時讀到記錄引擎升級未完成的進度檔，也報此碼，不比對或重產薄殼；<original_command> 由 VK 依進度檔填成原本的完整 upgrade 指令，保留原 tag 與 -y，不需使用者代換,Engine <vY> is now installed. Run again: <original_command>,已換上引擎 <vY>，請再執行一次原指令：<original_command>,<original_command>
 VK0024,active,error,2,,用法錯誤：只打 just vendor_kit、未指定指令,No command was specified.,未指定指令。,
 VK0025,active,error,2,,用法錯誤：VK recipe 或 bootstrap.sh 缺少必要參數（含 bootstrap.sh 的 -i／--image 沒帶 image）,Required argument is missing: <argument>.,缺少必要參數：<argument>。,
