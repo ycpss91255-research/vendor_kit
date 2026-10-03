@@ -88,7 +88,7 @@ Usage: sh bootstrap.sh [options]
 
 ### 依情況的行為
 
-表中的[原因代碼](../../GLOSSARY.md#執行與結果)見 [03 訊息](reason_codes.csv)；表中的[診斷](../../GLOSSARY.md#執行與結果)除跨 X 為 `fatal`、結束碼 `3` 外，都是 `error`、結束碼 `2`，印到 stderr，stdout 不印診斷；處置只有[待處理](../../GLOSSARY.md#執行與結果)、[失敗](../../GLOSSARY.md#執行與結果)或留空，用法錯誤的處置留空，見[訊息表](reason_codes.csv)。成功的用法、差異與結果印到 stdout，不加診斷前綴。
+表中的[原因代碼](../../GLOSSARY.md#執行與結果)見 [03 訊息](reason_codes.csv)；表中的[診斷](../../GLOSSARY.md#執行與結果)除跨 X 為 `fatal`、結束碼 `3` 外，都是 `error`、結束碼 `2`，印到 stderr，stdout 不印診斷；處置值只有 `pending`（[待處理](../../GLOSSARY.md#執行與結果)）、`failed`（[失敗](../../GLOSSARY.md#執行與結果)）或留空，用法錯誤的處置留空，見[訊息表](reason_codes.csv)。成功的用法、差異與結果印到 stdout，不加診斷前綴。
 
 | 情況 | 行為 | 結束碼 | 原因代碼 | stdout／stderr |
 |---|---|---|---|---|
@@ -298,7 +298,7 @@ just vendor_kit upgrade <repo>@v01.2.0     有前導零
 
 ### 本機覆寫
 
-`dev` 是使用者明確選擇的具名行為。開著[本機覆寫](../../GLOSSARY.md#版本與來源)時，除 `test` 外的一般 recipe 照常執行；若沒有其他診斷，就以[結束碼](03_output.md#結束碼) `0` 結束。每次執行都要在 stdout 印出用了哪一個本機覆寫，不加診斷前綴。覆寫提醒有局部前例；每次都以[正常輸出](../../GLOSSARY.md#執行與結果)報告所用覆寫，是 VK 自己的保證，因為這是使用者主動選擇的例外。`test` 對本機覆寫的處置見下方的[檢查](#檢查-test)。
+`dev` 是使用者明確選擇的具名行為。開著[本機覆寫](../../GLOSSARY.md#版本與來源)時，除 `test` 外的一般 recipe 照常執行；若沒有其他診斷，就以[結束碼](03_output.md#結束碼) `0` 結束。每次執行都要印出用了哪一個本機覆寫，不加診斷前綴；`update` 印到 stderr，其餘印到 stdout。覆寫提醒有局部前例；每次都報告所用覆寫，是 VK 自己的保證，因為這是使用者主動選擇的例外。`test` 對本機覆寫的處置見下方的[檢查](#檢查-test)。
 
 本機覆寫的範圍與解除：
 
@@ -332,7 +332,7 @@ stdin 與 stderr 都是終端 (TTY) 才算能互動；管線輸入不算，不�
 
 ## 各指令專用選項
 
-- `upgrade --engine` 分兩段執行：第一段換上目標引擎後，若原指令尚未做完，就印出 [訊息](reason_codes.csv) `VK0023` 的 `error` 診斷，以[結束碼](03_output.md#結束碼) `2` 結束。這是 VK 自己的兩段規則：換引擎後剩餘步驟由新引擎處理，手動重跑讓中間狀態可見；不是由重新載入薄殼必然推出的做法。診斷的 `next_step` 是重跑原指令；原指令在訊息定義中以占位符表示，實際輸出由 VK 填成完整、不需使用者代換的指令，保留原來的 tag 與 `-y`。照它重跑就會接著完成第二段
+- `upgrade --engine` 分兩段執行：第一段換上目標引擎後，若原指令尚未做完，就印出 [訊息](reason_codes.csv) `VK0023` 的 `error` 診斷，以[結束碼](03_output.md#結束碼) `2` 結束。這是 VK 自己的兩段規則：換引擎後剩餘步驟由新引擎處理，手動重跑讓中間狀態可見；不是由重新載入薄殼必然推出的做法。診斷本文句尾的下一步指令是重跑原指令；原指令在訊息定義中以占位符表示，實際輸出由 VK 填成完整、不需使用者代換的指令，保留原來的 tag 與 `-y`。照它重跑就會接著完成第二段
 - `sync` 的判定分階段：
   - 主機前置檢查照共同規則先判
   - 安裝目錄層的零寫入阻擋要在逐工具處理前全部判完：薄殼不符用 [訊息](reason_codes.csv) `VK0006`，版本組合不合用 `VK0008`；任一成立就不取件，兩者同時成立就兩條都印，結束碼取最大值
@@ -342,7 +342,23 @@ stdin 與 stderr 都是終端 (TTY) 才算能互動；管線輸入不算，不�
   - 本機內容被改過時重新取件，照 `VK0015`／`1`；既有印記損壞時重新取件並重建印記，印 `VK0044` 的 `warn` 並回 `1`。首次取件原本沒有印記不算損壞，不因此警告；下載內容不符鎖定 digest 時以 `VK0043` 的 `error`／`2` 報失敗，不借用表示已修好的 `VK0015`
   - cache 是可重建工作狀態，自動修復而保留警告有局部前例，完整行為是 VK 自己的規則：修好也要讓使用者知道。基準版合併需要寫追蹤檔，`sync` 只印 `VK0014` 並指向 `upgrade`，不自動合併
   - 工具 recipe 前自動觸發的 `sync` 回 `1` 時是否執行本體、整次呼叫如何回碼，待確認（依 [延期決議](https://github.com/ycpss91255-research/vendor_kit/issues/119)，留到 [自動同步與結果討論](https://github.com/ycpss91255-research/vendor_kit/issues/120)）
-- `update`：不帶工具參數時查全部工具與引擎；每次即時列 tag，不用舊查詢快取，列不到就以 `2` 報失敗，不報已最新。開著覆寫仍以版本鎖定行查詢，並印出所用覆寫。查詢結果印到 stdout，不加前綴；查到新版仍以[結束碼](03_output.md#結束碼) `0` 結束，查詢失敗照上面的規則以 `2` 結束。stdout 的可解析格式待確認（見 [update 可解析輸出討論](https://github.com/ycpss91255-research/vendor_kit/issues/342)）。
+- `update`：不帶工具參數時查全部工具與引擎；`update <repo>` 只查指定工具。每次即時列 tag，不用舊查詢快取；開著覆寫仍以版本鎖定行查詢，所用覆寫的提醒印到 stderr。已是最新或查到新版都以[結束碼](03_output.md#結束碼) `0` 結束；任何查詢失敗，整次以 `2` 結束。沒有 `--exit-code` 選項。
+  - 查詢結果的 stdout 是[契約](../../GLOSSARY.md#介面版與契約)明定、可以解析的固定格式，呼應 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)。每個查詢的工具與引擎各印一行，已是最新的也印；不論查全部或指定工具、不論終端或管線、不論查詢結果，都用同一格式：`<repo> current: <tag> latest: <tag|none>`。引擎那行第一欄是 `engine`。
+  - 第一欄是工具名（引擎用 `engine`），之後是「標籤: 值」成對；欄位以單一 ASCII 空白分隔。標籤以半形冒號結尾、不含空白，值是緊接的下一個欄位。腳本靠標籤取值，不靠欄號；同一個 X 內只會增加新的成對，不改既有標籤的意思。
+  - `current:` 的值是鎖定版本的 tag。已是最新時，`latest:` 的值等於 `current:`；有新版時是最新 tag；查不到時印 `none`，同時在 stderr 印出錯誤診斷，整次以 `2` 結束，不報已最新。`none` 只是顯示值；tag 只接受 `vX.Y.Z`，不會與它撞名。
+  - stdout 只有這些行，不加表頭、進度、顏色或前綴；其他訊息都走 stderr。標籤目前是英文，以後若做 i18n 可能翻譯標籤，比照 apt：腳本要穩定解析就設 `LC_ALL=C`，固定格式以 C locale 下的輸出為準。
+
+  示例：`base` 已是最新，`lint` 有新版，`format` 查不到，引擎已是最新。下列 `stdout:`、`stderr:` 與 `exit code:` 是示例的串流與結束碼標示，不是實際輸出內容。
+
+  ```text
+  $ LC_ALL=C just vendor_kit update
+  stdout: base current: v1.2.0 latest: v1.2.0
+  stdout: lint current: v1.0.0 latest: v1.3.0
+  stdout: format current: v2.0.0 latest: none
+  stdout: engine current: v1.4.0 latest: v1.4.0
+  stderr: vendor_kit: error[VK0055]: Cannot access registry for format: request timed out. The requested operation did not complete.
+  exit code: 2
+  ```
 - `add <repo> -i <image>`：離線導入，用本機 image 當工具來源。
 - `sh bootstrap.sh -i <image>`：用本機 image 當引擎來源，行為見 [bootstrap.sh](#bootstrapsh)。
 - 兩種離線導入共通：
