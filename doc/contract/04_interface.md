@@ -116,7 +116,7 @@ Usage: ./bootstrap.sh [options]
 
 - 不收位置參數，也沒有 `--version`。依 [VK 的 Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)版號選擇 `bootstrap.sh`，沿用 [bootstrap 介面決議](https://github.com/ycpss91255-research/vendor_kit/issues/107)的作業前提
 - 短長選項意思相同，選項順序不限；`--repair` 只有長選項
-- `-h`／`--help` 只准單獨使用，不印內嵌引擎版本；與任何其他參數並用都算用法錯誤，理由見[說明與用法錯誤](#說明與用法錯誤)
+- `-h`/`--help` 只准單獨使用，不印內嵌引擎版本；與任何其他參數並用都算用法錯誤，理由見[說明與用法錯誤](#說明與用法錯誤)
 - 只檢查與修復都不詢問，所以不接受 `-y`，避免把它誤當成寫入授權
 
 ### 首次導入還是既有安裝目錄
@@ -149,11 +149,11 @@ Usage: ./bootstrap.sh [options]
 
 表中的[診斷](../../GLOSSARY.md#執行與結果)除跨 X 為 `fatal`、結束碼 `3` 外，都是 `error`、結束碼 `2`，印到 stderr，stdout 不印診斷。成功的用法、差異與結果印到 stdout，不加診斷前綴。
 
-| 情況 | 行為 | 結束碼 | stdout／stderr |
+| 情況 | 行為 | 結束碼 | stdout/stderr |
 |---|---|---|---|
-| 單獨帶 `-h`／`--help` | 只印用法，不做主機檢查、不寫檔 | `0` | stdout：用法 |
-| 不認得的選項、多出位置參數、`-i`／`--image` 缺值，或 `-h`／`--help` 與其他參數並用 | 用法錯誤，不寫檔 | `2` | stderr：診斷與簡短用法 |
-| 既有安裝目錄帶 `-y`／`--yes`（上述未完成的首次導入例外除外），或任何情況帶 `--repair -y` | 用法錯誤，不寫檔 | `2` | stderr：診斷與簡短用法 |
+| 單獨帶 `-h`/`--help` | 只印用法，不做主機檢查、不寫檔 | `0` | stdout：用法 |
+| 不認得的選項、多出位置參數、`-i`/`--image` 缺值，或 `-h`/`--help` 與其他參數並用 | 用法錯誤，不寫檔 | `2` | stderr：診斷與簡短用法 |
+| 既有安裝目錄帶 `-y`/`--yes`（上述未完成的首次導入例外除外），或任何情況帶 `--repair -y` | 用法錯誤，不寫檔 | `2` | stderr：診斷與簡短用法 |
 | 找不到 docker、偵測到 Podman，或 Docker 低於 19.03 | 主機前置檢查失敗 | `2` | stderr：診斷 |
 | 首次導入找不到 just，或 just 低於 1.33.0 | 主機前置檢查失敗，附下載與安裝指令 | `2` | stderr：診斷與下載、安裝指令 |
 | 往上找不到 `.git` | 不寫檔，也不建立 repo | `2` | stderr：診斷 |
@@ -273,10 +273,10 @@ Advanced commands:
 
 版本組合不合又有用法錯誤時（例如 `upgrade --engine --bogus`），兩種拒絕的優先次序待確認（見 [介面修改討論](https://github.com/ycpss91255-research/vendor_kit/issues/47)），不以此擴充救援清單。
 
-`-h`／`--help`：
+`-h`/`--help`：
 
-- 各指令都有 `-h`／`--help`：把該指令的用法印到 stdout，以[結束碼](03_output.md#結束碼) `0` 結束；沒有 `help` 指令
-- 一般 recipe 的 `-h`／`--help` 只准與決定印哪份用法的 `--engine` 並用，例如 `upgrade --engine -h`；只有 `--engine` 會影響印哪份用法，`<repo>` 不算
+- 各指令都有 `-h`/`--help`：把該指令的用法印到 stdout，以[結束碼](03_output.md#結束碼) `0` 結束；沒有 `help` 指令
+- 一般 recipe 的 `-h`/`--help` 只准與決定印哪份用法的 `--engine` 並用，例如 `upgrade --engine -h`；只有 `--engine` 會影響印哪份用法，`<repo>` 不算
 - 與其他參數並用算用法錯誤：並用時 VK 不替使用者選擇要執行還是只看用法
 
 只有救援路徑中的 just 呼叫，在[薄殼](../../GLOSSARY.md#vk-組件)、[VK 檔](../../GLOSSARY.md#repo-內的檔與狀態)與引擎的版本組合不相符時仍可用，照各自原本的行為執行：
@@ -286,7 +286,7 @@ Advanced commands:
 | 不符判定 | `install`、`upgrade --engine`、`sync` |
 | 印用法 | `just vendor_kit`（不帶指令）、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項 `--help` 同） |
 
-版本組合不相符時，救援路徑以外的呼叫即使帶 `-h`／`--help`，也以結束碼 `3` 結束：stderr 印出 `fatal` 診斷並附救援指令，stdout 不印用法。`3` 只表示版本組合不合，救援清單以外的 help 不另開相容性例外；封閉清單讓舊薄殼遇到新引擎時，仍有不必手改檔的出口。薄殼被改過時的檢查與修復見 [bootstrap.sh](#bootstrapsh)。
+版本組合不相符時，救援路徑以外的呼叫即使帶 `-h`/`--help`，也以結束碼 `3` 結束：stderr 印出 `fatal` 診斷並附救援指令，stdout 不印用法。`3` 只表示版本組合不合，救援清單以外的 help 不另開相容性例外；封閉清單讓舊薄殼遇到新引擎時，仍有不必手改檔的出口。薄殼被改過時的檢查與修復見 [bootstrap.sh](#bootstrapsh)。
 
 不帶指令與不認得的名稱：
 
@@ -314,7 +314,7 @@ Advanced commands:
 用法錯誤：先在 stderr 印出 `error` [診斷](../../GLOSSARY.md#執行與結果)，再接著印簡短用法，以[結束碼](03_output.md#結束碼) `2` 結束。算用法錯誤的有：
 
 - 缺必要參數
-- VK recipe 帶了不認得的選項或多出的參數，或 `-h`／`--help` 與 `--engine` 以外的參數並用
+- VK recipe 帶了不認得的選項或多出的參數，或 `-h`/`--help` 與 `--engine` 以外的參數並用
 - tag 格式不合，見下面的[指定版本](#指定版本)
 
 以下是輸出示意：
@@ -346,7 +346,7 @@ exit code: 2
 
 | 形式 | 選項 |
 |---|---|
-| 有短也有長 | `-h`／`--help`、`-y`／`--yes`、`-i`／`--image`、`-p`／`--path` |
+| 有短也有長 | `-h`/`--help`、`-y`/`--yes`、`-i`/`--image`、`-p`/`--path` |
 | 只有長 | `--engine` |
 
 ### 指定版本
