@@ -15,7 +15,7 @@
 每個指令結束時回一個數字，給呼叫它的人或自動化判斷結果。結束碼表示整次執行的結果，與[嚴重度](../../GLOSSARY.md#執行與結果)固定對應；VK 以非零碼結束時，至少印出一條對應嚴重度的診斷：
 
 | 結束碼 | 對應嚴重度 | 意思 |
-|---|---|---|
+| - | - | - |
 | `0` | info | 成功；沒有任何[警告](../../GLOSSARY.md#執行與結果) |
 | `1` | warn | 指令承諾的結果已做完，但有警告 |
 | `2` | error | 指令承諾的結果沒做完，可能是[待處理](../../GLOSSARY.md#執行與結果)、[失敗](../../GLOSSARY.md#執行與結果)或用法錯誤 |
@@ -35,7 +35,7 @@
 ```text
 stdout: A is up to date.
 stdout: B: new version v1.3.0 available (current v1.2.0).
-stderr: vendor_kit: error[VK0001]: Cannot list versions for C: registry read access is required. Set VENDOR_KIT_REGISTRY_TOKEN (or VENDOR_KIT_REGISTRY_TOKEN_FILE), or specify a version directly: just vendor_kit upgrade C@<tag> (pulling uses the host's Docker credentials).
+stderr: vendor_kit: error[VK0001]: Cannot list versions for C: registry read access is required; pulling still uses the host's Docker credentials. Set VENDOR_KIT_REGISTRY_TOKEN (or VENDOR_KIT_REGISTRY_TOKEN_FILE), or specify a version directly: just vendor_kit upgrade C@<tag>
 exit code: 2
 ```
 

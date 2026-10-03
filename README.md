@@ -65,7 +65,7 @@ Common commands:
 
 - [01 目的與承諾](doc/contract/01_purpose.md)：為什麼做 VK，對使用者承諾什麼
 - [02 不變量](doc/contract/02_invariants.md)：任何版本都必須成立的規則
-- [03 輸出](doc/contract/03_output.md)：每個結束碼的意思，與要[使用者](GLOSSARY.md#角色與情境)動手處理的訊息
+- [03 輸出](doc/contract/03_output.md)：每個結束碼的意思，與每條[診斷](GLOSSARY.md#執行與結果)的格式
 - [04 使用者介面](doc/contract/04_interface.md)：全部指令與選項
 - [名詞表](GLOSSARY.md)
 - [架構決議 (ADR)](doc/adr/)
