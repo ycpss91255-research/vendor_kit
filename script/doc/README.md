@@ -222,7 +222,7 @@ python3 script/doc/check_messages.py
 
 欄位約定：`message.<lang>` 是印出的本文，不含 `vendor_kit: <level>[VKnnnn]: ` 前綴；下一步指令寫在 message 句尾，不另開欄。`situation.<lang>` 是這個代碼的唯一意思，給人讀。
 
-CSV 的 `situation.<lang>`、`message.<lang>` 裡的指令寫法（`just vendor_kit …`）不在這支的範圍，目前沒有工具檢查。
+CSV 的 `situation.<lang>`、`message.<lang>` 裡的指令寫法（`just vendor_kit …`）不在這支的範圍，由 `check_review_pages.py` 的 L4 檢查。
 
 各條規則的正反例在 [check_messages 測試](test/test_check_messages.py)。
 
@@ -244,7 +244,7 @@ python3 script/doc/check_review_pages.py
 - **L1**：01、02 不准原因代碼 `VKnnnn`，行內程式碼照掃，程式碼區塊不掃。
 - **L2**：01、02 的「結束碼」前後 10 字內不准反引號包住的單位數字，也不准 `exit code <數字>`。
 - **L3**：內容只能往前依賴，導覽可以往後指。審閱頁 N 以「依」或「依照」連到後面的頁就擋；README 是入口不是第 0 頁，以「依」連到審閱頁也擋。只是導覽就寫「詳見」。
-- **L4**：README 與 03 的行內程式碼、訊息表 `reason_codes.csv` 的 `situation`、`message`、`next_step` 欄，以 VK recipe 名或 `just vendor_kit <recipe>` 開頭的片段，用到的選項 token（含單獨的 `--` 與 `@<tag>`）都要先在 `GLOSSARY.md`、01、02 的行內程式碼出現過，逐 token 完整比對。還沒有 `GLOSSARY.md` 時整條跳過。
+- **L4**：README 與 03 的行內程式碼、訊息表 `reason_codes.csv` 所有以 `situation.`、`message.` 開頭的欄（依首行欄名找，不寫死語言，例如 `situation.en`、`message.zh-TW`），以 VK recipe 名或 `just vendor_kit <recipe>` 開頭的片段，用到的選項 token（含單獨的 `--` 與 `@<tag>`）都要先在 `GLOSSARY.md`、01、02 的行內程式碼出現過，逐 token 完整比對。還沒有 `GLOSSARY.md` 時整條跳過。
 
 頂端的 `TEMP_ALLOWLIST` 放暫時豁免的個別錯誤（整行原文完全相同才放行），目前是空的；輸出第一行會印筆數與命中數，悄悄長大看得見。
 
