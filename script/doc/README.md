@@ -203,23 +203,26 @@ python3 script/doc/check_typography.py --fix
 python3 script/doc/check_messages.py
 ```
 
-在 repo 根目錄執行。全過印 `OK` 回 0，任一不過逐條印出回 1。CSV 還不存在時印 `OK` 並跳過。CSV 與 03 頁的路徑只寫在 `check_messages.py` 頂端的 `CSV_PATH`、`MD_PATH` 兩個常數（#137：CSV 從 `03_output.csv` 改名為 `reason_codes.csv`）。錯誤位置報 `<檔>:<代碼>:<欄名>`，例如 `doc/contract/reason_codes.csv:VK0003:next_step`，不報實體行號。查這幾件事：
+在 repo 根目錄執行。全過印 `OK` 回 0，任一不過逐條印出回 1。CSV 還不存在時印 `OK` 並跳過。CSV 與 03 頁的路徑只寫在 `check_messages.py` 頂端的 `CSV_PATH`、`MD_PATH` 兩個常數（#137：CSV 從 `03_output.csv` 改名為 `reason_codes.csv`）。錯誤位置報 `<檔>:<代碼>:<欄名>`，例如 `doc/contract/reason_codes.csv:VK0003:message.zh-TW`，不報實體行號。
 
-- 格式：UTF-8 開頭恰好一個 BOM、只准 LF、檔尾恰好一個換行；表頭逐字等於 `code,status,level,exit_code,disposition,situation,message,description,next_step`；用 `csv` 模組以 strict 照 RFC 4180 解析，每列欄數相同。格內換行（雙引號包住的 LF）解析得過。欄位頭尾不准空白，不准以 `=`、`+`、`-`、`@`、Tab、CR 開頭（Excel 會當成公式）。
+表頭（#343）：`code,status,level,exit_code,disposition,situation.en,message.en,situation.zh-TW,message.zh-TW`。前五欄給程式讀、用英文；給人看的欄照語言分組放右邊，以後加語言就在最右邊接一組 `situation.<lang>,message.<lang>`。`en` 是基準語言：VK 印出的字句目前都用英文，其他語言的欄跟 `message.en` 比對。查這幾件事：
+
+- 格式：UTF-8 開頭恰好一個 BOM、只准 LF、檔尾恰好一個換行；用 `csv` 模組以 strict 照 RFC 4180 解析，每列欄數與表頭相同。格內換行（雙引號包住的 LF）解析得過。欄位頭尾不准空白，不准以 `=`、`+`、`-`、`@`、Tab、CR 開頭（Excel 會當成公式）。
+- 表頭：讀表依首行欄名，不依欄序。首行必須以 `code,status,level,exit_code,disposition` 開頭，其後是一組組 `situation.<lang>,message.<lang>`（同一語言成組、`situation` 在前）；必須有 `en` 與 `zh-TW` 兩組（`REQUIRED_LANGS`）。其他欄名（包括舊的 `situation`、`message`、`description`、`next_step`）報錯。
 - 代碼：`VK` 加四位數字，從 `VK0001` 起逐列加一，所以唯一、遞增、不缺列；停用的代碼留列。
-- `status` 只准 `active`、`retired`。`retired` 列只留 `code`、`status`、`situation`，其餘欄要空白。
-- `active` 列：`level` 只准 `warn`、`error`、`fatal`；`exit_code` 必須依序對應 `1`、`2`、`3`；`situation`、`message`、`description` 必填。
-- `disposition` 只准「待處理」「失敗」或空白；`warn` 一律空白，只有 `warn` 與 `situation` 以「用法錯誤：」開頭的列可留空，其他 `error`、`fatal` 的 `active` 列必填；「待處理」必有 `next_step`；「失敗」的 `next_step` 必須空白。
-- `message` 不准含中文字元（中文說明放 `description`）。
-- `next_step` 有值時，必須逐字出現在 `message` 裡。
+- `status` 只准 `active`、`retired`。每列每個語言的 `situation.<lang>` 都必填；`retired` 列只留 `code`、`status` 與所有 `situation.<lang>`，其餘欄要空白。
+- `active` 列：`level` 只准 `warn`、`error`、`fatal`；`exit_code` 必須依序對應 `1`、`2`、`3`；每個語言的 `message.<lang>` 必填。
+- `disposition` 只准 `pending`、`failed` 或空白；`warn` 一律空白，只有 `warn` 與用法錯誤可留空，其他 `error`、`fatal` 的 `active` 列必填。用法錯誤看 `situation.en` 是否以 `Usage error:` 開頭（大小寫照此）；其他語言的 `situation` 不參與判斷。
+- 結尾指令：`message.en` 最後一行最後一個 `: ` 之後的片段，是單一占位符（例如 `<original_command>`），或以 `just `、`git `、`sh `、`cd ` 開頭，就算以指令結尾。`pending` 列的 `message.en` 必須以指令結尾；`failed` 列不限。`message.en` 以指令結尾時，其他語言的 `message.<lang>` 必須逐字包含同一個指令字串。
+- 語言欄：`message.en`、`situation.en` 不准含中文字元；其他語言欄不限。`message.<lang>` 的 `<…>` 占位符集合與換行數要與 `message.en` 相同。
 - 欄位不准 HTML（有屬性的標籤、結束標籤、`<ins>`、`<br>` 這類常見標籤名、`<!--`）與 Markdown（反引號、粗體、刪除線、連結、行首的標題、清單或引言記號）；不帶屬性的 `<…>`（例如 `<repo>`、`<P>`）算占位符。`<`、`>` 要成對、不巢狀。
 - 引用：`README.md`、`doc/contract/*.md`、`GLOSSARY.md` 裡出現的每個 `VKnnnn` 都要在 CSV 裡、而且是 `active`；`doc/adr/*.md` 只要求在 CSV 裡，可以是 `retired`。連到 `reason_codes.csv` 不准帶 `#`；連結文字是代碼時不准連 `03_output.md`（03 頁不放逐碼內容），一律連 CSV。01、02 不准連 CSV。
-- 診斷範例：`README.md`、`doc/contract/*.md`、`GLOSSARY.md` 裡的 `vendor_kit: <level>[VKnnnn]: <本文>`，level 要等於 CSV，本文要符合 message 第一行，`<…>` 占位符可以對應任意文字。
-- `active` 列的 `message` 句首要大寫，或以占位符、小寫指令名 `just` 開頭；結尾要是句點，或以 `next_step`、`just vendor_kit` 指令結尾。
+- 診斷範例：`README.md`、`doc/contract/*.md`、`GLOSSARY.md` 裡的 `vendor_kit: <level>[VKnnnn]: <本文>`，level 要等於 CSV，本文要符合 `message.en` 第一行，`<…>` 占位符可以對應任意文字。
+- `active` 列的 `message.en` 句首要大寫，或以占位符、小寫指令名 `just` 開頭；結尾要是句點，或以指令結尾（上面的結尾指令，或 `just vendor_kit` 指令）。這條只套用在 `message.en`。
 
-欄位約定：`message` 是印出的英文本文，不含 `vendor_kit: <level>[VKnnnn]: ` 前綴、不准含中文（規則 4）；`description` 是給人讀的中文說明。
+欄位約定：`message.<lang>` 是印出的本文，不含 `vendor_kit: <level>[VKnnnn]: ` 前綴；下一步指令寫在 message 句尾，不另開欄。`situation.<lang>` 是這個代碼的唯一意思，給人讀。
 
-CSV 的 `situation`、`message`、`next_step` 裡的指令寫法（`just vendor_kit …`）不在這支的範圍，目前沒有工具檢查。
+CSV 的 `situation.<lang>`、`message.<lang>` 裡的指令寫法（`just vendor_kit …`）不在這支的範圍，目前沒有工具檢查。
 
 各條規則的正反例在 [check_messages 測試](test/test_check_messages.py)。
 
