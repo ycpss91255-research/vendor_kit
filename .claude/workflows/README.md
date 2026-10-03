@@ -31,6 +31,7 @@ Workflow({ name: "doc-edit", args: { /* 這份 JSON 是每次唯一要換的東�
 | `pr` | 把每一項做成一個 PR：開 issue 掛成 sub-issue、開 worktree、修改、驗證、commit、開 PR、等 CI，可選 merge；預設依序，`parallel: true` 時同時跑 | 要開一個或多個「一個 issue 一個 PR」的改動時 | `parent`、`items` |
 | `pr-fix` | 在已開 PR 的 worktree 修問題：查分支／worktree／issue 並確認乾淨且最新 → 修改 → 全部驗證 → 一個 commit → push → 等 CI；不 merge。`pr` 給陣列時各 PR 同時修、互不影響 | PR 已經開了、CI 或審查要求再改時；CI 通過就停 | `pr`、`problem`、`todo`、`commit` |
 | `diagram-edit` | 改圖的固定流程：準備（輪次、備份、確認 drawio 頁面有效並載入）→ 改圖（drawio MCP，只改指定頁）→ lint 歸零（最多 3 輪）→ 匯出 PNG → codex 審查 → 套用必改 → 再跑 lint 與 `<diagram id>` 範圍檢查；不 commit，建議只回報 | 改 repo 裡的 `.drawio` 圖時；主對話要先持有 drawio 頁面 | `file`、`pages`、`task` |
+| `review-pack` | 送審打包：定位主 repo → `script/doc/mark_changes.py` 重產送審副本 → commit 副本 → 依 `noteBrief` 寫審閱說明 → `script/doc/pack_review.py` 打包 → commit `doc/review/versions.json`；回傳 zip 與每頁本機檔的絕對路徑 | 要把 PR worktree 的審閱頁打包成 `review_v<N>.zip` 送給維護者時；傳 zip 時同時給本機路徑 | `repo`、`branch`、`pages`、`refs`、`noteBrief` |
 
 `doc-edit` 的選填欄位：`repo`（要改哪份檔的 repo 根目錄，絕對路徑；不給就用主 repo；要改 PR worktree 的檔時明確帶）、`ask`（不給就跳過「改寫」）、`background`、`codex_focus`（審查額外要看的重點）、`editor`（`codex` 預設｜`claude`）、`mode`（`full` 預設｜`light`）、`effort`（`{ edit, polish, review }`）、`topic`（短主題，例如 `"#121"`）。`discuss` 的選填欄位：`background`（已定案前提）、`repo`（要讀哪份檔的 repo 根目錄，絕對路徑：codex 的 `--cd` 與輸出位置；不給就用主 repo；要讀 PR worktree 的檔時明確帶）。`discuss` 分開兩個值：`repo` 只決定讀哪份檔與輸出寫到哪；腳本（`codex_run.py` 等）一律從主 repo 的 `script/workflow/` 取，所以 `repo` 指向沒有 `script/workflow/` 的舊分支 worktree 也找得到腳本（#269）。主 repo 由第一步的 effort low 子代理查出：不論有沒有給 `repo`，都在 `repo`（沒給就用它的工作目錄）跑 `git rev-parse --path-format=absolute --git-common-dir`，取結果的上一層，在 linked worktree 也會回到主 repo；開頭的 log 印出兩個值。`discuss` 的 codex 一律透過 `script/workflow/codex_run.py` 呼叫：brief 用 Write 工具寫進子代理的 scratchpad，成敗看腳本輸出的 JSON（`ok`／`exit`／`error`／`stderr_tail`），不看 shell 的結束碼。`research` 的選填欄位：`repo`（絕對路徑，只用來找主 repo：不論有沒有給，第一步都派 effort low 子代理在 `repo`（沒給就用它的工作目錄）跑 `git rev-parse --path-format=absolute --git-common-dir`，取其上一層當主 repo，在 linked worktree 也會回到主 repo；腳本一律從主 repo 的 `script/workflow/` 取，workspace 是主 repo 的上一層，所以 `repo` 指向沒有新腳本的舊分支 worktree 也不會找錯（#287）；開頭的 log 印出主 repo、腳本與 workspace）、`dir`（預設 `<workspace>/reference/research/<issue>`）、`background`（已定案前提）、`post`（預設 `true`；`false` 就只產檔、不貼 issue）、`agyModel`（指定 agy 模型名；不給就由 `agy_run.py` 自動選最新的 gemini flash-high 模型）、`codexTimeout`（codex 核對的逾時秒數，傳給 `codex_run.py --timeout`，預設 2400，必須是 1～7000 的整數；背景 Bash 上限 7200 秒，要留時間給腳本收尾）。`research` 每次執行開頭印出識別 `research #<issue>`，子代理的 label 也帶 `#<issue>` 前綴。`research` 的機械步驟由子代理呼叫腳本、讀它印出的 JSON：調查是 `agy_run.py`（輸出先寫 `.part`，成功才改名），核對是 `codex_run.py --timeout <codexTimeout> --delete-brief --reuse`（brief 用 Write 工具寫檔）。`--reuse` 讓腳本在 `<id>_codex.md` 已存在且非空時直接沿用、不跑 codex（JSON 的 `reused` 是 true），所以重跑只補失敗的，子代理不自己檢查輸出檔。核對的子代理每次只跑一次 `codex_run.py`：用 Write 寫 brief，先 `rm -f <id>_codex_run.json`，再用 Bash `run_in_background` 跑 `codex_run.py ... > <id>_codex_run.json 2>&1`，codex 本身不用前景指令：前景 Bash 上限 600 秒，逐條核對大份調查會超過（#47 有 6 份在舊預設 570 秒被砍掉）。啟動後子代理用前景 Bash（timeout 600000）跑等待迴圈 `timeout 590 sh -c 'until [ -s <id>_codex_run.json ]; do sleep 15; done'; test -s <id>_codex_run.json && echo ready || echo waiting`，印 waiting 就再跑同一行，直到 ready；總等待超過 `codexTimeout`＋120 秒（重試時再加 60 秒）就回報 `timed_out`。ready 後讀 `<id>_codex_run.json` 的 JSON，結束時刪掉這個檔。不要用 Monitor 等（`monitor_guard` hook 會擋，#70），也不要只等背景通知就先輸出回報：子代理一輸出 structured output，背景工作就被砍、`<id>_codex.md` 不會產出（#302）。子代理照抄 JSON 的 `ok`、`exit`、`reused`、`timed_out`、`capacity`、`error`、`stderr_tail` 回報，不判斷要不要重試。重試由 JS 決定：`capacity` 是 true（codex 的 stderr 含 `at capacity`，模型滿載）且 `ok` 是 false、沒有逾時，而且還沒重試滿 2 次，就再派一次同一個子代理，背景指令前加 `sleep 60; `（背景 timeout 與等待次數多算 60 秒）；逾時與其他失敗不重試。`attempts`（實際跑 `codex_run.py` 的次數，沿用也算 1 次）由 JS 算，核對結果另外帶 `reused`、`timed_out` 與 `capacity`。貼 issue 的子代理照順序跑三個指令：`prepare_comment.py prepare`（標記、註記行、本機路徑換相對、超過 60000 字元切分，並用 hook 的規則自檢）→ `script/github/post_comments.py --kind issue --number <issue> --dir <dir>/post`（依檔名順序貼出，每則寫入前把同一個 argv 交給 hook 檢查，任一則被擋就一則都不貼）→ `prepare_comment.py clean`（前兩步失敗也跑）；子代理不自己下 `gh issue comment`，只回報 prepare 的 `files` 則數與 post_comments 的 JSON 原文。`planned`（留言檔則數）與 `urls` 由 JS 從兩個 JSON 取，兩者數目不同、`planned` 是 0 或 post_comments 失敗時回傳值帶 `error`。`pr` 與 `pr-fix` 的參數見下面。
 
@@ -175,6 +176,37 @@ args 欄位：
 任何一步失敗就停，回傳值的 `stopped` 是停在哪一步、`error` 是原因。回傳 `{ round, repo, main, file, pages, backup, edits, lint, png, review, applied, diff, stopped, error }`：`lint` 有 `blocking`（指定頁）與 `outside`（其他頁，只回報），`png` 是最後一次匯出的 PNG 路徑（套用必改後就是套用後那張，跟最終的 `file` 一致），`review.suggest` 是給維護者的建議。
 
 args 範例在 `diagram-edit.js` 檔尾。
+
+## review-pack
+
+把 PR worktree 裡的審閱頁打包成 `review_v<N>.zip` 送給維護者。開始時印出 `review-pack <branch> <頁>`，子代理的 label 帶 `review-pack` 前綴。每次傳 zip 都同時給本機路徑：回傳值列出 zip、審閱說明與每頁送審副本的絕對路徑。
+
+args 欄位：
+
+| 欄位 | 必填 | 說明 |
+|---|---|---|
+| `repo` | 是 | PR worktree 的絕對路徑（例如 `.../worktree/pr/59`）；重產、打包、commit 都在這裡做 |
+| `branch` | 是 | `repo` 目前的分支，不能是 `main`；`commit_push.py` 會確認一致並 push 到這個分支 |
+| `pages` | 是 | 頁鍵陣列，寫法同 `versions.json` 與 `mark_changes.py`，例如 `["02_invariants","03_output","04_interface","GLOSSARY.md"]` |
+| `refs` | 是 | commit footer 的 issue 編號陣列；第一個交給 `commit_push.py --refs`，其餘寫進訊息最後的 footer 段 |
+| `noteBrief` | 是 | 審閱說明要寫的內容：這次改了什麼、待確認、更正等，子代理照寫 |
+| `notePrev` | 否 | 上一版審閱說明的絕對路徑，子代理沿用它的格式 |
+
+步驟（主 repo 由第一步的 effort low 子代理在 `repo` 跑 `git rev-parse --path-format=absolute --git-common-dir` 取上一層，workspace 是主 repo 的上一層；腳本一律從主 repo 的 `script/` 取，子代理只跑指令、照抄輸出，成敗由 JS 讀腳本的 JSON 判斷）：
+
+| 步驟 | 做法 |
+|---|---|
+| 重產 | 在 `repo` 跑 `script/doc/mark_changes.py <pages>`，再跑 [`script/doc/review_paths.py`](../../script/doc/README.md) `pages --repo <repo> <pages>` 取送審資料夾、檔案、這次的版號、基準與 zip 號 N（`review_zip`＋1）。版號與基準一定在打包前取：打包會追加這一版的紀錄並清掉 `finalized` |
+| commit 副本 | 送審資料夾有改動才做：`script/git/commit_push.py --add <有改動的 doc/review/<鍵>>`，標題 `docs(review): 重產送審副本`，內文列各頁的基準。要先 commit：`pack_review.py` 把 HEAD 記成這一版的基準 commit |
+| 審閱說明 | Claude 子代理依 `noteBrief` 寫 `<workspace>/reference/research/batch3/00_審閱說明_v<N>.md`，結尾「各檔版本」貼 JS 從 `review_paths.py` 組好的版本表（頁、這包的版本、基準） |
+| 打包 | 在 `repo` 跑 `script/doc/pack_review.py --note <說明> --out <workspace>/reference/review_sent/ <pages>`，產出的 zip 名要等於 `review_v<N>.zip`，不同就停；再用 `review_paths.py zip` 列出 zip 內容 |
+| commit 送審紀錄 | `commit_push.py --add doc/review/versions.json`，標題 `chore(review): 送審 review_v<N>` |
+
+commit 訊息由子代理用 Write 寫進 scratchpad 的 `review-pack/<分支>/`，不加署名；commit 與 push 一律經 `commit_push.py`（寫入前經 hook 檢查），子代理不自己下 git 寫入指令。任何一步失敗就停，`stopped` 是停在哪一步、`error` 是原因。
+
+回傳 `{ ok, repo, main, workspace, branch, zip, zip_files, local_files, note, versions, commits, stopped, error }`：`zip` 是 zip 的絕對路徑、`zip_files` 是 zip 內檔名；`local_files` 每頁 `{ key, dir, files }`，`files` 是 `<repo>/doc/review/<鍵>/` 底下 `.md`、`.marked.md`、`.csv` 的絕對路徑；`note` 是審閱說明路徑；`versions` 每頁 `{ name, key, version, base }`，`base` 是 `{ kind, v }`（`finalized`、`replied` 或 `none`）；`commits` 是 `{ copies, versions }` 兩個 SHA（副本沒改動時 `copies` 是 `null`）。
+
+args 範例在 `review-pack.js` 檔尾。
 
 ## 共用護欄
 
