@@ -12,7 +12,7 @@ vendor_kit ([VK](../../../GLOSSARY.md#角色與情境)) 把一套[工具](../../
 
 ### 主機需求
 
-依 [02 不變量第 5 條](../../contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)，主機只需要這三個：
+除平台本來就有的 shell 與基本指令外，主機只需要這三個（詳見 [02 不變量第 5 條](../../contract/02_invariants.md#5-主機依賴最小除平台既有的基本工具外只需-dockergitjust)）：
 
 - [Docker](https://www.docker.com/)
   - 19.03 以上
@@ -34,7 +34,7 @@ vendor_kit ([VK](../../../GLOSSARY.md#角色與情境)) 把一套[工具](../../
 
 > 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，下面的網址目前找不到檔案，照做會[失敗](../../../GLOSSARY.md#執行與結果)。進度見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
 
-發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡，依 [02 不變量第 3 條](../../contract/02_invariants.md#3-自動化不寫追蹤檔)。
+發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡（詳見 [02 不變量第 3 條](../../contract/02_invariants.md#3-自動化不寫追蹤檔)）。
 
 ```sh
 curl -fsSLO https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh
@@ -46,14 +46,15 @@ sh bootstrap.sh
 ## 使用方式
 
 ```
-用法：just vendor_kit <指令> [參數] [選項]
+Usage: just vendor_kit <command> [arguments] [options]
 
-常用指令：
-  add <repo>                  把一個工具納入這個安裝目錄
-  upgrade <repo>              把鎖定版本換成新版
-  upgrade <repo>@<tag>        換成指定版本；指定舊 tag 就是退版
-  dev <repo> -p <dir>         讓工具改用本機目錄
-  dev --engine -i <image>     讓引擎改用本機 image
+Common commands:
+  add <repo>                  Import a tool into this install directory
+  add <repo>@<tag>            Import a specified version without listing versions
+  upgrade <repo>              Upgrade the locked version to a newer version
+  upgrade <repo>@<tag>        Switch to a specified version; an older tag downgrades the tool
+  dev <repo> -p <dir>         Use a local directory for the tool
+  dev --engine -i <image>     Use a local image for the engine
 ```
 
 - 每個指令都支援 `-h`／`--help`，印出該指令的用法
@@ -64,7 +65,7 @@ sh bootstrap.sh
 
 - [01 目的與承諾](../../contract/01_purpose.md)：為什麼做 VK，對使用者承諾什麼
 - [02 不變量](../../contract/02_invariants.md)：任何版本都必須成立的規則
-- [03 輸出](../../contract/03_output.md)：每個結束碼的意思，與要[使用者](../../../GLOSSARY.md#角色與情境)動手處理的訊息
+- [03 輸出](../../contract/03_output.md)：每個結束碼的意思，與每條[診斷](../../../GLOSSARY.md#執行與結果)的格式
 - [04 使用者介面](../../contract/04_interface.md)：全部指令與選項
 - [名詞表](../../../GLOSSARY.md)
 - [架構決議 (ADR)](../../adr/)

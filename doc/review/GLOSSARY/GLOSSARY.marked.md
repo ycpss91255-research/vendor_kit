@@ -191,6 +191,9 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 讓使用者預先回答詢問的選項。
 寫法：`-y`，長選項 `--yes`。
 
+<mark style="background-color:#c8f0c8">**選項結束標記** (end of options)：表示選項到此為止的記號。</mark>
+<mark style="background-color:#c8f0c8">寫法：單獨的 `--`；它之後的參數一律當位置參數，即使以 `-` 開頭。</mark>
+
 **診斷** (diagnostic)：
 <mark style="background-color:#f8c8c8">VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷的 level 只有 `warn`、`error`、`fatal`；`info` 只用來標結束碼 `0`，不印前綴。</mark>
 <mark style="background-color:#c8f0c8">VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。</mark>
@@ -230,7 +233,8 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 
 **`update`、`upgrade`**：
 `update` 只查有沒有新版；`upgrade` 把鎖定版本換成新版或指定版本。
-寫法：`just vendor_kit update`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。
+<mark style="background-color:#f8c8c8">寫法：`just vendor_kit update`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。</mark>
+<mark style="background-color:#c8f0c8">寫法：`just vendor_kit update`，指定工具用 `just vendor_kit update <repo>`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。</mark>
 
 **`dev` / `undev`**：
 `dev` 讓引擎或工具改用本機開發來源，`undev` 使它回到鎖定版本；兩者的關係見[成對與無害](../../contract/04_interface.md#成對與無害)。

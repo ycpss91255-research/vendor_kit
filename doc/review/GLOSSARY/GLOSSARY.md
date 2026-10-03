@@ -181,6 +181,9 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 讓使用者預先回答詢問的選項。
 寫法：`-y`，長選項 `--yes`。
 
+**選項結束標記** (end of options)：表示選項到此為止的記號。
+寫法：單獨的 `--`；它之後的參數一律當位置參數，即使以 `-` 開頭。
+
 **診斷** (diagnostic)：
 VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。
 
@@ -213,7 +216,7 @@ VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整
 
 **`update`、`upgrade`**：
 `update` 只查有沒有新版；`upgrade` 把鎖定版本換成新版或指定版本。
-寫法：`just vendor_kit update`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。
+寫法：`just vendor_kit update`，指定工具用 `just vendor_kit update <repo>`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。
 
 **`dev` / `undev`**：
 `dev` 讓引擎或工具改用本機開發來源，`undev` 使它回到鎖定版本；兩者的關係見[成對與無害](../../contract/04_interface.md#成對與無害)。
