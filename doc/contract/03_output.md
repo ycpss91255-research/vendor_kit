@@ -36,7 +36,7 @@
 stdout: A current: v1.2.0 latest: v1.2.0
 stdout: B current: v1.2.0 latest: v1.3.0
 stdout: C current: v2.0.0 latest: none
-stderr: vendor_kit: error[VK0001]: Cannot list versions for C: registry read access is required; pulling still uses the host's Docker credentials. Set VENDOR_KIT_REGISTRY_TOKEN (or VENDOR_KIT_REGISTRY_TOKEN_FILE), or specify a version directly: just vendor_kit upgrade C@<tag>
+stderr: vendor_kit: error[VK0001]: Cannot list versions for C: registry read access is required; pulling still uses the host's Docker credentials. Add --registry-token-file <path> and rerun, or specify a version directly: just vendor_kit upgrade C@<tag>
 exit code: 2
 ```
 
@@ -44,13 +44,14 @@ exit code: 2
 
 - 成功時改了什麼、查詢或檢查結果，以及 `bootstrap.sh` 與各 recipe 的 `-h`/`--help` 用法只印到 stdout，不加前綴
 - stderr 只放診斷及其續行、[詢問](../../GLOSSARY.md#執行與結果)文字、不帶指令時第一行的版本行、用法錯誤後附的用法，以及 [update](../../GLOSSARY.md#vk-recipe-與用途) 印的[本機覆寫](../../GLOSSARY.md#版本與來源)提醒（不加前綴）
+- `test <path>` ([test](../../GLOSSARY.md#vk-recipe-與用途)) 時，runner 的 stdout、stderr 照原樣轉出，不屬於 VK 的固定格式、不可解析，依 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)
 - 只打 `just vendor_kit`、不帶指令時，stderr 依序印版本行、下列診斷與簡短用法，以 `2` 結束：
 
   ```text
   $ just vendor_kit
   stderr: vendor_kit <version>
   stderr: vendor_kit: error[VK0024]: No command was specified.
-  stderr: Usage: just vendor_kit <command> [arguments] [options]
+  stderr: Usage: just vendor_kit <cmd> [arguments] [options]
   exit code: 2
   ```
 - 主機前置檢查（檢查主機上的 Docker 與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。各入口檢查哪幾項見 [04 使用者介面](04_interface.md#bootstrapsh)
@@ -79,6 +80,8 @@ exit code: 2
 
 每個代碼的嚴重度、處置、情況與本文，只寫在[訊息表](reason_codes.csv)，一列一個代碼。訊息表只收 warn、error、fatal 的診斷；不是診斷的字句（stdout 的正常輸出、詢問、用法、版本行、本機覆寫提醒、執行紀錄的一般條目）不登錄。
 
+`bootstrap.sh` 用到的訊息在發布時由訊息表產生並內嵌進 `bootstrap.sh`。
+
 處置與下一步：
 
 - 處置是診斷的屬性，不是嚴重度。待處理表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令；失敗不承諾可執行的修法，但可以附一般建議；warn 的列與用法錯誤留空
@@ -97,12 +100,13 @@ exit code: 2
   - 儲存格裡沒有 HTML 與 Markdown，寫的就是要印的字
   - 依首行的欄名讀，不依欄序
 - 欄位
-  - 左邊五欄給程式讀，只用英文：
+  - 左邊六欄給程式讀，只用英文；加上目前兩組語言欄，共十欄：
     - `code`：原因代碼，依代碼升冪排列；新代碼持續遞增，大版本清理停用列後可留下缺號
     - `status`：`active` 使用中；`retired` 已停用
     - `level`：現行值為 `warn`、`error`、`fatal`，對應的結束碼見[結束碼](#結束碼)
     - `exit_code`：該 `level` 欄對應的結束碼；`warn` 為 `1`、`error` 為 `2`、`fatal` 為 `3`；`retired` 列留空
     - `disposition`：處置，`pending`（待處理）、`failed`（失敗）或留空；warn 的列與用法錯誤（`situation.en` 以 `Usage error:` 開頭的列）留空
+    - `source`：發出診斷的入口，放在 `disposition` 之後、語言欄之前；值為 `bootstrap` (`bootstrap.sh`)、`engine`（引擎）、`launcher`（薄殼的[啟動器](../../GLOSSARY.md#vk-組件)）、`test` (test)；可有多個值，以單一空白分隔，依 `bootstrap`、`engine`、`launcher`、`test` 的順序排列；`retired` 列留空
   - 右邊照語言分組，每組是 `situation.<lang>`、`message.<lang>`，目前有 `en`、`zh-TW`；之後加語言就在最右邊接一組：
     - `situation.<lang>`：什麼情況發出這個代碼，是它唯一的意思，給人閱讀
     - `message.<lang>`：印出的本文，不含前綴；目前只印 `message.en`，逐字照印；多行診斷在同一格內換行，一行對應印出的一行；占位符與換行在各語言一致
