@@ -1,5 +1,5 @@
 {
-  "review_zip": 13,
+  "review_zip": 14,
   "pages": {
     "01_purpose": [
       {
@@ -134,6 +134,11 @@
         "v": 23,
         "commit": "d3033d0f44b389dcf2ef9c9f5b10cda87c3205e5",
         "replied": true
+      },
+      {
+        "v": 24,
+        "commit": "6f4cc3802e4a381b7ba915296c8860cab637680b",
+        "replied": false
       }
     ],
     "04_interface": [
@@ -187,6 +192,11 @@
         "v": 27,
         "commit": "d3033d0f44b389dcf2ef9c9f5b10cda87c3205e5",
         "replied": true
+      },
+      {
+        "v": 28,
+        "commit": "6f4cc3802e4a381b7ba915296c8860cab637680b",
+        "replied": false
       }
     ],
     "GLOSSARY": [
@@ -240,6 +250,11 @@
         "v": 15,
         "commit": "d3033d0f44b389dcf2ef9c9f5b10cda87c3205e5",
         "replied": true
+      },
+      {
+        "v": 16,
+        "commit": "6f4cc3802e4a381b7ba915296c8860cab637680b",
+        "replied": false
       }
     ],
     "README": [
@@ -288,6 +303,11 @@
       {
         "v": 14,
         "commit": "d3033d0f44b389dcf2ef9c9f5b10cda87c3205e5",
+        "replied": false
+      },
+      {
+        "v": 15,
+        "commit": "6f4cc3802e4a381b7ba915296c8860cab637680b",
         "replied": false
       }
     ]
