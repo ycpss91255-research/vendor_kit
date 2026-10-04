@@ -28,7 +28,7 @@ vendor_kit ([VK](GLOSSARY.md#角色與情境)) 把一套[工具](GLOSSARY.md#工
 版本不足時：
 
 - Docker 版本不足：在任何寫入之前結束
-- just 版本不足：首次[導入](GLOSSARY.md#角色與情境)時，`bootstrap.sh` 在任何寫入之前結束，並印出下載與安裝指令；已有安裝目錄時，由 just 自己報錯。詳細行為與結束碼見 [04 使用者介面](doc/contract/04_interface.md#主機需求)
+- just 版本不足：首次[導入](GLOSSARY.md#角色與情境)時，`bootstrap.sh` 在任何寫入之前結束，並印出下載與安裝指令；已有安裝目錄時，由 just 自己報錯。詳細行為見 [04 使用者介面](doc/contract/04_interface.md#主機需求)，[診斷](GLOSSARY.md#執行與結果)與[結束碼](GLOSSARY.md#執行與結果)見[訊息表](doc/contract/reason_codes.csv)
 
 ### 第一次導入
 
@@ -69,7 +69,7 @@ VK 提供 Renovate regex preset。[使用者](GLOSSARY.md#角色與情境)在自
 
 > 尚未可用：preset 尚未發布，Renovate 設定的 `extends` 引用值待發布時提供。進度見 [issue #25](https://github.com/ycpss91255-research/vendor_kit/issues/25)。
 
-Renovate 開出工具的 PR 後，使用者在本機切到該 PR 分支，執行 `just vendor_kit upgrade <repo> -y`，再自行 commit、push；CI 通過後才 merge。引擎 PR 的收尾流程待確認，見 [issue #47](https://github.com/ycpss91255-research/vendor_kit/issues/47)。指令見 [04 使用者介面](doc/contract/04_interface.md)；VK 對 preset 的承諾見 [04 使用者介面的追蹤新版](doc/contract/04_interface.md#追蹤新版)。
+Renovate 開出工具的 PR 後，使用者在本機切到該 PR 分支，執行 `just vendor_kit upgrade <repo> -y`，再自行 commit、push；CI 通過後才 merge。引擎 PR 的收尾流程待確認，見 [issue #370](https://github.com/ycpss91255-research/vendor_kit/issues/370)。指令見 [04 使用者介面](doc/contract/04_interface.md)；VK 對 preset 的承諾見 [04 使用者介面的追蹤新版](doc/contract/04_interface.md#追蹤新版)。
 
 ## 文件
 

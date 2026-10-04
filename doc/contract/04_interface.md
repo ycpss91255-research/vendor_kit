@@ -34,7 +34,7 @@
 
 [工具 image](../../GLOSSARY.md#工具與出貨) 與[引擎 image](../../GLOSSARY.md#工具與出貨) 的 [registry](../../GLOSSARY.md#工具與出貨) 支援範圍：
 
-- 支援：GHCR
+- 支援：GitHub Container Registry (GHCR)
 - 不支援：Docker Hub、Quay、GitLab Container Registry、自架 registry、其他
 
 引擎 image 公開；工具 image 是否公開，由[出貨](../../GLOSSARY.md#角色與情境)的 repo 決定。測試用 image 的範圍另見[檢查 (test)](#檢查-test)。
@@ -80,7 +80,7 @@
 
 `bootstrap.sh` 是啟動器，每個 Release 各附一份，檔名固定，版本在下載路徑。取得與執行流程：
 
-1. 在 [VK Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)選版本；把下面的 `vX.Y.Z` 換成選定版號。含此資產的 Release 尚未發布前，流程尚不可用。
+1. 在 [VK Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)選版本；把下面的 `vX.Y.Z` 換成選定版號；本頁的 `vX` 指 `vX.Y.Z` 的 X。含此資產的 Release 尚未發布前，流程尚不可用。
 
    ```bash
    vk_version=vX.Y.Z
@@ -110,7 +110,7 @@
 
 | 呼叫 | 正常行為 |
 |---|---|
-| 不帶選項，未安裝或首次導入未完成 | 取得內嵌那版[引擎](../../GLOSSARY.md#vk-組件)，呼叫 `install` 導入目前目錄 |
+| 首次導入（可帶 `-i`、`-y`），或未完成的首次導入 | 取得內嵌那版[引擎](../../GLOSSARY.md#vk-組件)（帶 `-i` 時改用指定的本機 image），呼叫 `install` 導入目前目錄 |
 | 不帶選項，既有安裝目錄 | 只檢查薄殼；一致時報告一致 |
 | `--repair`，既有安裝目錄 | 一致則不重產；不符則先逐檔列差異，再重產並報告結果，不詢問 |
 | 單獨 `-h` / `--help` | 只印用法，不做主機檢查、不寫檔，不印內嵌引擎版本 |
@@ -124,7 +124,7 @@
 
 目前目錄沒有 `.vendor_kit/` 才是首次導入；有就按既有安裝目錄處理。讀不出恰好一行有效的引擎[版本鎖定行](../../GLOSSARY.md#版本與來源)時，不猜版本或改走首次導入，處置見[訊息表](reason_codes.csv)。
 
-唯一例外是未完成的首次導入，允許帶 `-y` 重跑：最近一筆執行紀錄是首次導入，且符合任一條件：
+唯一例外是未完成的首次導入：允許重跑首次導入，也可帶 `-y`；條件是最近一筆執行紀錄是首次導入，且符合任一條件：
 
 - 因需詢問、沒帶 `-y` 又不能互動（含 EOF）而停下，除紀錄外未修改任何檔
 - 建紀錄後、寫入引擎版本鎖定行前結束，不論是否已寫入其他檔
@@ -132,7 +132,7 @@
 例外判定：
 
 - 讀得出有效引擎版本鎖定行，就不套用例外
-- 只用字串相等比對最近一筆執行紀錄的模式、停下原因、是否修改其他檔、結束階段；不靠目錄內有哪些檔
+- 依最近一筆執行紀錄判定是否符合上述條件，不靠目錄內有哪些檔
 - 紀錄不足以唯一判定就不套用；此狀態的用法錯誤或 `--repair` 呼叫不建紀錄，不改變判定用的最近一筆紀錄
 
 ### 用哪一版引擎
@@ -144,12 +144,12 @@
 
 既有安裝目錄帶 `-i` 可用本機 image 或 image tar，但 [digest](../../GLOSSARY.md#工具與出貨) 必須符合鎖定行；以 [image 引用](../../GLOSSARY.md#工具與出貨)指定時，完整引用也須相同。
 
-`vX` 指 `vX.Y.Z` 的 X。腳本只保證與同一個 vX 的鎖定引擎一起用；跨 vX 時須換用對應 vX 的腳本。拒絕結果見[訊息表](reason_codes.csv)。
+腳本只保證與同一個 vX 的鎖定引擎一起用；跨 vX 時須換用對應 vX 的腳本。拒絕結果見[訊息表](reason_codes.csv)。
 
 ### 判定順序
 
 1. 先看 `.vendor_kit/` 與有效鎖定行，必要時依既有執行紀錄辨識未完成首次導入，以判定是否接受 `-y`
-2. 判用法、檢查主機；三種模式都檢查 Docker，just 只在首次導入檢查，git 位置見[主機需求](#主機需求)
+2. 判用法、檢查主機；首次導入、只檢查、`--repair` 都檢查 Docker，just 只在首次導入檢查，git 位置見[主機需求](#主機需求)
 3. 建紀錄前判定跨 vX、git 位置、首次導入的巢狀安裝、非安裝目錄的 `--repair`，以及不適用例外的無效鎖定行；被拒絕時不建紀錄、不寫檔
 4. 依 [02 不變量第 4 條](02_invariants.md#4-永不靜默失敗)建執行紀錄，再取得 image、啟動引擎；首次導入在呼叫 `install` 前建好，只檢查與修復在比對前建好
 5. 只檢查與修復先辨識升引擎未完成的[進度檔](../../GLOSSARY.md#repo-內的檔與狀態)；有就依訊息表的下一步重跑原 `upgrade`，不比對或重產薄殼
@@ -198,7 +198,7 @@ v1.0.0 的 `add`、`upgrade`、`remove`、`dev`、`undev` 一次只處理一個[
 just vendor_kit <cmd> [arguments] [options]
 ```
 
-`vendor_kit` 是 VK 的命名空間，`<cmd>` 是 VK recipe 名稱。工具自己的呼叫則為 `just <ns> <cmd>`，其中 `<cmd>` 換成工具 recipe 名稱。
+`vendor_kit` 是 VK 的命名空間，`<cmd>` 是 VK recipe 名稱。工具 recipe 的呼叫則為 `just <ns> …`。
 
 - 一個工具可提供多個 [\<ns\> 命名空間](../../GLOSSARY.md#工具與出貨)
 - `vendor_kit` 是保留名稱，不接受 `add vendor_kit`
@@ -224,7 +224,7 @@ just vendor_kit <cmd> [arguments] [options]
 
 參數與選項：
 
-- 位置參數通常只放工具名稱 [\<repo\>](../../GLOSSARY.md#工具與出貨)；`test <path>` 是例外。`test dist` 是完整指令名，`dist` 不是工具名或 path
+- 位置參數只放工具名稱 [\<repo\>](../../GLOSSARY.md#工具與出貨)；`test <path>` 是例外。`test dist` 是完整指令名，`dist` 不是工具名或 path
 - 其他值以選項帶入，例如 `-p <dir>`、`-i <image>`；選項可放位置參數前或後
 - 引擎一律用 `--engine`；帶版本只收 `--engine=<tag>`，不收 `--engine <tag>`；工具用 `<repo>@<tag>`
 - [選項結束標記](../../GLOSSARY.md#執行與結果)為單獨的 `--`；之後一律當位置參數，即使以 `-` 開頭
@@ -288,7 +288,7 @@ just vendor_kit <cmd> [arguments] [options]
 
 `--registry-token-file <path>`：
 
-- 只有長選項，只收檔案路徑，不收 token 字串；相對路徑以安裝目錄為準
+- 只有長選項，只收檔案路徑，不收 token 字串；不從 stdin 讀，單獨的 `-` 算用法錯誤；相對路徑以安裝目錄為準
 - 只有 `update`、`add`、`upgrade <repo>` 接受，不適用引擎升版
 - 只有真的要查版本清單時才讀檔；指定 tag 或離線導入而不查清單時不讀
 - 憑證用途見 [registry 與認證](#registry-與認證)，讀檔與認證問題見[訊息表](reason_codes.csv)
@@ -321,11 +321,11 @@ just vendor_kit <cmd> [arguments] [options]
 - 每次即時查 tag，不用舊查詢快取，沒有 `--exit-code` 選項
 - 查詢結果是可解析的固定格式：`<repo> current: <tag> latest: <tag>`
 - 每個查詢對象一行，已最新也印，順序不承諾；引擎的工具名欄用 `vendor_kit`
-- 欄位以單一 ASCII 空白分隔，欄名以半形冒號結尾，值緊接下一欄；靠欄名取值，不靠欄號，同一 vX 只增成對欄位
+- 欄位以單一 ASCII 空白分隔，欄名以半形冒號結尾，值緊接下一欄；靠欄名取值，不靠欄號，同一個 vX 內只會新增「欄名: 值」成對欄位
 - `current:` 是鎖定版本的 tag；`latest:` 是依[指定版本](#指定版本)算出的最新 tag，可能比 current 舊
 - 查詢失敗時該行 `latest: none`；registry 有 tag 卻無合法 `vX.Y.Z` 也如此。`none` 只是顯示值，診斷與結束碼見[訊息表](reason_codes.csv)
 - stdout 只有結果行，不加表頭、進度、顏色或前綴；其他訊息到 stderr
-- i18n 前一律英文；日後腳本以 `LC_ALL=C` 固定欄名
+- 目前輸出一律英文，設不設 `LC_ALL=C` 結果相同；日後若做 i18n，要穩定解析的腳本請設 `LC_ALL=C`
 
 正常結果示例：
 
@@ -347,17 +347,23 @@ vendor_kit current: v1.4.0 latest: v1.4.0
 - digest 缺失或不符的結果見[訊息表](reason_codes.csv)；既有安裝的額外核對見[用哪一版引擎](#用哪一版引擎)
 - v1.0.0 不承諾離線升版入口
 
-### 鎖與逾時
+### 設定
 
-`.vendor_kit/config.toml` 的頂層設定：
+`.vendor_kit/config.toml` 的設定：
 
 | 欄位 | 可用值 | 未設定時 |
 |---|---|---|
 | `lock_timeout_seconds` | 大於等於 `-1` 的整數：正數為等待秒數；`0` 不等；`-1` 一直等 | 60 秒 |
 | `lock_enabled` | 布林值；`false` 只給不支援檔案鎖的檔案系統，每次執行都[警告](../../GLOSSARY.md#執行與結果) | `true` |
+| `[test]` | `image` 為非空字串；`command` 為由非空字串組成的非空陣列 | 無預設 runner；`test <path>` 停下並指名缺少的欄位；不帶 path 的 `test` 不需要 |
+
+前兩個欄位是頂層設定。設定在第一次取鎖前讀取；任一設定無效時所有入口一律停下，修法與結束碼見[訊息表](reason_codes.csv)，不以預設值繼續。
+
+### 鎖與逾時
+
+鎖的可用值與無效設定處置見[設定](#設定)。
 
 - 所有取鎖入口（含自動 `sync`、bootstrap 啟動的引擎）用同一設定；首次導入固定等 60 秒
-- 設定在第一次取鎖前讀取；任一設定無效時所有入口一律停下，修法與結束碼見[訊息表](reason_codes.csv)，不以預設值繼續
 - 寫入持排他鎖，讀取持共享鎖；會取件的 `sync` 屬寫入端，實際寫檔程序在其生命週期持鎖
 - 等不到鎖的處置見訊息表
 - VK 沒有整次執行限時選項；需要時在外層用 `timeout(1)` 或 CI 逾時設定，外層中斷的碼不承諾是 VK 結束碼
@@ -409,7 +415,7 @@ VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 
 | `uninstall` | 根 `justfile` 的一行 `import`、根 `.dockerignore` 的四行 |
 | `remove`、`uninstall` | append 型初始檔插進既有檔的行 |
 
-- 整份檔與 VK 上次寫入後完全相同（依紀錄的整檔 hash），且原文恰好一處，才先詢問、同意後刪
+- 整份檔依紀錄的整檔 hash 與 VK 上次寫入後相同（CRLF／LF 視為相同，只改行尾不算改過），且原文恰好一處，才先詢問、同意後刪
 - 其他情況只列不刪：列出檔名、紀錄原文與目前相符行號；警告與結束碼見[訊息表](reason_codes.csv)
 - 舊紀錄沒有 hash 也只列不刪；未登記的檔不碰
 
@@ -435,7 +441,7 @@ VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 
 
 ## 檢查 (test)
 
-[test](../../GLOSSARY.md#vk-recipe-與用途) 給本機與 CI 共用，檢查目前安裝或交付狀態；VK 自身的出貨驗收另依 [02 不變量第 9 條](02_invariants.md#9-對外承諾必須黑箱可驗本機開發與正式啟動走同一個入口)。
+[test](../../GLOSSARY.md#vk-recipe-與用途) 給本機與 CI 共用，檢查目前安裝或交付狀態；帶 path 時，安裝檢查通過後跑使用者自己的測試。VK 自身的出貨驗收另依 [02 不變量第 9 條](02_invariants.md#9-對外承諾必須黑箱可驗本機開發與正式啟動走同一個入口)。
 
 | 呼叫 | 用途 |
 |---|---|
@@ -451,12 +457,12 @@ VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 
 
 ### test 路徑與 runner
 
-- 一次只收一個 path，寫成 `test/...`，從安裝目錄算起；檔案選單檔，資料夾含子資料夾，repo 根目錄的 `test/` 不自動屬於各安裝目錄
-- 依 VK 紀錄判定工具交付的測試；使用者改過也算。選中範圍包含這些檔就整次不跑；工具移除後才可按使用者測試處理
+- 一次只收一個 path，寫成 `test/...`，從安裝目錄算起；指定檔案只跑該檔；指定資料夾含子資料夾。安裝目錄不在 repo 根目錄時，repo 根目錄的 `test/` 不屬於它
+- 依 VK 紀錄判定工具交付的測試；使用者改過也算。選中範圍含工具交付的內容（整份初始檔或插入行）就整次不跑；工具移除後才可按使用者測試處理
 - 完整安裝檢查的結果不是 `0` 就不啟動 runner，整次以 `max(檢查碼, 2)` 結束；結果與下一步見訊息表
-- 使用者在 `.vendor_kit/config.toml` 的 `[test]` 設定 `image`（非空字串）與 `command`（由非空字串組成的非空陣列），VK 不內建 runner
-- 通過檢查後，在該 image 容器執行 command 並在最後加上 path，不經 shell；工作目錄為安裝目錄，repo 唯讀掛載，以空目錄遮住 `.vendor_kit/`，runner 可使用自身暫存空間
+- 使用者依[設定](#設定)在 `[test]` 指定 `image` 與 `command`，VK 不內建 runner
+- 通過檢查後，在該 image 容器執行 command 並在最後加上 path，不經 shell；工作目錄為安裝目錄，repo 唯讀掛載，以空目錄遮住 `.vendor_kit/`，runner 另有容器內的可寫暫存空間，結束即丟，寫不進 repo
 - 測試 image 不限 registry，由主機 Docker 取得，也可用本機 image；image 與 command 實際執行什麼由使用者負責
 - runner 的 stdout、stderr 原樣轉出，格式界線見 [03 輸出](03_output.md#輸出)
-- `[test]` 無效、path 無效、未選到測試、選到工具交付檔、runner 起不來或測試未通過的處置與結束碼，見[訊息表](reason_codes.csv)
+- path 無效、未選到測試、選到工具交付檔、runner 起不來或測試未通過的處置與結束碼，見[訊息表](reason_codes.csv)
 
