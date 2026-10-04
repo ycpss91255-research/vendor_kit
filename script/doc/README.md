@@ -218,10 +218,10 @@ python3 script/doc/check_messages.py
 
 在 repo 根目錄執行。全過印 `OK` 回 0，任一不過逐條印出回 1。CSV 還不存在時印 `OK` 並跳過。CSV 與 03 頁的路徑只寫在 `check_messages.py` 頂端的 `CSV_PATH`、`MD_PATH` 兩個常數（#137：CSV 從 `03_output.csv` 改名為 `reason_codes.csv`）。錯誤位置報 `<檔>:<代碼>:<欄名>`，例如 `doc/contract/reason_codes.csv:VK0003:message.zh-TW`，不報實體行號。
 
-表頭（#343）：`code,status,level,exit_code,disposition,situation.en,message.en,situation.zh-TW,message.zh-TW`。前五欄給程式讀、用英文；給人看的欄照語言分組放右邊，以後加語言就在最右邊接一組 `situation.<lang>,message.<lang>`。`en` 是基準語言：VK 印出的字句目前都用英文，其他語言的欄跟 `message.en` 比對。查這幾件事：
+表頭（#343、#365）：`code,status,level,exit_code,disposition,source,situation.zh-TW,message.zh-TW,situation.en,message.en`。前六欄給程式讀、用英文；給人看的欄照語言分組放右邊，以後加語言就在最右邊接一組 `situation.<lang>,message.<lang>`。`en` 是基準語言：VK 印出的字句目前都用英文，其他語言的欄跟 `message.en` 比對。查這幾件事：
 
 - 格式：UTF-8 開頭恰好一個 BOM、只准 LF、檔尾恰好一個換行；用 `csv` 模組以 strict 照 RFC 4180 解析，每列欄數與表頭相同。格內換行（雙引號包住的 LF）解析得過。欄位頭尾不准空白，不准以 `=`、`+`、`-`、`@`、Tab、CR 開頭（Excel 會當成公式）。
-- 表頭：讀表依首行欄名，不依欄序。首行必須以 `code,status,level,exit_code,disposition` 開頭，其後是一組組 `situation.<lang>,message.<lang>`（同一語言成組、`situation` 在前）；必須有 `en` 與 `zh-TW` 兩組（`REQUIRED_LANGS`）。其他欄名（包括舊的 `situation`、`message`、`description`、`next_step`）報錯。
+- 表頭：讀表依首行欄名，不依欄序。首行必須以 `code,status,level,exit_code,disposition,source` 開頭（`BASE_FIELDS`），其後是一組組 `situation.<lang>,message.<lang>`（同一語言成組、`situation` 在前）；必須有 `en` 與 `zh-TW` 兩組（`REQUIRED_LANGS`）。其他欄名（包括舊的 `situation`、`message`、`description`、`next_step`）報錯。
 - 代碼：`VK` 加四位數字，從 `VK0001` 起逐列加一，所以唯一、遞增、不缺列；停用的代碼留列。
 - `status` 只准 `active`、`retired`。每列每個語言的 `situation.<lang>` 都必填；`retired` 列只留 `code`、`status` 與所有 `situation.<lang>`，其餘欄要空白。
 - `active` 列：`level` 只准 `warn`、`error`、`fatal`；`exit_code` 必須依序對應 `1`、`2`、`3`；每個語言的 `message.<lang>` 必填。
