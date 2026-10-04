@@ -78,28 +78,22 @@
 | `bootstrap.sh` | 首次導入、薄殼檢查與修復 |
 | `just vendor_kit <cmd>` | 日常與 CI 操作；`<cmd>` 換成要執行的 [VK recipe](../../../GLOSSARY.md#執行與結果) 名稱，例如 `update`、`add`、`upgrade` |
 
-`bootstrap.sh` 是啟動器，每個 Release 各附一份，檔名固定，版本在下載路徑。取得與執行流程：
+`bootstrap.sh` 是啟動器，檔名固定，每個 Release 各附一份；下面的網址預設取最新 Release。要指定版本時，把網址的 `latest/download` 換成 `download/vX.Y.Z`；本頁的 `vX` 指 `vX.Y.Z` 的 X。含此資產的 Release 尚未發布前，流程尚不可用。取得與執行流程：
 
-1. 在 [VK Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)選版本；把下面的 `vX.Y.Z` 換成選定版號；本頁的 `vX` 指 `vX.Y.Z` 的 X。含此資產的 Release 尚未發布前，流程尚不可用。
-
-   ```bash
-   vk_version=vX.Y.Z
-   ```
-
-2. 從該版 Release 下載 `bootstrap.sh` 到目前目錄；下載失敗時以非零結束，不繼續執行後續步驟。
+1. 從最新 Release 下載 `bootstrap.sh` 到目前目錄；下載失敗時以非零結束，不繼續執行後續步驟。
 
    ```bash
-   wget -O bootstrap.sh "https://github.com/ycpss91255-research/vendor_kit/releases/download/${vk_version}/bootstrap.sh" || exit $?
+   wget -O bootstrap.sh "https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh" || exit $?
    vk_bootstrap="$PWD/bootstrap.sh"
    ```
 
-3. 賦予執行權限。
+2. 賦予執行權限。
 
    ```bash
    chmod +x "$vk_bootstrap"
    ```
 
-4. 把 `<目標目錄>` 換成要導入或已有 VK 的目錄，再執行。腳本以 `#!/usr/bin/env bash` 開頭。
+3. 把 `<目標目錄>` 換成要導入或已有 VK 的目錄，再執行。
 
    ```bash
    cd <目標目錄>
@@ -171,19 +165,19 @@
 
 v1.0.0 的 `add`、`upgrade`、`remove`、`dev`、`undev` 一次只處理一個[工具](../../../GLOSSARY.md#工具與出貨)，或明確指定引擎，不提供批次或「全部」操作。`update`、`sync`、`test` 則處理全部工具。
 
-| 功能 | 呼叫（前面加 `just vendor_kit`） |
+| 呼叫（前面加 `just vendor_kit`） | 功能 |
 |---|---|
-| 導入工具，可指定版本或離線來源 | `add <repo>`、`add <repo>@<tag>`、`add <repo> -i <image>` |
-| 升降工具版本 | `upgrade <repo>`、`upgrade <repo>@<tag>` |
-| 升降引擎版本 | `upgrade --engine`、`upgrade --engine=<tag>` |
-| 改用[本機開發來源](../../../GLOSSARY.md#版本與來源) | `dev <repo> -p <dir>`、`dev --engine -i <image>` |
-| 回到[鎖定版本](../../../GLOSSARY.md#版本與來源) | `undev <repo>`、`undev --engine` |
-| 解除工具，保留[初始檔](../../../GLOSSARY.md#初始檔與合併) | `remove <repo>` |
-| 查新版 | `update`、`update <repo>` |
-| 同步[工具內容](../../../GLOSSARY.md#工具與出貨) | `sync`；每個[工具 recipe](../../../GLOSSARY.md#工具與出貨) 前也會自動執行 |
-| 補做安裝或移除 VK | `install`、`uninstall`；首次導入由啟動器呼叫 `install` |
-| 清理不再使用的本機資源 | `prune` |
-| 檢查安裝、執行使用者測試或檢查交付 | `test`、`test <path>`、`test dist` |
+| `add <repo>`、`add <repo>@<tag>`、`add <repo> -i <image>` | 導入工具，可指定版本或離線來源 |
+| `upgrade <repo>`、`upgrade <repo>@<tag>` | 升降工具版本 |
+| `upgrade --engine`、`upgrade --engine=<tag>` | 升降引擎版本 |
+| `dev <repo> -p <dir>`、`dev --engine -i <image>` | 改用[本機開發來源](../../../GLOSSARY.md#版本與來源) |
+| `undev <repo>`、`undev --engine` | 回到[鎖定版本](../../../GLOSSARY.md#版本與來源) |
+| `remove <repo>` | 解除工具，保留[初始檔](../../../GLOSSARY.md#初始檔與合併) |
+| `update`、`update <repo>` | 查新版 |
+| `sync`；每個[工具 recipe](../../../GLOSSARY.md#工具與出貨) 前也會自動執行 | 同步[工具內容](../../../GLOSSARY.md#工具與出貨) |
+| `install`、`uninstall`；首次導入由啟動器呼叫 `install` | 補做安裝或移除 VK |
+| `prune` | 清理不再使用的本機資源 |
+| `test`、`test <path>`、`test dist` | 檢查安裝、執行使用者測試或檢查交付 |
 
 ### 執行位置
 

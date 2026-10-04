@@ -1,4 +1,4 @@
-<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除，程式碼區塊的改動改成 diff 區塊（+ 新增、- 刪除）；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit 5770e20。正式內容看 /GLOSSARY.md -->
+<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除，程式碼區塊的改動改成 diff 區塊（+ 新增、- 刪除）；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit d3033d0。正式內容看 /GLOSSARY.md -->
 
 # vendor_kit
 
@@ -33,8 +33,7 @@ _Avoid_: 接入
 `.vendor_kit/` 內由引擎產生、隨 repo 進 git、供使用者呼叫 VK 的一組檔。
 
 **啟動器** (launcher)：
-<mark style="background-color:#f8c8c8">從主機啟動引擎的入口；薄殼內的 POSIX sh 片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。後者用於首次導入，以及既有安裝目錄的薄殼檢查與修復。</mark>
-<mark style="background-color:#c8f0c8">從主機啟動引擎的入口；薄殼內的啟動片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。後者用於首次導入，以及既有安裝目錄的薄殼檢查與修復。</mark>
+從主機啟動引擎的入口；薄殼內的啟動片段，與從 VK 的 Release 取得的 `bootstrap.sh`，都是啟動器。後者用於首次導入，以及既有安裝目錄的薄殼檢查與修復。
 
 ### 工具與出貨
 
@@ -44,7 +43,7 @@ _Avoid_: 專案、下游 repo
 
 **`<repo>`** (repository name)：
 出貨的那個 repo 的名字，也是工具名。
-<mark style="background-color:#c8f0c8">`vendor_kit` 是保留名稱，不能作為工具名。</mark>
+`vendor_kit` 是保留名稱，不能作為工具名。
 _Avoid_: `<name>`
 
 **工具** (tool)：
@@ -83,8 +82,8 @@ _Avoid_: 下游 image
 唯一指定某個 image 版本與內容的字串 `<registry>/<路徑>:<tag>@sha256:<digest>`；`<registry>` 是存放它的 registry 主機，`<路徑>` 是 image 在那個 registry 裡的路徑。tag 與 digest 一起寫，所以同一行同時說得出版本與內容。
 
 **tag**：
-<mark style="background-color:#f8c8c8">image 引用裡供人與外部版本追蹤工具辨識版本的標籤；格式與版本比較規則見[指定版本](../../contract/04_interface.md#指定版本)。</mark>
-<mark style="background-color:#c8f0c8">image 引用裡供人與外部版本追蹤工具辨識版本的標籤；格式與版本比較規則見 04 使用者介面的[指定版本](../../contract/04_interface.md#指定版本)。</mark>
+<mark style="background-color:#f8c8c8">image 引用裡供人與外部版本追蹤工具辨識版本的標籤；格式與版本比較規則見 04 使用者介面的[指定版本](../../contract/04_interface.md#指定版本)。</mark>
+<mark style="background-color:#c8f0c8">image 引用裡供人與外部版本追蹤工具辨識版本的標籤；格式與版本比較規則見 [04 使用者介面](../../contract/04_interface.md)的[指定版本](../../contract/04_interface.md#指定版本)。</mark>
 
 **digest**：
 image 引用裡那個 image 內容的 sha256；內容相同才會相同，所以它鎖的是內容，不是版本。
@@ -124,8 +123,8 @@ _Avoid_: 簽章、信任來源
 `cache/` 內每個檔的 sha256，記在印記裡。
 
 **自描述標頭** (self-describing header)：
-<mark style="background-color:#f8c8c8">薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼被改過時的檢查，見[不變量第 6 條](../../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)。</mark>
-<mark style="background-color:#c8f0c8">薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼被改過時的檢查，見 02 不變量的[第 6 條](../../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)。</mark>
+<mark style="background-color:#f8c8c8">薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼被改過時的檢查，見 02 不變量的[第 6 條](../../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)。</mark>
+<mark style="background-color:#c8f0c8">薄殼檔開頭描述自身介面版、引擎版與其餘內容指紋的資料；它支援薄殼被改過時的檢查，見 [02 不變量](../../contract/02_invariants.md)的[第 6 條](../../contract/02_invariants.md#6-引擎版本由安裝目錄鎖定啟動器不判斷-repo-內容的意義)。</mark>
 
 **執行紀錄** (run log)：
 記錄一次 VK 執行以供事後追溯的 VK 檔。
@@ -139,12 +138,12 @@ _Avoid_: 簽章、信任來源
 `version.toml` 裡把一個引擎或工具對應到一個鎖定版本的 TOML 項目。
 
 **鎖定版本** (locked version)：
-<mark style="background-color:#f8c8c8">版本鎖定行以 image 引用指定的版本與內容；相關指令見[指令](../../contract/04_interface.md#指令)。</mark>
-<mark style="background-color:#c8f0c8">版本鎖定行以 image 引用指定的版本與內容；相關指令見 04 使用者介面的[指令](../../contract/04_interface.md#指令)。</mark>
+<mark style="background-color:#f8c8c8">版本鎖定行以 image 引用指定的版本與內容；相關指令見 04 使用者介面的[指令](../../contract/04_interface.md#指令)。</mark>
+<mark style="background-color:#c8f0c8">版本鎖定行以 image 引用指定的版本與內容；相關指令見 [04 使用者介面](../../contract/04_interface.md)的[指令](../../contract/04_interface.md#指令)。</mark>
 
 **本機覆寫** (local override)：
-<mark style="background-color:#f8c8c8">讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
-<mark style="background-color:#c8f0c8">讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見 04 使用者介面的[本機覆寫](../../contract/04_interface.md#本機覆寫)。</mark>
+<mark style="background-color:#f8c8c8">讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見 04 使用者介面的[本機覆寫](../../contract/04_interface.md#本機覆寫)。</mark>
+<mark style="background-color:#c8f0c8">讓引擎或工具暫時改用本機開發來源、優先於版本鎖定行的 VK 項目；啟用與解除方式見 [04 使用者介面](../../contract/04_interface.md)的[本機覆寫](../../contract/04_interface.md#本機覆寫)。</mark>
 
 **本機開發來源** (local source)：
 本機覆寫指到的來源：工具是一個本機目錄，引擎是一個本機 image；不進 git。
@@ -168,14 +167,13 @@ VK 已記錄某個初始檔的來源、並會在後續升級中處理它的狀�
 _Avoid_: 三方合併
 
 **合併衝突** (merge conflict)：
-<mark style="background-color:#f8c8c8">基準版合併無法自動決定合併內容的結果；處理方式見[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
-<mark style="background-color:#c8f0c8">基準版合併無法自動決定合併內容的結果；處理方式見 04 使用者介面的[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
+<mark style="background-color:#f8c8c8">基準版合併無法自動決定合併內容的結果；處理方式見 04 使用者介面的[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
+<mark style="background-color:#c8f0c8">基準版合併無法自動決定合併內容的結果；處理方式見 [04 使用者介面](../../contract/04_interface.md)的[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
 
 ### 執行與結果
 
 **VK recipe**：
-<mark style="background-color:#f8c8c8">VK 自己的指令，寫法 `just vendor_kit <recipe>`。</mark>
-<mark style="background-color:#c8f0c8">VK 自己提供、收在 `vendor_kit` 命名空間下的 recipe，相對於工具 recipe；`bootstrap.sh` 不是 VK recipe。</mark>
+VK 自己提供、收在 `vendor_kit` 命名空間下的 recipe，相對於工具 recipe；`bootstrap.sh` 不是 VK recipe。
 _Avoid_: 動詞、子命令、子指令
 
 **可寫 recipe** (writing recipe)：
@@ -191,30 +189,27 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 讓使用者預先回答詢問的選項。
 寫法：`-y`，長選項 `--yes`。
 
-<mark style="background-color:#f8c8c8">**選項結束標記** (end of options)：表示選項到此為止的記號。</mark>
-<mark style="background-color:#c8f0c8">**`--engine`** (engine option)：</mark>
-<mark style="background-color:#c8f0c8">讓 VK recipe 的對象改為引擎、而不是工具的選項。</mark>
-<mark style="background-color:#c8f0c8">寫法：`--engine`；要帶版本時只接受 `--engine=<tag>`。</mark>
+**`--engine`** (engine option)：
+讓 VK recipe 的對象改為引擎、而不是工具的選項。
+寫法：`--engine`；要帶版本時只接受 `--engine=<tag>`。
 
-<mark style="background-color:#c8f0c8">**`@<tag>`** (version suffix)：</mark>
-<mark style="background-color:#c8f0c8">接在 `<repo>` 後、指定工具版本的寫法。</mark>
-<mark style="background-color:#c8f0c8">寫法：`<repo>@<tag>`。</mark>
+**`@<tag>`** (version suffix)：
+接在 `<repo>` 後、指定工具版本的寫法。
+寫法：`<repo>@<tag>`。
 
-<mark style="background-color:#c8f0c8">**選項結束標記** (end of options)：</mark>
-<mark style="background-color:#c8f0c8">表示選項到此為止的記號。</mark>
+**選項結束標記** (end of options)：
+表示選項到此為止的記號。
 寫法：單獨的 `--`；它之後的參數一律當位置參數，即使以 `-` 開頭。
 
 **診斷** (diagnostic)：
-<mark style="background-color:#f8c8c8">VK 印到 stderr、第一行為 `vendor_kit: <level>[VKnnnn]: <message>` 的訊息，含續行。診斷使用的[嚴重度](#執行與結果)見下個詞條。</mark>
-<mark style="background-color:#c8f0c8">VK 印到 stderr、說明執行結果與原因的訊息。診斷使用的[嚴重度](#執行與結果)見下個詞條。</mark>
+VK 印到 stderr、說明執行結果與原因的訊息。診斷使用的[嚴重度](#執行與結果)見下個詞條。
 
 **嚴重度** (level)：
-<mark style="background-color:#f8c8c8">診斷的嚴重程度；可用的值以及它和結束碼的對應見[結束碼](../../contract/03_output.md#結束碼)。</mark>
-<mark style="background-color:#c8f0c8">診斷的嚴重程度；可用的值以及它和結束碼的對應見 03 輸出的[結束碼](../../contract/03_output.md#結束碼)。</mark>
+<mark style="background-color:#f8c8c8">診斷的嚴重程度；可用的值以及它和結束碼的對應見 03 輸出的[結束碼](../../contract/03_output.md#結束碼)。</mark>
+<mark style="background-color:#c8f0c8">診斷的嚴重程度；可用的值以及它和結束碼的對應見 [03 輸出](../../contract/03_output.md)的[結束碼](../../contract/03_output.md#結束碼)。</mark>
 
 **正常輸出** (normal output)：
-<mark style="background-color:#f8c8c8">成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`／`--help` 的用法。</mark>
-<mark style="background-color:#c8f0c8">成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`/`--help` 的用法。</mark>
+成功時印到 stdout、不加前綴的輸出，例如改了什麼、查詢結果、`-h`/`--help` 的用法。
 
 **待處理** (action required)：
 診斷的處置屬性，表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令。
@@ -227,44 +222,44 @@ _Avoid_: 待續、需人處理、needs human
 這次指令承諾的結果已做完，但有要使用者知道或確認的事的 `warn` 診斷；可以附下一步指令。
 
 **原因代碼** (reason code)：
-<mark style="background-color:#f8c8c8">每條診斷的固定識別碼；格式與生命週期見[訊息](../../contract/03_output.md#訊息)。</mark>
-<mark style="background-color:#c8f0c8">每條診斷的固定識別碼；格式與生命週期見 03 輸出的[訊息](../../contract/03_output.md#訊息)。</mark>
+<mark style="background-color:#f8c8c8">每條診斷的固定識別碼；格式與生命週期見 03 輸出的[訊息](../../contract/03_output.md#訊息)。</mark>
+<mark style="background-color:#c8f0c8">每條診斷的固定識別碼；格式與生命週期見 [03 輸出](../../contract/03_output.md)的[訊息](../../contract/03_output.md#訊息)。</mark>
 
 **結束碼** (exit code)：
-<mark style="background-color:#f8c8c8">VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見[結束碼](../../contract/03_output.md#結束碼)。</mark>
-<mark style="background-color:#c8f0c8">VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見 03 輸出的[結束碼](../../contract/03_output.md#結束碼)。</mark>
+<mark style="background-color:#f8c8c8">VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見 03 輸出的[結束碼](../../contract/03_output.md#結束碼)。</mark>
+<mark style="background-color:#c8f0c8">VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整數；各碼語意與彙總規則見 [03 輸出](../../contract/03_output.md)的[結束碼](../../contract/03_output.md#結束碼)。</mark>
 
 ### VK recipe 與用途
 
 **`add` / `remove`**：
-<mark style="background-color:#f8c8c8">`add` 把工具納入安裝目錄，`remove` 將它解除；兩者的介面與保留使用者檔規則見[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
-<mark style="background-color:#c8f0c8">`add` 把工具納入安裝目錄，`remove` 將它解除；兩者的介面與保留使用者檔規則見 04 使用者介面的[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
+<mark style="background-color:#f8c8c8">`add` 把工具納入安裝目錄，`remove` 將它解除；兩者的介面與保留使用者檔規則見 04 使用者介面的[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
+<mark style="background-color:#c8f0c8">`add` 把工具納入安裝目錄，`remove` 將它解除；兩者的介面與保留使用者檔規則見 [04 使用者介面](../../contract/04_interface.md)的[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
 
 **`update`、`upgrade`**：
 `update` 只查有沒有新版；`upgrade` 把鎖定版本換成新版或指定版本。
-<mark style="background-color:#f8c8c8">寫法：`just vendor_kit update`，指定工具用 `just vendor_kit update <repo>`；工具用 `just vendor_kit upgrade <repo>`，指定版本寫 `just vendor_kit upgrade <repo>@<tag>`；引擎用 `just vendor_kit upgrade --engine`，指定版本寫 `just vendor_kit upgrade --engine=<tag>`。</mark>
-<mark style="background-color:#c8f0c8">介面見 04 使用者介面的[指令](../../contract/04_interface.md#指令)；指定版本見 04 使用者介面的[指定版本](../../contract/04_interface.md#指定版本)。</mark>
+<mark style="background-color:#f8c8c8">介面見 04 使用者介面的[指令](../../contract/04_interface.md#指令)；指定版本見 04 使用者介面的[指定版本](../../contract/04_interface.md#指定版本)。</mark>
+<mark style="background-color:#c8f0c8">介面見 [04 使用者介面](../../contract/04_interface.md)的[指令](../../contract/04_interface.md#指令)；指定版本見 [04 使用者介面](../../contract/04_interface.md)的[指定版本](../../contract/04_interface.md#指定版本)。</mark>
 
 **`dev` / `undev`**：
-<mark style="background-color:#f8c8c8">`dev` 讓引擎或工具改用本機開發來源，`undev` 使它回到鎖定版本；兩者的關係見[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
-<mark style="background-color:#c8f0c8">`dev` 讓引擎或工具改用本機開發來源，`undev` 使它回到鎖定版本；兩者的關係見 04 使用者介面的[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
+<mark style="background-color:#f8c8c8">`dev` 讓引擎或工具改用本機開發來源，`undev` 使它回到鎖定版本；兩者的關係見 04 使用者介面的[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
+<mark style="background-color:#c8f0c8">`dev` 讓引擎或工具改用本機開發來源，`undev` 使它回到鎖定版本；兩者的關係見 [04 使用者介面](../../contract/04_interface.md)的[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
 
 **`sync`**：
-<mark style="background-color:#f8c8c8">使本機工具內容與版本鎖定行或本機覆寫一致的 VK recipe；介面見[指令](../../contract/04_interface.md#指令)。</mark>
-<mark style="background-color:#c8f0c8">使本機工具內容與版本鎖定行或本機覆寫一致的 VK recipe；介面見 04 使用者介面的[指令](../../contract/04_interface.md#指令)。</mark>
+<mark style="background-color:#f8c8c8">使本機工具內容與版本鎖定行或本機覆寫一致的 VK recipe；介面見 04 使用者介面的[指令](../../contract/04_interface.md#指令)。</mark>
+<mark style="background-color:#c8f0c8">使本機工具內容與版本鎖定行或本機覆寫一致的 VK recipe；介面見 [04 使用者介面](../../contract/04_interface.md)的[指令](../../contract/04_interface.md#指令)。</mark>
 
 **`prune`**：
-<mark style="background-color:#f8c8c8">清除 VK 產生但目前 repo 已不再使用之本機資源的 VK recipe；無害性承諾見[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
-<mark style="background-color:#c8f0c8">清除 VK 產生但目前 repo 已不再使用之本機資源的 VK recipe；無害性承諾見 04 使用者介面的[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
+<mark style="background-color:#f8c8c8">清除 VK 產生但目前 repo 已不再使用之本機資源的 VK recipe；無害性承諾見 04 使用者介面的[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
+<mark style="background-color:#c8f0c8">清除 VK 產生但目前 repo 已不再使用之本機資源的 VK recipe；無害性承諾見 [04 使用者介面](../../contract/04_interface.md)的[成對與無害](../../contract/04_interface.md#成對與無害)。</mark>
 
 **`install` / `uninstall`**：
-<mark style="background-color:#f8c8c8">`install` 使 repo 裡的一個目錄成為安裝目錄，`uninstall` 將 VK 從該處移除；兩者的介面與保留使用者檔規則見[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
-<mark style="background-color:#c8f0c8">`install` 使 repo 裡的一個目錄成為安裝目錄，`uninstall` 將 VK 從該處移除；兩者的介面與保留使用者檔規則見 04 使用者介面的[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
+<mark style="background-color:#f8c8c8">`install` 使 repo 裡的一個目錄成為安裝目錄，`uninstall` 將 VK 從該處移除；兩者的介面與保留使用者檔規則見 04 使用者介面的[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
+<mark style="background-color:#c8f0c8">`install` 使 repo 裡的一個目錄成為安裝目錄，`uninstall` 將 VK 從該處移除；兩者的介面與保留使用者檔規則見 [04 使用者介面](../../contract/04_interface.md)的[指令](../../contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](../../contract/04_interface.md#使用者的檔與-vk-的檔)。</mark>
 
 **`test`**：
-<mark style="background-color:#f8c8c8">檢查安裝目錄狀態或工具交付內容、且不寫入追蹤檔的 VK recipe；範圍與用法見[檢查](../../contract/04_interface.md#檢查-test)。</mark>
-<mark style="background-color:#c8f0c8">檢查安裝目錄狀態或工具交付內容，且不寫入追蹤檔的 VK recipe。</mark>
-<mark style="background-color:#c8f0c8">帶一個安裝目錄底下 `test/` 裡的路徑時，先做完整安裝檢查，成功後依使用者自己的測試設定，跑所選路徑裡使用者自己寫的測試。範圍與用法見 04 使用者介面的[檢查](../../contract/04_interface.md#檢查-test)。</mark>
+檢查安裝目錄狀態或工具交付內容，且不寫入追蹤檔的 VK recipe。
+<mark style="background-color:#f8c8c8">帶一個安裝目錄底下 `test/` 裡的路徑時，先做完整安裝檢查，成功後依使用者自己的測試設定，跑所選路徑裡使用者自己寫的測試。範圍與用法見 04 使用者介面的[檢查](../../contract/04_interface.md#檢查-test)。</mark>
+<mark style="background-color:#c8f0c8">帶一個安裝目錄底下 `test/` 裡的路徑時，先做完整安裝檢查，成功後依使用者自己的測試設定，跑所選路徑裡使用者自己寫的測試。範圍與用法見 [04 使用者介面](../../contract/04_interface.md)的[檢查](../../contract/04_interface.md#檢查-test)。</mark>
 
 ### 介面版與契約
 
@@ -278,8 +273,8 @@ _Avoid_: 待續、需人處理、needs human
 VK 寫入檔案時用來標示該檔資料格式的整數版號。
 
 **救援路徑** (rescue path)：
-<mark style="background-color:#f8c8c8">版本組合不相符或薄殼被改過時，仍可用來檢查、升級或修復的呼叫；兩類的清單見[寫入範圍與其他指令的關係](../../contract/04_interface.md#寫入範圍與其他指令的關係)。</mark>
-<mark style="background-color:#c8f0c8">版本組合不相符或薄殼被改過時，仍可用來檢查、升級或修復的呼叫；兩類的清單見 04 使用者介面的[寫入範圍與其他指令的關係](../../contract/04_interface.md#寫入範圍與其他指令的關係)。</mark>
+<mark style="background-color:#f8c8c8">版本組合不相符或薄殼被改過時，仍可用來檢查、升級或修復的呼叫；兩類的清單見 04 使用者介面的[寫入範圍與其他指令的關係](../../contract/04_interface.md#寫入範圍與其他指令的關係)。</mark>
+<mark style="background-color:#c8f0c8">版本組合不相符或薄殼被改過時，仍可用來檢查、升級或修復的呼叫；兩類的清單見 [04 使用者介面](../../contract/04_interface.md)的[寫入範圍與其他指令的關係](../../contract/04_interface.md#寫入範圍與其他指令的關係)。</mark>
 
 **契約** (contract)：
 VK 對使用者承諾不會隨意改變的那組介面；引擎內部實作不屬契約。
