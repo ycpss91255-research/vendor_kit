@@ -19,9 +19,12 @@ import tempfile
 import unittest
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent.parent
+# 訊息表現行表頭（#343、#354）：6 個固定欄，後接一組組 situation.<lang>,message.<lang>，共 10 欄
 FIELDS = [
-    "code", "status", "level", "exit_code", "disposition", "situation", "message", "description", "next_step",
+    "code", "status", "level", "exit_code", "disposition", "source",
+    "situation.en", "message.en", "situation.zh-TW", "message.zh-TW",
 ]
+TEXT_FIELDS = ["situation.en", "message.en", "situation.zh-TW", "message.zh-TW"]
 CSV_REL = "doc/contract/reason_codes.csv"
 
 
@@ -31,11 +34,15 @@ def row(**kw):
 
 def good_rows():
     return [
-        row(code="VK0001", status="active", level="error", exit_code="2", disposition="待處理",
-            situation="要確認但不能互動", message="Run again with -y: <original command with -y>",
-            description="請加上 -y 重新執行。", next_step="<original command with -y>"),
-        row(code="VK0002", status="active", level="warn", exit_code="1", situation="第 2 次重試",
-            message="Retry the VK recipe.", description="VK recipe 失敗，請重試。"),
+        row(**{"code": "VK0001", "status": "active", "level": "error", "exit_code": "2",
+               "disposition": "pending", "source": "engine",
+               "situation.en": "Confirmation needed but not interactive",
+               "message.en": "Run again with -y: <original command with -y>",
+               "situation.zh-TW": "要確認但不能互動",
+               "message.zh-TW": "請加上 -y 重新執行：<original command with -y>"}),
+        row(**{"code": "VK0002", "status": "active", "level": "warn", "exit_code": "1", "source": "engine",
+               "situation.en": "Retry 2", "message.en": "Retry the VK recipe.",
+               "situation.zh-TW": "第 2 次重試", "message.zh-TW": "VK recipe 失敗，請重試。"}),
     ]
 
 
@@ -48,7 +55,7 @@ def encode(rows):
 
 
 class Base(unittest.TestCase):
-    """暫存 repo：README.md、GLOSSARY.md、doc/contract/01_purpose.md、reason_codes.csv，初始全乾淨。"""
+    """暫存 repo：README.md、GLOSSARY.md、doc/contract/01_purpose.md、03_output.csv，初始全乾淨。"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -259,6 +266,7 @@ class ExcludeTest(Base):
         rows[1][FIELDS.index("level")] = "等級warn"
         rows[1][FIELDS.index("exit_code")] = "結束碼1"
         rows[1][FIELDS.index("code")] = "代碼VK0002"
+        rows[1][FIELDS.index("source")] = "來源engine"
         self.write_csv(rows)
         before = (self.root / CSV_REL).read_bytes()
         self.assert_ok()
@@ -267,37 +275,65 @@ class ExcludeTest(Base):
 
 
 class CsvTest(Base):
-    """CSV 的中文文字欄 situation、description，以及英文 message、next_step。"""
+    """CSV 的文字欄：依表頭找每個語言的 situation.<lang>、message.<lang>，不寫死語言與欄數。"""
 
-    def test_chinese_text_columns_scanned(self):
-        for field in ["situation", "description"]:
+    def test_header_has_ten_columns(self):
+        self.assertEqual(len(FIELDS), 10)
+        self.assertEqual(self.read(CSV_REL).lstrip("\ufeff").split("\n")[0], ",".join(FIELDS))
+
+    def test_every_language_column_scanned(self):
+        for field in TEXT_FIELDS:
             with self.subTest(field=field):
                 rows = good_rows()
                 rows[1][FIELDS.index(field)] = "無法寫入VK設定"
                 self.write_csv(rows)
-                self.assert_fail((CSV_REL, None))
+                out = self.assert_fail((CSV_REL, None))
+                self.assertIn(f"{CSV_REL}:VK0002:{field}:", out)
 
-    def test_english_message_and_next_step_pass(self):
+    def test_extra_language_scanned(self):
+        # 加語言就在最右邊接一組；這支依表頭找，不用改程式
+        header = FIELDS + ["situation.ja", "message.ja"]
+        rows = [r + ["", ""] for r in good_rows()]
+        rows[1][header.index("message.ja")] = "VKの設定12件"
+        buf = io.StringIO()
+        w = csv.writer(buf, lineterminator="\n")
+        w.writerow(header)
+        w.writerows(rows)
+        (self.root / CSV_REL).write_bytes(("\ufeff" + buf.getvalue()).encode("utf-8"))
+        out = self.assert_fail((CSV_REL, None))
+        self.assertIn(f"{CSV_REL}:VK0002:message.ja:", out)
+
+    def test_old_column_names_ignored(self):
+        # 舊欄名 description、next_step 不再是文字欄
+        header = ["code", "status", "description", "next_step"]
+        buf = io.StringIO()
+        w = csv.writer(buf, lineterminator="\n")
+        w.writerow(header)
+        w.writerow(["VK0001", "active", "無法寫入VK設定", "第12條"])
+        (self.root / CSV_REL).write_bytes(("\ufeff" + buf.getvalue()).encode("utf-8"))
+        self.assert_ok()
+
+    def test_english_columns_pass(self):
         rows = good_rows()
-        rows[1][FIELDS.index("message")] = "Run command2 (test): <next_step>."
-        rows[1][FIELDS.index("next_step")] = "<next_step>"
+        rows[1][FIELDS.index("message.en")] = "Run command2 (test): <next_step>."
+        rows[1][FIELDS.index("situation.en")] = "Step 2 (retry) failed"
         self.write_csv(rows)
         self.assert_ok()
 
     def test_csv_fix_keeps_format(self):
         rows = good_rows()
-        rows[1][FIELDS.index("description")] = "無法寫入VK設定（test），\"引號\"與\n第2行"
-        rows[1][FIELDS.index("situation")] = "第12條"
+        rows[1][FIELDS.index("message.zh-TW")] = "無法寫入VK設定（test），\"引號\"與\n第2行"
+        rows[1][FIELDS.index("situation.zh-TW")] = "第12條"
         self.write_csv(rows)
         self.assertEqual(self.run_tool()[0], 1)
         self.run_tool("--fix")
         data = (self.root / CSV_REL).read_bytes()
-        self.assertTrue(data.startswith("﻿".encode()))
-        self.assertFalse(data.startswith("﻿﻿".encode()))
+        self.assertTrue(data.startswith("\ufeff".encode()))
+        self.assertFalse(data.startswith("\ufeff\ufeff".encode()))
         self.assertNotIn(b"\r", data)
         want = good_rows()
-        want[1][FIELDS.index("description")] = "無法寫入 VK 設定 (test)，\"引號\"與\n第 2 行"
-        want[1][FIELDS.index("situation")] = "第 12 條"
+        want[1][FIELDS.index("message.zh-TW")] = "無法寫入 VK 設定 (test)，\"引號\"與\n第 2 行"
+        want[1][FIELDS.index("situation.zh-TW")] = "第 12 條"
         self.assertEqual(data, encode(want))
         self.assert_ok()
 

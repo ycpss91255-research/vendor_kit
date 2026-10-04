@@ -219,6 +219,89 @@ class HeadingTest(unittest.TestCase):
         self.assertIn("2-乙", [self.slug(h) for h in self.heads(marked)])
 
 
+class FenceTest(unittest.TestCase):
+    """程式碼區塊裡不放 HTML（Markdown 不解析，#355）：有改動的區塊改成 ```diff，沒改的照原樣。"""
+
+    GREEN = '<mark style="background-color:#c8f0c8">'
+    RED = '<mark style="background-color:#f8c8c8">'
+
+    def diff(self, old, new):
+        return mark_changes.diff_md(old.splitlines(), new.splitlines())
+
+    def test_change_inside_block_becomes_diff(self):
+        old = "# 頁\n\n```bash\njust setup\njust build\njust test\n```\n\n後文\n"
+        new = "# 頁\n\n```bash\njust setup\njust build --release\njust test\n```\n\n後文\n"
+        lines, ins, dele = self.diff(old, new)
+        i = lines.index("```diff")
+        self.assertEqual(lines[i:i + 6],
+                         ["```diff", " just setup", "-just build", "+just build --release", " just test", "```"])
+        self.assertNotIn("```bash", lines)
+        self.assertFalse(any("<mark" in line for line in lines))
+        self.assertEqual((ins, dele), (1, 1))
+
+    def test_added_and_removed_lines_inside_block(self):
+        old = "```\na\nb\n\nc\n```\n"
+        new = "```\na\n\nc\nd\n```\n"
+        lines, _, _ = self.diff(old, new)
+        self.assertEqual(lines, ["```diff", " a", "-b", "", " c", "+d", "```"])
+
+    def test_change_outside_block_keeps_mark(self):
+        old = "舊內容\n\n```bash\njust setup\n```\n"
+        new = "新內容\n\n```bash\njust setup\n```\n"
+        lines, _, _ = self.diff(old, new)
+        self.assertEqual(lines, [self.RED + "舊內容</mark>", self.GREEN + "新內容</mark>",
+                                 "", "```bash", "just setup", "```"])
+
+    def test_unchanged_block_kept_as_is(self):
+        old = "內容\n\n~~~python\nprint(1)\n~~~\n"
+        lines, ins, dele = self.diff(old, old)
+        self.assertEqual(lines, old.splitlines())
+        self.assertEqual((ins, dele), (0, 0))
+
+    def test_new_block_and_text_in_one_change(self):
+        old = "前文\n"
+        new = "前文\n說明\n\n```sh\nmake\n```\n"
+        lines, _, _ = self.diff(old, new)
+        self.assertEqual(lines, ["前文", self.GREEN + "說明</mark>", "", "```diff", "+make", "```"])
+
+    def test_replaced_text_and_block_pair_up(self):
+        old = "舊說明\n```\n舊指令\n```\n"
+        new = "新說明\n```\n新指令\n```\n"
+        lines, _, _ = self.diff(old, new)
+        self.assertEqual(lines, [self.RED + "舊說明</mark>", self.GREEN + "新說明</mark>",
+                                 "```diff", "-舊指令", "+新指令", "```"])
+
+    def test_indented_block_in_list_keeps_indent(self):
+        old = "- 項目：\n\n  ```text\n  $ run\n  old\n  ```\n"
+        new = "- 項目：\n\n  ```text\n  $ run\n  new\n  ```\n"
+        lines, _, _ = self.diff(old, new)
+        self.assertEqual(lines[2:], ["  ```diff", "   $ run", "  -old", "  +new", "  ```"])
+
+    def test_heading_inside_block_not_treated_as_heading(self):
+        old = "```\n# 註解\n```\n"
+        new = "```\n# 新註解\n```\n"
+        lines, _, _ = self.diff(old, new)
+        self.assertEqual(lines, ["```diff", "-# 註解", "+# 新註解", "```"])
+
+    def test_marked_file_has_no_html_inside_blocks(self):
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                pathlib.Path("doc/contract").mkdir(parents=True)
+                pathlib.Path("doc/decisions/_backup").mkdir(parents=True)
+                pathlib.Path("doc/contract/09_x.md").write_text("# 頁\n\n```bash\nnew\n```\n")
+                pathlib.Path("doc/decisions/_backup/doc_contract_09_x.pre_r1.md").write_text(
+                    "# 頁\n\n```bash\nold\n```\n")
+                with contextlib.redirect_stdout(io.StringIO()):
+                    mark_changes.build("09_x", "pre_r1")
+                lines = out("09_x").read_text().splitlines()
+            finally:
+                os.chdir(cwd)
+        i = lines.index("```diff")
+        self.assertEqual(lines[i:i + 4], ["```diff", "-old", "+new", "```"])
+
+
 class RelinkTest(unittest.TestCase):
     """標示版放在 doc/review/<鍵>/：相對連結改寫成從那裡出發，解析回去要等於原本的目標。"""
 
@@ -671,6 +754,25 @@ class BaseVersionTest(unittest.TestCase):
         self.assertIn("沒有維護者回覆過的版本", text)
         self.assertIn(self.GREEN + "不變的段落</mark>", text)
         self.assertIn(f"#### VK0001\n{self.GREEN}（本碼新增）</mark>", text)
+
+    def test_missing_versions_file_is_all_new(self):
+        # 還沒有 doc/review/versions.json（main 上尚未建立）：整份標新增，也不建這個檔
+        pathlib.Path("doc/review/versions.json").unlink()
+        ins, dele, _ = mark_changes.build_from_version("03_output")
+        text = self.marked()
+        self.assertGreater(ins, 0)
+        self.assertEqual(dele, 0)
+        self.assertIn("沒有維護者回覆過的版本", text)
+        self.assertFalse(pathlib.Path("doc/review/versions.json").exists())
+
+    def test_missing_versions_file_with_base_version_fails_clearly(self):
+        # 沒有 versions.json 時指定版號：停下並指出 versions.json 裡沒有那個版本
+        pathlib.Path("doc/review/versions.json").unlink()
+        with self.assertRaises(SystemExit) as cm:
+            mark_changes.run_from_versions([("03_output", 13)])
+        self.assertIn("doc/review/versions.json", str(cm.exception))
+        self.assertIn("v13", str(cm.exception))
+        self.assertFalse(pathlib.Path("doc/review/03_output").exists())
 
     def test_no_replied_entry_is_all_new(self):
         # 送過但都還沒回覆：整份標新增
