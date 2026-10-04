@@ -106,8 +106,14 @@ exit code: 2
     - `level`：現行值為 `warn`、`error`、`fatal`，對應的結束碼見[結束碼](#結束碼)
     - `exit_code`：該 `level` 欄對應的結束碼；`warn` 為 `1`、`error` 為 `2`、`fatal` 為 `3`；`retired` 列留空
     - `disposition`：處置，`pending`（待處理）、`failed`（失敗）或留空；warn 的列與用法錯誤（`situation.en` 以 `Usage error:` 開頭的列）留空
-    - `source`：發出診斷的入口，放在 `disposition` 之後、語言欄之前；值為 `bootstrap` (`bootstrap.sh`)、`engine`（引擎）、`launcher`（薄殼的[啟動器](../../GLOSSARY.md#vk-組件)）、`test` (test)；列出所有會印出這條診斷的入口；`test` 表示由 test recipe 印出，與 `engine` 並列；可有多個值，以單一空白分隔，依 `bootstrap`、`engine`、`launcher`、`test` 的順序排列；`retired` 列留空
-  - 右邊照語言分組，每組是 `situation.<lang>`、`message.<lang>`，目前有 `en`、`zh-TW`；之後加語言就在最右邊接一組：
+    - `source`：發出診斷的入口，放在 `disposition` 之後、語言欄之前；值有四個：
+      - `bootstrap`：Release 附的 `bootstrap.sh`
+      - `engine`：引擎
+      - `launcher`：[薄殼](../../GLOSSARY.md#vk-組件)內的啟動片段，不含 `bootstrap.sh`
+      - `test`：test recipe 帶路徑時的測試流程，與 `engine` 並列
+
+      列出所有會印出這條診斷的入口；可有多個值，以單一空白分隔，依 `bootstrap`、`engine`、`launcher`、`test` 的順序排列；`retired` 列留空
+  - 右邊照語言分組，每組是 `situation.<lang>`、`message.<lang>`，目前有 `zh-TW`、`en`；之後加語言就在最右邊接一組：
     - `situation.<lang>`：什麼情況發出這個代碼，是它唯一的意思，給人閱讀
     - `message.<lang>`：印出的本文，不含前綴；目前只印 `message.en`，逐字照印；多行診斷在同一格內換行，一行對應印出的一行；占位符與換行在各語言一致
 - 占位符
