@@ -196,7 +196,7 @@
       {
         "v": 28,
         "commit": "6f4cc3802e4a381b7ba915296c8860cab637680b",
-        "replied": false
+        "replied": true
       }
     ],
     "GLOSSARY": [
@@ -320,6 +320,10 @@
     "01_purpose": {
       "v": 20,
       "commit": "d3033d0f44b389dcf2ef9c9f5b10cda87c3205e5"
+    },
+    "04_interface": {
+      "v": 28,
+      "commit": "6f4cc3802e4a381b7ba915296c8860cab637680b"
     }
   }
 }
