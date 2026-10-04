@@ -2,7 +2,7 @@
 """檢查訊息表 doc/contract/reason_codes.csv（每個原因代碼的唯一出處，#122）。
 
 格式：UTF-8 加 BOM（恰好一個）、只准 LF、檔尾一個換行、逗號分隔、照 RFC 4180 跳脫。
-表頭（#343）：以 BASE_FIELDS 開頭，其後是一組組 situation.<lang>,message.<lang>（照語言分組，
+表頭（#343、#354）：以 BASE_FIELDS（code,status,level,exit_code,disposition,source）開頭，其後是一組組 situation.<lang>,message.<lang>（照語言分組，
 加語言就在最右邊接一組）；必須有 REQUIRED_LANGS 的每一組。讀表依表頭欄名，不依欄序。規則：
 
 1. 格式：表頭照上面；未知欄名報錯；每列欄數相同、用 csv 模組以 strict 解析；欄位頭尾不准空白；
@@ -27,6 +27,9 @@
    比對對象是 message.en。
 10. active 列的 message.en 句首要大寫，或以占位符、小寫指令名 just 開頭；結尾要是句點，
     或以指令結尾（ending_command 或 just vendor_kit 指令）。
+11. source（#354）標出這條診斷由哪個入口印出：active 列必填，可填多個值、以單一空白分隔，
+    值只准 bootstrap、engine、launcher、test（launcher＝薄殼的啟動器），不准重複，
+    照 SOURCES 的固定順序（bootstrap engine launcher test）排列；retired 列照規則 3 要空白。
 
 指令寫法（CSV 的 situation.<lang>、message.<lang> 裡的 `just vendor_kit …`）不在這支的範圍。
 錯誤位置報 `<檔>:<代碼>:<欄名>`，不報實體行號。CSV 還不存在時跳過並印 OK。
@@ -44,7 +47,9 @@ REVIEW = ROOT / "doc/contract"
 # 訊息表與說明頁的路徑只寫在這裡（#137：訊息表從 03_output.csv 改名為 reason_codes.csv）
 CSV_PATH = REVIEW / "reason_codes.csv"
 MD_PATH = REVIEW / "03_output.md"
-BASE_FIELDS = ["code", "status", "level", "exit_code", "disposition"]
+BASE_FIELDS = ["code", "status", "level", "exit_code", "disposition", "source"]
+# source 的允許值，同時是多值時的固定排列順序（#354；launcher＝薄殼的啟動器）
+SOURCES = ("bootstrap", "engine", "launcher", "test")
 # 必備的語言組；en 是基準語言（VK 印出的字句目前都用英文），其他語言跟 en 比對
 BASE_LANG = "en"
 REQUIRED_LANGS = ("en", "zh-TW")
@@ -173,6 +178,25 @@ def ending_command(message: str) -> str | None:
     return tail if COMMAND_TAIL.match(tail) else None
 
 
+def source_problem(value: str) -> str | None:
+    """active 列的 source：必填、單一空白分隔、值在 SOURCES、不重複、照 SOURCES 的順序；回傳問題描述或 None。"""
+    allowed = "、".join(SOURCES)
+    if not value:
+        return f"active 列必填（{allowed}，多個值以單一空白分隔）"
+    parts = value.split(" ")
+    if "" in parts or any(c.isspace() and c != " " for c in value):
+        return f"多個值只能以單一空白分隔：{value!r}"
+    unknown = [p for p in parts if p not in SOURCES]
+    if unknown:
+        return f"未知的值 {' '.join(unknown)}（只准 {allowed}）"
+    if len(set(parts)) != len(parts):
+        return f"值不准重複：{value}"
+    expected = sorted(parts, key=SOURCES.index)
+    if parts != expected:
+        return f"要照固定順序（{' '.join(SOURCES)}）排列：{' '.join(expected)}"
+    return None
+
+
 def placeholders_ok(value: str) -> str | None:
     """< 與 > 要成對、不巢狀；回傳問題描述或 None。"""
     depth = 0
@@ -252,6 +276,9 @@ def check_rows(rows: list[dict[str, str]], errors: list[str]) -> dict[str, dict[
             for lang in langs:
                 if not row[f"message.{lang}"]:
                     errors.append(f"{at}:message.{lang}: active 列必填")
+            bad_source = source_problem(row["source"])
+            if bad_source:
+                errors.append(f"{at}:source: {bad_source}")
         command = ending_command(message)
         base_placeholders = set(PLACEHOLDER.findall(message))
         for lang in langs:

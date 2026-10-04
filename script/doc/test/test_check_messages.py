@@ -12,6 +12,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import check_messages as m  # noqa: E402
 
 HEADER = m.FIELDS
+# 基本欄數；語言欄從這裡開始
+B = len(m.BASE_FIELDS)
 
 
 def row(**kw):
@@ -20,17 +22,17 @@ def row(**kw):
 
 def good_rows():
     return [
-        row(**{"code": "VK0001", "status": "active", "level": "error", "exit_code": "2", "disposition": "pending",
+        row(**{"code": "VK0001", "status": "active", "level": "error", "exit_code": "2", "disposition": "pending", "source": "engine",
                "situation.en": "Confirmation needed but not interactive",
                "message.en": "Run again with -y: <original command with -y>",
                "situation.zh-TW": "要確認但不能互動",
                "message.zh-TW": "請加上 -y 重新執行：<original command with -y>"}),
-        row(**{"code": "VK0002", "status": "active", "level": "error", "exit_code": "2", "disposition": "failed",
+        row(**{"code": "VK0002", "status": "active", "level": "error", "exit_code": "2", "disposition": "failed", "source": "bootstrap engine",
                "situation.en": "Cannot create the run log",
                "message.en": "Could not write <path>. Try again.",
                "situation.zh-TW": "建不出執行紀錄",
                "message.zh-TW": "無法寫入 <path>，請重試。"}),
-        row(**{"code": "VK0003", "status": "active", "level": "warn", "exit_code": "1",
+        row(**{"code": "VK0003", "status": "active", "level": "warn", "exit_code": "1", "source": "launcher test",
                "situation.en": "Merge conflicts",
                "message.en": "Resolve the merge conflicts left in <file>: git status",
                "situation.zh-TW": "合併衝突",
@@ -135,24 +137,24 @@ class FormatTest(Base):
     def test_header_must_start_with_base(self):
         header = ["status", "code"] + HEADER[2:]
         self.write_csv(good_rows(), header=header)
-        self.assert_fail("表頭要以 code,status,level,exit_code,disposition 開頭")
+        self.assert_fail("表頭要以 code,status,level,exit_code,disposition,source 開頭")
 
     def test_header_missing_language(self):
-        rows = [r[:7] for r in good_rows()]
-        self.write_csv(rows, header=HEADER[:7])
+        rows = [r[:B + 2] for r in good_rows()]
+        self.write_csv(rows, header=HEADER[:B + 2])
         self.assert_fail("表頭缺少語言組：zh-TW")
-        rows = [r[:5] + r[7:] for r in good_rows()]
-        self.write_csv(rows, header=HEADER[:5] + HEADER[7:])
+        rows = [r[:B] + r[B + 2:] for r in good_rows()]
+        self.write_csv(rows, header=HEADER[:B] + HEADER[B + 2:])
         self.assert_fail("表頭缺少語言組：en")
 
     def test_header_group_must_pair(self):
-        header = HEADER[:5] + ["situation.en", "situation.zh-TW", "message.en", "message.zh-TW"]
+        header = HEADER[:B] + ["situation.en", "situation.zh-TW", "message.en", "message.zh-TW"]
         self.write_csv(good_rows(), header=header)
         self.assert_fail("不成組")
 
     def test_columns_read_by_name(self):
         """語言組換順序（zh-TW 在前）也照欄名讀；以後加語言就在右邊接一組。"""
-        order = HEADER[:5] + HEADER[7:] + HEADER[5:7]
+        order = HEADER[:B] + HEADER[B + 2:] + HEADER[B:B + 2]
         rows = [[r[HEADER.index(h)] for h in order] for r in good_rows()]
         self.write_csv(rows, header=order)
         self.assert_ok()
@@ -176,7 +178,7 @@ class FormatTest(Base):
 
     def test_strict_parse(self):
         p = m.CSV_PATH
-        malformed = ["VK0005", "active", "warn", "1", "", "x", '"a"b', "x", "y"]
+        malformed = ["VK0005", "active", "warn", "1", "", "engine", "x", '"a"b', "x", "y"]
         p.write_bytes(encode(good_rows()) + (",".join(malformed) + "\n").encode())
         self.assert_fail("CSV 解析失敗")
 
@@ -232,6 +234,72 @@ class CodeTest(Base):
         self.assert_fail("VK0004:situation.zh-TW: 必填")
         self.edit(1, situation__zh_TW="")
         self.assert_fail("VK0002:situation.zh-TW: 必填")
+
+
+class SourceTest(Base):
+    def test_header_is_ten_columns_with_source_after_disposition(self):
+        self.assertEqual(HEADER, [
+            "code", "status", "level", "exit_code", "disposition", "source",
+            "situation.en", "message.en", "situation.zh-TW", "message.zh-TW",
+        ])
+
+    def test_header_without_source_rejected(self):
+        header = [h for h in HEADER if h != "source"]
+        rows = [[v for h, v in zip(HEADER, r) if h != "source"] for r in good_rows()]
+        self.write_csv(rows, header=header)
+        self.assert_fail("表頭要以 code,status,level,exit_code,disposition,source 開頭")
+
+    def test_single_values(self):
+        for value in m.SOURCES:
+            with self.subTest(value=value):
+                self.edit(1, source=value)
+                self.assert_ok()
+
+    def test_multiple_values(self):
+        for value in ("bootstrap engine", "engine test", "bootstrap engine launcher test"):
+            with self.subTest(value=value):
+                self.edit(1, source=value)
+                self.assert_ok()
+
+    def test_unknown_value(self):
+        self.edit(1, source="engine shim")
+        self.assert_fail("VK0002:source: 未知的值 shim")
+        self.edit(1, source="Engine")
+        self.assert_fail("VK0002:source: 未知的值 Engine")
+
+    def test_duplicate(self):
+        self.edit(1, source="engine engine")
+        self.assert_fail("VK0002:source: 值不准重複")
+
+    def test_order(self):
+        self.edit(1, source="test engine")
+        self.assert_fail("VK0002:source: 要照固定順序（bootstrap engine launcher test）排列：engine test")
+        self.edit(1, source="launcher bootstrap")
+        self.assert_fail("VK0002:source: 要照固定順序")
+
+    def test_required_for_active(self):
+        self.edit(1, source="")
+        self.assert_fail("VK0002:source: active 列必填")
+
+    def test_separator_must_be_single_space(self):
+        for value in ("bootstrap  engine", "bootstrap\tengine", "bootstrap,engine"):
+            with self.subTest(value=value):
+                self.edit(1, source=value)
+                self.assert_fail("VK0002:source:")
+        self.edit(1, source="bootstrap  engine")
+        self.assert_fail("VK0002:source: 多個值只能以單一空白分隔")
+        self.edit(1, source="bootstrap\tengine")
+        self.assert_fail("VK0002:source: 多個值只能以單一空白分隔")
+
+    def test_surrounding_space(self):
+        self.edit(1, source="engine ")
+        self.assert_fail("VK0002:source: 頭尾不准有空白", "VK0002:source: 多個值只能以單一空白分隔")
+
+    def test_retired_must_be_empty(self):
+        self.edit(3, source="engine")
+        self.assert_fail("VK0004:source: retired 列只留")
+        code, out = self.run_main()
+        self.assertNotIn("VK0004:source: active 列必填", out)
 
 
 class FieldTest(Base):
