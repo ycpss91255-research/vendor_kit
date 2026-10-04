@@ -42,9 +42,9 @@ exit code: 2
 
 ## 輸出
 
-- 成功時改了什麼、查詢或檢查結果，以及 `bootstrap.sh` 與各 recipe 的 `-h`/`--help` 用法只印到 stdout，不加前綴
-- stderr 只放診斷及其續行、[詢問](../../GLOSSARY.md#執行與結果)文字、不帶指令時第一行的版本行、用法錯誤後附的用法，以及 [update](../../GLOSSARY.md#vk-recipe-與用途) 印的[本機覆寫](../../GLOSSARY.md#版本與來源)提醒（不加前綴）
-- `test <path>` ([test](../../GLOSSARY.md#vk-recipe-與用途)) 時，runner 的 stdout、stderr 照原樣轉出，不屬於 VK 的固定格式、不可解析，依 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)
+- 成功時改了什麼、查詢或檢查結果，以及 `bootstrap.sh` 與各 recipe 的 `-h`/`--help` 用法只印到 stdout（[test](../../GLOSSARY.md#vk-recipe-與用途) 帶路徑時轉出的測試輸出除外），不加前綴
+- stderr 只放診斷及其續行、[詢問](../../GLOSSARY.md#執行與結果)文字、不帶指令時第一行的版本行、用法錯誤後附的用法，以及 [update](../../GLOSSARY.md#vk-recipe-與用途) 印的[本機覆寫](../../GLOSSARY.md#版本與來源)提醒（不加前綴；test 帶路徑時轉出的測試輸出除外）
+- `just vendor_kit test` 帶路徑、跑[使用者](../../GLOSSARY.md#角色與情境)自己的測試時，測試程式 (runner) 的 stdout 轉到 VK 的 stdout、stderr 轉到 VK 的 stderr，原樣轉出、不加前綴；這些輸出不是 VK 的固定格式，不承諾可解析，依 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)
 - 只打 `just vendor_kit`、不帶指令時，stderr 依序印版本行、下列診斷與簡短用法，以 `2` 結束：
 
   ```text
@@ -56,8 +56,8 @@ exit code: 2
   ```
 - 主機前置檢查（檢查主機上的 Docker 與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。各入口檢查哪幾項見 [04 使用者介面](04_interface.md#bootstrapsh)
 - `remove`/`uninstall` 依契約保留[初始檔](../../GLOSSARY.md#初始檔與合併)時，把保留清單印到 stdout，沒有其他診斷時以 `0` 結束
-- 詢問時[使用者](../../GLOSSARY.md#角色與情境)明確回答「否」，是正常取消：不做變更，在 stdout 說明未變更，以 `0` 結束
-- 顏色照這幾條：
+- 詢問時使用者明確回答「否」，是正常取消：不做變更，在 stdout 說明未變更，以 `0` 結束
+- VK 自己印的字句，顏色照這幾條：
   - 只在那個輸出串流是終端 (TTY) 時上色；stdout 與 stderr 各自判斷
   - 環境變數 `NO_COLOR` 有值且不是空字串時，一律不上色 ([NO_COLOR](https://no-color.org/))
   - 給程式讀的輸出永遠不含顏色，例如執行紀錄
@@ -106,7 +106,7 @@ exit code: 2
     - `level`：現行值為 `warn`、`error`、`fatal`，對應的結束碼見[結束碼](#結束碼)
     - `exit_code`：該 `level` 欄對應的結束碼；`warn` 為 `1`、`error` 為 `2`、`fatal` 為 `3`；`retired` 列留空
     - `disposition`：處置，`pending`（待處理）、`failed`（失敗）或留空；warn 的列與用法錯誤（`situation.en` 以 `Usage error:` 開頭的列）留空
-    - `source`：發出診斷的入口，放在 `disposition` 之後、語言欄之前；值為 `bootstrap` (`bootstrap.sh`)、`engine`（引擎）、`launcher`（薄殼的[啟動器](../../GLOSSARY.md#vk-組件)）、`test` (test)；可有多個值，以單一空白分隔，依 `bootstrap`、`engine`、`launcher`、`test` 的順序排列；`retired` 列留空
+    - `source`：發出診斷的入口，放在 `disposition` 之後、語言欄之前；值為 `bootstrap` (`bootstrap.sh`)、`engine`（引擎）、`launcher`（薄殼的[啟動器](../../GLOSSARY.md#vk-組件)）、`test` (test)；列出所有會印出這條診斷的入口；`test` 表示由 test recipe 印出，與 `engine` 並列；可有多個值，以單一空白分隔，依 `bootstrap`、`engine`、`launcher`、`test` 的順序排列；`retired` 列留空
   - 右邊照語言分組，每組是 `situation.<lang>`、`message.<lang>`，目前有 `en`、`zh-TW`；之後加語言就在最右邊接一組：
     - `situation.<lang>`：什麼情況發出這個代碼，是它唯一的意思，給人閱讀
     - `message.<lang>`：印出的本文，不含前綴；目前只印 `message.en`，逐字照印；多行診斷在同一格內換行，一行對應印出的一行；占位符與換行在各語言一致
