@@ -46,7 +46,7 @@ sh bootstrap.sh
 ## 使用方式
 
 ```
-Usage: just vendor_kit <command> [arguments] [options]
+Usage: just vendor_kit <cmd> [arguments] [options]
 
 Common commands:
   add <repo>                  Import a tool into this install directory
@@ -60,6 +60,12 @@ Common commands:
 - 每個指令都支援 `-h`／`--help`，印出該指令的用法
 - 進階指令與選項見 [04 使用者介面](doc/contract/04_interface.md)
 - [結束碼](GLOSSARY.md#執行與結果)與訊息見 [03 輸出](doc/contract/03_output.md)
+
+### Renovate 整合
+
+VK 提供 Renovate regex preset。[使用者](GLOSSARY.md#角色與情境)在自己的 Renovate 設定中啟用這份 preset，讓自己的 Renovate 追蹤工具與引擎的正式版，並開 PR 修改[版本鎖定行](GLOSSARY.md#版本與來源)。
+
+Renovate 開出 PR 後，在該 PR 分支的本機執行 `just vendor_kit upgrade <repo> -y`，再自行 commit、push；CI 通過後才 merge。指令與 preset 的說明見 [04 使用者介面](doc/contract/04_interface.md)。
 
 ## 文件
 

@@ -41,6 +41,7 @@ _Avoid_: 專案、下游 repo
 
 **`<repo>`** (repository name)：
 出貨的那個 repo 的名字，也是工具名。
+`vendor_kit` 是保留名稱，不能作為工具名。
 _Avoid_: `<name>`
 
 **工具** (tool)：
@@ -240,7 +241,7 @@ VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整
 `install` 使 repo 裡的一個目錄成為安裝目錄，`uninstall` 將 VK 從該處移除；兩者的介面與保留使用者檔規則見 04 使用者介面的[指令](doc/contract/04_interface.md#指令)及[使用者的檔與 VK 的檔](doc/contract/04_interface.md#使用者的檔與-vk-的檔)。
 
 **`test`**：
-檢查安裝目錄狀態或工具交付內容、且不寫入追蹤檔的 VK recipe；範圍與用法見 04 使用者介面的[檢查](doc/contract/04_interface.md#檢查-test)。
+檢查安裝目錄狀態或工具交付內容、且不寫入追蹤檔的 VK recipe；帶一個安裝目錄底下 `test/` 裡的路徑時，安裝檢查成功後在使用者宣告的測試環境跑使用者自己寫的測試。範圍與用法見 04 使用者介面的[檢查](doc/contract/04_interface.md#檢查-test)。
 
 ### 介面版與契約
 

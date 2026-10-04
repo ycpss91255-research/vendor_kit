@@ -19,7 +19,7 @@
 
 ### P3. 每個逃生口顯式、有名字、印出它做了什麼
 
-`-y`（免詢問）、`--no-justfile`（不碰根檔只印指示）、`VENDOR_KIT_NO_LOCK`（鎖不支援的檔案系統）、`--dry-run`（只印會動哪些檔）。取逃生口是可見的動作；沒有靜默的逃生口，也沒有「偵測到就自動放寬」。
+`-y`（免詢問）、`--no-justfile`（不碰根檔只印指示）、`.vendor_kit/config.toml` 的 `lock_enabled = false`（鎖不支援的檔案系統）、`--dry-run`（只印會動哪些檔）。取逃生口是可見的動作；沒有靜默的逃生口，也沒有「偵測到就自動放寬」。
 *寫在哪裡：* [`../adr/0004-vk-recipe-interface-and-write-boundary.md`](../adr/0004-vk-recipe-interface-and-write-boundary.md)、[`../adr/0003-baseline-merge-and-line-records.md`](../adr/0003-baseline-merge-and-line-records.md)。*服務：* 不變量 1、4。
 
 ### P4. 先加後退
