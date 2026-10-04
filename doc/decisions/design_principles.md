@@ -1,7 +1,7 @@
 # 設計原則與衝突優先序
 
 > 每條原則將來各自併入服務它的 ADR，這份檔是併入前的集中處。
-> 本檔提到的「不變量 N」指 [`doc/contract/02_invariants.md`](../contract/02_invariants.md) 的第 N 條。
+> 本檔提到的「不變量 N」指 [不變量頁](../contract/02_invariants.md) 的第 N 條。
 
 ## 設計原則
 
@@ -9,33 +9,33 @@
 
 ### P1. 對齊 base 的 just 慣例；base 反過來對齊 vendor_kit 的檔案佈局
 
-命名空間、`--option` 收窄（帶值選項皆有短選項、不用複合值 positional）、`update` 只查／`upgrade` 套用——這些借 base。反方向：檔案佈局（`.vendor_kit/`、根 `justfile` 一行 import）由 vendor_kit 定，base 遷移時對齊，所以「與 base 共存」不是 vendor_kit 要解的問題。只借慣例不抄行為：base 的 `update` 吞結束碼、`upgrade` 自己 commit，都不繼承。
-*寫在哪裡：* [`../adr/0004-vk-recipe-interface-and-write-boundary.md`](../adr/0004-vk-recipe-interface-and-write-boundary.md)；base ADR-00000011。*服務：* 不變量 8。
+命名空間、`--option` 收窄（不用複合值 positional）、`update` 只查／`upgrade` 套用，這些借 base。反方向：檔案佈局（`.vendor_kit/`、根 `justfile` 一行 import）由 vendor_kit 定，base 遷移時對齊，所以「與 base 共存」不是 vendor_kit 要解的問題。只借慣例不抄行為：base 的 `update` 吞結束碼、`upgrade` 自己 commit，都不繼承。
+*寫在哪裡：* [ADR-0004](../adr/0004-vk-recipe-interface-and-write-boundary.md)；base ADR-00000011。*服務：* 不變量 8。
 
 ### P2. 借主機已有的，不養第三方
 
-拉與展開交給 docker（`create`／`cp`），文字基準版合併交給引擎內的 `git merge-file`，版本追蹤交給 Renovate 一條 regex。vendir、crane、Copier 都不進引擎；要進，須通過 `../adr/0001-why-not-existing-tools.md` §5 的十項門檻（前四項即本原則原本的四項）。
-*寫在哪裡：* [`../adr/0001-why-not-existing-tools.md`](../adr/0001-why-not-existing-tools.md)；主機薄層見 [`../adr/0007-host-thin-layer-and-shell-integrity.md`](../adr/0007-host-thin-layer-and-shell-integrity.md)。*服務：* 不變量 5、6。
+拉與展開交給 docker（`create`／`cp`），文字基準版合併交給引擎內的 `git merge-file`，版本追蹤交給 Renovate 一條 regex。vendir、crane、Copier 都不進引擎；要進，須通過 [ADR-0001](../adr/0001-why-not-existing-tools.md#consequences) Consequences「重評門檻」列的十項（前四項即本原則原本的四項）。
+*寫在哪裡：* [ADR-0001](../adr/0001-why-not-existing-tools.md)；主機薄層見 [ADR-0007](../adr/0007-host-thin-layer-and-shell-integrity.md)。*服務：* 不變量 5、6。
 
 ### P3. 每個逃生口顯式、有名字、印出它做了什麼
 
-`-y`（免詢問）、`--no-justfile`（不碰根檔只印指示）、`.vendor_kit/config.toml` 的 `lock_enabled = false`（鎖不支援的檔案系統）、`--dry-run`（只印會動哪些檔）。取逃生口是可見的動作；沒有靜默的逃生口，也沒有「偵測到就自動放寬」。
-*寫在哪裡：* [`../adr/0004-vk-recipe-interface-and-write-boundary.md`](../adr/0004-vk-recipe-interface-and-write-boundary.md)、[`../adr/0003-baseline-merge-and-line-records.md`](../adr/0003-baseline-merge-and-line-records.md)。*服務：* 不變量 1、4。
+`-y`（免詢問）、`.vendor_kit/config.toml` 的 `lock_enabled = false`（在不支援檔案鎖的檔案系統上明確關閉鎖，每次執行都印警告）。取逃生口是可見的動作；沒有靜默的逃生口，也沒有「偵測到就自動放寬」。
+*寫在哪裡：* [ADR-0004](../adr/0004-vk-recipe-interface-and-write-boundary.md)、[ADR-0003](../adr/0003-baseline-merge-and-line-records.md)。*服務：* 不變量 1、4。
 
 ### P4. 先加後退
 
-會破壞使用者的改動拆成兩步：新路徑先與舊路徑並存，退場是另一個可獨立排程、公告、回退的決議。升級契約（宣告格式、`init.toml` 格式、結束狀態）只加不改；recipe 改名走別名期。
-*寫在哪裡：* [`../adr/0004-vk-recipe-interface-and-write-boundary.md`](../adr/0004-vk-recipe-interface-and-write-boundary.md)。*服務：* 不變量 4、8——repo 在 vendor_kit 不決定的時間點升級，一步到位的「加+刪」是它們走不到一半的一步。
+會破壞使用者的改動拆成兩步：新路徑先與舊路徑並存，退場是另一個可獨立排程、公告、回退的決議。同一個 X 內，契約的既有用法與語意不變，檔案格式只加欄位、不改舊欄位的意思。移除或改名舊用法只能在跨 X 時，依事前公告的手動步驟處理。
+*寫在哪裡：* [ADR-0004](../adr/0004-vk-recipe-interface-and-write-boundary.md)。*服務：* 不變量 4、8、10。repo 由使用者決定何時升級，過渡期要讓舊用法繼續可用，不能要求所有 repo 同時切換。
 
 ### P5. 一條規則一個擁有者
 
-規則在引擎實作一次；啟動器、`just vendor_kit test`、工具 just 模組只轉發。兩個必須一致的實作是延遲發作的漂移。
-*寫在哪裡：* [`../adr/0007-host-thin-layer-and-shell-integrity.md`](../adr/0007-host-thin-layer-and-shell-integrity.md)、[`../adr/0006-tool-image-as-data-only.md`](../adr/0006-tool-image-as-data-only.md)。*服務：* 不變量 6、4。
+VK 的規則在引擎實作一次；啟動器與薄殼內的 VK recipe 只啟動與轉發，工具 just 模組不另行實作 VK 的規則。`test` 的檢查與測試執行也由引擎負責。兩份必須一致的實作，日後容易各自改動而產生差異。
+*寫在哪裡：* [ADR-0007](../adr/0007-host-thin-layer-and-shell-integrity.md)、[ADR-0006](../adr/0006-tool-image-as-data-only.md)。*服務：* 不變量 6、4。
 
 ### P6. 母體用推導，不列清單
 
 要支援哪些初始檔類型，看工具實際用了什麼；要驗哪些平台，看使用者實際跑在哪；哪些 ADR 存在，看檔案系統。手寫清單從第一個在別處新增的項目起就是錯的，而且錯得靜默。
-*寫在哪裡：* [`doc/decisions/scope_roadmap.md`](scope_roadmap.md)「範圍」；`doc/adr/README.md`。*服務：* 不變量 4；文件與決議流程見 `../../AGENTS.md`。
+*寫在哪裡：* [01 目的與承諾](../contract/01_purpose.md#vk-做的事)「支援範圍由實際需求長出來」；[ADR 目錄說明](../adr/README.md)。*服務：* 不變量 4；文件與決議流程見 [文件與決議流程](../../AGENTS.md)。
 
 ## 衝突優先序
 
@@ -43,22 +43,22 @@
 
 高者勝。
 
-**① 使用者的檔與 repo 跑的東西正確。** 使用者的檔只在使用者同意下改變；repo 的 `just` 跑到的工具內容與宣告一致。*立於不變量 1、2、5。*
+**① 使用者的檔與 repo 跑的東西正確。** 使用者的檔只在使用者同意下改變；repo 的 `just` 跑到的工具內容與版本鎖定行一致；本機覆寫生效時依其指定的本機開發來源。*立於不變量 1、2。*
 
-**② 缺陷大聲且早。** 有錯，在第一個有人在場的時間點說出來，而不是繼續跑然後回報綠燈。*立於不變量 4。*
+**② 缺陷大聲且早。** 發現錯誤時立即說出原因，即使無人互動也要讓呼叫方從診斷與結束碼得知結果。*立於不變量 4。*
 
-**③ 一個來源、一個擁有者。** 宣告一份、規則在引擎一份、其餘轉發。*立於不變量 2、6；這是 P5 作為性質而非判準。*
+**③ 一個來源、一個擁有者。** 每個安裝目錄只有一份版本鎖定行的集合；VK 的規則在引擎實作一次，薄殼只啟動與轉發。*立於不變量 2、6；這是 P5 作為性質而非判準。*
 
 **④ 使用便利。** 少打幾個字、少問一次、少知道一件事。*不立於任何不變量——這是它排最後的原因，不是它不重要。*
 
 ### 實例：詢問 vs `-y`
 
-`upgrade` 對某個已納管初始檔判定「使用者沒改、新版有變」。④ 說直接換掉——使用者沒改，換了也不會壞；① 說那是使用者的檔，vendor_kit 不能未經同意寫入。① 勝：預設**詢問**。但 ④ 沒有被丟掉，而是被給了一扇有名字的門（P3）：`-y` 免問，且仍印出改了哪些檔。CI 下沒有人回答問題：無 `-y` 時 ② 勝過 ④——以 1 結束並印出「請在本機執行 `just vendor_kit upgrade base` 後提交」，而不是 EOF 當同意、也不是靜默跳過然後綠燈。三個性質各得其所，是順序讓它成為一個決議而不是三條互相矛盾的規則。
+`upgrade` 對某個已納管初始檔判定「使用者沒改、新版有變」。依不變量 1，動既有檔之前仍須取得同意，所以預設**詢問**。在這個界線內，④ 的便利由 P3 的具名選項提供：`-y` 預先回答詢問，且仍印出改了哪些檔。沒有 `-y` 又無法互動時，以待處理、結束碼 `2` 結束，提示在終端執行或加上 `-y` 重跑；本機與 CI 都相同。這是先守住不變量，再於允許範圍內提供便利的例子，不把不變量當作可以讓步的選項。
 
 ### 第二例：`sync` 發現基準版落後
 
-Renovate 的 PR 改了宣告、merge 後有人打 `just docker build`。④ 說 `sync` 順手把初始檔合併掉最省事；③ 說 tracked 寫入只能來自明確 recipe（不變量 3）；② 說這個狀態要被說出來。結果：本機 warn 提示 `upgrade`、CI 以 1 結束——③ 與 ② 都在 ④ 之上，而它們彼此不衝突。
+Renovate 的 PR 改了版本鎖定行，merge 後有人打 `just docker build`，觸發自動 `sync`。④ 的便利傾向順手合併初始檔，但不變量 3 禁止自動化寫追蹤檔；② 要求把落後狀態說出來。結果：`sync` 不合併初始檔，印警告、提示 `upgrade`，以結束碼 `1` 結束；本機與 CI 都相同（見[ADR-0013：取消 CI 模式](../adr/0013-no-ci-mode-strict-checks-in-test.md)）。這些要求可以同時滿足，不需要讓任何不變量讓步。
 
 ### 順序排不出時
 
-同一階的兩個性質不由這份清單決定；不變量與任何東西的衝突也不由它決定——不變量不是可以讓步的性質，這正是它叫不變量的原因。一個決議發現自己在拿一條不變量換另一條，它發現的是不變量的缺陷，產物是 [`doc/contract/02_invariants.md`](../contract/02_invariants.md) 的修訂，不是一份挑贏家的 ADR。
+同一階的兩個性質不由這份清單決定；不變量與任何東西的衝突也不由它決定。不變量不是可以讓步的性質，這正是它叫不變量的原因。一個決議發現自己在拿一條不變量換另一條，它發現的是不變量的缺陷，產物是 [不變量頁](../contract/02_invariants.md) 的修訂，不是一份挑贏家的 ADR。

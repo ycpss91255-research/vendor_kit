@@ -20,7 +20,7 @@ vendor_kit ([VK](GLOSSARY.md#角色與情境)) 把一套[工具](GLOSSARY.md#工
 - [Git](https://git-scm.com/)
   - 不設最低版本
   - VK 不在主機上呼叫 git
-  - 「安裝目錄在 git repo 裡」由[啟動器](GLOSSARY.md#vk-組件)用 sh 往上找 `.git` 判斷
+  - 「安裝目錄在 git repo 裡」由[啟動器](GLOSSARY.md#vk-組件)用 bash 往上找 `.git` 判斷
 - [just](https://github.com/casey/just)
   - 1.33.0 以上
   - 用 GitHub release 下載的版本：[just 最新版下載頁](https://github.com/casey/just/releases/latest)
@@ -32,16 +32,18 @@ vendor_kit ([VK](GLOSSARY.md#角色與情境)) 把一套[工具](GLOSSARY.md#工
 
 ### 第一次導入
 
-> 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，下面的網址目前找不到檔案，照做會[失敗](GLOSSARY.md#執行與結果)。進度見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
+> 尚未可用：含 `bootstrap.sh` 的 release 還沒發布，下面的網址目前找不到檔案。進度見 [issue #27](https://github.com/ycpss91255-research/vendor_kit/issues/27)。
 
-發布之後，在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡（詳見 [02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化不寫追蹤檔)）。
+發布之後，先在 [VK Release 頁](https://github.com/ycpss91255-research/vendor_kit/releases)選版本，把下面的 `vX.Y.Z` 換成選定版號，再在要裝 VK 的那個目錄下載並執行 `bootstrap.sh`。這個目錄必須在某個 git repo 裡（詳見 [02 不變量第 3 條](doc/contract/02_invariants.md#3-自動化不寫追蹤檔)）。
 
-```sh
-curl -fsSLO https://github.com/ycpss91255-research/vendor_kit/releases/latest/download/bootstrap.sh
-sh bootstrap.sh
+```bash
+vk_version=vX.Y.Z
+wget -O bootstrap.sh "https://github.com/ycpss91255-research/vendor_kit/releases/download/${vk_version}/bootstrap.sh" || exit $?
+chmod +x bootstrap.sh
+./bootstrap.sh
 ```
 
-沒有 `curl` 也可以用瀏覽器下載同一個網址。`bootstrap.sh` 會下載[引擎](GLOSSARY.md#vk-組件)，再呼叫 `install`；之後就用下面 `just vendor_kit` 的指令。
+沒有 `wget` 也可以用瀏覽器下載選定版本的同一個網址。`bootstrap.sh` 會下載[引擎](GLOSSARY.md#vk-組件)，再呼叫 `install`；之後就用下面 `just vendor_kit` 的指令。
 
 ## 使用方式
 
@@ -63,9 +65,11 @@ Common commands:
 
 ### Renovate 整合
 
-VK 提供 Renovate regex preset。[使用者](GLOSSARY.md#角色與情境)在自己的 Renovate 設定中啟用這份 preset，讓自己的 Renovate 追蹤工具與引擎的正式版，並開 PR 修改[版本鎖定行](GLOSSARY.md#版本與來源)。
+VK 提供 Renovate regex preset。[使用者](GLOSSARY.md#角色與情境)在自己的 Renovate 設定中啟用這份 preset，由 Renovate 追蹤工具與引擎的正式版，並開 PR 修改[版本鎖定行](GLOSSARY.md#版本與來源)。
 
-Renovate 開出 PR 後，在該 PR 分支的本機執行 `just vendor_kit upgrade <repo> -y`，再自行 commit、push；CI 通過後才 merge。指令與 preset 的說明見 [04 使用者介面](doc/contract/04_interface.md)。
+> 尚未可用：preset 尚未發布，Renovate 設定的 `extends` 引用值待發布時提供。進度見 [issue #25](https://github.com/ycpss91255-research/vendor_kit/issues/25)。
+
+Renovate 開出工具的 PR 後，使用者在本機切到該 PR 分支，執行 `just vendor_kit upgrade <repo> -y`，再自行 commit、push；CI 通過後才 merge。引擎 PR 的收尾流程待確認，見 [issue #47](https://github.com/ycpss91255-research/vendor_kit/issues/47)。指令見 [04 使用者介面](doc/contract/04_interface.md)；VK 對 preset 的承諾見 [04 使用者介面的追蹤新版](doc/contract/04_interface.md#追蹤新版)。
 
 ## 文件
 
