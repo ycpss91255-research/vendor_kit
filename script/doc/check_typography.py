@@ -9,9 +9,10 @@
    「印`VK0024`」→「印 `VK0024`」；與全形標點相鄰不加空白。
 
 掃描範圍：README.md、doc/contract/*.md、GLOSSARY.md，以及 doc/contract/*.csv 的文字欄
-（TEXT_FIELDS）。不檢查、不改：行內程式碼的內容（反引號內）、程式碼區塊、HTML 註解、URL、
-Markdown 連結目標（括號裡的路徑與錨點）與參照定義行、HTML 標籤本身、CSV 的固定欄
-（code、status、level、exit_code、disposition）。
+（表頭以 TEXT_FIELD_PREFIXES 開頭的欄，即每個語言的 situation.<lang>、message.<lang>；
+依表頭欄名找，不寫死語言與欄數）。不檢查、不改：行內程式碼的內容（反引號內）、程式碼區塊、HTML 註解、URL、
+Markdown 連結目標（括號裡的路徑與錨點）與參照定義行、HTML 標籤本身、CSV 的其他欄
+（code、status、level、exit_code、disposition、source 等）。
 
 HTML 標籤、連結的 [ ] 與 ](目標)、粗體記號 ** 與 __ 不算字元：`[VK](…)的` 照樣算
 「VK」緊貼「的」，空格補在 ](目標) 之後、[ 之前；HTML 標籤也一樣，空格補在標籤外側，標籤不會被拆開；行內程式碼緊貼連結的
@@ -26,7 +27,6 @@ HTML 標籤、連結的 [ ] 與 ](目標)、粗體記號 ** 與 __ 不算字元�
   python3 script/doc/check_typography.py            檢查；有問題逐筆印出並以 1 結束
   python3 script/doc/check_typography.py --fix      就地修正（只動上面兩條規則的字元），再檢查一次
   python3 script/doc/check_typography.py [--fix] 檔...   只處理指定的檔
-CSV 修正後若 next_step 不再逐字出現在 message 裡，照樣報錯（check_messages.py 的規則 6）。
 """
 import argparse
 import csv
@@ -37,10 +37,8 @@ import sys
 from dataclasses import dataclass, field
 
 ROOT = pathlib.Path(".")
-CSV_FIELDS = [
-    "code", "status", "level", "exit_code", "disposition", "situation", "message", "description", "next_step",
-]
-TEXT_FIELDS = ("situation", "message", "description", "next_step")
+# 訊息表給人看的欄照語言分組（situation.<lang>、message.<lang>，#343），依表頭欄名找
+TEXT_FIELD_PREFIXES = ("situation.", "message.")
 BOM = "﻿"
 
 # 中文（含日文假名、注音、部首）；全形標點（U+3000–303F、U+FF00–FFEF）不算
@@ -449,7 +447,7 @@ def _csv_rows(records: list[list[str]]):
     if not records:
         return
     header = records[0]
-    idx = {f: header.index(f) for f in TEXT_FIELDS if f in header}
+    idx = {f: i for i, f in enumerate(header) if f.startswith(TEXT_FIELD_PREFIXES)}
     code_i = header.index("code") if "code" in header else None
     for n, rec in enumerate(records[1:], 1):
         code = rec[code_i] if code_i is not None and code_i < len(rec) else ""
@@ -466,11 +464,6 @@ def check_csv_text(text: str, where: str) -> list[str]:
         for f, i in cols.items():
             for iss in find_issues(rec[i], markdown=False):
                 msgs.append(f"{where}:{code}:{f}: {describe(rec[i], iss)}")
-        ns, msg = cols.get("next_step"), cols.get("message")
-        if ns is None or msg is None or not rec[ns]:
-            continue
-        if rec[ns] in rec[msg] and fix_text(rec[ns], False) not in fix_text(rec[msg], False):
-            msgs.append(f"{where}:{code}:next_step: 照規則修正後不會逐字出現在 message 裡，兩欄要一起手動改")
     return msgs
 
 
@@ -483,12 +476,9 @@ def fix_csv_text(text: str, where: str = "") -> tuple[str, list[str]]:
     if _write_csv(bom, records) != text:
         return text, [f"{where}: CSV 不是標準寫法（引號或換行跟 csv 模組輸出不同），--fix 不改，請手動修"]
     problems = []
-    for _n, code, cols, rec in _csv_rows(records):
+    for _n, _code, cols, rec in _csv_rows(records):
         for i in cols.values():
             rec[i] = fix_text(rec[i], markdown=False)
-        ns, msg = cols.get("next_step"), cols.get("message")
-        if ns is not None and msg is not None and rec[ns] and rec[ns] not in rec[msg]:
-            problems.append(f"{where}:{code}:next_step: 修正後不再逐字出現在 message 裡，請手動對齊")
     return _write_csv(bom, records), problems
 
 

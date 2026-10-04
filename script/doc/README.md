@@ -204,7 +204,7 @@ python3 script/doc/check_typography.py --fix
 - 中文與英文字母或阿拉伯數字相鄰時中間空一格：「VK的recipe」寫成「VK 的 recipe」、「第12條」寫成「第 12 條」。全形標點（，。、：；「」（）等）與英數之間不加空白。
 - 行內程式碼（反引號包住的）與前後的中文相鄰時也空一格：「`0`結束」寫成「`0` 結束」、「印`VK0024`」寫成「印 `VK0024`」。與全形標點相鄰不加空白；隔著連結的 `[` 或 `](…)` 時照上一條，連結記號不算字元。
 
-不查行內程式碼的內容、程式碼區塊、URL、Markdown 連結目標（括號裡的路徑與錨點）與 HTML 標籤。CSV 只查文字欄（`situation`、`message`、`description`、`next_step`），`code`、`status`、`level`、`exit_code`、`disposition` 是固定值域，不查；英文的 `message` 與 `next_step` 仍會掃描，但不會因英文排版本身誤報。`--fix` 改到 CSV 時，若 `next_step` 不再逐字出現在 `message` 裡，這支照樣報錯，要手動把兩欄對齊；改到標題時 GitHub 產生的錨點跟著變，連到舊錨點的連結不會自動改，要另外改。
+不查行內程式碼的內容、程式碼區塊、URL、Markdown 連結目標（括號裡的路徑與錨點）與 HTML 標籤。CSV 只查文字欄：依表頭找每個語言的 `situation.<lang>`、`message.<lang>`（不寫死語言與欄數）；`code`、`status`、`level`、`exit_code`、`disposition`、`source` 是固定值域，不查。英文欄（`situation.en`、`message.en`）仍會掃描，但不會因英文排版本身誤報。`--fix` 改到標題時 GitHub 產生的錨點跟著變，連到舊錨點的連結不會自動改，要另外改。
 
 各條規則的正反例與排除範圍在 [check_typography 測試](test/test_check_typography.py)。
 
