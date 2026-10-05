@@ -131,7 +131,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(out["scopes"], ["script:doc"])
 
     def test_violation(self):
-        code, out = self.run_cli("nothing", ["script/doc/check_terms.py", "CONTEXT.md"])
+        code, out = self.run_cli("nothing", ["script/doc/check_terms.py", "doc/adr/0001-why-not-existing-tools.md"])
         self.assertEqual(code, 1)
         self.assertEqual(len(out["problems"]), 2)
 
