@@ -13,6 +13,7 @@ members = [
     "engine/layout",
     "engine/config",
     "engine/filelock",
+    "engine/prompt",
     "engine/msggen",
     "test/e2e",
     "test/boundary",
@@ -34,6 +35,7 @@ schema = { path = "engine/schema" }
 layout = { path = "engine/layout" }
 config = { path = "engine/config" }
 filelock = { path = "engine/filelock" }
+prompt = { path = "engine/prompt" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
