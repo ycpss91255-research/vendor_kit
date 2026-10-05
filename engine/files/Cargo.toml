@@ -1,0 +1,16 @@
+[package]
+name = "files"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "檔案基礎操作：原子寫入、sha256 指紋、排序走訪，遇到 symlink 一律拒絕"
+
+[dependencies]
+sha2.workspace = true
+nix.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
