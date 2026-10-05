@@ -1,0 +1,21 @@
+[package]
+name = "version_file"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "讀寫 .vendor_kit/version.toml（版本鎖定行，只認 ADR-0002 正規形）與 version.local.toml（本機覆寫）"
+
+[dependencies]
+compat.workspace = true
+files.workspace = true
+imageref.workspace = true
+layout.workspace = true
+messages.workspace = true
+schema.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
