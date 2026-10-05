@@ -101,6 +101,22 @@ class ScopeTest(unittest.TestCase):
         self.assertEqual(len(s), 2)
         self.assertTrue(p)
 
+    def test_engine_group_merges_image_test_justfile_ci(self):
+        s, p = self.scopes(["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml",
+                            "engine/Cargo.toml", "engine/src/main.rs", "image/Dockerfile",
+                            "test/e2e/Cargo.toml", "test/e2e/tests/smoke.rs", "justfile",
+                            ".github/workflows/test.yml"])
+        self.assertEqual((s, p), (["engine"], []))
+
+    def test_engine_and_launcher_are_two_scopes(self):
+        s, p = self.scopes(["engine/src/main.rs", "launcher/bootstrap.sh"])
+        self.assertEqual(s, ["engine", "launcher"])
+        self.assertTrue(p)
+
+    def test_test_dir_alone_is_own_scope(self):
+        s, p = self.scopes(["test/e2e/tests/smoke.rs"])
+        self.assertEqual((s, p), (["test"], []))
+
     def test_unlisted_file_is_violation(self):
         s, p = self.scopes(["discussion.drawio"])
         self.assertIn("沒有列到", p[0])
