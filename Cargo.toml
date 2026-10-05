@@ -28,6 +28,8 @@ members = [
     "engine/txn",
     "engine/fetch",
     "engine/initfiles",
+    "engine/tools_just",
+    "engine/add",
     "test/e2e",
     "test/boundary",
     "test/reason_lint",
@@ -63,6 +65,8 @@ plan = { path = "engine/plan" }
 txn = { path = "engine/txn" }
 fetch = { path = "engine/fetch" }
 initfiles = { path = "engine/initfiles" }
+tools_just = { path = "engine/tools_just" }
+add = { path = "engine/add" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
@@ -72,6 +76,7 @@ roxmltree = "0.21"
 sha2 = "0.10"
 toml_edit = "0.25"
 nix = { version = "0.30", default-features = false }
+serde_json = "1"
 
 # 測試例外：各 crate 在 #[cfg(test)] 與 test/ 的測試檔以 allow 屬性放行 unwrap／expect。
 [workspace.lints.rust]

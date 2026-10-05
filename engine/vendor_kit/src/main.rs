@@ -10,7 +10,10 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let stdin = std::io::stdin();
+    let mut stdin = stdin.lock();
     let stdout = std::io::stdout();
     let stderr = std::io::stderr();
-    ExitCode::from(cli::run(&args, &stdout, &stderr))
+    let mounts = cli::Mounts::from_env();
+    ExitCode::from(cli::run(&args, &mounts, &mut stdin, &stdout, &stderr))
 }

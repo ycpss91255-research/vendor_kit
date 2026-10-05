@@ -16,7 +16,9 @@ use super::*;
 const WRITTEN_BY: &str = "vendor_kit 0.0.0";
 const ENGINE: &str = "ghcr.io/acme/vendor_kit:v1.0.0@sha256:1111111111111111111111111111111111111111111111111111111111111111";
 const TOOL: &str = "ghcr.io/acme/tool:v1.2.3@sha256:3333333333333333333333333333333333333333333333333333333333333333";
-const TOOLS_JUST_TEXT: &[u8] = b"import '../cache/tool/dist/just/tool.just'\n";
+const TOOLS_JUST_TEXT: &[u8] = b"mod tool '../cache/tool/dist/just/tool.just'\n";
+const RECORD_PATH: &str = "baseline/tool.toml";
+const RECORD_TEXT: &[u8] = b"schema = 1\n";
 const JUSTFILE_TEXT: &[u8] = b"import '.vendor_kit/entry.just'\n";
 
 fn fixed_time() -> SystemTime {
@@ -91,6 +93,10 @@ impl Fixture {
         fs::read(self.dir.version_toml()).unwrap()
     }
 
+    fn record(&self) -> PathBuf {
+        self.dir.vk_dir().join(RECORD_PATH)
+    }
+
     fn tools_just(&self) -> PathBuf {
         self.dir.gen_dir().join(TOOLS_JUST)
     }
@@ -151,6 +157,10 @@ impl<E: Effects> Effects for Faulty<E> {
         self.tick()?;
         self.inner.write_repo_file(file)
     }
+    fn write_record_file(&mut self, file: &RecordFile) -> Result<(), Error> {
+        self.tick()?;
+        self.inner.write_record_file(file)
+    }
     fn write_tools_just(&mut self, contents: &[u8]) -> Result<(), Error> {
         self.tick()?;
         self.inner.write_tools_just(contents)
@@ -165,7 +175,7 @@ impl<E: Effects> Effects for Faulty<E> {
     }
 }
 
-/// 完整順序走一次：一個工具、一個 repo 檔、寫入口檔、改工具的版本鎖定行。
+/// 完整順序走一次：一個工具、一個 repo 檔、一個紀錄檔、寫入口檔、改工具的版本鎖定行。
 fn sequence<E: Effects>(fx: &mut E, f: &Fixture, target: Target) -> Result<Done, Failed> {
     let mut lock = LockFile::load_from(&f.dir).unwrap().unwrap();
     lock.set_tool("tool", &image(TOOL)).unwrap();
@@ -173,9 +183,14 @@ fn sequence<E: Effects>(fx: &mut E, f: &Fixture, target: Target) -> Result<Done,
         path: Path::new("justfile"),
         contents: JUSTFILE_TEXT,
     }];
+    let records = [RecordFile {
+        path: Path::new(RECORD_PATH),
+        contents: RECORD_TEXT,
+    }];
     Txn::begin(fx, progress())?
         .swap_cache(&[f.tool()])?
         .write_repo_files(&repo)?
+        .write_records(&records)?
         .write_tools_just(Some(TOOLS_JUST_TEXT))?
         .write_lock_line(&mut lock, target)?
         .complete()
@@ -266,6 +281,7 @@ fn full_sequence_lands_everything_in_order() {
         fs::read(f.dir.root().join("justfile")).unwrap(),
         JUSTFILE_TEXT
     );
+    assert_eq!(fs::read(f.record()).unwrap(), RECORD_TEXT);
     assert_eq!(fs::read(f.tools_just()).unwrap(), TOOLS_JUST_TEXT);
 
     assert_ne!(f.lock_text(), before);
@@ -285,6 +301,8 @@ fn empty_steps_and_kept_lock_line_write_only_progress_events() {
             .swap_cache(&[])
             .unwrap()
             .write_repo_files(&[])
+            .unwrap()
+            .write_records(&[])
             .unwrap()
             .write_tools_just(None)
             .unwrap()
@@ -339,6 +357,7 @@ fn a_fault_at_each_step_leaves_a_recognizable_state() {
             step > Step::RepoFile,
             "{step}"
         );
+        assert_eq!(f.record().exists(), step > Step::Records, "{step}");
         assert_eq!(f.tools_just().exists(), step > Step::ToolsJust, "{step}");
 
         // 版本鎖定行最後才改：寫成之前中斷，版本鎖定行不動。
@@ -493,6 +512,32 @@ fn repo_file_paths_must_stay_inside_the_repo() {
     fx.write_repo_file(&ok).unwrap();
     assert_eq!(
         fs::read(f.dir.root().join("sub/dir/file.txt")).unwrap(),
+        b"x"
+    );
+}
+
+#[test]
+fn record_file_paths_must_stay_inside_the_vk_dir() {
+    let f = Fixture::new();
+    let mut w = Writer::new(Vec::new(), header(Component::Engine)).with_clock(fixed_time);
+    let mut fx = Disk::new(&f.dir, &mut w, WRITTEN_BY);
+    for bad in ["", "/etc/passwd", "../justfile", "baseline/../../x"] {
+        let file = RecordFile {
+            path: Path::new(bad),
+            contents: b"x",
+        };
+        assert!(
+            matches!(fx.write_record_file(&file), Err(Error::BadPath(_))),
+            "{bad:?}"
+        );
+    }
+    let ok = RecordFile {
+        path: Path::new("baseline/tool/a/b.txt"),
+        contents: b"x",
+    };
+    fx.write_record_file(&ok).unwrap();
+    assert_eq!(
+        fs::read(f.dir.vk_dir().join("baseline/tool/a/b.txt")).unwrap(),
         b"x"
     );
 }

@@ -1,4 +1,8 @@
-//! 端到端測試共用的輔助：找出受測的執行檔。測試本體在 `tests/`。
+//! 端到端測試共用的輔助：找出受測的執行檔、扮演啟動器。測試本體在 `tests/`。
+
+// 測試輔助：失敗就讓測試失敗，unwrap 放行（workspace lints 的測試例外）。
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+pub mod launcher;
 
 use std::path::PathBuf;
 
@@ -29,3 +33,7 @@ pub fn vendor_kit_bin() -> Result<PathBuf, String> {
 
 /// 版本行用的版本；引擎與這個 crate 共用 workspace 的版本號。
 pub const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
+
+/// 引擎的測試用環境變數：三個掛載點改到 `<值>/vk/root`、`<值>/vk/ctl`、`<值>/vk/in`
+/// （engine/vendor_kit 的 `MOUNT_PREFIX_ENV`；這裡不能依賴 engine crate，照抄名字）。
+pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";

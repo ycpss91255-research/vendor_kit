@@ -207,6 +207,8 @@ fn expected_members_exist() {
         "txn",
         "fetch",
         "initfiles",
+        "tools_just",
+        "add",
     ] {
         assert!(
             m.get(name).is_some_and(|(e, _)| *e),
@@ -252,6 +254,8 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
         "txn",
         "fetch",
         "initfiles",
+        "tools_just",
+        "add",
     ] {
         let (_, pkg) = &m[name];
         assert!(

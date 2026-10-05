@@ -1,0 +1,11 @@
+[package]
+name = "tools_just"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "入口檔 gen/tools.just 的內容：每個 <ns> 一行，指向 cache/<repo>/just/<ns>.just"
+
+[dependencies]
+
+[lints]
+workspace = true
