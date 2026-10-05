@@ -20,30 +20,6 @@ setup() {
     printf 'finish 0\n' >"$fake/engine"
     vk_env=(VK_FAKE="$fake" TMPDIR="$tmpd")
     sess="$tmpd/vendor_kit.r1"
-    launcher_messages
-}
-
-# msggen 的 --bash-out 目前只收 source 含 bootstrap 的列，啟動器專用的 VK0009（source=launcher）不在片段裡。
-# 片段還沒有它時，從訊息表那一列補上（不另抄文字）；msggen 收了 launcher 的列以後這段就不再作用。
-launcher_messages() {
-    if grep -q '^vk_msg_VK0009_text=' "$VK_MESSAGES"; then
-        return 0
-    fi
-    local row
-    row=$(grep '^VK0009,' "$repo_root/doc/contract/reason_codes.csv")
-    [[ $row != *'"'* ]] || {
-        echo "VK0009 row has quotes; parse it with msggen instead" >&2
-        return 1
-    }
-    local -a f
-    IFS=, read -r -a f <<<"$row"
-    [ "${#f[@]}" -eq 10 ]
-    local extra="$BATS_TEST_TMPDIR/messages.sh"
-    {
-        cat "$VK_MESSAGES"
-        printf 'vk_msg_VK0009_level=%s\nvk_msg_VK0009_exit=%s\nvk_msg_VK0009_text=%q\n' "${f[2]}" "${f[3]}" "${f[9]}"
-    } >"$extra"
-    VK_MESSAGES=$extra
 }
 
 # launch <P> [<recipe> <args>...]：在 $work/sub 下指令，安裝目錄是 $work。
