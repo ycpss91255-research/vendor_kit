@@ -23,7 +23,8 @@
 //!   | `declined` | `declined_hash` 等於新版 | [`Verdict::Declined`]：不問、不套用，VK0020 |
 //!   | `deleted` | 檔不在 | [`Verdict::StillDeleted`]：不重建，列進 stdout 清單 |
 //!
-//!   其他組合契約沒寫到，不自己補規則，判成 [`Verdict::Gap`]（見 [`Gap`]）：不寫、不問、不改紀錄。
+//!   其他組合契約沒寫到，不自己補規則，判成 [`Verdict::Gap`]（見 [`Gap`]）：不寫、不問、不改紀錄；
+//!   新版不再提供的初始檔雖是缺口，04 要求的 stdout 清單照樣列。
 //! - 「使用者改過」以目前檔與基準版比（CRLF→LF 正規化後的指紋，[`files::fingerprint_normalized`]），
 //!   不看紀錄的 `hash`：上次合併過的檔 hash 相符，內容卻不是基準版。
 //! - 換版與合併都經 `merge` 算出寫入內容（基準版、目前檔、新版）；目前檔與基準版相同時結果就是新版，
@@ -133,7 +134,8 @@ pub enum Gap {
     DeletedReappeared,
     /// `managed` 的目前檔已等於新版、卻不等於基準版：repo 檔不變，契約沒寫要不要問、基準版推不推。
     CurrentIsNew,
-    /// 紀錄裡有、新版不再提供的初始檔：04 說只列清單，但沒說紀錄記成什麼。
+    /// 紀錄裡有、新版不再提供的初始檔：04 說不刪、只列清單，但沒說紀錄記成什麼。照樣列進 stdout
+    /// 清單（[`FilePlan::listed`]），紀錄不動。
     NoLongerProvided,
 }
 
@@ -204,9 +206,13 @@ impl FilePlan {
         }
     }
 
-    /// 要列進 stdout 清單：不刪、不重建的納管初始檔（04 寫入既有檔的例外）。
+    /// 要列進 stdout 清單（04 寫入既有檔的例外）：使用者已刪、不重建的納管初始檔，與新版不再提供的
+    /// 初始檔。後者記成什麼 state 契約沒寫（[`Gap::NoLongerProvided`]），但列清單不是寫入，照樣列。
     pub fn listed(&self) -> bool {
-        matches!(self.verdict, Verdict::UserDeleted | Verdict::StillDeleted)
+        matches!(
+            self.verdict,
+            Verdict::UserDeleted | Verdict::StillDeleted | Verdict::Gap(Gap::NoLongerProvided)
+        )
     }
 }
 

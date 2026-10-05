@@ -557,6 +557,9 @@ fn file_no_longer_provided_is_a_gap_after_the_inputs() {
         plan.gaps().collect::<Vec<_>>(),
         vec![("gone", Gap::NoLongerProvided)]
     );
+    assert!(plan.files[1].listed());
+    assert_eq!(plan.files[1].record, None);
+    assert!(!plan.files[0].listed());
 }
 
 #[test]
