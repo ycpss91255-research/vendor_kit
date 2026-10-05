@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫法規則。
+r"""檢查對外文件（doc/contract/0N_*.md）的寫法規則。
 
 規則見 doc/contract/README.md「寫法規則」與「版本怎麼迭代」：
 1. 不寫「出處：」行：沿用規則時在正文寫「依 [頁名第 N 條](連結#錨點)」。
@@ -8,9 +8,9 @@ r"""檢查對外文件（根目錄 README.md 與 doc/contract/0N_*.md）的寫�
 3a. 不准任何 HTML 標籤（<ins> 也不行；名詞改連到 GLOSSARY.md 分群）：<a id>、<br> 這類只有部分環境顯示得出來；錨點一律用標題產生。
     反斜線跳脫的 \<repo\> 是字面文字，不算標籤。
 4. 相對連結的檔案與錨點都存在（錨點照 GitHub 的標題轉換規則算）。
-5. 內容只能往前依賴；導覽指標可以往後指。README 是入口，不是第 0 頁。
-   L1、L2：01、02 不寫原因代碼與結束碼數字；L3：README 不以「依」連結審閱頁。
-6. L4：README 與 03 的行內程式碼、訊息表 reason_codes.csv 的指令欄，掃 VK recipe 開頭的片段，
+5. 內容只能往前依賴；導覽指標可以往後指。入口頁不是第 0 頁。
+   L1、L2：01、02 不寫原因代碼與結束碼數字；L3：入口頁不以「依」連結審閱頁。
+6. L4：入口頁與 03 的行內程式碼、訊息表 reason_codes.csv 的指令欄，掃 VK recipe 開頭的片段，
    選項 token（含單獨的 --）與 @<tag> 必須在 GLOSSARY.md、01、02 行內程式碼定義過。
 7. 引用別頁條目不寫舊寫法「[名字](連結) 第 N 條」：一律寫「依 [頁名第 N 條](連結#錨點)」；
    行內程式碼（反引號內）不算。
@@ -87,7 +87,7 @@ def raw_angle_link_texts(line: str) -> list[tuple[str, str]]:
 
 
 def pages() -> list[pathlib.Path]:
-    """要掃的對外文件；README.md 或 doc/contract/ 還不存在時就少掃那些，不當錯誤。"""
+    """要掃的對外文件；檔案或 doc/contract/ 還不存在時就少掃那些，不當錯誤。"""
     found = [ROOT / "README.md"] + sorted(p for p in REVIEW.glob("*.md") if PAGE.match(p.name))
     return [p for p in found if p.is_file()]
 

@@ -18,10 +18,10 @@
 6. pending 列的 message.en 必須以指令結尾（見 ending_command）；failed 列不限。
    message.en 以指令結尾時，其他語言的 message 必須逐字包含同一個指令。
 7. 欄位不准 HTML 與 Markdown；不帶屬性的 <…> 算占位符；< 與 > 要成對。
-8. 引用：README.md、doc/contract/*.md、GLOSSARY.md 裡的每個 VKnnnn 都要在 CSV 且是 active；
+8. 引用：doc/contract/*.md、GLOSSARY.md 裡的每個 VKnnnn 都要在 CSV 且是 active；
    doc/adr/*.md 只要求存在。連 reason_codes.csv 不准帶 #；連結文字是代碼時不准連 03_output.md
    （03_output.md 不放逐碼內容，一律連 CSV）。01、02 不准連 CSV。
-9. 診斷範例：README.md、doc/contract/*.md、GLOSSARY.md 裡的
+9. 診斷範例：doc/contract/*.md、GLOSSARY.md 裡的
    `vendor_kit: <level>[VKnnnn]: <本文>`，level 要等於 CSV；本文要符合 message.en 第一行，
    message.en 裡的 <…> 占位符可對應範例中的任意文字。
    比對對象是 message.en。

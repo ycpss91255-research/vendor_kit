@@ -8,7 +8,7 @@
    行內程式碼（反引號包住的）與前後的中文相鄰時也空一格：「`0`結束」→「`0` 結束」、
    「印`VK0024`」→「印 `VK0024`」；與全形標點相鄰不加空白。
 
-掃描範圍：README.md、doc/contract/*.md、GLOSSARY.md，以及 doc/contract/*.csv 的文字欄
+掃描範圍：doc/contract/*.md、GLOSSARY.md，以及 doc/contract/*.csv 的文字欄
 （表頭以 TEXT_FIELD_PREFIXES 開頭的欄，即每個語言的 situation.<lang>、message.<lang>；
 依表頭欄名找，不寫死語言與欄數）。不檢查、不改：行內程式碼的內容（反引號內）、程式碼區塊、HTML 註解、URL、
 Markdown 連結目標（括號裡的路徑與錨點）與參照定義行、HTML 標籤本身、CSV 的其他欄
