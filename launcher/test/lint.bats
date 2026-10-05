@@ -32,7 +32,7 @@ lint() {
     local f=$BATS_TEST_DIRNAME/fixture/lint_bad.sh
     lint "$f"
     [ "$status" -eq 1 ]
-    local want=(git curl sed awk grep tr cat sleep rm ls head git env date uname)
+    local want=(git curl sed awk grep tr cat stat chmod ls head git env date uname)
     local i=0 w
     for w in "${want[@]}"; do
         [ "${lines[i]}" = "$f: command not in commands.txt: $w" ]

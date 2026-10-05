@@ -21,10 +21,10 @@ f_compound() {
     if cat /dev/null; then # bad: cat
         :
     fi
-    while sleep 1; do # bad: sleep
+    while stat / ; do # bad: stat
         break
     done
-    (rm -f /tmp/none) # bad: rm
+    (chmod 600 /tmp/none) # bad: chmod
     local line
     while read -r line; do :; done < <(ls /) # bad: ls
     case ${1:-} in
