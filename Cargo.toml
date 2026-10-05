@@ -18,6 +18,7 @@ members = [
     "engine/stamp",
     "engine/merge",
     "engine/args",
+    "engine/version_file",
     "engine/msggen",
     "test/e2e",
     "test/boundary",
@@ -44,6 +45,7 @@ metadata = { path = "engine/metadata" }
 stamp = { path = "engine/stamp" }
 merge = { path = "engine/merge" }
 args = { path = "engine/args" }
+version_file = { path = "engine/version_file" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
