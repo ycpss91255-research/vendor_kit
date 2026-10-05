@@ -1,0 +1,15 @@
+[package]
+name = "initfiles"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "add／upgrade 處理初始檔：依逐檔紀錄、基準版與目前檔算出新建、換版、基準版合併與不處理的動作，收齊要問的問題，不寫檔、不詢問（ADR-0003）"
+
+[dependencies]
+files.workspace = true
+merge.workspace = true
+messages.workspace = true
+metadata.workspace = true
+
+[lints]
+workspace = true
