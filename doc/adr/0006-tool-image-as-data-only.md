@@ -17,7 +17,7 @@
 - 驗收：取件後逐檔比對出貨 image 與導入結果，以 `FROM scratch` 純資料 fixture image 走完整流程。
 - 內部機制（之後搬到實作 issue）：
   - `Dockerfile.dist` 逐字三行：`FROM scratch` + LABEL + `COPY dist/`。沒有 entrypoint、shell 或可執行層，「能不能跑」在契約上不存在。
-  - 取件：主機啟動器 `docker create` → `docker cp` → 唯讀掛進引擎容器，讀取與判斷都在引擎那一份實作裡做；不 `docker run` 工具 image。
-  - 位元組相同靠三層：digest 鎖住 image 內容；取件時逐檔算 sha256 記進印記；寫入前再重驗一次。三層各擋一類失手：拉到的是不是同一個 image、取出來的是不是同一份檔、掛進來到落地之間有沒有被動過。同一份檔因此算兩次 sha256，檔多的工具會付出可觀察的時間。
+  - 取件：主機啟動器 `docker create` → `docker cp` 到這次呼叫專用、repo 外、由啟動器擁有的暫存處 → 唯讀掛進引擎容器，讀取與判斷都在引擎那一份實作裡做；不 `docker run` 工具 image；全部同意後由引擎重驗，再寫進 `cache/`。
+  - 位元組相同靠三層：digest 鎖住 image 內容；取到暫存處時逐檔算 sha256，全部同意、寫入時才記進印記；寫入前再重驗一次。三層各擋一類失手：拉到的是不是同一個 image、取出來的是不是同一份檔、掛進來到落地之間有沒有被動過。同一份檔因此算兩次 sha256，檔多的工具會付出可觀察的時間。
   - 出貨端另由 CI 驗兩平台位元組一致（[ADR-0011](0011-test-layers-and-ci-matrix.md)）；導入端的三層驗不出兩個平台各自打包出不同東西。
   - 引擎以 `vendor_kit:vN` 發布；工具端不出現引擎程式，引擎端不出現工具專屬分支。
