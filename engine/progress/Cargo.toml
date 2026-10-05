@@ -1,0 +1,19 @@
+[package]
+name = "progress"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "進度檔 .vendor_kit/.tmp.<verb>.<id>.toml 的原語：建立、讀回、列出殘留、刪除（唯一完成點）"
+
+[dependencies]
+files.workspace = true
+layout.workspace = true
+messages.workspace = true
+schema.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
