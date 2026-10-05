@@ -1,0 +1,14 @@
+# 啟動器命令白名單（ADR-0007:26、30）：啟動器（launcher/*.sh）只准呼叫 bash 的 builtin 與 keyword、
+# launcher/*.sh 自己定義的函式，以及下面列的命令；其他命令由 launcher/lint/check_commands.sh 擋。
+#
+# - 主機依賴（不變量 5、04 主機需求）：docker、just。git 不在這裡：主機不呼叫 git（ADR-0007:30）。
+# - 支援平台既有的基礎 userland：多一個時改這裡；多一個要另外安裝的主機依賴，得先修訂不變量 5。
+#
+# 一行一個命令名；`#` 開頭與空行不算。
+
+# 主機依賴
+docker
+just
+
+# 基礎 userland
+mkdir
