@@ -3,7 +3,7 @@ name = "msggen"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "讀 reason_codes.csv，產出 messages crate 的 Rust 原始碼與 bootstrap.sh 用的 bash 片段"
+description = "讀 reason_codes.csv，產出 messages crate 的 Rust 原始碼與主機端 bash（bootstrap.sh、啟動器）用的片段"
 
 [dependencies]
 csv.workspace = true

@@ -31,15 +31,16 @@ pub fn rust(rows: &[Row]) -> String {
     out
 }
 
-/// `bootstrap.sh` 內嵌用的 bash 片段：只收 `source` 含 `bootstrap` 的列。
+/// 主機端 bash 用的片段（`bootstrap.sh` 內嵌、啟動器 `launcher/` 載入）：只收 `source` 含 `bootstrap` 或 `launcher` 的列。
 pub fn bash(rows: &[Row]) -> String {
     let mut out = String::new();
     out.push_str(&format!("# {HEADER}\n"));
-    out.push_str("# Diagnostics used by bootstrap.sh: vk_msg_<code>_level, vk_msg_<code>_exit, vk_msg_<code>_text.\n");
-    for row in sorted(rows)
-        .into_iter()
-        .filter(|r| r.sources.contains(&Source::Bootstrap))
-    {
+    out.push_str("# Diagnostics used by bootstrap.sh and the launcher: vk_msg_<code>_level, vk_msg_<code>_exit, vk_msg_<code>_text.\n");
+    for row in sorted(rows).into_iter().filter(|r| {
+        r.sources
+            .iter()
+            .any(|s| matches!(s, Source::Bootstrap | Source::Launcher))
+    }) {
         let _ = write!(
             out,
             "vk_msg_{code}_level={level}\nvk_msg_{code}_exit={exit}\nvk_msg_{code}_text={text}\n",
@@ -122,15 +123,19 @@ mod tests {
     }
 
     #[test]
-    fn bash_keeps_only_bootstrap_rows_and_quotes() {
+    fn bash_keeps_only_host_rows_and_quotes() {
         let rows = [
             row("VK0001", vec![Source::Bootstrap], "It's\nfine."),
             row("VK0002", vec![Source::Engine], "Engine only."),
+            row("VK0009", vec![Source::Launcher], "Launcher only."),
+            row("VK0013", vec![Source::Test], "Test only."),
         ];
         let out = bash(&rows);
         assert!(out.contains("vk_msg_VK0001_text='It'\\''s\nfine.'\n"));
         assert!(out.contains("vk_msg_VK0001_exit=2\n"));
         assert!(!out.contains("VK0002"));
+        assert!(out.contains("vk_msg_VK0009_text='Launcher only.'\n"));
+        assert!(!out.contains("VK0013"));
     }
 
     #[test]

@@ -38,6 +38,21 @@ const _: () = {
     assert!(THIS.max_schema >= 1);
 };
 
+/// 引擎版本 `v<X.Y.Z>`，取自 Cargo workspace version；與版本行、tag 的寫法一致。
+pub const ENGINE_VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
+
+/// 建引擎 image 時帶給 `image/Dockerfile` 的 build-arg，一行一個 `NAME=value`，順序固定。
+///
+/// 最終 stage 把它們寫成 LABEL（`vendor_kit.protocol.floor`、`vendor_kit.protocol.current`、
+/// `org.opencontainers.image.version`），啟動器只讀這些 LABEL 判介面版（ADR-0008:27）。
+/// 值只從 [`THIS`] 與 [`ENGINE_VERSION`] 來，Dockerfile 不另寫數字。
+pub fn image_build_args() -> String {
+    format!(
+        "VK_PROTOCOL_FLOOR={}\nVK_PROTOCOL_CURRENT={}\nVK_VERSION={}\n",
+        THIS.floor_protocol, THIS.current_protocol, ENGINE_VERSION
+    )
+}
+
 impl Compat {
     /// 呼叫方的 P 落在 `[floor, current]` 內就接受，回傳引擎回應時用的 P（就是呼叫方的 P）。
     pub fn accept_protocol(&self, protocol: u32) -> Result<u32, ProtocolError> {
@@ -170,6 +185,19 @@ mod tests {
         current_protocol: 4,
         max_schema: 3,
     };
+
+    #[test]
+    fn image_build_args_come_from_this_engine() {
+        assert_eq!(
+            image_build_args(),
+            format!(
+                "VK_PROTOCOL_FLOOR={}\nVK_PROTOCOL_CURRENT={}\nVK_VERSION=v{}\n",
+                THIS.floor_protocol,
+                THIS.current_protocol,
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+    }
 
     #[test]
     fn this_engine_accepts_its_current_protocol() {
