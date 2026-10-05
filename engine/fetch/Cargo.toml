@@ -1,0 +1,17 @@
+[package]
+name = "fetch"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "取件內容的驗證：暫存內容 → 驗過的候選（digest、逐檔指紋、dist 格式、<ns> 撞名），不寫檔、不呼叫 docker"
+
+[dependencies]
+imageref.workspace = true
+messages.workspace = true
+stamp.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
