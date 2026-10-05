@@ -225,7 +225,7 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
 
     def test_missing_glossary_skips_option_checks(self):
-        # 沒有 GLOSSARY.md（main 上仍是 CONTEXT.md）時，選項 token 比對整段跳過，其他規則照查
+        # 沒有根 GLOSSARY.md 時，選項 token 比對整段跳過，其他規則照查
         pathlib.Path("GLOSSARY.md").unlink()
         self.write("03_m.md", "# 03\n\n## 目錄\n\n`update --missing`\n")
         code, out = self.run_main()

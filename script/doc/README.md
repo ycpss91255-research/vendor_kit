@@ -159,7 +159,7 @@ python3 script/doc/review_paths.py zip <review_vN.zip>
 
 ## 名詞表自檢（`check_context.py`）
 
-根 `CONTEXT.md` 每改一次就跑，不要目視：
+根 `GLOSSARY.md` 每改一次就跑，不要目視：
 
 ```sh
 python3 script/doc/check_context.py
@@ -174,7 +174,7 @@ python3 script/doc/check_context.py
 
 ## 舊名殘留自檢（`check_terms.py`）
 
-`check_context.py` 只管 `CONTEXT.md` 自己；改名改到一半、舊詞留在某一頁，要靠這支抓：
+`check_context.py` 只管 `GLOSSARY.md` 自己；改名改到一半、舊詞留在某一頁，要靠這支抓：
 
 ```sh
 python3 script/doc/check_terms.py
@@ -182,11 +182,11 @@ python3 script/doc/check_terms.py
 
 每筆殘留印 `<檔>:<行號>  <詞>  <該行內容>`，全乾淨印 `OK` 加統計（掃了幾個檔、幾個 `_Avoid_` 詞）。有殘留回 1，乾淨回 0。
 
-- **詞從哪裡來**：每次跑都從根 `CONTEXT.md` 的 `_Avoid_:` 行現抽，不寫死清單。名詞表會長大，寫死的清單幾次改名之後就跟名詞表脫鉤，而且是靜默的。
-- **掃哪些檔**：`git ls-files -co --exclude-standard` 取得的現行 `.md` 檔。`doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/research/` 已移出 git 並 gitignore，本來就不在清單裡。排除 `doc/decisions/review/_marked/`（本地產物）、`.claude/skills/`（vendored 的第三方 skill）、`script/diagram/`（圖面工具，等 #138 重做），以及 index 裡還留著但已刪除的檔。
+- **詞從哪裡來**：每次跑都從根 `GLOSSARY.md` 的 `_Avoid_:` 行現抽，不寫死清單。名詞表會長大，寫死的清單幾次改名之後就跟名詞表脫鉤，而且是靜默的。
+- **掃哪些檔**：`git ls-files -co --exclude-standard` 取得的現行 `.md` 檔。`doc/decisions/_backup/`、`doc/decisions/review_log/`、`doc/research/` 已移出 git 並 gitignore，本來就不在清單裡。排除 `doc/review/`（送審資料夾：正文副本與標示版）、`.claude/skills/` 與 `.agents/skills/`（vendored 的第三方 skill）、`script/diagram/`（圖面工具，等 #138 重做），以及 index 裡還留著但已刪除的檔。
 - **不算殘留的行**：`_Avoid_:` 行本身；以及帶「舊名」「已廢止」「已移除」「之名作廢」「舊審閱頁」「改名」這類引述標記的行——講改名史本來就得同時寫出新舊兩個詞。標記清單是 `check_terms.py` 頂端的 `QUOTE_MARKERS` 常數，要放行新的講法就加在那裡。
 - **逐行白名單**：已定案要保留舊詞的**個別一行**登記在 `check_terms.py` 頂端的 `WHITELIST`，每筆是 `(檔案路徑, 該行必須包含的字串, 理由)`。三個欄位都要對上才放行，而且只放行「那段字串裡面」的舊詞：把字串從該行挖掉之後還搜得到舊詞，照樣算殘留。所以同一個檔的其他行、同一行的其他位置、別的檔抄同一段字，全都還是會被抓到。只比對詞會讓那個詞全域失效、只比對檔案會讓整個檔失效，白名單就變成漏洞——這是刻意不做的兩種寫法。白名單筆數印在 `OK`／`FAIL` 那行，悄悄長大會看得見。
-- **目前的兩筆**：`doc/decisions/review/01_purpose.md` 的 `# 01 專案目的與承諾` 與 `doc/decisions/README.md` 裡引用這個標題的那一列。使用者定案：標題保留這個舊名，因為那裡指的是 VK 這個專案本身，不是名詞表裡指使用者 repo 的那個詞；`README.md` 那一列是在引用頁標題，同一個道理。（這一行自己帶「舊名」標記，靠上面的引述規則過關，不再多開一筆白名單。）
+- **目前的兩筆**：`doc/contract/01_purpose.md` 的 `# 01 專案目的與承諾` 與 `doc/decisions/README.md` 裡引用這個標題的那一列。使用者定案：標題保留這個舊名，因為那裡指的是 VK 這個專案本身，不是名詞表裡指使用者 repo 的那個詞；`README.md` 那一列是在引用頁標題，同一個道理。（這一行自己帶「舊名」標記，靠上面的引述規則過關，不再多開一筆白名單。）
 - **「數位簽章」例外**：「簽章」是名詞「印記」的舊名，但「數位簽章」是密碼學的標準術語（digital signature），跟印記無關——講 registry 或 image 的簽章時本來就該這樣寫。所以用負向前瞻 `(?<!數位)簽章` 只抓單獨的「簽章」，否則這支腳本會逼著大家把正確的詞改掉。
 
 ## 中英排版自檢（`check_typography.py`）
