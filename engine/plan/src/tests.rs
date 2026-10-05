@@ -42,8 +42,8 @@ fn golden_ops() -> Vec<(Op, String)> {
             format!("vk-resolve/1 r1 3\npull ghcr.io/acme/ros_tools@sha256:{A}\n"),
         ),
         (
-            Op::Load(field("/home/u/my proj/my tools.tar")),
-            "vk-resolve/1 r1 3\nload e:/home/u/my\\040proj/my\\040tools.tar\n".to_owned(),
+            Op::Load(field("/srv/u/my proj/my tools.tar")),
+            "vk-resolve/1 r1 3\nload e:/srv/u/my\\040proj/my\\040tools.tar\n".to_owned(),
         ),
         (
             Op::Inspect(image(&pinned())),
@@ -57,8 +57,8 @@ fn golden_ops() -> Vec<(Op, String)> {
             format!("vk-resolve/1 r1 3\nextract sha256:{B} x1\n"),
         ),
         (
-            Op::Stage(field("/home/u/.ghcr token"), Slot::parse("t1").unwrap()),
-            "vk-resolve/1 r1 3\nstage e:/home/u/.ghcr\\040token t1\n".to_owned(),
+            Op::Stage(field("/srv/u/.ghcr token"), Slot::parse("t1").unwrap()),
+            "vk-resolve/1 r1 3\nstage e:/srv/u/.ghcr\\040token t1\n".to_owned(),
         ),
         (Op::Ps, "vk-resolve/1 r1 3\nps\n".to_owned()),
         (
@@ -225,7 +225,7 @@ fn request_rejects_malformed_bytes() {
         // 主機路徑
         "vk-resolve/1 r1 1\nload e:my\\040tools.tar\n".to_owned(),
         "vk-resolve/1 r1 1\nload e:\n".to_owned(),
-        "vk-resolve/1 r1 1\nload /home/u/a.tar\n".to_owned(),
+        "vk-resolve/1 r1 1\nload /srv/u/a.tar\n".to_owned(),
         "vk-resolve/1 r1 1\nstage e:token t1\n".to_owned(),
         // rm-container
         format!("vk-resolve/1 r1 1\nrm-container {}\n", &B[..12]),
@@ -416,9 +416,9 @@ fn launcher_argv(rest: &[&str]) -> Vec<OsString> {
         "--run-id",
         "r1",
         "--host-root",
-        "/home/u/my proj",
+        "/srv/u/my proj",
         "--host-cwd",
-        "/home/u/my proj/sub",
+        "/srv/u/my proj/sub",
         "--run-log",
         ".vendor_kit/log/r1.jsonl",
         "--tty",
@@ -439,8 +439,8 @@ fn argv_parses_context_and_passes_rest_verbatim() {
         Invocation {
             protocol: 1,
             run_id: RunId::parse("r1").unwrap(),
-            host_root: PathBuf::from("/home/u/my proj"),
-            host_cwd: PathBuf::from("/home/u/my proj/sub"),
+            host_root: PathBuf::from("/srv/u/my proj"),
+            host_cwd: PathBuf::from("/srv/u/my proj/sub"),
             run_log: PathBuf::from(".vendor_kit/log/r1.jsonl"),
             tty: Tty {
                 stdin: true,
