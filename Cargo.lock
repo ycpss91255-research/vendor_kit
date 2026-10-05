@@ -271,6 +271,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "imageref"
+version = "0.0.0"
+dependencies = [
+ "messages",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

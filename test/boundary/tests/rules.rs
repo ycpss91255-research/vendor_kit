@@ -186,6 +186,7 @@ fn expected_members_exist() {
         "output",
         "messages",
         "files",
+        "imageref",
         "msggen",
     ] {
         assert!(
@@ -206,7 +207,14 @@ fn expected_members_exist() {
 #[test]
 fn lower_layers_do_not_depend_on_the_entry_crate() {
     let m = members(&metadata());
-    for name in ["diagnostics", "output", "messages", "files", "msggen"] {
+    for name in [
+        "diagnostics",
+        "output",
+        "messages",
+        "files",
+        "imageref",
+        "msggen",
+    ] {
         let (_, pkg) = &m[name];
         assert!(
             !workspace_deps(pkg, &m).contains(&"vendor_kit".to_owned()),
