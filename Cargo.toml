@@ -12,6 +12,7 @@ members = [
     "engine/schema",
     "engine/layout",
     "engine/config",
+    "engine/filelock",
     "engine/msggen",
     "test/e2e",
     "test/boundary",
@@ -32,6 +33,7 @@ compat = { path = "engine/compat" }
 schema = { path = "engine/schema" }
 layout = { path = "engine/layout" }
 config = { path = "engine/config" }
+filelock = { path = "engine/filelock" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
