@@ -1,0 +1,19 @@
+[package]
+name = "stamp"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "印記：由一個目錄算出版本與逐檔指紋、讀寫印記檔、比對印記與目錄現況（ADR-0006 三層驗證的第二層）"
+
+[dependencies]
+files.workspace = true
+layout.workspace = true
+messages.workspace = true
+schema.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

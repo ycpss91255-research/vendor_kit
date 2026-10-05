@@ -194,6 +194,7 @@ fn expected_members_exist() {
         "filelock",
         "prompt",
         "metadata",
+        "stamp",
         "msggen",
     ] {
         assert!(
@@ -227,6 +228,7 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
         "filelock",
         "prompt",
         "metadata",
+        "stamp",
         "msggen",
     ] {
         let (_, pkg) = &m[name];
