@@ -1,0 +1,17 @@
+[package]
+name = "config"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "讀 .vendor_kit/config.toml：鎖的等待期限與開關、test 的 runner（04 設定）"
+
+[dependencies]
+layout.workspace = true
+messages.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
