@@ -1,0 +1,12 @@
+[package]
+name = "compat"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "介面版、最低介面版與檔案版上限的判定（ADR-0008）"
+
+[dependencies]
+messages.workspace = true
+
+[lints]
+workspace = true
