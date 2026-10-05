@@ -25,6 +25,7 @@ members = [
     "engine/runlog",
     "engine/plan",
     "engine/msggen",
+    "engine/txn",
     "test/e2e",
     "test/boundary",
     "test/reason_lint",
@@ -57,6 +58,7 @@ shell = { path = "engine/shell" }
 retract = { path = "engine/retract" }
 runlog = { path = "engine/runlog" }
 plan = { path = "engine/plan" }
+txn = { path = "engine/txn" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
