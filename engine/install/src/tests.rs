@@ -531,6 +531,143 @@ fn residual_of_another_verb_or_with_repo_files_stops() {
     }
 }
 
+/// 寫一份殘留的 `install` 進度檔，記它要寫的根 `justfile`（寫入後內容是 `after`）。
+fn residual_with_justfile(fx: &Fx, after: &str) {
+    let mut p = Progress::new(INSTALL_VERB, "r0", &["install"]).unwrap();
+    let mut t = toml_edit::InlineTable::new();
+    t.insert(PATH_KEY, JUSTFILE.into());
+    let lines: toml_edit::Array = [IMPORT].into_iter().collect();
+    t.insert(LINES_KEY, lines.into());
+    t.insert(HASH_KEY, FileHash::of(after.as_bytes()).as_str().into());
+    let files: toml_edit::Array = [toml_edit::Value::from(t)].into_iter().collect();
+    p.document_mut()
+        .set(&[INSTALL_VERB, REPO_FILES_KEY], true)
+        .unwrap();
+    p.document_mut()
+        .set(&[INSTALL_VERB, FILES_KEY], files)
+        .unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+}
+
+#[test]
+fn interrupted_first_install_after_writing_root_files_is_completed() {
+    let fx = Fx::new();
+    // 上一次首次導入寫完根 justfile 就斷了：進度檔還在，紀錄、薄殼、版本鎖定行都沒寫。
+    let justfile = format!("{IMPORT}\n\n{DEFAULT}");
+    fx.write(JUSTFILE, &justfile);
+    residual_with_justfile(&fx, &justfile);
+
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(out.events(), LANDED);
+    assert!(out.stdout.contains("Completed the interrupted install.\n"));
+    assert!(!out.stdout.contains("justfile"), "{}", out.stdout);
+    assert_eq!(fx.read(JUSTFILE), justfile);
+    let r = vk_record(&fx, JUSTFILE);
+    assert_eq!(r.lines, [IMPORT]);
+    assert_eq!(r.hash, Some(FileHash::of(justfile.as_bytes())));
+    assert!(fx.exists(".vendor_kit/version.toml"));
+    assert!(fx.progress_left().is_empty());
+
+    // 補好之後再跑：沒有變更。
+    let out = run_install(&fx, false, "");
+    assert!(
+        out.stdout.contains("no changes were made"),
+        "{}",
+        out.stdout
+    );
+}
+
+#[test]
+fn interrupted_install_whose_file_changed_afterwards_stops() {
+    let fx = Fx::new();
+    let justfile = format!("{IMPORT}\n\n{DEFAULT}");
+    fx.write(JUSTFILE, &format!("{justfile}user:\n    echo user\n"));
+    residual_with_justfile(&fx, &justfile);
+
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 2);
+    assert!(
+        out.stderr.starts_with("vendor_kit: error[VK0056]: "),
+        "{}",
+        out.stderr
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.progress_left(), [INSTALL_VERB]);
+}
+
+#[test]
+fn interrupted_install_before_writing_root_files_plans_them_again() {
+    let fx = Fx::new();
+    // 進度檔記了要寫的根 justfile，但那次還沒寫到：照常新建。
+    residual_with_justfile(&fx, &format!("{IMPORT}\n\n{DEFAULT}"));
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.stdout.contains("Created justfile\n"), "{}", out.stdout);
+    assert_eq!(fx.read(JUSTFILE), format!("{IMPORT}\n\n{DEFAULT}"));
+    assert!(fx.progress_left().is_empty());
+}
+
+#[test]
+fn progress_records_each_root_file_written() {
+    let fx = Fx::new();
+    let edits = [RootEdit {
+        path: JUSTFILE,
+        before: None,
+        after: b"x\n".to_vec(),
+        ask: false,
+        lines: vec![IMPORT.to_owned()],
+    }];
+    let argv = vec!["install".to_owned()];
+    let mut stdin = Cursor::new(Vec::new());
+    let (mut stdout, mut prompt) = (Vec::new(), Vec::new());
+    let mut diags = Diagnostics::with_sink(Vec::new(), NoSink);
+    let mut log = runlog::Writer::new(
+        Vec::new(),
+        runlog::Header {
+            version: WRITTEN_BY.to_owned(),
+            component: runlog::Component::Engine,
+            invocation_id: "r1".to_owned(),
+        },
+    );
+    let mut env = Env {
+        dir: &fx.dir,
+        host_root: "/h/proj",
+        run_log: "log",
+        tty: TtyState::default(),
+        argv: &argv,
+        run_id: "r1",
+        written_by: WRITTEN_BY,
+        stdin: &mut stdin,
+        stdout: &mut stdout,
+        prompt: &mut prompt,
+        diags: &mut diags,
+        log: &mut log,
+    };
+    let mut run = Run {
+        env: &mut env,
+        code: 0,
+    };
+    let Ok(p) = run.progress(&edits) else {
+        panic!("progress");
+    };
+    let files = p
+        .document()
+        .get(&[INSTALL_VERB, FILES_KEY])
+        .and_then(|i| i.as_array())
+        .unwrap();
+    let got: Vec<Written> = files.iter().map(|v| written(v).unwrap()).collect();
+    assert_eq!(
+        got,
+        [Written {
+            path: JUSTFILE.to_owned(),
+            lines: vec![IMPORT.to_owned()],
+            hash: FileHash::of(b"x\n"),
+        }]
+    );
+}
+
 // ---- 出貨輸入 ----
 
 #[test]

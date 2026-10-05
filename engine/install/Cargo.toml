@@ -20,6 +20,7 @@ prompt.workspace = true
 runlog.workspace = true
 schema.workspace = true
 shell.workspace = true
+toml_edit.workspace = true
 txn.workspace = true
 version_file.workspace = true
 

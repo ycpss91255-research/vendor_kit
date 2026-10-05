@@ -38,11 +38,14 @@
 //!
 //! 殘留的 `install` 進度檔表示上一次中途停了。`install` 只把安裝目錄對齊這一版，判定時看的是目前的檔，
 //! 所以恢復就是照常再做一次：寫到一半的薄殼會被判成不一致而重寫，沒寫的版本鎖定行照樣補上。
+//! 根目錄檔另看殘留的進度檔記的寫入後整檔 hash：目前的檔與它相同，表示那次已經寫進去、只差紀錄，
+//! 直接補上 `appended` 紀錄（ADR-0003 以整檔 hash 認定是 VK 寫的）；還沒寫的照常判定。
 //! 殘留的詢問與這次的一起問完、全部同意才寫，答否時殘留的進度檔照留。這次落地完成之後才刪殘留的那幾份。
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
-//! - 進度檔 `.tmp.install.<run-id>.toml` 另記 `[install]` 表的 `repo_files`（這次有沒有要寫 repo 檔）。
+//! - 進度檔 `.tmp.install.<run-id>.toml` 另記 `[install]` 表的 `repo_files`（這次有沒有要寫 repo 檔）
+//!   與 `files`（每個要寫的根目錄檔：`path`、`lines`、寫入後的 `hash`）。
 //! - 根目錄檔的紀錄都記成 `appended`，`lines` 是 VK 寫進去的行：新建的根 `justfile` 只記 `import` 那一行
 //!   （`default` 建立後按 repo 檔處理，04），新建的 `.dockerignore` 記全部的行。`uninstall` 照 04 收回
 //!   這些行，檔本身不刪。
@@ -53,8 +56,9 @@
 //!
 //! - 出貨輸入（[`release`]）：首次導入的引擎版本鎖定行的值、薄殼模板本文、根 `justfile` 的 `import` 行與
 //!   `default`、根 `.dockerignore` 的四行。這一版一項都沒有，所以經啟動器的 `install` 目前一定在這裡停下。
-//! - 殘留的進度檔不是 `install` 的，或殘留的 `install` 要寫 repo 檔：那次寫了哪些 repo 檔沒有記錄，
-//!   重新判定會把 VK 自己剛插入的行當成使用者既有的內容。
+//! - 殘留的進度檔不是 `install` 的，或殘留的 `install` 要寫 repo 檔卻沒有 `files`。
+//! - 殘留的 `install` 記過的根目錄檔，目前的整檔 hash 跟那次寫入後的不同、卻已含要插入的行（寫入後
+//!   使用者又改過，分不出是誰插的）：照下一條停下。
 //! - 根目錄檔沒有紀錄、卻已含有要插入的行（`initfiles` 的 `LinesAlreadyPresent`，04 只說未收回的內容
 //!   不得無條件再 append），以及 `initfiles` 判出的其他缺口。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）。
@@ -93,6 +97,15 @@ pub use release::Release;
 pub const INSTALL_VERB: &str = "install";
 /// 進度檔記這次有沒有要寫 repo 檔的欄位。
 pub const REPO_FILES_KEY: &str = "repo_files";
+/// 進度檔記這次要寫的每個 repo 檔的欄位：inline table 的陣列，每個有 [`PATH_KEY`]、[`LINES_KEY`]、
+/// [`HASH_KEY`]。
+pub const FILES_KEY: &str = "files";
+/// repo 相對路徑。
+pub const PATH_KEY: &str = "path";
+/// VK 寫進去的行。
+pub const LINES_KEY: &str = "lines";
+/// 寫入後的整檔 hash（`metadata::FileHash`）。
+pub const HASH_KEY: &str = "hash";
 /// 根 `justfile`。
 pub const JUSTFILE: &str = "justfile";
 /// 根 `.dockerignore`。
@@ -150,8 +163,22 @@ struct RootEdit {
     after: Vec<u8>,
     /// 要先問（append 進既有檔）。
     ask: bool,
-    /// 插入的行數（詢問文字用）。
-    lines: usize,
+    /// VK 寫進去的行。
+    lines: Vec<String>,
+}
+
+/// 殘留的進度檔記的一個 repo 檔：那次要寫進去的行與寫入後的整檔 hash。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Written {
+    path: String,
+    lines: Vec<String>,
+    hash: FileHash,
+}
+
+/// 一份可以併進這次的殘留進度檔。
+struct Residual {
+    entry: progress::Entry,
+    files: Vec<Written>,
 }
 
 /// 出貨輸入都齊了之後的借用。
@@ -309,9 +336,8 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         }
     }
 
-    /// 辨識殘留的進度檔：`install` 的而且沒有要寫 repo 檔的，回傳讓這次併入；其他的每一份都印出原因
-    /// 再停下。
-    fn residuals(&mut self) -> Step<Vec<progress::Entry>> {
+    /// 辨識殘留的進度檔：`install` 的而且欄位齊全的，回傳讓這次併入；其他的每一份都印出原因再停下。
+    fn residuals(&mut self) -> Step<Vec<Residual>> {
         let entries = match progress::find(self.env.dir) {
             Ok(e) => e,
             Err(e) => return Err(self.internal(e.to_string())),
@@ -320,7 +346,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         let mut blocked = Vec::new();
         for entry in entries {
             match self.residual(&entry) {
-                Ok(()) => found.push(entry),
+                Ok(files) => found.push(Residual { entry, files }),
                 Err(d) => blocked.push(d),
             }
         }
@@ -333,7 +359,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         Err(Stop)
     }
 
-    fn residual(&self, entry: &progress::Entry) -> Result<(), Diagnostic> {
+    fn residual(&self, entry: &progress::Entry) -> Result<Vec<Written>, Diagnostic> {
         let loaded = match entry.load() {
             Ok(p) => p,
             Err(progress::Error::Parse {
@@ -349,16 +375,18 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                 entry.verb
             )));
         }
-        match loaded
-            .document()
+        let doc = loaded.document();
+        let repo_files = doc
             .get(&[INSTALL_VERB, REPO_FILES_KEY])
-            .and_then(|i| i.as_bool())
-        {
-            Some(false) => Ok(()),
-            Some(true) => {
-                Err(self.gap_diag(format_args!("recovering {shown}, which writes repo files")))
-            }
-            None => Err(self.gap_diag(format_args!(
+            .and_then(|i| i.as_bool());
+        let files = doc
+            .get(&[INSTALL_VERB, FILES_KEY])
+            .and_then(|i| i.as_array())
+            .and_then(|a| a.iter().map(written).collect::<Option<Vec<_>>>());
+        match (repo_files, files) {
+            (Some(false), _) => Ok(Vec::new()),
+            (Some(true), Some(files)) if !files.is_empty() => Ok(files),
+            _ => Err(self.gap_diag(format_args!(
                 "recovering {shown} without its [{INSTALL_VERB}] fields"
             ))),
         }
@@ -441,6 +469,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         let vk_path = metadata::vk_path(self.env.dir);
         let mut vk_md = self.load_metadata(&vk_path)?.unwrap_or_default();
         let mut edits: Vec<RootEdit> = Vec::new();
+        let mut adopted: Vec<&'static str> = Vec::new();
         let import = vec![inputs.import.to_owned()];
         let wanted: [(&'static str, &[String], Option<&str>); 2] = [
             (JUSTFILE, &import, Some(inputs.default)),
@@ -448,6 +477,13 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         ];
         for (path, lines, extra) in wanted {
             if vk_md.get(path).is_some() {
+                continue;
+            }
+            if let Some(record) = self.adopt(path, &residual)? {
+                vk_md
+                    .put(record)
+                    .map_err(|e| self.internal(e.to_string()))?;
+                adopted.push(path);
                 continue;
             }
             let (edit, record) = self.root_file(path, lines, extra, &vk_md)?;
@@ -466,7 +502,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         let questions: Vec<String> = edits
             .iter()
             .filter(|e| e.ask)
-            .map(|e| text::question(e.path, e.lines))
+            .map(|e| text::question(e.path, e.lines.len()))
             .collect();
         if !self.ask(&questions, req.yes)? {
             return Ok(());
@@ -477,7 +513,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             .iter()
             .filter_map(|n| shell.file(n).map(|c| (PathBuf::from(n), c.to_vec())))
             .collect();
-        if !edits.is_empty() {
+        if !edits.is_empty() || !adopted.is_empty() {
             let text = vk_md.render(self.env.written_by);
             let text = text.map_err(|e| self.internal(e.to_string()))?;
             records.push((self.vk_rel(&vk_path)?, text.into_bytes()));
@@ -488,9 +524,9 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             records.extend(self.other_records(&tools, &edits)?);
         }
 
-        let progress = self.progress(!edits.is_empty())?;
+        let progress = self.progress(&edits)?;
         self.land(progress, &edits, &records, new_lock.as_mut())?;
-        for entry in &residual {
+        for Residual { entry, .. } in &residual {
             if let Err(e) = progress::delete(self.env.dir, &entry.verb, &entry.id) {
                 let d = self.failed_diag(&entry.path, e.message(), e.to_string());
                 return Err(self.stop(d));
@@ -559,7 +595,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                     before: write.before,
                     after: write.after,
                     ask: true,
-                    lines: record.lines.len(),
+                    lines: record.lines.clone(),
                 };
                 Ok((edit, record))
             }
@@ -582,7 +618,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                     before: None,
                     after,
                     ask: false,
-                    lines: lines.len(),
+                    lines: lines.to_vec(),
                 };
                 Ok((edit, record))
             }
@@ -657,16 +693,49 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         }
     }
 
-    fn progress(&mut self, repo_files: bool) -> Step<Progress> {
+    fn progress(&mut self, edits: &[RootEdit]) -> Step<Progress> {
         let mut p = match Progress::new(INSTALL_VERB, self.env.run_id, self.env.argv) {
             Ok(p) => p,
             Err(e) => return Err(self.internal(e.to_string())),
         };
-        let set = p
-            .document_mut()
-            .set(&[INSTALL_VERB, REPO_FILES_KEY], repo_files);
+        let files: toml_edit::Array = edits
+            .iter()
+            .map(|e| {
+                let mut t = toml_edit::InlineTable::new();
+                t.insert(PATH_KEY, e.path.into());
+                let lines: toml_edit::Array = e.lines.iter().map(String::as_str).collect();
+                t.insert(LINES_KEY, lines.into());
+                t.insert(HASH_KEY, FileHash::of(&e.after).as_str().into());
+                toml_edit::Value::from(t)
+            })
+            .collect();
+        let doc = p.document_mut();
+        let set = doc
+            .set(&[INSTALL_VERB, REPO_FILES_KEY], !edits.is_empty())
+            .and_then(|()| doc.set(&[INSTALL_VERB, FILES_KEY], files));
         set.map_err(|e| self.internal(e.to_string()))?;
         Ok(p)
+    }
+
+    /// 殘留的 `install` 記過這個檔、而且目前整檔 hash 等於那次寫入後的 hash：那次已經寫進去了
+    /// （ADR-0003 以整檔 hash 認定是 VK 寫的），直接補上紀錄，不再問、不再插入。
+    fn adopt(&mut self, path: &str, residual: &[Residual]) -> Step<Option<FileRecord>> {
+        let Some(w) = residual
+            .iter()
+            .flat_map(|r| r.files.iter())
+            .find(|w| w.path == path)
+        else {
+            return Ok(None);
+        };
+        let current = read_optional(&self.env.dir.root().join(path));
+        let current = current.map_err(|e| self.internal(format!("{path}: {e}")))?;
+        if current.is_none_or(|c| FileHash::of(&c) != w.hash) {
+            return Ok(None);
+        }
+        let mut record = FileRecord::new(path, State::Appended);
+        record.lines = w.lines.clone();
+        record.hash = Some(w.hash.clone());
+        Ok(Some(record))
     }
 
     /// 依 `txn` 的順序落地。
@@ -705,6 +774,20 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         };
         result.map_err(|f| self.internal(f.to_string()))
     }
+}
+
+/// 進度檔 `[install].files` 的一項；格式不對回 `None`。
+fn written(v: &toml_edit::Value) -> Option<Written> {
+    let t = v.as_inline_table()?;
+    let path = t.get(PATH_KEY)?.as_str()?.to_owned();
+    let lines = t
+        .get(LINES_KEY)?
+        .as_array()?
+        .iter()
+        .map(|l| l.as_str().map(str::to_owned))
+        .collect::<Option<Vec<_>>>()?;
+    let hash = FileHash::parse(t.get(HASH_KEY)?.as_str()?)?;
+    Some(Written { path, lines, hash })
 }
 
 /// 讀檔；不在回 `None`。

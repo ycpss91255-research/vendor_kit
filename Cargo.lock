@@ -401,6 +401,7 @@ dependencies = [
  "schema",
  "shell",
  "tempfile",
+ "toml_edit",
  "txn",
  "version_file",
 ]
