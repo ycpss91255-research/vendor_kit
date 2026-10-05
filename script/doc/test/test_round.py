@@ -66,6 +66,23 @@ class RoundTest(unittest.TestCase):
         code, out = self.run_round("next")
         self.assertEqual((code, out["max"], out["next"], out["backup_max"], out["footer_max"]), (0, 9, "r10", None, 9))
 
+    def test_footer_on_other_branch_or_tag(self):
+        self.commit("feat: base")
+        base = git(self.repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        git(self.repo, "checkout", "-q", "-b", "old")
+        self.commit("docs: a\n\nDoc-Edit: r40")
+        git(self.repo, "checkout", "-q", base)
+        _, out = self.run_round("next")
+        self.assertEqual((out["max"], out["next"], out["footer_max"]), (40, "r41", 40))
+        git(self.repo, "checkout", "-q", "--detach", "old")
+        self.commit("docs: b\n\nDoc-Edit: r55")
+        git(self.repo, "tag", "archive/x")
+        git(self.repo, "checkout", "-q", base)
+        git(self.repo, "branch", "-q", "-D", "old")
+        self.assertNotIn("Doc-Edit", git(self.repo, "log", "--format=%B"))
+        _, out = self.run_round("next")
+        self.assertEqual((out["max"], out["next"], out["footer_max"]), (55, "r56", 55))
+
     def test_both_take_larger(self):
         self.backup("README.pre_r20.md")
         self.commit("docs: a\n\nDoc-Edit: r15")
