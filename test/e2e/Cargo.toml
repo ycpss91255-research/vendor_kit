@@ -1,0 +1,15 @@
+[package]
+name = "e2e"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "端到端測試：只經編好的 vendor_kit 執行檔，比對 stdout、stderr、結束碼與檔案樹"
+
+# 不依賴任何 engine/ crate（test/boundary 檢查）；只經執行檔測。
+[dev-dependencies]
+assert_cmd.workspace = true
+snapbox.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

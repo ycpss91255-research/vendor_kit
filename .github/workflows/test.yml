@@ -1,0 +1,18 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # 與本機 `just test` 同一條鏈：image/Dockerfile 的 test stage（fmt、clippy、全部測試）。
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: just test
+        run: docker build --target test -f image/Dockerfile .

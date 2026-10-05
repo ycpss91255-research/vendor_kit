@@ -1,0 +1,6 @@
+# Rust 版本只寫在這一處；image/Dockerfile 用浮動的官方 rust image，由 rustup 依這個檔裝指定版本。
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]
+profile = "minimal"

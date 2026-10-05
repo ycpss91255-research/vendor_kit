@@ -1,0 +1,18 @@
+[package]
+name = "vendor_kit"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "VK 引擎的單一入口：解析參數、分派指令"
+
+[[bin]]
+name = "vendor_kit"
+path = "src/main.rs"
+
+[dependencies]
+diagnostics.workspace = true
+messages.workspace = true
+output.workspace = true
+
+[lints]
+workspace = true
