@@ -344,6 +344,7 @@ def get_git_status_summary(repo_dir):
     NOISE = (
         'doc/decisions/review/_marked/',
         'script/diagram/_backup/',
+        'doc/review/',  # 送審資料夾：mark_changes.py 的產物
     )
     LIMIT = 10
 
