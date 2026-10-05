@@ -475,6 +475,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "progress"
+version = "0.0.0"
+dependencies = [
+ "files",
+ "layout",
+ "messages",
+ "schema",
+ "tempfile",
+ "toml_edit",
+]
+
+[[package]]
 name = "prompt"
 version = "0.0.0"
 dependencies = [
