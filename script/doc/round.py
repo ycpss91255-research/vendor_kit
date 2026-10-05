@@ -3,8 +3,9 @@
 已用過的輪次有兩個來源：
 - 本機 `doc/decisions/_backup/` 的備份檔名裡的 `pre_rNN`（不進 git，#128）；帶序號的備份
   （例如 `x.pre_r12.2.md`）也算 12。只看這個目錄本身的檔名，不往下找。
-- `git log --format=%B`（目前 HEAD 的歷史）裡行首的 `Doc-Edit: rNN` footer；換電腦或新 clone 時
-  `_backup/` 是空的，靠 footer 才不會重用。
+- `git log --all --format=%B`（所有分支、遠端分支與 tag 的歷史，不只目前 HEAD）裡行首的
+  `Doc-Edit: rNN` footer；換電腦、新 clone 或從 main 開新 worktree 時 `_backup/` 是空的，
+  footer 也可能只在舊分支或 tag 上（例如 `archive/pr-59`），靠這個才不會重用。
 
 用法：
   python3 script/doc/round.py next [--repo <R>]
@@ -62,7 +63,7 @@ def backup_max(root: Path) -> int | None:
 def footer_max(root: Path) -> int | None:
     if git(root, "rev-parse", "--verify", "--quiet", "HEAD").returncode != 0:
         return None  # 還沒有任何 commit
-    r = git(root, "log", "--format=%B")
+    r = git(root, "log", "--all", "--format=%B")
     if r.returncode != 0:
         raise Fail(f"git log 失敗：{(r.stderr or r.stdout).strip()}")
     nums = [int(n) for n in FOOTER_RE.findall(r.stdout)]
