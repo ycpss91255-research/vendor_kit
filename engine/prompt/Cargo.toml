@@ -1,0 +1,12 @@
+[package]
+name = "prompt"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "互動詢問：stdin 與 stderr 都是終端才問，[y/N] 一次問完；不能互動時回 VK0002 與 <command_with_y>（04 共同選項）"
+
+[dependencies]
+messages.workspace = true
+
+[lints]
+workspace = true
