@@ -17,7 +17,8 @@
     {"pattern": "^\\.gitignore$", "scope": "repo:gitignore"},
     {"pattern": "^\\.githooks/(?P<name>[^/]+)$", "scope": "githooks:{name}"},
     {"pattern": "^(AGENTS|CLAUDE)\\.md$", "scope": "agents", "attach": "any"},
-    {"pattern": "^CONTEXT\\.md$", "scope": "context"},
+    {"pattern": "^CONTEXT\\.md$", "scope": "glossary", "_why": "名詞表的舊檔名；刪除與改名算名詞表的改動（#59）"},
+    {"pattern": "^GLOSSARY\\.md$", "scope": "glossary", "_why": "名詞表（CONTEXT.md 改名而來，#59）"},
     {"pattern": "^script/README\\.md$", "scope": "script", "attach": "any"},
     {"pattern": "^script/github/scope\\.json$", "scope": "script:github", "attach": "any"},
     {"pattern": "^script/repo/local_paths_allow\\.json$", "scope": "script:repo", "attach": "any", "_why": "比照 scope.json：白名單條目跟被放行的檔一起改（#264）"},
@@ -29,6 +30,7 @@
     {"pattern": "^doc/adr/(?P<num>[0-9]{4})-[^/]+\\.md$", "scope": "adr:{num}"},
     {"pattern": "^doc/contract/(?P<page>[^/.]+)", "scope": "contract:{page}"},
     {"pattern": "^doc/decisions/review/(?P<page>[^/.]+)", "scope": "contract:{page}"},
+    {"pattern": "^doc/review/", "scope": "review", "_why": "送審資料夾與版本表（mark_changes.py、pack_review.py 的產物，#59）"},
     {"pattern": "^doc/decisions/README\\.md$", "scope": "decisions:README", "attach": "any"},
     {"pattern": "^doc/decisions/research/", "scope": "decisions:research"},
     {"pattern": "^doc/decisions/(?P<name>[^/]+)\\.md$", "scope": "decisions:{name}"},
@@ -39,6 +41,8 @@
     {"name": "hook:monitor_guard", "scopes": ["hook:monitor_guard", "script:github"], "_why": "hook 擋下 Monitor 時指向 script/github/watch_github.sh（#175）"},
     {"name": "workflow:pr-fix", "scopes": ["workflow:pr-fix", "script:workflow"], "_why": "workflow 只呼叫 script/workflow/pr_target.py 與 verify.py 做機械步驟（#187）"},
     {"name": "workflow:review-pack", "scopes": ["workflow:review-pack", "script:doc"], "_why": "workflow 只呼叫 script/doc/review_paths.py、mark_changes.py、pack_review.py 做機械步驟（#351）"},
-    {"name": "githooks:commit-msg", "scopes": ["githooks:commit-msg", "script:git"], "_why": "hook 只呼叫 script/git/check_commit_msg.py（#110）"}
+    {"name": "githooks:commit-msg", "scopes": ["githooks:commit-msg", "script:git"], "_why": "hook 只呼叫 script/git/check_commit_msg.py（#110）"},
+    {"name": "contract:03-04", "scopes": ["contract:03_output", "contract:04_interface"], "_why": "03 與 04 互相連結（03 連 04 的入口段、04 連回 03 的輸出段），只進一頁時 check_review_pages 的連結檢查會紅（#141）"},
+    {"name": "glossary", "scopes": ["glossary", "script:doc"], "_why": "script/doc/check_context.py 解析 GLOSSARY.md 的格式、check_terms.py 讀它的 _Avoid_ 詞；名詞表改格式或檔名時工具要同一個 PR 改，否則 docs-lint 會紅（#59）"}
   ]
 }
