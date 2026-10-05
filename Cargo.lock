@@ -757,6 +757,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "sync"
+version = "0.0.0"
+dependencies = [
+ "config",
+ "diagnostics",
+ "fetch",
+ "filelock",
+ "imageref",
+ "layout",
+ "messages",
+ "metadata",
+ "plan",
+ "progress",
+ "runlog",
+ "schema",
+ "serde_json",
+ "stamp",
+ "tempfile",
+ "tools_just",
+ "txn",
+ "version_file",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -882,6 +906,7 @@ dependencies = [
  "output",
  "plan",
  "runlog",
+ "sync",
 ]
 
 [[package]]

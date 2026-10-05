@@ -12,8 +12,8 @@
 //!   （語法、`schema`、欄位型別或值不合、同一路徑兩筆）回 [`Error::Corrupt`]，對應 VK0044。
 //!
 //! 這裡只提供「算、讀、寫、比」，不決定何時寫印記：取件內容在全部同意前放哪裡、正式印記何時
-//! 寫，由呼叫端決定（#372 取件時序待定）。印記的檔名與位置文件還沒定，也不在 `layout`，
-//! 讀寫一律由呼叫端給路徑。ADR-0008 把「印記第一行語意」列為介面版的升版觸發；這裡寫出的
+//! 寫，由呼叫端決定（#372 取件時序待定）。印記的檔名與位置文件還沒定，也不在 `layout`；
+//! 引擎自訂的位置是 [`tool_file`]（`add`、`sync` 共用），讀寫仍由呼叫端給路徑。ADR-0008 把「印記第一行語意」列為介面版的升版觸發；這裡寫出的
 //! 第一行是 `schema`（由 `schema` 決定），啟動器要以字串比對讀哪一行，等那個決議定案再改。
 //!
 //! 這裡不印診斷；要怎麼印由呼叫端經 `diagnostics` 決定，`<repo>` 等欄位也由呼叫端填。
@@ -37,6 +37,15 @@ pub const FILE_KEY: &str = "file";
 pub const PATH_KEY: &str = "path";
 /// 原樣內容的 sha256。
 pub const SHA256_KEY: &str = "sha256";
+
+/// 一個工具的印記檔：`.vendor_kit/cache/<repo>.stamp.toml`。
+///
+/// 契約沒定位置，這是引擎自訂的內部細節：在 `cache/` 底下所以不進 git，又不在 `cache/<repo>/` 裡，
+/// 換 `cache/<repo>/` 時不會被帶走。與 [`layout::InstallDir::stamp`]（`gen/.stamp`，薄殼的引擎 ref）
+/// 是不同的檔。`<repo>` 由呼叫端先驗過是單一路徑段。
+pub fn tool_file(dir: &InstallDir, repo: &str) -> PathBuf {
+    dir.cache_dir().join(format!("{repo}.stamp.toml"))
+}
 
 // ---------------------------------------------------------------------------
 // 逐檔指紋

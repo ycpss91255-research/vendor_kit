@@ -137,9 +137,9 @@ pub struct OwnedInit {
     pub contents: Vec<u8>,
 }
 
-/// 印記檔：`.vendor_kit/cache/<repo>.stamp.toml`。
+/// 印記檔：`.vendor_kit/cache/<repo>.stamp.toml`（[`stamp::tool_file`]，與 `sync` 共用）。
 pub fn stamp_file(dir: &InstallDir, repo: &str) -> PathBuf {
-    dir.cache_dir().join(format!("{repo}.stamp.toml"))
+    stamp::tool_file(dir, repo)
 }
 
 /// 基準版副本相對於 `.vendor_kit/` 的路徑：`baseline/<repo>/<path>`。
