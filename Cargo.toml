@@ -8,6 +8,8 @@ members = [
     "engine/messages",
     "engine/files",
     "engine/imageref",
+    "engine/compat",
+    "engine/schema",
     "engine/msggen",
     "test/e2e",
     "test/boundary",
@@ -24,6 +26,8 @@ output = { path = "engine/output" }
 messages = { path = "engine/messages" }
 files = { path = "engine/files" }
 imageref = { path = "engine/imageref" }
+compat = { path = "engine/compat" }
+schema = { path = "engine/schema" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
@@ -31,6 +35,7 @@ tempfile = "3"
 cargo_metadata = "0.23"
 roxmltree = "0.21"
 sha2 = "0.10"
+toml_edit = "0.25"
 nix = { version = "0.30", default-features = false }
 
 # 測試例外：各 crate 在 #[cfg(test)] 與 test/ 的測試檔以 allow 屬性放行 unwrap／expect。

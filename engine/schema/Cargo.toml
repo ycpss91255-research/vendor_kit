@@ -1,0 +1,14 @@
+[package]
+name = "schema"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "VK 寫的 TOML：以檔案版當讀取門檻，經 toml_edit 文件樹寫回並保留未知欄位"
+
+[dependencies]
+compat.workspace = true
+messages.workspace = true
+toml_edit.workspace = true
+
+[lints]
+workspace = true
