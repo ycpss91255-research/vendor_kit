@@ -1,0 +1,13 @@
+[package]
+name = "retract"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "remove／uninstall 收回初始檔：依逐檔紀錄算出要問的收回、收回後的檔內容與只列不刪的行，不寫檔、不詢問（ADR-0003）"
+
+[dependencies]
+messages.workspace = true
+metadata.workspace = true
+
+[lints]
+workspace = true

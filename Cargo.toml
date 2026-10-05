@@ -21,6 +21,7 @@ members = [
     "engine/version_file",
     "engine/progress",
     "engine/shell",
+    "engine/retract",
     "engine/msggen",
     "test/e2e",
     "test/boundary",
@@ -50,6 +51,7 @@ args = { path = "engine/args" }
 version_file = { path = "engine/version_file" }
 progress = { path = "engine/progress" }
 shell = { path = "engine/shell" }
+retract = { path = "engine/retract" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
