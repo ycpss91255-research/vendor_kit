@@ -33,6 +33,7 @@ members = [
     "engine/sync",
     "engine/remove",
     "engine/install",
+    "engine/update",
     "test/e2e",
     "test/boundary",
     "test/reason_lint",
@@ -73,6 +74,7 @@ add = { path = "engine/add" }
 sync = { path = "engine/sync" }
 remove = { path = "engine/remove" }
 install = { path = "engine/install" }
+update = { path = "engine/update" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"

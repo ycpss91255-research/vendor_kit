@@ -23,6 +23,7 @@ prompt.workspace = true
 remove.workspace = true
 runlog.workspace = true
 sync.workspace = true
+update.workspace = true
 
 [lints]
 workspace = true

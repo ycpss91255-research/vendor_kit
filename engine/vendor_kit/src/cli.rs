@@ -6,7 +6,7 @@
 //!   判用法與安裝目錄，再分派到指令；結束前寫 `engine_finished` 與 `done`。
 //! - 直接呼叫（其他）：沒有執行紀錄與往返，只處理不帶指令的用法；其餘以 VK0026 回報，待決議（#457）。
 //!
-//! 目前只實作 `add`、`sync`、`install`、`remove` 與 `uninstall`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
+//! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall` 與 `update`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
 //! 暫以 VK0026（不認得的參數）回報並附用法，`-h`／`--help` 的用法文字還沒定，以 VK0056 停下。
 
 use std::ffi::OsString;
@@ -332,6 +332,26 @@ where
                 log,
             };
             let code = sync::run(&mut env);
+            let _ = stdout.flush();
+            code
+        }
+        args::Command::Update { repo, .. } => {
+            let dir = layout::InstallDir::new(&mounts.root);
+            let host_root = inv.host_root.display().to_string();
+            let mut stdout = stdout;
+            let mut plain = stderr.clone();
+            let mut env = update::Env {
+                dir: &dir,
+                host_root: &host_root,
+                run_log: host_log,
+                stdout: &mut stdout,
+                stderr: &mut plain,
+                diags,
+            };
+            let req = update::Request {
+                repo: repo.as_deref(),
+            };
+            let code = update::run(&req, &mut env);
             let _ = stdout.flush();
             code
         }
