@@ -1,4 +1,4 @@
-# VK 在 Docker 內的程式都在這個 workspace（#372）：engine/ 一個模組一個 crate，test/ 放只經執行檔的端到端測試與模組邊界檢查。
+# VK 在 Docker 內的程式都在這個 workspace（#372）：engine/ 一個模組一個 crate，test/ 放只經執行檔的端到端測試，與讀原始碼的靜態檢查（模組邊界、原因代碼使用）。
 [workspace]
 resolver = "2"
 members = [
@@ -26,6 +26,7 @@ members = [
     "engine/msggen",
     "test/e2e",
     "test/boundary",
+    "test/reason_lint",
 ]
 
 [workspace.package]

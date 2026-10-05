@@ -1,0 +1,13 @@
+[package]
+name = "reason_lint"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "原因代碼使用檢查：靜態比對訊息表登錄的代碼與 engine/、test/ 原始碼裡出現的代碼"
+
+# 不依賴任何 engine/ crate（test/boundary 檢查）；直接讀訊息表與原始碼文字。
+[dependencies]
+csv.workspace = true
+
+[lints]
+workspace = true
