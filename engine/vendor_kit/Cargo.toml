@@ -10,9 +10,15 @@ name = "vendor_kit"
 path = "src/main.rs"
 
 [dependencies]
+add.workspace = true
+args.workspace = true
+compat.workspace = true
 diagnostics.workspace = true
+layout.workspace = true
 messages.workspace = true
 output.workspace = true
+plan.workspace = true
+runlog.workspace = true
 
 [lints]
 workspace = true

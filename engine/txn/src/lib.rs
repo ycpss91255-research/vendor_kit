@@ -7,15 +7,17 @@
 //! 2. 建進度檔（早於第一個 repo 檔或 VK 檔的寫入）。
 //! 3. 換 `cache/<repo>/` 與印記，一個工具接一個工具。
 //! 4. 寫 repo 檔。
-//! 5. 寫入口檔 `gen/tools.just`（`cache/` 換好之後才寫）。
-//! 6. 執行紀錄記 `lock_line_write_started`。
-//! 7. 改版本鎖定行（最後才改：中途失敗時版本鎖定行不動）。
-//! 8. 執行紀錄記 `lock_line_written`。
-//! 9. 刪進度檔：這次操作唯一的完成點。
-//! 10. 執行紀錄記 `progress_removed`。
+//! 5. 寫 `.vendor_kit/` 下的紀錄檔：初始檔的逐檔紀錄（metadata）與基準版副本。紀錄記的是 repo 檔
+//!    寫入後的 hash，所以排在 repo 檔之後。
+//! 6. 寫入口檔 `gen/tools.just`（`cache/` 換好之後才寫）。
+//! 7. 執行紀錄記 `lock_line_write_started`。
+//! 8. 改版本鎖定行（最後才改：中途失敗時版本鎖定行不動）。
+//! 9. 執行紀錄記 `lock_line_written`。
+//! 10. 刪進度檔：這次操作唯一的完成點。
+//! 11. 執行紀錄記 `progress_removed`。
 //!
 //! 每一步是一個消耗 `self` 的方法，回傳下一個狀態的 [`Txn`]，所以順序寫錯編譯不過；失敗回 [`Failed`]，
-//! 這次操作就此結束，不能接著寫。第 3、4 步一次收齊全部項目（可以是空的），第 5 步可以不寫，第 6–8 步
+//! 這次操作就此結束，不能接著寫。第 3–5 步一次收齊全部項目（可以是空的），第 6 步可以不寫，第 7–9 步
 //! 可以整段略過（[`Txn::keep_lock_line`]），但不能換順序。
 //!
 //! 下面是正確的順序：
@@ -26,7 +28,8 @@
 //! txn::Txn::begin(fx, p)?
 //!     .swap_cache(&[])?
 //!     .write_repo_files(&[])?
-//!     .write_tools_just(Some(b"import 'cache/x/dist/just/x.just'\n"))?
+//!     .write_records(&[])?
+//!     .write_tools_just(Some(b"mod x '../cache/x/just/x.just'\n"))?
 //!     .write_lock_line(lock, runlog::Target::Tool)?
 //!     .complete()?;
 //! # Ok(()) }
@@ -40,6 +43,7 @@
 //! txn::Txn::begin(fx, p)?
 //!     .swap_cache(&[])?
 //!     .write_repo_files(&[])?
+//!     .write_records(&[])?
 //!     .write_lock_line(lock, runlog::Target::Tool)?
 //!     .complete()?;
 //! # Ok(()) }
@@ -59,9 +63,9 @@
 //! - 第 1 步失敗：沒有任何非紀錄檔寫入。
 //! - 第 2 步失敗：紀錄有 `writes_started`、沒有 `progress_removed`，進度檔不在
 //!   （`files::write_atomic` 不留半份，暫存檔名不以 `.toml` 結尾，`progress::find` 不認），也沒有其他寫入。
-//! - 第 3–9 步失敗：進度檔還在，可寫 recipe 先恢復、唯讀 recipe 報出未完成（ADR-0004）。第 7 步失敗時
+//! - 第 3–10 步失敗：進度檔還在，可寫 recipe 先恢復、唯讀 recipe 報出未完成（ADR-0004）。第 8 步失敗時
 //!   紀錄另有 `lock_line_write_started` 而沒有對應的 `lock_line_written`（`runlog::assess` 的規則 6）。
-//! - 第 10 步失敗：進度檔已刪，操作已完成，只是紀錄少了 `progress_removed`（[`Step::completed`]）。
+//! - 第 11 步失敗：進度檔已刪，操作已完成，只是紀錄少了 `progress_removed`（[`Step::completed`]）。
 //!
 //! 中途寫檔失敗目前訊息表沒有代碼（引擎實作計畫缺口 G4）：[`Failed::message`] 對寫檔失敗回 `None`，
 //! 只轉出底層 crate 已有的代碼（例如紀錄事件未登錄的 VK0056、進度檔版本過高的 VK0008）。
@@ -113,6 +117,15 @@ pub struct RepoFile<'a> {
     pub contents: &'a [u8],
 }
 
+/// 一個要寫的 VK 紀錄檔：metadata（`baseline/<repo>.toml`）或基準版副本。
+#[derive(Debug, Clone, Copy)]
+pub struct RecordFile<'a> {
+    /// 相對於 `.vendor_kit/` 的路徑，只能由一般路徑段組成。
+    pub path: &'a Path,
+    /// 整檔的新內容。
+    pub contents: &'a [u8],
+}
+
 // ---------------------------------------------------------------------------
 // 步驟與錯誤
 
@@ -127,6 +140,8 @@ pub enum Step {
     SwapCache,
     /// 寫 repo 檔。
     RepoFile,
+    /// 寫 metadata 與基準版副本。
+    Records,
     /// 寫 `gen/tools.just`。
     ToolsJust,
     /// 記 `lock_line_write_started`。
@@ -142,11 +157,12 @@ pub enum Step {
 }
 
 impl Step {
-    pub const ALL: [Step; 10] = [
+    pub const ALL: [Step; 11] = [
         Step::WritesStarted,
         Step::CreateProgress,
         Step::SwapCache,
         Step::RepoFile,
+        Step::Records,
         Step::ToolsJust,
         Step::LockLineWriteStarted,
         Step::LockLine,
@@ -166,6 +182,7 @@ impl Step {
             Step::CreateProgress => "create progress file",
             Step::SwapCache => "swap cache",
             Step::RepoFile => "write repo file",
+            Step::Records => "write records",
             Step::ToolsJust => "write gen/tools.just",
             Step::LockLineWriteStarted => "lock_line_write_started",
             Step::LockLine => "write lock line",
@@ -191,7 +208,7 @@ pub enum Error {
     Progress(progress::Error),
     /// `<repo>` 不是合法的 `cache/` 目錄名。
     Name(InvalidName),
-    /// repo 檔的路徑不是相對路徑或含 `.`、`..`。
+    /// repo 檔或紀錄檔的路徑不是相對路徑或含 `.`、`..`。
     BadPath(PathBuf),
     /// 讀暫存目錄、建目錄、搬目錄、刪目錄的系統呼叫失敗。
     Io { path: PathBuf, source: io::Error },
@@ -300,6 +317,8 @@ pub trait Effects {
     fn swap_cache(&mut self, tool: &ToolContent) -> Result<(), Error>;
     /// 寫一個 repo 檔。
     fn write_repo_file(&mut self, file: &RepoFile) -> Result<(), Error>;
+    /// 寫一個 `.vendor_kit/` 下的紀錄檔。
+    fn write_record_file(&mut self, file: &RecordFile) -> Result<(), Error>;
     /// 寫 `gen/tools.just`。
     fn write_tools_just(&mut self, contents: &[u8]) -> Result<(), Error>;
     /// 寫版本鎖定行所在的 `.vendor_kit/version.toml`。
@@ -364,15 +383,13 @@ impl<W: Write> Effects for Disk<'_, W> {
     }
 
     fn write_repo_file(&mut self, file: &RepoFile) -> Result<(), Error> {
-        let plain = file.path.components().count() > 0
-            && file
-                .path
-                .components()
-                .all(|c| matches!(c, Component::Normal(_)));
-        if !plain {
-            return Err(Error::BadPath(file.path.to_path_buf()));
-        }
+        plain(file.path)?;
         write_file(&self.dir.root().join(file.path), file.contents)
+    }
+
+    fn write_record_file(&mut self, file: &RecordFile) -> Result<(), Error> {
+        plain(file.path)?;
+        write_file(&self.dir.vk_dir().join(file.path), file.contents)
     }
 
     fn write_tools_just(&mut self, contents: &[u8]) -> Result<(), Error> {
@@ -385,6 +402,17 @@ impl<W: Write> Effects for Disk<'_, W> {
 
     fn delete_progress(&mut self, progress: &Progress) -> Result<(), Error> {
         progress::delete(self.dir, progress.verb(), progress.id()).map_err(Error::Progress)
+    }
+}
+
+/// 只由一般路徑段組成的相對路徑才收。
+fn plain(path: &Path) -> Result<(), Error> {
+    let ok = path.components().count() > 0
+        && path.components().all(|c| matches!(c, Component::Normal(_)));
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::BadPath(path.to_path_buf()))
     }
 }
 
@@ -443,8 +471,10 @@ fn sync_dir(dir: &Path) -> Result<(), Error> {
 pub struct Begun;
 /// `cache/` 與印記已換好，下一步寫 repo 檔。
 pub struct CacheSwapped;
-/// repo 檔已寫好，下一步寫入口檔。
+/// repo 檔已寫好，下一步寫紀錄檔。
 pub struct RepoWritten;
+/// 紀錄檔已寫好，下一步寫入口檔。
+pub struct RecordsWritten;
 /// 入口檔已寫好，下一步改版本鎖定行。
 pub struct EntryWritten;
 /// 版本鎖定行已處理，下一步刪進度檔。
@@ -509,7 +539,17 @@ impl<'e, E: Effects + ?Sized> Txn<'e, E, CacheSwapped> {
 }
 
 impl<'e, E: Effects + ?Sized> Txn<'e, E, RepoWritten> {
-    /// 第 5 步：寫 `gen/tools.just`；`None` 表示入口檔不變。
+    /// 第 5 步：依序寫每個紀錄檔；可以是空的。
+    pub fn write_records(self, files: &[RecordFile]) -> Result<Txn<'e, E, RecordsWritten>, Failed> {
+        for file in files {
+            self.fx.write_record_file(file).map_err(at(Step::Records))?;
+        }
+        Ok(self.next())
+    }
+}
+
+impl<'e, E: Effects + ?Sized> Txn<'e, E, RecordsWritten> {
+    /// 第 6 步：寫 `gen/tools.just`；`None` 表示入口檔不變。
     pub fn write_tools_just(
         self,
         contents: Option<&[u8]>,
@@ -524,7 +564,7 @@ impl<'e, E: Effects + ?Sized> Txn<'e, E, RepoWritten> {
 }
 
 impl<'e, E: Effects + ?Sized> Txn<'e, E, EntryWritten> {
-    /// 第 6–8 步：記 `lock_line_write_started`，寫 `lock`（呼叫端已改好的版本鎖定行），
+    /// 第 7–9 步：記 `lock_line_write_started`，寫 `lock`（呼叫端已改好的版本鎖定行），
     /// 再記 `lock_line_written`。`target` 是改的是引擎還是工具的版本鎖定行。
     pub fn write_lock_line(
         self,
@@ -548,7 +588,7 @@ impl<'e, E: Effects + ?Sized> Txn<'e, E, EntryWritten> {
 }
 
 impl<E: Effects + ?Sized> Txn<'_, E, LockHandled> {
-    /// 第 9、10 步：刪進度檔（完成點），再記 `progress_removed`。
+    /// 第 10、11 步：刪進度檔（完成點），再記 `progress_removed`。
     pub fn complete(self) -> Result<Done, Failed> {
         self.fx
             .delete_progress(&self.progress)

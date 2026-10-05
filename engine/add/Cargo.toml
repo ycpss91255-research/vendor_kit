@@ -1,0 +1,33 @@
+[package]
+name = "add"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "add 指令：讀設定、持排他鎖、恢復殘留進度、經 plan 協定取件、驗證與撞名、一次問完、依序落地"
+
+[dependencies]
+config.workspace = true
+diagnostics.workspace = true
+fetch.workspace = true
+filelock.workspace = true
+imageref.workspace = true
+initfiles.workspace = true
+layout.workspace = true
+messages.workspace = true
+metadata.workspace = true
+plan.workspace = true
+progress.workspace = true
+prompt.workspace = true
+runlog.workspace = true
+schema.workspace = true
+serde_json.workspace = true
+stamp.workspace = true
+tools_just.workspace = true
+txn.workspace = true
+version_file.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
