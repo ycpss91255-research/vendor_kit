@@ -19,6 +19,10 @@ COPY doc/diagram doc/diagram
 # 檢查與靜態編譯：產物與訊息表一致、格式、clippy、musl 靜態執行檔，再以該執行檔跑全部測試。
 # bootstrap.sh 用的訊息片段只寫到 /out，不進 git。
 FROM source AS test
+# engine/merge 的 unit 測試要呼叫 git merge-file，rust:1-slim 不帶 git。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     set -eu; \
     target="$(uname -m)-unknown-linux-musl"; \

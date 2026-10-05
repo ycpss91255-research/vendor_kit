@@ -16,6 +16,7 @@ members = [
     "engine/prompt",
     "engine/metadata",
     "engine/stamp",
+    "engine/merge",
     "engine/msggen",
     "test/e2e",
     "test/boundary",
@@ -40,6 +41,7 @@ filelock = { path = "engine/filelock" }
 prompt = { path = "engine/prompt" }
 metadata = { path = "engine/metadata" }
 stamp = { path = "engine/stamp" }
+merge = { path = "engine/merge" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
