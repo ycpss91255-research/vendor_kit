@@ -6,7 +6,7 @@
 //!   判用法與安裝目錄，再分派到指令；結束前寫 `engine_finished` 與 `done`。
 //! - 直接呼叫（其他）：沒有執行紀錄與往返，只處理不帶指令的用法；其餘以 VK0026 回報，待決議（#457）。
 //!
-//! 目前只實作 `add`、`sync`、`remove` 與 `uninstall`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
+//! 目前只實作 `add`、`sync`、`install`、`remove` 與 `uninstall`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
 //! 暫以 VK0026（不認得的參數）回報並附用法，`-h`／`--help` 的用法文字還沒定，以 VK0056 停下。
 
 use std::ffi::OsString;
@@ -27,6 +27,11 @@ const POLL: Duration = Duration::from_millis(20);
 /// 測試用：設了這個環境變數，三個掛載點改到 `<值>/vk/root` 等（`plan::mount` 前面加上這個目錄）。
 /// 啟動器起引擎容器時不帶任何環境變數，正式執行時一定不設；e2e 在主機上直接跑執行檔時用它。
 pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";
+
+/// 測試用：設了這個環境變數，`install` 的出貨輸入改從這個目錄讀（`install::Release::from_dir`）。
+/// 這一版引擎沒有出貨那些輸入（`install::Release::shipped`），正式執行時一定不設（啟動器起引擎容器時
+/// 不帶任何環境變數）；e2e 用它驗 `install` 其餘的流程。
+pub const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
 
 /// 引擎容器內的三個掛載點（`plan::mount`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -330,6 +335,9 @@ where
             let _ = stdout.flush();
             code
         }
+        args::Command::Install { yes } => run_install(
+            *yes, inv, mounts, host_log, stdin, stdout, stderr, diags, log,
+        ),
         args::Command::Remove { repo } => run_remove(
             Some(repo),
             inv,
@@ -357,6 +365,71 @@ where
             2
         }
     }
+}
+
+/// `install [-y]`。
+#[allow(clippy::too_many_arguments)]
+fn run_install<O, E>(
+    yes: bool,
+    inv: &plan::Invocation,
+    mounts: &Mounts,
+    host_log: &str,
+    stdin: &mut dyn BufRead,
+    stdout: O,
+    stderr: &E,
+    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
+    log: &mut runlog::Writer<&File>,
+) -> u8
+where
+    O: Write + Clone,
+    E: Write + Clone,
+{
+    let release = match std::env::var_os(RELEASE_DIR_ENV) {
+        Some(dir) => match install::Release::from_dir(Path::new(&dir)) {
+            Ok(r) => r,
+            Err(e) => {
+                let d = Diagnostic::new(&messages::VK0056)
+                    .arg("reason", format!("{RELEASE_DIR_ENV}: {e}"))
+                    .arg("path", host_log);
+                let _ = diags.emit(&d);
+                return 2;
+            }
+        },
+        None => install::Release::shipped(),
+    };
+    let dir = layout::InstallDir::new(&mounts.root);
+    let argv: Vec<String> = inv
+        .rest
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let host_root = inv.host_root.display().to_string();
+    let mut stdout = stdout;
+    let mut prompt = stderr.clone();
+    let mut env = install::Env {
+        dir: &dir,
+        host_root: &host_root,
+        run_log: host_log,
+        tty: prompt::TtyState {
+            stdin: inv.tty.stdin,
+            stderr: inv.tty.stderr,
+        },
+        argv: &argv,
+        run_id: inv.run_id.as_str(),
+        written_by: VERSION,
+        stdin,
+        stdout: &mut stdout,
+        prompt: &mut prompt,
+        diags,
+        log,
+    };
+    let req = install::Request {
+        yes,
+        release: &release,
+    };
+    let code = install::run(&req, &mut env);
+    let _ = stdout.flush();
+    code
 }
 
 /// `remove <repo>`（`repo` 是 `Some`）或 `uninstall`（`None`）。

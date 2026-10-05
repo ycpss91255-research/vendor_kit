@@ -14,6 +14,7 @@ add.workspace = true
 args.workspace = true
 compat.workspace = true
 diagnostics.workspace = true
+install.workspace = true
 layout.workspace = true
 messages.workspace = true
 output.workspace = true
