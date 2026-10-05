@@ -191,6 +191,7 @@ fn expected_members_exist() {
         "schema",
         "layout",
         "config",
+        "filelock",
         "msggen",
     ] {
         assert!(
@@ -221,6 +222,7 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
         "schema",
         "layout",
         "config",
+        "filelock",
         "msggen",
     ] {
         let (_, pkg) = &m[name];

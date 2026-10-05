@@ -1,0 +1,18 @@
+[package]
+name = "filelock"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "安裝目錄的 flock：寫入持排他鎖、讀取持共享鎖，等鎖期限照 config.toml（04 鎖與逾時）"
+
+[dependencies]
+config.workspace = true
+layout.workspace = true
+messages.workspace = true
+nix = { workspace = true, features = ["fs"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
