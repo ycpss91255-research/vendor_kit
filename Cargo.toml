@@ -27,6 +27,7 @@ members = [
     "engine/msggen",
     "engine/txn",
     "engine/fetch",
+    "engine/initfiles",
     "test/e2e",
     "test/boundary",
     "test/reason_lint",
@@ -61,6 +62,7 @@ runlog = { path = "engine/runlog" }
 plan = { path = "engine/plan" }
 txn = { path = "engine/txn" }
 fetch = { path = "engine/fetch" }
+initfiles = { path = "engine/initfiles" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
