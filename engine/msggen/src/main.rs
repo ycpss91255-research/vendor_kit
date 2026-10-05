@@ -1,7 +1,7 @@
 //! 訊息產生器：讀訊息表 `doc/contract/reason_codes.csv`，產出
 //!
 //! - `engine/messages/src/generated.rs`：引擎用的常數，進 git；
-//! - `bootstrap.sh` 用的 bash 片段：只寫到建置輸出目錄，不進 git。
+//! - 主機端 bash（`bootstrap.sh`、啟動器 `launcher/`）用的片段：只寫到建置輸出目錄，不進 git。
 //!
 //! 輸出只由 CSV 內容決定：依代碼排序、不讀時間與環境（ADR-0012）。
 //! 不用 build.rs：產生是明確的一步，`--check` 讓漏跑在建置時就紅。
