@@ -6,6 +6,7 @@ members = [
     "engine/diagnostics",
     "engine/output",
     "engine/messages",
+    "engine/files",
     "engine/msggen",
     "test/e2e",
     "test/boundary",
@@ -20,12 +21,15 @@ publish = false
 diagnostics = { path = "engine/diagnostics" }
 output = { path = "engine/output" }
 messages = { path = "engine/messages" }
+files = { path = "engine/files" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
 tempfile = "3"
 cargo_metadata = "0.23"
 roxmltree = "0.21"
+sha2 = "0.10"
+nix = { version = "0.30", default-features = false }
 
 # 測試例外：各 crate 在 #[cfg(test)] 與 test/ 的測試檔以 allow 屬性放行 unwrap／expect。
 [workspace.lints.rust]

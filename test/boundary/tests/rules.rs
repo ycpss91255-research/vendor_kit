@@ -180,7 +180,14 @@ fn engine_is_a_single_cell_on_the_system_page() {
 #[test]
 fn expected_members_exist() {
     let m = members(&metadata());
-    for name in ["vendor_kit", "diagnostics", "output", "messages", "msggen"] {
+    for name in [
+        "vendor_kit",
+        "diagnostics",
+        "output",
+        "messages",
+        "files",
+        "msggen",
+    ] {
         assert!(
             m.get(name).is_some_and(|(e, _)| *e),
             "{name} must be under engine/"
@@ -199,7 +206,7 @@ fn expected_members_exist() {
 #[test]
 fn lower_layers_do_not_depend_on_the_entry_crate() {
     let m = members(&metadata());
-    for name in ["diagnostics", "output", "messages", "msggen"] {
+    for name in ["diagnostics", "output", "messages", "files", "msggen"] {
         let (_, pkg) = &m[name];
         assert!(
             !workspace_deps(pkg, &m).contains(&"vendor_kit".to_owned()),
