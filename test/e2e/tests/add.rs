@@ -17,7 +17,7 @@ use snapbox::assert_data_eq;
 
 const RUN_ID: &str = "r1";
 const HEADER: &str = "vk-resolve/1 r1";
-const HOST_ROOT: &str = "/home/u/proj";
+const HOST_ROOT: &str = "/srv/proj";
 const RUN_LOG: &str = ".vendor_kit/log/r1.jsonl";
 const ENGINE: &str = "ghcr.io/ycpss91255-research/vendor_kit:v1.0.0@sha256:1111111111111111111111111111111111111111111111111111111111111111";
 const IMAGE: &str = "ghcr.io/acme/tool:v1.2.0";
@@ -71,6 +71,8 @@ fn launcher(m: &Mounts, namespaces: &'static [&'static str]) -> std::thread::Joi
             .unwrap();
             Reply::Ok
         }
+        // 啟動器不收已存在的 slot（launcher/launch.sh 的 vk_launch_extract）。
+        "extract" if inbox.join(&req.args[1]).exists() => Reply::Failed(1),
         "extract" => {
             tool_content(&inbox.join(&req.args[1]), namespaces);
             Reply::Ok
@@ -166,7 +168,7 @@ Added tool v1.2.0 (ghcr.io/acme/tool:v1.2.0@sha256:22222222222222222222222222222
         seen.requests,
         [
             format!("inspect {IMAGE}"),
-            format!("extract {IMAGE_ID} tool"),
+            format!("extract {IMAGE_ID} tool1"),
         ]
     );
     assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
@@ -226,12 +228,12 @@ mod tool-extra '../cache/tool/just/tool-extra.just'
         ]
     );
 
-    // 同一個版本再 add 一次：stdout 說明未變更，不再取件、不寫檔。
+    // 同一個版本再 add 一次：stdout 說明未變更，不再取件、不寫檔。每次執行的 session 目錄是新的。
     let before = vk_tree(&m);
     let lock_before = fs::read(vk.join("version.toml")).unwrap();
-    fs::remove_file(m.ctl.join("done")).unwrap();
-    for entry in fs::read_dir(&m.ctl).unwrap() {
-        fs::remove_file(entry.unwrap().path()).unwrap();
+    for d in [&m.ctl, &m.inbox] {
+        fs::remove_dir_all(d).unwrap();
+        fs::create_dir_all(d).unwrap();
     }
     let peer = launcher(&m, &["tool", "tool-extra"]);
     let (code, stdout, stderr) = run(&m, HOST_ROOT, "000", &["add", "tool", "-i", IMAGE]);
@@ -323,7 +325,7 @@ fn outside_the_install_directory_is_pending_with_cd() {
     let before = vk_tree(&m);
     let peer = launcher(&m, &["tool"]);
 
-    let (code, stdout, stderr) = run(&m, "/home/u/proj/sub", "000", &["add", "tool", "-i", IMAGE]);
+    let (code, stdout, stderr) = run(&m, "/srv/proj/sub", "000", &["add", "tool", "-i", IMAGE]);
     let seen = peer.join().unwrap();
 
     assert_eq!(code, 2);
@@ -331,7 +333,7 @@ fn outside_the_install_directory_is_pending_with_cd() {
     assert_data_eq!(
         stderr,
         snapbox::str![[r#"
-vendor_kit: error[VK0028]: The current directory is not an install directory. Run: cd /home/u/proj
+vendor_kit: error[VK0028]: The current directory is not an install directory. Run: cd /srv/proj
 
 "#]]
     );

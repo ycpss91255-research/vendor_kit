@@ -28,7 +28,8 @@
 //! - 基準版副本放在 `.vendor_kit/baseline/<repo>/<初始檔的 repo 相對路徑>`（[`baseline_file`]）。
 //! - 進度檔 `.tmp.add.<run-id>.toml` 另記 `[add]` 表的 `repo`、`image`（版本鎖定行的值）與
 //!   `repo_files`（這次有沒有要寫 repo 檔）。
-//! - 取件的 slot 名固定是 [`SLOT`]；一次執行只取一個工具，恢復時另用 [`RECOVER_SLOT`]。
+//! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）：啟動器不收已存在的
+//!   slot，恢復好幾份殘留時每次取件都要一個新的。
 //! - stdout 的字句與詢問文字（英文）見 [`text`]。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
@@ -43,6 +44,8 @@
 //! - 其他已裝工具的 `cache/<repo>/` 讀不到（例如全新 checkout 還沒 `sync`）：撞名判定與入口檔都要它。
 //! - 同一個 tag 的版本鎖定行指向別的 digest；`<repo>` 不是 just 名稱；`initfiles` 判成缺口的檔。
 //! - 殘留的進度檔不是 `add` 的（其他可寫 recipe 還沒實作），或殘留的 `add` 要寫 repo 檔。
+//! - 已知偏離：恢復殘留 `add` 的寫入排在這次的詢問之前，04 共同選項要先問完再寫（含恢復）。
+//!   目前沒有初始檔、`add` 不會詢問，所以碰不到；`init.toml` 定案、`add` 會詢問時要改成先問完再一起落地。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）；dist 格式不符（G2）、指紋不符（G1）沒有代碼。
 //! - `add` 不收 `-y`（#47），但 VK0002 的下一步指令照訊息表插入 `-y`。
 //!
@@ -83,10 +86,8 @@ pub use source::{Inspected, LocalRef, digest_for, parse_inspect, parse_local};
 pub const VERB: &str = "add";
 /// 進度檔裡 `add` 自己的表。
 pub const PROGRESS_TABLE: &str = "add";
-/// 取件的 slot。
-pub const SLOT: &str = "tool";
-/// 恢復殘留 `add` 時取件的 slot。
-pub const RECOVER_SLOT: &str = "recover";
+/// 取件的 slot 名前綴，後面接這次執行裡的序號（從 1 起）。
+pub const SLOT_PREFIX: &str = "tool";
 /// 工具交付初始檔清單的檔名（格式未定，見模組說明的缺口）。
 pub const INIT_TOML: &str = "init.toml";
 
@@ -170,7 +171,12 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
     env: &mut Env<'_, W, S, L>,
     init: InitSource,
 ) -> u8 {
-    let mut add = Add { env, init, code: 0 };
+    let mut add = Add {
+        env,
+        init,
+        code: 0,
+        extracts: 0,
+    };
     let _ = add.run(req);
     add.code
 }
@@ -191,6 +197,8 @@ struct Add<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
     init: InitSource<'r>,
     code: u8,
+    /// 這次執行已用掉的 slot 數。
+    extracts: u32,
 }
 
 impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
@@ -308,7 +316,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
                 local.tag
             )));
         }
-        let candidate = self.fetch(req.repo, &pinned.1, &pinned.0, SLOT, &lockfile)?;
+        let candidate = self.fetch(req.repo, &pinned.1, &pinned.0, &lockfile)?;
         self.import(req.repo, &pinned.0, candidate, lockfile)
     }
 
@@ -410,16 +418,17 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         parse_inspect(&bytes).map_err(|e| self.internal(e))
     }
 
-    /// 取件並驗證：extract 到 `slot`，再 `fetch::verify`（含撞名）。
+    /// 取件並驗證：extract 到這次執行的下一個 slot，再 `fetch::verify`（含撞名）。
     fn fetch(
         &mut self,
         repo: &str,
         id: &ImageId,
         locked: &ImageRef,
-        slot: &str,
         lockfile: &LockFile,
     ) -> Step<(Candidate, Installed)> {
-        let Some(slot_v) = Slot::parse(slot) else {
+        self.extracts += 1;
+        let slot = format!("{SLOT_PREFIX}{}", self.extracts);
+        let Some(slot_v) = Slot::parse(&slot) else {
             return Err(self.internal(format!("invalid slot {slot}")));
         };
         let (_, outcome) = self.request(&Op::Extract(id.clone(), slot_v))?;
@@ -431,7 +440,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
             }
             Outcome::Runner(_) => return Err(self.internal("extract returned a runner result")),
         }
-        let root = self.env.inbox.join(slot);
+        let root = self.env.inbox.join(&slot);
         let installed = self.installed(repo, lockfile)?;
         let inspected_digests = vec![format!(
             "{}/{}@{}",
@@ -832,7 +841,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let Some(id) = ImageId::parse(&inspected.id) else {
             return Err(self.internal(format!("image inspect returned Id {:?}", inspected.id)));
         };
-        let (candidate, installed) = self.fetch(&repo, &id, &locked, RECOVER_SLOT, lockfile)?;
+        let (candidate, installed) = self.fetch(&repo, &id, &locked, lockfile)?;
         if let Err(e) = candidate.recheck() {
             return Err(self.internal(format!("staged content of {repo} changed: {e}")));
         }

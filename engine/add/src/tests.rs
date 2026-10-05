@@ -94,10 +94,15 @@ impl Peer {
                 };
                 let (s, op) = Op::parse_request(&bytes, &header).unwrap();
                 seen.push(op.kind().name().to_owned());
+                let mut return_failed = false;
                 let outcome = if Some(op.kind().name()) == fail {
                     Outcome::Failed(1)
                 } else {
                     match &op {
+                        // 啟動器不收已存在的 slot（launcher/launch.sh 的 vk_launch_extract）。
+                        Op::Extract(_, slot) if inbox.join(slot.as_str()).exists() => {
+                            return_failed = true;
+                        }
                         Op::Inspect(_) => {
                             let json = format!(
                                 "[{{\"Id\":\"{IMAGE_ID}\",\"RepoDigests\":[\"ghcr.io/acme/tool@{DIGEST}\"]}}]"
@@ -113,7 +118,11 @@ impl Peer {
                         }
                         _ => {}
                     }
-                    Outcome::Ok
+                    if return_failed {
+                        Outcome::Failed(1)
+                    } else {
+                        Outcome::Ok
+                    }
                 };
                 let tmp = ctl.join(format!("res.{s}.tmp"));
                 fs::write(&tmp, outcome.encode_response(&header, s)).unwrap();
@@ -560,6 +569,28 @@ fn leftover_add_is_completed_before_the_new_one() {
     );
     assert!(progress::find(&fx.dir).unwrap().is_empty());
     assert!(fx.lock_text().contains(&locked()));
+}
+
+#[test]
+fn two_leftover_adds_each_get_their_own_slot() {
+    let fx = Fx::new("");
+    for id in ["old1", "old2"] {
+        let mut p = Progress::new(VERB, id, &["add", "tool", "-i", IMAGE]).unwrap();
+        let doc = p.document_mut();
+        doc.set(&[PROGRESS_TABLE, "repo"], "tool").unwrap();
+        doc.set(&[PROGRESS_TABLE, "image"], locked()).unwrap();
+        doc.set(&[PROGRESS_TABLE, "repo_files"], false).unwrap();
+        p.create(&fx.dir, WRITTEN_BY).unwrap();
+    }
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(&fx, &ADD, Vec::new(), tty(false), "");
+    assert_eq!(
+        peer.finish(),
+        ["inspect", "extract", "inspect", "extract", "inspect"]
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(fx.inbox.join("tool1").is_dir() && fx.inbox.join("tool2").is_dir());
+    assert!(progress::find(&fx.dir).unwrap().is_empty());
 }
 
 #[test]
