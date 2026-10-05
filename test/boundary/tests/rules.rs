@@ -189,6 +189,7 @@ fn expected_members_exist() {
         "imageref",
         "compat",
         "schema",
+        "layout",
         "msggen",
     ] {
         assert!(
@@ -217,6 +218,7 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
         "imageref",
         "compat",
         "schema",
+        "layout",
         "msggen",
     ] {
         let (_, pkg) = &m[name];

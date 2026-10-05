@@ -10,6 +10,7 @@ members = [
     "engine/imageref",
     "engine/compat",
     "engine/schema",
+    "engine/layout",
     "engine/msggen",
     "test/e2e",
     "test/boundary",
@@ -28,6 +29,7 @@ files = { path = "engine/files" }
 imageref = { path = "engine/imageref" }
 compat = { path = "engine/compat" }
 schema = { path = "engine/schema" }
+layout = { path = "engine/layout" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"

@@ -1,0 +1,15 @@
+[package]
+name = "layout"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "安裝目錄判定（含巢狀安裝）與 .vendor_kit/ 下各檔的路徑"
+
+[dependencies]
+messages.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
