@@ -8,7 +8,8 @@
 //! 3. 第一行是唯一的 `run_started`，整份只有一個 `invocation_id`；不然無法唯一判定。
 //! 4. `run_started` 的 mode 要是 `initial_import`。
 //! 5. 要有 `engine_finished` 或 `run_finished`；兩個都沒有表示還在跑或被中途殺掉，無法確定。
-//! 6. 每筆 `lock_line_write_started` 都要有對應的 `lock_line_written`；有 started 沒有 written 不套用。
+//! 6. `lock_line_write_started` 與 `progress_removed` 要在 `writes_started` 之後；
+//!    每筆 `lock_line_write_started` 都要有對應的 `lock_line_written`；有 started 沒有 written 不套用。
 //! 7. `run_finished` 的 stop_reason_code 若是代碼，同一份紀錄裡要有同代碼的 `diagnostic_emitted`。
 //! 8. 條件 (a)：`run_finished` 停在 VK0002，且沒有 `writes_started`。
 //!    條件 (b)：沒有 target=engine 的 `lock_line_write_started`。
@@ -128,7 +129,13 @@ pub fn assess(log: &[u8], engine_lock_line_readable: bool) -> Verdict {
     let mut diagnosed: Vec<&str> = Vec::new();
     for e in &entries {
         match e.kind {
-            Kind::RunStarted(_) | Kind::EngineStarted | Kind::ProgressRemoved => {}
+            Kind::RunStarted(_) | Kind::EngineStarted => {}
+            // 改檔一定在 writes_started 之後（ADR-0004:33：進度檔是第一筆非紀錄檔寫入）；
+            // 順序不對就不是正常引擎寫得出來的紀錄，無法判定。
+            Kind::LockLineWriteStarted(_) | Kind::ProgressRemoved if !writes_started => {
+                return No(Reason::NotUnique);
+            }
+            Kind::ProgressRemoved => {}
             Kind::DiagnosticEmitted(code) => diagnosed.push(code),
             Kind::WritesStarted => writes_started = true,
             Kind::LockLineWriteStarted(t) => {

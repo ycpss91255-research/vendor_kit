@@ -423,6 +423,33 @@ fn started_without_written_is_not_applicable() {
 }
 
 #[test]
+fn file_changes_before_writes_started_are_not_unique() {
+    // 停在 VK0002 卻已寫過鎖定行：不能當成 (a)「除紀錄外沒改檔」。
+    let d = prompt_diag();
+    let lock_first = log(&[
+        started(Mode::InitialImport),
+        Event::LockLineWriteStarted {
+            target: Target::Engine,
+        },
+        Event::LockLineWritten {
+            target: Target::Engine,
+        },
+        Event::DiagnosticEmitted(&d),
+        finished(StopReason::Code(&VK0002)),
+    ]);
+    assert_eq!(assess(&lock_first, false), no(Reason::NotUnique));
+    let progress_first = log(&[
+        started(Mode::InitialImport),
+        Event::ProgressRemoved {
+            file: ".tmp.install.x1.toml",
+        },
+        Event::DiagnosticEmitted(&d),
+        finished(StopReason::Code(&VK0002)),
+    ]);
+    assert_eq!(assess(&progress_first, false), no(Reason::NotUnique));
+}
+
+#[test]
 fn written_without_started_is_not_unique() {
     let text = log(&[
         started(Mode::InitialImport),
