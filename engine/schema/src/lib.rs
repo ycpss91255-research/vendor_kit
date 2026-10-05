@@ -3,7 +3,9 @@
 //! - 讀取門檻只看根層的 `schema`（檔案版）：高於本引擎上限就回 [`ReadError::TooNew`]（VK0008），
 //!   在讀任何已知欄位之前判定。`written_by` 只供回報，填進 VK0008 的 `<written_by>`，不影響讀取。
 //! - 讀時忽略未知欄位、寫時保留：文件一律留在 `toml_edit` 的文件樹裡改，不先解成只含已知欄位的
-//!   struct 再重建整份檔。改動只能經 [`Document::set`] 與 [`Document::remove`]。
+//!   struct 再重建整份檔。改動只能經 [`Document::set`]、[`Document::remove`]，以及根層陣列表
+//!   （例如 metadata 的 `[[file]]`）用的 [`Document::push_table`]、[`Document::set_in`]、
+//!   [`Document::remove_in`]。
 //! - 保留不了就拒絕寫，不悄悄少寫：會蓋掉表或陣列表的 `set` 直接回錯；[`Document::render`]
 //!   輸出前再比對一次，讀進來時的每個值，凡是沒被明確改動的，輸出裡都得原樣還在，否則回錯。
 //! - 這裡不讀寫檔案；輸入是檔案內容，輸出是要寫回的字串，原子寫入交給呼叫端。
@@ -13,7 +15,7 @@ use std::fmt;
 
 use compat::Compat;
 use messages::Message;
-use toml_edit::{DocumentMut, Item, Table, Value};
+use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
 /// 檔案版欄位的鍵。
 pub const SCHEMA_KEY: &str = "schema";
@@ -28,8 +30,8 @@ pub struct Document {
     written_by: Option<String>,
     /// 讀進來時每個值的路徑與正規化後的內容，給 [`Document::render`] 比對有沒有少寫。
     original: BTreeMap<Vec<Seg>, String>,
-    /// 經 `set`／`remove` 明確改過的路徑；這些路徑底下的值不必原樣保留。
-    touched: Vec<Vec<String>>,
+    /// 經 `set`／`remove`／`set_in`／`remove_in` 明確改過的路徑；這些路徑底下的值不必原樣保留。
+    touched: Vec<Vec<Seg>>,
 }
 
 impl Document {
@@ -160,8 +162,7 @@ impl Document {
                 table.insert(last, Item::Value(value));
             }
         }
-        self.touched
-            .push(path.iter().map(|k| (*k).to_owned()).collect());
+        self.touched.push(key_path(path));
         Ok(())
     }
 
@@ -182,10 +183,103 @@ impl Document {
         }
         let removed = table.remove(last);
         if removed.is_some() {
-            self.touched
-                .push(path.iter().map(|k| (*k).to_owned()).collect());
+            self.touched.push(key_path(path));
         }
         Ok(removed)
+    }
+
+    /// 根層陣列表 `array` 的表數；鍵不在時是 0，不是陣列表時回錯。
+    pub fn table_count(&self, array: &str) -> Result<usize, WriteError> {
+        match self.doc.as_table().get(array) {
+            None | Some(Item::None) => Ok(0),
+            Some(Item::ArrayOfTables(a)) => Ok(a.len()),
+            Some(_) => Err(WriteError::NotAnArrayOfTables {
+                path: array.to_owned(),
+            }),
+        }
+    }
+
+    /// 在根層陣列表 `array` 的最後加一個空表，回傳它的索引；鍵不在時建出陣列表。
+    /// 鍵原本是別種值時回錯，文件不變。
+    pub fn push_table(&mut self, array: &str) -> Result<usize, WriteError> {
+        let root = self.doc.as_table_mut();
+        match root.get_mut(array) {
+            None | Some(Item::None) => {
+                let mut tables = ArrayOfTables::new();
+                tables.push(Table::new());
+                root.insert(array, Item::ArrayOfTables(tables));
+                Ok(0)
+            }
+            Some(Item::ArrayOfTables(a)) => {
+                a.push(Table::new());
+                Ok(a.len() - 1)
+            }
+            Some(_) => Err(WriteError::NotAnArrayOfTables {
+                path: array.to_owned(),
+            }),
+        }
+    }
+
+    /// 在根層陣列表 `array` 的第 `index` 個表裡設定 `key`。規則同 [`Document::set`]：
+    /// 原本是一般值就換掉並保留前後的空白與註解；原本是表、陣列表或 inline table 時回錯。
+    /// 同一個表裡的其他欄位與其他表都不受影響。
+    pub fn set_in(
+        &mut self,
+        array: &str,
+        index: usize,
+        key: &str,
+        value: impl Into<Value>,
+    ) -> Result<(), WriteError> {
+        let path = indexed_path(array, index, key);
+        let table = self.array_table_mut(array, index)?;
+        let mut value = value.into();
+        match table.get_mut(key) {
+            None | Some(Item::None) => {
+                table.insert(key, Item::Value(value));
+            }
+            Some(Item::Value(old)) if !matches!(old, Value::InlineTable(_)) => {
+                *value.decor_mut() = old.decor().clone();
+                *old = value;
+            }
+            Some(_) => {
+                return Err(WriteError::WouldClobber {
+                    path: render_path(&path),
+                });
+            }
+        }
+        self.touched.push(path);
+        Ok(())
+    }
+
+    /// 明確刪掉根層陣列表 `array` 第 `index` 個表裡的 `key`，回傳被刪的項；鍵不在回 `None`。
+    pub fn remove_in(
+        &mut self,
+        array: &str,
+        index: usize,
+        key: &str,
+    ) -> Result<Option<Item>, WriteError> {
+        let path = indexed_path(array, index, key);
+        let removed = self.array_table_mut(array, index)?.remove(key);
+        if removed.is_some() {
+            self.touched.push(path);
+        }
+        Ok(removed)
+    }
+
+    fn array_table_mut(&mut self, array: &str, index: usize) -> Result<&mut Table, WriteError> {
+        match self.doc.as_table_mut().get_mut(array) {
+            Some(Item::ArrayOfTables(a)) => {
+                a.get_mut(index).ok_or_else(|| WriteError::NoSuchTable {
+                    path: render_path(&[Seg::Key(array.to_owned()), Seg::Index(index)]),
+                })
+            }
+            None | Some(Item::None) => Err(WriteError::NoSuchTable {
+                path: render_path(&[Seg::Key(array.to_owned()), Seg::Index(index)]),
+            }),
+            Some(_) => Err(WriteError::NotAnArrayOfTables {
+                path: array.to_owned(),
+            }),
+        }
     }
 
     /// 蓋上檔案版與寫入者，確認沒有少寫後回傳要寫回的內容。
@@ -216,12 +310,9 @@ impl Document {
     }
 
     fn is_touched(&self, path: &[Seg]) -> bool {
-        self.touched.iter().any(|t| {
-            t.len() <= path.len()
-                && t.iter()
-                    .zip(path)
-                    .all(|(k, seg)| matches!(seg, Seg::Key(s) if s == k))
-        })
+        self.touched
+            .iter()
+            .any(|t| t.len() <= path.len() && t[..] == path[..t.len()])
     }
 }
 
@@ -318,6 +409,10 @@ pub enum WriteError {
     WouldClobber { path: String },
     /// 輸出前比對發現少了這些原本的值。
     WouldDrop { paths: Vec<String> },
+    /// 根層的這個鍵不是陣列表。
+    NotAnArrayOfTables { path: String },
+    /// 陣列表裡沒有這個索引的表。
+    NoSuchTable { path: String },
 }
 
 impl fmt::Display for WriteError {
@@ -331,6 +426,10 @@ impl fmt::Display for WriteError {
             WriteError::WouldDrop { paths } => {
                 write!(f, "refusing to write: would drop {}", paths.join(", "))
             }
+            WriteError::NotAnArrayOfTables { path } => {
+                write!(f, "`{path}` is not an array of tables")
+            }
+            WriteError::NoSuchTable { path } => write!(f, "no table at `{path}`"),
         }
     }
 }
@@ -348,6 +447,18 @@ fn implicit_table() -> Item {
     let mut t = Table::new();
     t.set_implicit(true);
     Item::Table(t)
+}
+
+fn key_path(path: &[&str]) -> Vec<Seg> {
+    path.iter().map(|k| Seg::Key((*k).to_owned())).collect()
+}
+
+fn indexed_path(array: &str, index: usize, key: &str) -> Vec<Seg> {
+    vec![
+        Seg::Key(array.to_owned()),
+        Seg::Index(index),
+        Seg::Key(key.to_owned()),
+    ]
 }
 
 fn join(path: &[&str]) -> String {
@@ -623,6 +734,90 @@ id = 2
         let out = doc.render("v0.1.0").unwrap();
         assert!(!out.contains("[extra]"));
         assert!(out.contains("[[later]]"));
+    }
+
+    #[test]
+    fn array_table_edits_keep_other_fields_and_tables() {
+        let text = "schema = 1\nwritten_by = \"v0.1.0\"\n\n[[later]]\nid = 1 # one\nnote = \"keep\"\n\n[[later]]\nid = 2\nextra = 9\n";
+        let mut doc = Document::parse(text).unwrap();
+        assert_eq!(doc.table_count("later"), Ok(2));
+        doc.set_in("later", 0, "id", 10).unwrap();
+        assert!(doc.remove_in("later", 1, "extra").unwrap().is_some());
+        assert!(doc.remove_in("later", 1, "nope").unwrap().is_none());
+        let i = doc.push_table("later").unwrap();
+        assert_eq!(i, 2);
+        doc.set_in("later", i, "id", 3).unwrap();
+        let out = doc.render("v0.2.0").unwrap();
+        let again = Document::parse(&out).unwrap();
+        let tables = again.get(&["later"]).unwrap().as_array_of_tables().unwrap();
+        let ids: Vec<i64> = tables
+            .iter()
+            .map(|t| t["id"].as_integer().unwrap())
+            .collect();
+        assert_eq!(ids, [10, 2, 3]);
+        assert!(out.contains("id = 10 # one"));
+        assert!(out.contains("note = \"keep\""));
+        assert!(!out.contains("extra"));
+    }
+
+    #[test]
+    fn array_table_edits_do_not_excuse_other_entries() {
+        let text = "schema = 1\n\n[[later]]\nid = 1\n\n[[later]]\nid = 2\nnote = \"x\"\n";
+        let mut doc = Document::parse(text).unwrap();
+        doc.set_in("later", 0, "id", 5).unwrap();
+        // 繞過 API 拿掉第二個表的未知欄位：改過第一個表不代表第二個表可以少寫。
+        doc.doc["later"]
+            .as_array_of_tables_mut()
+            .unwrap()
+            .get_mut(1)
+            .unwrap()
+            .remove("note");
+        assert_eq!(
+            doc.render("v0.1.0"),
+            Err(WriteError::WouldDrop {
+                paths: vec!["later[1].note".to_owned()]
+            })
+        );
+    }
+
+    #[test]
+    fn array_table_edits_refuse_bad_targets() {
+        let mut doc = Document::parse(SAMPLE).unwrap();
+        assert_eq!(
+            doc.push_table("name"),
+            Err(WriteError::NotAnArrayOfTables {
+                path: "name".to_owned()
+            })
+        );
+        assert_eq!(
+            doc.set_in("later", 5, "id", 1),
+            Err(WriteError::NoSuchTable {
+                path: "later[5]".to_owned()
+            })
+        );
+        assert_eq!(
+            doc.set_in("missing", 0, "id", 1),
+            Err(WriteError::NoSuchTable {
+                path: "missing[0]".to_owned()
+            })
+        );
+        assert_eq!(
+            doc.table_count("extra"),
+            Err(WriteError::NotAnArrayOfTables {
+                path: "extra".to_owned()
+            })
+        );
+        assert_eq!(doc.table_count("missing"), Ok(0));
+        assert_eq!(doc.doc.to_string(), SAMPLE);
+    }
+
+    #[test]
+    fn push_table_creates_the_array() {
+        let mut doc = Document::new();
+        let i = doc.push_table("file").unwrap();
+        doc.set_in("file", i, "path", "a").unwrap();
+        let out = doc.render("v0.1.0").unwrap();
+        assert!(out.contains("[[file]]\npath = \"a\""), "{out}");
     }
 
     #[test]
