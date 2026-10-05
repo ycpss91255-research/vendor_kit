@@ -173,6 +173,18 @@ impl<E: Effects> Effects for Faulty<E> {
         self.tick()?;
         self.inner.delete_progress(progress)
     }
+    fn remove_tools_just(&mut self) -> Result<(), Error> {
+        self.tick()?;
+        self.inner.remove_tools_just()
+    }
+    fn remove_vk_path(&mut self, path: &Path) -> Result<(), Error> {
+        self.tick()?;
+        self.inner.remove_vk_path(path)
+    }
+    fn remove_lock(&mut self) -> Result<(), Error> {
+        self.tick()?;
+        self.inner.remove_lock()
+    }
 }
 
 /// 完整順序走一次：一個工具、一個 repo 檔、一個紀錄檔、寫入口檔、改工具的版本鎖定行。
@@ -596,4 +608,204 @@ fn unregistered_codes_pass_through_from_lower_crates() {
         source: io::Error::other("x"),
     };
     assert!(e.message().is_none());
+}
+
+// ---- 收回的順序 ----
+
+/// 已導入 `tool` 的安裝目錄：`cache/tool/`、印記、metadata、入口檔、版本鎖定行、插入過一行的 `.gitignore`。
+fn retract_fixture() -> Fixture {
+    let f = Fixture::new();
+    let mut lock = LockFile::load_from(&f.dir).unwrap().unwrap();
+    lock.set_tool("tool", &image(TOOL)).unwrap();
+    lock.save_to(&f.dir, WRITTEN_BY).unwrap();
+    fs::create_dir_all(f.stamp_file.parent().unwrap()).unwrap();
+    fs::write(&f.stamp_file, b"stamp\n").unwrap();
+    fs::create_dir_all(f.record().parent().unwrap()).unwrap();
+    fs::write(f.record(), RECORD_TEXT).unwrap();
+    fs::create_dir_all(f.dir.gen_dir()).unwrap();
+    fs::write(f.tools_just(), TOOLS_JUST_TEXT).unwrap();
+    fs::write(f.dir.root().join(".gitignore"), b"keep\nadded\n").unwrap();
+    f
+}
+
+const RETRACTED_GITIGNORE: &[u8] = b"keep\n";
+/// 收回時仍保留、要改寫的紀錄檔。
+const KEPT_RECORD: &str = "baseline/.vendor_kit.toml";
+
+/// 收回順序走一次：一個 repo 檔、入口檔換成空的、改寫一個保留的紀錄檔、刪 `cache/tool/`、印記與 metadata、拿掉工具的版本鎖定行。
+fn retract_sequence<E: Effects>(fx: &mut E, f: &Fixture) -> Result<Done, Failed> {
+    let mut lock = LockFile::load_from(&f.dir).unwrap().unwrap();
+    lock.remove_tool("tool").unwrap();
+    let repo = [RepoFile {
+        path: Path::new(".gitignore"),
+        contents: RETRACTED_GITIGNORE,
+    }];
+    let stamp = f.stamp_file.strip_prefix(f.dir.vk_dir()).unwrap();
+    let removes = [Path::new("cache/tool"), stamp, Path::new(RECORD_PATH)];
+    let writes = [RecordFile {
+        path: Path::new(KEPT_RECORD),
+        contents: RECORD_TEXT,
+    }];
+    Txn::begin(
+        fx,
+        Progress::new("remove", "inv-1", &["remove", "tool"]).unwrap(),
+    )?
+    .retract_repo_files(&repo)?
+    .retract_tools_just(Entry::Write(b""))?
+    .retract_records(&writes, &removes)?
+    .write_lock_line(&mut lock, Target::Tool)?
+    .complete()
+}
+
+fn run_retract(f: &Fixture, fail_at: Option<usize>) -> (Result<Done, Failed>, Vec<u8>) {
+    let mut w = Writer::new(Vec::new(), header(Component::Engine)).with_clock(fixed_time);
+    let result = {
+        let mut fx = Faulty::new(Disk::new(&f.dir, &mut w, WRITTEN_BY), fail_at);
+        retract_sequence(&mut fx, f)
+    };
+    (result, w.into_inner())
+}
+
+#[test]
+fn retract_sequence_removes_everything_in_order() {
+    let f = retract_fixture();
+    let (result, log) = run_retract(&f, None);
+    assert_eq!(result.unwrap().progress_file, ".tmp.remove.inv-1.toml");
+    assert_eq!(
+        events(&log),
+        [
+            "writes_started",
+            "lock_line_write_started",
+            "lock_line_written",
+            "progress_removed"
+        ]
+    );
+    assert!(!f.progress_left());
+    assert!(!f.dir.tool_cache("tool").unwrap().exists());
+    assert!(!f.stamp_file.exists());
+    assert!(!f.record().exists());
+    assert_eq!(fs::read(f.tools_just()).unwrap(), b"");
+    assert_eq!(
+        fs::read(f.dir.root().join(".gitignore")).unwrap(),
+        RETRACTED_GITIGNORE
+    );
+    let lock = LockFile::load_from(&f.dir).unwrap().unwrap();
+    assert!(lock.tools().is_empty());
+}
+
+#[test]
+fn every_retract_effect_call_is_one_step() {
+    let f = retract_fixture();
+    let mut w = Writer::new(Vec::new(), header(Component::Engine)).with_clock(fixed_time);
+    let mut fx = Faulty::new(Disk::new(&f.dir, &mut w, WRITTEN_BY), None);
+    retract_sequence(&mut fx, &f).unwrap();
+    // 三個路徑各刪一次，所以比 Step::RETRACT 多兩次呼叫。
+    assert_eq!(fx.calls, Step::RETRACT.len() + 2);
+}
+
+#[test]
+fn a_fault_at_each_retract_step_leaves_a_recognizable_state() {
+    // 第 N 次呼叫對應的步驟：RemovePaths 佔三次呼叫。
+    let mut calls: Vec<Step> = Vec::new();
+    for step in Step::RETRACT {
+        let n = if step == Step::RemovePaths { 3 } else { 1 };
+        calls.extend(std::iter::repeat_n(step, n));
+    }
+    for (n, step) in calls.into_iter().enumerate() {
+        let f = retract_fixture();
+        let lock_before = f.lock_text();
+        let (result, _) = run_retract(&f, Some(n));
+        let failed = result.err().unwrap_or_else(|| panic!("call {n}"));
+        assert_eq!(failed.step, step, "call {n}");
+        let pos = Step::RETRACT.iter().position(|s| *s == step).unwrap();
+        let after = |s: Step| pos > Step::RETRACT.iter().position(|x| *x == s).unwrap();
+
+        let progress_left = after(Step::CreateProgress) && !after(Step::DeleteProgress);
+        assert_eq!(f.progress_left(), progress_left, "{step}");
+        assert_eq!(
+            fs::read(f.dir.root().join(".gitignore")).unwrap() == RETRACTED_GITIGNORE,
+            after(Step::RepoFile),
+            "{step}"
+        );
+        // 入口檔先拿掉工具的行，cache/ 才刪：入口檔還指著工具時 cache/tool/ 一定還在。
+        let entry_points = fs::read(f.tools_just()).unwrap() == TOOLS_JUST_TEXT;
+        assert_eq!(entry_points, !after(Step::ToolsJust), "{step}");
+        if entry_points {
+            assert!(f.dir.tool_cache("tool").unwrap().exists(), "{step}");
+        }
+        assert_eq!(
+            f.dir.vk_dir().join(KEPT_RECORD).exists(),
+            after(Step::Records),
+            "{step}"
+        );
+        if !after(Step::RemovePaths) && step != Step::RemovePaths {
+            assert!(f.record().exists(), "{step}");
+        }
+        assert_eq!(
+            f.lock_text() == lock_before,
+            !after(Step::LockLine),
+            "{step}"
+        );
+    }
+}
+
+#[test]
+fn remove_lock_file_and_entry_remove_delete_the_files() {
+    let f = retract_fixture();
+    let mut w = Writer::new(Vec::new(), header(Component::Engine)).with_clock(fixed_time);
+    {
+        let mut fx = Disk::new(&f.dir, &mut w, WRITTEN_BY);
+        Txn::begin(
+            &mut fx,
+            Progress::new("uninstall", "inv-1", &["uninstall"]).unwrap(),
+        )
+        .unwrap()
+        .retract_repo_files(&[])
+        .unwrap()
+        .retract_tools_just(Entry::Remove)
+        .unwrap()
+        .retract_records(
+            &[],
+            &[Path::new("cache"), Path::new("gen"), Path::new("absent")],
+        )
+        .unwrap()
+        .remove_lock_file(Target::Engine)
+        .unwrap()
+        .complete()
+        .unwrap();
+    }
+    assert_eq!(
+        events(&w.into_inner()),
+        [
+            "writes_started",
+            "lock_line_write_started",
+            "lock_line_written",
+            "progress_removed"
+        ]
+    );
+    assert!(!f.dir.version_toml().exists());
+    assert!(!f.dir.cache_dir().exists());
+    assert!(!f.dir.gen_dir().exists());
+    assert!(f.record().exists());
+    assert!(f.dir.vk_dir().is_dir());
+}
+
+#[test]
+fn removed_paths_must_stay_inside_the_vk_dir() {
+    let f = Fixture::new();
+    let mut w = Writer::new(Vec::new(), header(Component::Engine)).with_clock(fixed_time);
+    let mut fx = Disk::new(&f.dir, &mut w, WRITTEN_BY);
+    for bad in ["", "/etc", "../x", "a/../b", "./a"] {
+        assert!(
+            matches!(fx.remove_vk_path(Path::new(bad)), Err(Error::BadPath(_))),
+            "{bad:?}"
+        );
+    }
+    // symlink 只刪它本身，不跟過去。
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("keep"), b"x").unwrap();
+    std::os::unix::fs::symlink(outside.path(), f.dir.vk_dir().join("link")).unwrap();
+    fx.remove_vk_path(Path::new("link")).unwrap();
+    assert!(outside.path().join("keep").is_file());
+    assert!(fs::symlink_metadata(f.dir.vk_dir().join("link")).is_err());
 }

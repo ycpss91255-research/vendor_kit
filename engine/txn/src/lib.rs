@@ -16,6 +16,20 @@
 //! 10. 刪進度檔：這次操作唯一的完成點。
 //! 11. 執行紀錄記 `progress_removed`。
 //!
+//! `remove`、`uninstall` 收回時走另一條順序（[`Txn::retract_repo_files`] 起），同樣以型別狀態固定：
+//!
+//! 1. 執行紀錄記 `writes_started`。
+//! 2. 建進度檔。
+//! 3. 寫收回插入行後的 repo 檔。
+//! 4. 改寫或刪掉入口檔 `gen/tools.just`：先拿掉指向要刪的 `cache/<repo>/` 的行，再刪 `cache/`，
+//!    中途中斷時入口檔不會指著已不在的快取。
+//! 5. 寫仍保留的紀錄檔，再依序刪 `.vendor_kit/` 下要收回的路徑（`cache/<repo>/`、印記、metadata、
+//!    基準版副本等，[`Txn::retract_records`]）。
+//! 6. 執行紀錄記 `lock_line_write_started`。
+//! 7. 改版本鎖定行，或整份刪掉 `version.toml`（[`Txn::remove_lock_file`]）。
+//! 8. 執行紀錄記 `lock_line_written`。
+//! 9. 刪進度檔，再記 `progress_removed`。
+//!
 //! 每一步是一個消耗 `self` 的方法，回傳下一個狀態的 [`Txn`]，所以順序寫錯編譯不過；失敗回 [`Failed`]，
 //! 這次操作就此結束，不能接著寫。第 3–5 步一次收齊全部項目（可以是空的），第 6 步可以不寫，第 7–9 步
 //! 可以整段略過（[`Txn::keep_lock_line`]），但不能換順序。
@@ -129,7 +143,7 @@ pub struct RecordFile<'a> {
 // ---------------------------------------------------------------------------
 // 步驟與錯誤
 
-/// 落地順序的每一步，依序排列。
+/// 落地順序的每一步；導入的順序見 [`Step::ALL`]，收回的順序見 [`Step::RETRACT`]。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Step {
     /// 記 `writes_started`。
@@ -142,6 +156,8 @@ pub enum Step {
     RepoFile,
     /// 寫 metadata 與基準版副本。
     Records,
+    /// 收回時刪 `.vendor_kit/` 下的路徑。
+    RemovePaths,
     /// 寫 `gen/tools.just`。
     ToolsJust,
     /// 記 `lock_line_write_started`。
@@ -157,6 +173,7 @@ pub enum Step {
 }
 
 impl Step {
+    /// 導入與換版（[`Txn::swap_cache`] 起）的順序：每一個都對應一次 [`Effects`] 呼叫。
     pub const ALL: [Step; 11] = [
         Step::WritesStarted,
         Step::CreateProgress,
@@ -164,6 +181,21 @@ impl Step {
         Step::RepoFile,
         Step::Records,
         Step::ToolsJust,
+        Step::LockLineWriteStarted,
+        Step::LockLine,
+        Step::LockLineWritten,
+        Step::DeleteProgress,
+        Step::ProgressRemoved,
+    ];
+
+    /// 收回（`remove`、`uninstall`）的順序：每一個都對應一次 [`Effects`] 呼叫。
+    pub const RETRACT: [Step; 11] = [
+        Step::WritesStarted,
+        Step::CreateProgress,
+        Step::RepoFile,
+        Step::ToolsJust,
+        Step::Records,
+        Step::RemovePaths,
         Step::LockLineWriteStarted,
         Step::LockLine,
         Step::LockLineWritten,
@@ -183,6 +215,7 @@ impl Step {
             Step::SwapCache => "swap cache",
             Step::RepoFile => "write repo file",
             Step::Records => "write records",
+            Step::RemovePaths => "remove paths",
             Step::ToolsJust => "write gen/tools.just",
             Step::LockLineWriteStarted => "lock_line_write_started",
             Step::LockLine => "write lock line",
@@ -323,6 +356,12 @@ pub trait Effects {
     fn write_tools_just(&mut self, contents: &[u8]) -> Result<(), Error>;
     /// 寫版本鎖定行所在的 `.vendor_kit/version.toml`。
     fn save_lock(&mut self, lock: &mut LockFile) -> Result<(), Error>;
+    /// 刪 `gen/tools.just`；不在不算錯。
+    fn remove_tools_just(&mut self) -> Result<(), Error>;
+    /// 刪 `.vendor_kit/` 下的一個路徑（檔、symlink 或整個目錄）；不在不算錯。
+    fn remove_vk_path(&mut self, path: &Path) -> Result<(), Error>;
+    /// 刪 `.vendor_kit/version.toml`；不在不算錯。
+    fn remove_lock(&mut self) -> Result<(), Error>;
     /// 刪進度檔（完成點）。
     fn delete_progress(&mut self, progress: &Progress) -> Result<(), Error>;
 }
@@ -403,6 +442,38 @@ impl<W: Write> Effects for Disk<'_, W> {
     fn delete_progress(&mut self, progress: &Progress) -> Result<(), Error> {
         progress::delete(self.dir, progress.verb(), progress.id()).map_err(Error::Progress)
     }
+
+    fn remove_tools_just(&mut self) -> Result<(), Error> {
+        remove_if_present(&self.dir.gen_dir().join(TOOLS_JUST))
+    }
+
+    fn remove_vk_path(&mut self, path: &Path) -> Result<(), Error> {
+        plain(path)?;
+        remove_if_present(&self.dir.vk_dir().join(path))
+    }
+
+    fn remove_lock(&mut self) -> Result<(), Error> {
+        remove_if_present(&self.dir.version_toml())
+    }
+}
+
+/// 刪掉 `path`：目錄整個刪，檔與 symlink 只刪它本身；不在不算錯。
+fn remove_if_present(path: &Path) -> Result<(), Error> {
+    let meta = match fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(Error::io(path, e)),
+    };
+    let removed = if meta.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    };
+    removed.map_err(|e| Error::io(path, e))?;
+    if let Some(parent) = path.parent() {
+        sync_dir(parent)?;
+    }
+    Ok(())
 }
 
 /// 只由一般路徑段組成的相對路徑才收。
@@ -479,6 +550,21 @@ pub struct RecordsWritten;
 pub struct EntryWritten;
 /// 版本鎖定行已處理，下一步刪進度檔。
 pub struct LockHandled;
+/// 收回：插入行已收回，下一步處理入口檔。
+pub struct Retracted;
+/// 收回：入口檔已處理，下一步寫保留的紀錄檔、刪要收回的路徑。
+pub struct EntryRetracted;
+
+/// 收回時入口檔 `gen/tools.just` 怎麼處理。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Entry<'a> {
+    /// 不變。
+    Keep,
+    /// 整檔換成這份內容。
+    Write(&'a [u8]),
+    /// 刪掉。
+    Remove,
+}
 
 /// 一次可寫 recipe 的落地。`S` 是目前走到哪一步，每一步只在對應的狀態上有方法。
 pub struct Txn<'e, E: Effects + ?Sized, S> {
@@ -519,6 +605,14 @@ impl<'e, E: Effects + ?Sized> Txn<'e, E, Begun> {
         })
     }
 
+    /// 收回的第 3 步：依序寫收回插入行後的 repo 檔；可以是空的。
+    pub fn retract_repo_files(self, files: &[RepoFile]) -> Result<Txn<'e, E, Retracted>, Failed> {
+        for file in files {
+            self.fx.write_repo_file(file).map_err(at(Step::RepoFile))?;
+        }
+        Ok(self.next())
+    }
+
     /// 第 3 步：依序換每個工具的 `cache/<repo>/` 與印記；可以是空的。
     pub fn swap_cache(self, tools: &[ToolContent]) -> Result<Txn<'e, E, CacheSwapped>, Failed> {
         for tool in tools {
@@ -543,6 +637,39 @@ impl<'e, E: Effects + ?Sized> Txn<'e, E, RepoWritten> {
     pub fn write_records(self, files: &[RecordFile]) -> Result<Txn<'e, E, RecordsWritten>, Failed> {
         for file in files {
             self.fx.write_record_file(file).map_err(at(Step::Records))?;
+        }
+        Ok(self.next())
+    }
+}
+
+impl<'e, E: Effects + ?Sized> Txn<'e, E, Retracted> {
+    /// 收回的第 4 步：改寫或刪掉 `gen/tools.just`，排在刪 `cache/` 之前。
+    pub fn retract_tools_just(self, entry: Entry) -> Result<Txn<'e, E, EntryRetracted>, Failed> {
+        let done = match entry {
+            Entry::Keep => Ok(()),
+            Entry::Write(contents) => self.fx.write_tools_just(contents),
+            Entry::Remove => self.fx.remove_tools_just(),
+        };
+        done.map_err(at(Step::ToolsJust))?;
+        Ok(self.next())
+    }
+}
+
+impl<'e, E: Effects + ?Sized> Txn<'e, E, EntryRetracted> {
+    /// 收回的第 5 步：先依序寫仍保留的紀錄檔，再依序刪 `.vendor_kit/` 下的 `removes`（相對於
+    /// `.vendor_kit/`，只能由一般路徑段組成）；都可以是空的。之後接版本鎖定行。
+    pub fn retract_records(
+        self,
+        writes: &[RecordFile],
+        removes: &[&Path],
+    ) -> Result<Txn<'e, E, EntryWritten>, Failed> {
+        for file in writes {
+            self.fx.write_record_file(file).map_err(at(Step::Records))?;
+        }
+        for path in removes {
+            self.fx
+                .remove_vk_path(path)
+                .map_err(at(Step::RemovePaths))?;
         }
         Ok(self.next())
     }
@@ -575,6 +702,18 @@ impl<'e, E: Effects + ?Sized> Txn<'e, E, EntryWritten> {
             .log(&Event::LockLineWriteStarted { target })
             .map_err(at(Step::LockLineWriteStarted))?;
         self.fx.save_lock(lock).map_err(at(Step::LockLine))?;
+        self.fx
+            .log(&Event::LockLineWritten { target })
+            .map_err(at(Step::LockLineWritten))?;
+        Ok(self.next())
+    }
+
+    /// 整份刪掉 `version.toml`（`uninstall` 收回全部版本鎖定行），前後記的事件同 [`Txn::write_lock_line`]。
+    pub fn remove_lock_file(self, target: Target) -> Result<Txn<'e, E, LockHandled>, Failed> {
+        self.fx
+            .log(&Event::LockLineWriteStarted { target })
+            .map_err(at(Step::LockLineWriteStarted))?;
+        self.fx.remove_lock().map_err(at(Step::LockLine))?;
         self.fx
             .log(&Event::LockLineWritten { target })
             .map_err(at(Step::LockLineWritten))?;

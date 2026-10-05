@@ -18,6 +18,8 @@ layout.workspace = true
 messages.workspace = true
 output.workspace = true
 plan.workspace = true
+prompt.workspace = true
+remove.workspace = true
 runlog.workspace = true
 sync.workspace = true
 

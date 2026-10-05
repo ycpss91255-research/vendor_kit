@@ -6,7 +6,7 @@
 //!   判用法與安裝目錄，再分派到指令；結束前寫 `engine_finished` 與 `done`。
 //! - 直接呼叫（其他）：沒有執行紀錄與往返，只處理不帶指令的用法；其餘以 VK0026 回報，待決議（#457）。
 //!
-//! 目前只實作 `add` 與 `sync`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
+//! 目前只實作 `add`、`sync`、`remove` 與 `uninstall`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
 //! 暫以 VK0026（不認得的參數）回報並附用法，`-h`／`--help` 的用法文字還沒定，以 VK0056 停下。
 
 use std::ffi::OsString;
@@ -330,6 +330,20 @@ where
             let _ = stdout.flush();
             code
         }
+        args::Command::Remove { repo } => run_remove(
+            Some(repo),
+            inv,
+            mounts,
+            host_log,
+            stdin,
+            stdout,
+            stderr,
+            diags,
+            log,
+        ),
+        args::Command::Uninstall => run_remove(
+            None, inv, mounts, host_log, stdin, stdout, stderr, diags, log,
+        ),
         _ => {
             let name = inv
                 .rest
@@ -343,6 +357,57 @@ where
             2
         }
     }
+}
+
+/// `remove <repo>`（`repo` 是 `Some`）或 `uninstall`（`None`）。
+#[allow(clippy::too_many_arguments)]
+fn run_remove<O, E>(
+    repo: Option<&str>,
+    inv: &plan::Invocation,
+    mounts: &Mounts,
+    host_log: &str,
+    stdin: &mut dyn BufRead,
+    stdout: O,
+    stderr: &E,
+    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
+    log: &mut runlog::Writer<&File>,
+) -> u8
+where
+    O: Write + Clone,
+    E: Write + Clone,
+{
+    let dir = layout::InstallDir::new(&mounts.root);
+    let argv: Vec<String> = inv
+        .rest
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let host_root = inv.host_root.display().to_string();
+    let mut stdout = stdout;
+    let mut prompt = stderr.clone();
+    let mut env = remove::Env {
+        dir: &dir,
+        host_root: &host_root,
+        run_log: host_log,
+        tty: prompt::TtyState {
+            stdin: inv.tty.stdin,
+            stderr: inv.tty.stderr,
+        },
+        argv: &argv,
+        run_id: inv.run_id.as_str(),
+        written_by: VERSION,
+        stdin,
+        stdout: &mut stdout,
+        prompt: &mut prompt,
+        diags,
+        log,
+    };
+    let code = match repo {
+        Some(repo) => remove::remove(repo, &mut env),
+        None => remove::uninstall(&mut env),
+    };
+    let _ = stdout.flush();
+    code
 }
 
 #[cfg(test)]

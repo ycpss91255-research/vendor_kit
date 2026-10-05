@@ -31,6 +31,7 @@ members = [
     "engine/tools_just",
     "engine/add",
     "engine/sync",
+    "engine/remove",
     "test/e2e",
     "test/boundary",
     "test/reason_lint",
@@ -69,6 +70,7 @@ initfiles = { path = "engine/initfiles" }
 tools_just = { path = "engine/tools_just" }
 add = { path = "engine/add" }
 sync = { path = "engine/sync" }
+remove = { path = "engine/remove" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
