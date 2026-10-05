@@ -23,6 +23,7 @@ members = [
     "engine/shell",
     "engine/retract",
     "engine/runlog",
+    "engine/plan",
     "engine/msggen",
     "test/e2e",
     "test/boundary",
@@ -55,6 +56,7 @@ progress = { path = "engine/progress" }
 shell = { path = "engine/shell" }
 retract = { path = "engine/retract" }
 runlog = { path = "engine/runlog" }
+plan = { path = "engine/plan" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"

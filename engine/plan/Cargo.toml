@@ -1,0 +1,15 @@
+[package]
+name = "plan"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "啟動器與引擎的往返協定 vk-resolve（D2）的引擎端：入口 argv、req／res／done 控制檔、op 封閉集合與自由文字欄的跳脫"
+
+[dependencies]
+messages.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
