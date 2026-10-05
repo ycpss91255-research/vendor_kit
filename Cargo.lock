@@ -383,6 +383,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "install"
+version = "0.0.0"
+dependencies = [
+ "compat",
+ "config",
+ "diagnostics",
+ "filelock",
+ "imageref",
+ "initfiles",
+ "layout",
+ "messages",
+ "metadata",
+ "progress",
+ "prompt",
+ "runlog",
+ "schema",
+ "shell",
+ "tempfile",
+ "txn",
+ "version_file",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -926,6 +949,7 @@ dependencies = [
  "args",
  "compat",
  "diagnostics",
+ "install",
  "layout",
  "messages",
  "output",

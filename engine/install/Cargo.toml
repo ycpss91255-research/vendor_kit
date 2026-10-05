@@ -1,0 +1,30 @@
+[package]
+name = "install"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "install 指令：讀設定、持排他鎖、併入殘留進度、產生版本鎖定行與薄殼、以 initfiles 判根目錄檔、一次問完、經 txn 落地"
+
+[dependencies]
+compat.workspace = true
+config.workspace = true
+diagnostics.workspace = true
+filelock.workspace = true
+imageref.workspace = true
+initfiles.workspace = true
+layout.workspace = true
+messages.workspace = true
+metadata.workspace = true
+progress.workspace = true
+prompt.workspace = true
+runlog.workspace = true
+schema.workspace = true
+shell.workspace = true
+txn.workspace = true
+version_file.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

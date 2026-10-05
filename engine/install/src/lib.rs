@@ -1,0 +1,717 @@
+//! `install` 指令（04 指令表 `install`、首次導入還是既有安裝目錄、寫入既有檔的例外、成對與無害；
+//! 03 輸出）：從參數到落地。`install` 寫的每一樣東西都要讓 `uninstall`（`engine/remove`）收得回去。
+//!
+//! 呼叫端（入口 `vendor_kit`）已解析好參數、判過安裝目錄（VK0028），並接好執行紀錄。首次導入時
+//! 啟動器在起引擎之前已建好 `.vendor_kit/log/` 與這次的紀錄（04 bootstrap 第 4 步），所以引擎看到的
+//! `.vendor_kit/` 一定已在；首次導入與既有安裝目錄的差別只看 `version.toml` 在不在。
+//!
+//! `install` 屬救援路徑（ADR-0007:37、ADR-0008），只准用 `plan::RESCUE_OPS` 的協定動作；這一版完全不碰
+//! docker，不送任何 request。
+//!
+//! # 順序
+//!
+//! 1. 讀 `.vendor_kit/config.toml`（VK0059），在第一次取鎖之前（04 設定）。
+//! 2. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束。
+//! 3. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）；`version.toml` 不在就是首次導入，
+//!    在就沿用它的引擎版本鎖定行（不換引擎版，換版走 `upgrade --engine`）。
+//! 4. 辨識殘留的進度檔（見「恢復」）。
+//! 5. 出貨輸入（[`Release`]）缺哪一項就以 VK0056 停下，列出缺的項目。
+//! 6. 算這次要寫的東西，只讀不寫：
+//!    - `version.toml`：首次導入時只有引擎版本鎖定行。
+//!    - 薄殼四檔（`shell`）：以 `compat` 的介面版、本引擎版與模板本文產生，跟現有的逐檔比對，只寫不一致的
+//!      （缺檔、被改過、不是這一版的模板）。symlink 或不是一般檔時停下（`shell` 第一版禁止 symlink）。
+//!    - 根 `justfile` 的 `import` 行與根 `.dockerignore` 的行：`baseline/.vendor_kit.toml` 已有那個檔的
+//!      紀錄就不動；沒有紀錄時以 `initfiles` 的 append 規則判（`add` 用的同一套）：檔在就先問再 append，
+//!      檔不在就新建（根 `justfile` 附 `default`）。
+//!    - `baseline/.vendor_kit.toml`：上面兩個檔的 `appended` 紀錄（插入的行、寫入後的整檔 hash）；
+//!      其他工具的紀錄檔有同一個檔、寫入前相符的紀錄，跟著換成寫入後的 hash（ADR-0003）。
+//! 7. 什麼都不用寫、也沒有殘留的進度檔：stdout 說明未變更，不建進度檔（04 成對與無害）。
+//! 8. `prompt` 一次問完（04 共同選項：全部同意才寫入，含恢復舊操作）：只有 append 進使用者既有檔才問；
+//!    `-y` 全部同意。答否是正常取消（stdout 說明未變更，以 0 結束）；不能互動回 VK0002，除執行紀錄外
+//!    不寫任何檔。
+//! 9. 經 `txn` 落地：建進度檔 → repo 檔（根 `justfile`、`.dockerignore`）→ `.vendor_kit/` 下的檔
+//!    （薄殼、`baseline/` 的紀錄）→ 寫引擎版本鎖定行（只有首次導入）→ 刪進度檔；之後才刪殘留的進度檔。
+//!    `cache/` 與 `gen/tools.just` 不動。
+//! 10. stdout 列出改了什麼。
+//!
+//! # 恢復
+//!
+//! 殘留的 `install` 進度檔表示上一次中途停了。`install` 只把安裝目錄對齊這一版，判定時看的是目前的檔，
+//! 所以恢復就是照常再做一次：寫到一半的薄殼會被判成不一致而重寫，沒寫的版本鎖定行照樣補上。
+//! 殘留的詢問與這次的一起問完、全部同意才寫，答否時殘留的進度檔照留。這次落地完成之後才刪殘留的那幾份。
+//!
+//! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
+//!
+//! - 進度檔 `.tmp.install.<run-id>.toml` 另記 `[install]` 表的 `repo_files`（這次有沒有要寫 repo 檔）。
+//! - 根目錄檔的紀錄都記成 `appended`，`lines` 是 VK 寫進去的行：新建的根 `justfile` 只記 `import` 那一行
+//!   （`default` 建立後按 repo 檔處理，04），新建的 `.dockerignore` 記全部的行。`uninstall` 照 04 收回
+//!   這些行，檔本身不刪。
+//! - 薄殼標頭的引擎版寫本引擎的版本（`v<X.Y.Z>`，與 `written_by` 相同）。
+//! - stdout 的字句與詢問文字（英文）見 [`text`]。
+//!
+//! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
+//!
+//! - 出貨輸入（[`release`]）：首次導入的引擎版本鎖定行的值、薄殼模板本文、根 `justfile` 的 `import` 行與
+//!   `default`、根 `.dockerignore` 的四行。這一版一項都沒有，所以經啟動器的 `install` 目前一定在這裡停下。
+//! - 殘留的進度檔不是 `install` 的，或殘留的 `install` 要寫 repo 檔：那次寫了哪些 repo 檔沒有記錄，
+//!   重新判定會把 VK 自己剛插入的行當成使用者既有的內容。
+//! - 根目錄檔沒有紀錄、卻已含有要插入的行（`initfiles` 的 `LinesAlreadyPresent`，04 只說未收回的內容
+//!   不得無條件再 append），以及 `initfiles` 判出的其他缺口。
+//! - 中途寫檔失敗沒有代碼（計畫 G4）。
+//! - `gen/.stamp`（產生薄殼的引擎 ref）：格式與寫入時機沒定，這裡不寫。
+//! - `config.toml` 不建：04 只定欄位與未設定時的值，沒說 `install` 要不要建。
+//! - 巢狀安裝（VK0029）與「在 git repo 內」要看安裝目錄以外的路徑，引擎只看得到掛進來的安裝目錄，
+//!   由啟動器在起引擎前判（flow-bootstrap），不在這裡。
+
+pub mod release;
+pub mod text;
+
+#[cfg(test)]
+mod tests;
+
+use std::fs;
+use std::io::{self, BufRead, Write};
+use std::path::{Path, PathBuf};
+
+use config::{Config, ConfigError};
+use diagnostics::{Diagnostic, Diagnostics, Message, Sink};
+use filelock::{Lock, Mode};
+use imageref::ImageRef;
+use initfiles::{Gap, InitFile, Strategy, Verdict};
+use layout::InstallDir;
+use metadata::{FileHash, FileRecord, Metadata, State};
+use progress::Progress;
+use prompt::{Consent, PromptError, TtyState};
+use runlog::Target;
+use shell::Shell;
+use txn::{Disk, RecordFile, RepoFile, Txn};
+use version_file::{LocalFile, LockFile};
+
+pub use release::Release;
+
+/// `install` 的進度檔 `<verb>`，也是它在進度檔裡自己的表名。
+pub const INSTALL_VERB: &str = "install";
+/// 進度檔記這次有沒有要寫 repo 檔的欄位。
+pub const REPO_FILES_KEY: &str = "repo_files";
+/// 根 `justfile`。
+pub const JUSTFILE: &str = "justfile";
+/// 根 `.dockerignore`。
+pub const DOCKERIGNORE: &str = ".dockerignore";
+
+/// 這次執行的環境：容器內的路徑、終端狀態與輸出。
+pub struct Env<'a, W: Write, S: Sink, L: Write> {
+    /// 容器內的安裝目錄（`plan::mount::ROOT`）。
+    pub dir: &'a InstallDir,
+    /// 主機上的安裝目錄，填 `<install_dir>`。
+    pub host_root: &'a str,
+    /// 主機上的執行紀錄路徑，填 VK0056 的 `<path>`。
+    pub run_log: &'a str,
+    /// stdin、stderr 是不是終端（啟動器傳進來的值）。
+    pub tty: TtyState,
+    /// `just vendor_kit` 之後的參數原樣（第一個是指令名）。
+    pub argv: &'a [String],
+    /// 這次執行的 run-id，也是進度檔的 `<id>`。
+    pub run_id: &'a str,
+    /// 蓋在 VK 檔上的寫入者，也是薄殼標頭的引擎版。
+    pub written_by: &'a str,
+    pub stdin: &'a mut dyn BufRead,
+    pub stdout: &'a mut dyn Write,
+    /// 詢問文字（印到 stderr）。
+    pub prompt: &'a mut dyn Write,
+    pub diags: &'a mut Diagnostics<W, S>,
+    /// 執行紀錄（`txn` 寫里程碑事件）。
+    pub log: &'a mut runlog::Writer<L>,
+}
+
+/// 這次的參數與出貨輸入。
+pub struct Request<'a> {
+    /// 帶了 `-y`。
+    pub yes: bool,
+    pub release: &'a Release,
+}
+
+/// 跑一次 `install`，回傳結束碼。
+pub fn run<W: Write, S: Sink, L: Write>(req: &Request<'_>, env: &mut Env<'_, W, S, L>) -> u8 {
+    let mut run = Run { env, code: 0 };
+    let _ = run.install(req);
+    run.code
+}
+
+/// 診斷已印、這次執行停下。
+struct Stop;
+
+type Step<T> = Result<T, Stop>;
+
+/// 這次要寫的一個根目錄檔。
+struct RootEdit {
+    path: &'static str,
+    /// 寫入前的內容；新建時是 `None`。
+    before: Option<Vec<u8>>,
+    after: Vec<u8>,
+    /// 要先問（append 進既有檔）。
+    ask: bool,
+    /// 插入的行數（詢問文字用）。
+    lines: usize,
+}
+
+/// 出貨輸入都齊了之後的借用。
+struct Inputs<'r> {
+    engine: Option<&'r ImageRef>,
+    shell: [&'r [u8]; layout::SHELL_FILES.len()],
+    import: &'r str,
+    default: &'r str,
+    dockerignore: &'r [String],
+}
+
+struct Run<'r, 'a, W: Write, S: Sink, L: Write> {
+    env: &'r mut Env<'a, W, S, L>,
+    code: u8,
+}
+
+impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
+    // ---- 診斷 ----
+
+    fn emit(&mut self, d: Diagnostic) {
+        self.code = self.code.max(d.message().exit_code());
+        let _ = self.env.diags.emit(&d);
+    }
+
+    fn stop(&mut self, d: Diagnostic) -> Stop {
+        self.emit(d);
+        Stop
+    }
+
+    /// VK0056 的診斷：契約還沒定的情況，或 VK 自己的錯。
+    fn internal_diag(&self, reason: impl Into<String>) -> Diagnostic {
+        Diagnostic::new(&messages::VK0056)
+            .arg("reason", reason)
+            .arg("path", self.env.run_log)
+    }
+
+    fn internal(&mut self, reason: impl Into<String>) -> Stop {
+        let d = self.internal_diag(reason);
+        self.stop(d)
+    }
+
+    fn gap_diag(&self, what: impl std::fmt::Display) -> Diagnostic {
+        self.internal_diag(format!("{what} is not supported yet"))
+    }
+
+    fn gap(&mut self, what: impl std::fmt::Display) -> Stop {
+        let d = self.gap_diag(what);
+        self.stop(d)
+    }
+
+    /// VK0008：檔案版過高。
+    fn too_new_diag(&self, file: &Path, t: &schema::TooNew) -> Diagnostic {
+        Diagnostic::new(&messages::VK0008)
+            .arg("file", self.rel(file))
+            .arg("N", t.found().to_string())
+            .arg("M", t.max().to_string())
+            .arg("written_by", t.written_by().unwrap_or("unknown"))
+    }
+
+    /// 底層 crate 回的錯：有代碼就照代碼印（只有一個 `<file>` 占位符的 VK0013），否則當內部錯誤。
+    fn failed_diag(
+        &self,
+        file: &Path,
+        message: Option<&'static Message>,
+        detail: String,
+    ) -> Diagnostic {
+        match message {
+            Some(m) if m.code == messages::VK0013.code => Diagnostic::new(&messages::VK0013)
+                .arg("file", self.rel(file))
+                .arg("path", self.env.run_log),
+            _ => self.internal_diag(detail),
+        }
+    }
+
+    /// 容器內路徑換成相對於安裝目錄的寫法，填 `<file>`。
+    fn rel(&self, path: &Path) -> String {
+        path.strip_prefix(self.env.dir.root())
+            .unwrap_or(path)
+            .display()
+            .to_string()
+    }
+
+    /// `.vendor_kit/` 下的路徑換成相對於 `.vendor_kit/` 的寫法（`txn` 的紀錄檔）。
+    fn vk_rel(&mut self, path: &Path) -> Step<PathBuf> {
+        match path.strip_prefix(self.env.dir.vk_dir()) {
+            Ok(p) => Ok(p.to_path_buf()),
+            Err(_) => Err(self.internal(format!("{} is not under .vendor_kit", path.display()))),
+        }
+    }
+
+    fn say(&mut self, line: &str) {
+        let _ = writeln!(self.env.stdout, "{line}");
+    }
+
+    // ---- 前段 ----
+
+    fn config(&mut self) -> Step<Config> {
+        match Config::load(self.env.dir) {
+            Ok(c) => Ok(c),
+            Err(ConfigError::Invalid(e)) => {
+                let d = Diagnostic::new(e.message())
+                    .arg("field", e.field().name())
+                    .arg("value", e.value())
+                    .arg("fix", e.fix());
+                Err(self.stop(d))
+            }
+            Err(e) => Err(self.internal(e.to_string())),
+        }
+    }
+
+    fn lock(&mut self, config: &Config) -> Step<Lock> {
+        match Lock::acquire(self.env.dir, Mode::Exclusive, config) {
+            Ok(lock) => {
+                if let Some(m) = lock.warning() {
+                    let d = Diagnostic::new(m).arg("install_dir", self.env.host_root);
+                    self.emit(d);
+                }
+                Ok(lock)
+            }
+            Err(e) => match e.message() {
+                Some(m) => {
+                    let d = Diagnostic::new(m).arg("install_dir", self.env.host_root);
+                    Err(self.stop(d))
+                }
+                None => Err(self.internal(e.to_string())),
+            },
+        }
+    }
+
+    fn lockfile(&mut self) -> Step<Option<LockFile>> {
+        match LockFile::load_from(self.env.dir) {
+            Ok(l) => Ok(l),
+            Err(version_file::Error::Parse {
+                file,
+                source: version_file::ParseError::Read(schema::ReadError::TooNew(t)),
+            }) => {
+                let d = self.too_new_diag(&file, &t);
+                Err(self.stop(d))
+            }
+            Err(e) => Err(self.internal(e.to_string())),
+        }
+    }
+
+    fn local(&mut self) -> Step<()> {
+        match LocalFile::load_from(self.env.dir) {
+            Ok(_) => Ok(()),
+            Err(version_file::Error::Parse {
+                file,
+                source: version_file::ParseError::Read(schema::ReadError::TooNew(t)),
+            }) => {
+                let d = self.too_new_diag(&file, &t);
+                Err(self.stop(d))
+            }
+            Err(e) => Err(self.internal(e.to_string())),
+        }
+    }
+
+    /// 辨識殘留的進度檔：`install` 的而且沒有要寫 repo 檔的，回傳讓這次併入；其他的每一份都印出原因
+    /// 再停下。
+    fn residuals(&mut self) -> Step<Vec<progress::Entry>> {
+        let entries = match progress::find(self.env.dir) {
+            Ok(e) => e,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        let mut found = Vec::new();
+        let mut blocked = Vec::new();
+        for entry in entries {
+            match self.residual(&entry) {
+                Ok(()) => found.push(entry),
+                Err(d) => blocked.push(d),
+            }
+        }
+        if blocked.is_empty() {
+            return Ok(found);
+        }
+        for d in blocked {
+            self.emit(d);
+        }
+        Err(Stop)
+    }
+
+    fn residual(&self, entry: &progress::Entry) -> Result<(), Diagnostic> {
+        let loaded = match entry.load() {
+            Ok(p) => p,
+            Err(progress::Error::Parse {
+                file,
+                source: progress::ParseError::Read(schema::ReadError::TooNew(t)),
+            }) => return Err(self.too_new_diag(&file, &t)),
+            Err(e) => return Err(self.failed_diag(&entry.path, e.message(), e.to_string())),
+        };
+        let shown = self.rel(&entry.path);
+        if entry.verb != INSTALL_VERB {
+            return Err(self.gap_diag(format_args!(
+                "install while the incomplete {} operation in {shown} remains",
+                entry.verb
+            )));
+        }
+        match loaded
+            .document()
+            .get(&[INSTALL_VERB, REPO_FILES_KEY])
+            .and_then(|i| i.as_bool())
+        {
+            Some(false) => Ok(()),
+            Some(true) => {
+                Err(self.gap_diag(format_args!("recovering {shown}, which writes repo files")))
+            }
+            None => Err(self.gap_diag(format_args!(
+                "recovering {shown} without its [{INSTALL_VERB}] fields"
+            ))),
+        }
+    }
+
+    /// 出貨輸入都齊了才繼續；缺的項目一起列在一則 VK0056。
+    fn inputs<'r>(&mut self, release: &'r Release, need_engine: bool) -> Step<Inputs<'r>> {
+        let missing = release.missing(need_engine);
+        let shell = release.shell.as_ref();
+        let (Some(shell), Some(import), Some(default), Some(dockerignore), true) = (
+            shell,
+            release.justfile_import.as_deref(),
+            release.justfile_default.as_deref(),
+            release.dockerignore.as_deref(),
+            missing.is_empty(),
+        ) else {
+            return Err(self.gap(format_args!(
+                "install without {}, which this engine image does not ship",
+                missing.join(", ")
+            )));
+        };
+        Ok(Inputs {
+            engine: release.engine.as_ref(),
+            shell: [&shell[0], &shell[1], &shell[2], &shell[3]],
+            import,
+            default,
+            dockerignore,
+        })
+    }
+
+    /// 讀一份逐檔紀錄檔；不在回 `None`。
+    fn load_metadata(&mut self, path: &Path) -> Step<Option<Metadata>> {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(self.internal(format!("{}: {e}", path.display()))),
+        }
+        match Metadata::load(path) {
+            Ok(m) => Ok(Some(m)),
+            Err(metadata::Error::TooNew { file, too_new }) => {
+                let d = self.too_new_diag(&file, &too_new);
+                Err(self.stop(d))
+            }
+            Err(e) => {
+                let d = self.failed_diag(path, e.message(), e.to_string());
+                Err(self.stop(d))
+            }
+        }
+    }
+
+    // ---- install ----
+
+    fn install(&mut self, req: &Request<'_>) -> Step<()> {
+        let config = self.config()?;
+        let _lock = self.lock(&config)?;
+        let existing = self.lockfile()?;
+        self.local()?;
+        let residual = self.residuals()?;
+        let inputs = self.inputs(req.release, existing.is_none())?;
+
+        let mut new_lock = match (&existing, inputs.engine) {
+            (Some(_), _) => None,
+            (None, Some(engine)) => Some(LockFile::new(engine)),
+            (None, None) => return Err(self.internal("no engine lock line value")),
+        };
+
+        // 薄殼四檔：只寫不一致的。
+        let shell = Shell::render(
+            compat::THIS.current_protocol,
+            self.env.written_by,
+            inputs.shell,
+        );
+        let shell = shell.map_err(|e| self.internal(e.to_string()))?;
+        let report = shell.check(self.env.dir);
+        let report = report.map_err(|e| self.internal(e.to_string()))?;
+        // 順序同 `layout::SHELL_FILES`。
+        let shell_names: Vec<&'static str> = report.mismatches().map(|f| f.name).collect();
+
+        // 根目錄檔與 `baseline/.vendor_kit.toml`。
+        let vk_path = metadata::vk_path(self.env.dir);
+        let mut vk_md = self.load_metadata(&vk_path)?.unwrap_or_default();
+        let mut edits: Vec<RootEdit> = Vec::new();
+        let import = vec![inputs.import.to_owned()];
+        let wanted: [(&'static str, &[String], Option<&str>); 2] = [
+            (JUSTFILE, &import, Some(inputs.default)),
+            (DOCKERIGNORE, inputs.dockerignore, None),
+        ];
+        for (path, lines, extra) in wanted {
+            if vk_md.get(path).is_some() {
+                continue;
+            }
+            let (edit, record) = self.root_file(path, lines, extra, &vk_md)?;
+            vk_md
+                .put(record)
+                .map_err(|e| self.internal(e.to_string()))?;
+            edits.push(edit);
+        }
+
+        if shell_names.is_empty() && edits.is_empty() && new_lock.is_none() && residual.is_empty() {
+            let host_root = self.env.host_root;
+            self.say(&text::unchanged(host_root));
+            return Ok(());
+        }
+
+        let questions: Vec<String> = edits
+            .iter()
+            .filter(|e| e.ask)
+            .map(|e| text::question(e.path, e.lines))
+            .collect();
+        if !self.ask(&questions, req.yes)? {
+            return Ok(());
+        }
+
+        // `.vendor_kit/` 下要寫的檔：薄殼、這次的紀錄、其他工具跟著換 hash 的紀錄。
+        let mut records: Vec<(PathBuf, Vec<u8>)> = shell_names
+            .iter()
+            .filter_map(|n| shell.file(n).map(|c| (PathBuf::from(n), c.to_vec())))
+            .collect();
+        if !edits.is_empty() {
+            let text = vk_md.render(self.env.written_by);
+            let text = text.map_err(|e| self.internal(e.to_string()))?;
+            records.push((self.vk_rel(&vk_path)?, text.into_bytes()));
+            let tools: Vec<String> = existing
+                .as_ref()
+                .map(|l| l.tools().keys().cloned().collect())
+                .unwrap_or_default();
+            records.extend(self.other_records(&tools, &edits)?);
+        }
+
+        let progress = self.progress(!edits.is_empty())?;
+        self.land(progress, &edits, &records, new_lock.as_mut())?;
+        for entry in &residual {
+            if let Err(e) = progress::delete(self.env.dir, &entry.verb, &entry.id) {
+                let d = self.failed_diag(&entry.path, e.message(), e.to_string());
+                return Err(self.stop(d));
+            }
+        }
+
+        if let Some(engine) = inputs.engine.filter(|_| new_lock.is_some()) {
+            self.say(&text::locked(engine));
+        }
+        for name in &shell_names {
+            self.say(&text::wrote_shell(name));
+        }
+        for e in &edits {
+            let line = if e.before.is_some() {
+                text::appended(e.path)
+            } else {
+                text::created(e.path)
+            };
+            self.say(&line);
+        }
+        if !residual.is_empty() {
+            self.say(text::RECOVERED);
+        }
+        let (version, host_root) = (self.env.written_by, self.env.host_root);
+        self.say(&text::installed(version, host_root));
+        Ok(())
+    }
+
+    /// 一個根目錄檔要怎麼寫，與它在 `baseline/.vendor_kit.toml` 的新紀錄。
+    fn root_file(
+        &mut self,
+        path: &'static str,
+        lines: &[String],
+        extra: Option<&str>,
+        vk_md: &Metadata,
+    ) -> Step<(RootEdit, FileRecord)> {
+        let mut contents = String::new();
+        for line in lines {
+            contents.push_str(line);
+            contents.push('\n');
+        }
+        let init = InitFile {
+            path,
+            strategy: Strategy::Append,
+            contents: contents.as_bytes(),
+        };
+        let root = self.env.dir.root().to_path_buf();
+        let planned = initfiles::plan(
+            initfiles::Command::Add,
+            &[init],
+            vk_md,
+            |p| read_optional(&root.join(p)),
+            |_| Ok(None),
+        );
+        let planned = planned.map_err(|e| self.internal(e.to_string()))?;
+        let Some(file) = planned.files.into_iter().next() else {
+            return Err(self.internal(format!("no plan for {path}")));
+        };
+        match file.verdict {
+            Verdict::Append => {
+                let (Some(write), Some(record)) = (file.write, file.record) else {
+                    return Err(self.internal(format!("append plan for {path} has no write")));
+                };
+                let edit = RootEdit {
+                    path,
+                    before: write.before,
+                    after: write.after,
+                    ask: true,
+                    lines: record.lines.len(),
+                };
+                Ok((edit, record))
+            }
+            Verdict::Gap(Gap::AppendTargetMissing) => {
+                // 目標不存在就新建（04 寫入既有檔的例外）；根 `justfile` 附 `default`。
+                let mut after = contents;
+                if let Some(extra) = extra {
+                    after.push('\n');
+                    after.push_str(extra);
+                    if !after.ends_with('\n') {
+                        after.push('\n');
+                    }
+                }
+                let after = after.into_bytes();
+                let mut record = FileRecord::new(path, State::Appended);
+                record.lines = lines.to_vec();
+                record.hash = Some(FileHash::of(&after));
+                let edit = RootEdit {
+                    path,
+                    before: None,
+                    after,
+                    ask: false,
+                    lines: lines.len(),
+                };
+                Ok((edit, record))
+            }
+            Verdict::Gap(g) => Err(self.gap(format_args!(
+                "installing into {path} without a vendor_kit record ({g:?})"
+            ))),
+            v => Err(self.internal(format!("unexpected plan for {path}: {v:?}"))),
+        }
+    }
+
+    /// 其他工具的紀錄檔裡同一個路徑的紀錄（ADR-0003）：寫入前內容相符的紀錄跟著換成寫入後的 hash。
+    fn other_records(
+        &mut self,
+        tools: &[String],
+        edits: &[RootEdit],
+    ) -> Step<Vec<(PathBuf, Vec<u8>)>> {
+        let mut out = Vec::new();
+        for tool in tools {
+            let path = metadata::tool_path(self.env.dir, tool);
+            let path = path.map_err(|e| self.internal(e.to_string()))?;
+            let Some(mut m) = self.load_metadata(&path)? else {
+                continue;
+            };
+            let mut changed = false;
+            for e in edits {
+                let Some(before) = &e.before else {
+                    continue;
+                };
+                match m.record_write(e.path, before, &e.after) {
+                    Ok(metadata::WriteOutcome::Updated) => changed = true,
+                    Ok(_) => {}
+                    Err(e) => return Err(self.internal(e.to_string())),
+                }
+            }
+            if changed {
+                let text = m.render(self.env.written_by);
+                let text = text.map_err(|e| self.internal(e.to_string()))?;
+                out.push((self.vk_rel(&path)?, text.into_bytes()));
+            }
+        }
+        Ok(out)
+    }
+
+    /// 一次問完；全部同意回 `true`，答否印未變更回 `false`，不能互動回 VK0002。
+    fn ask(&mut self, questions: &[String], yes: bool) -> Step<bool> {
+        let consent = if yes {
+            Consent::AssumeYes
+        } else {
+            Consent::Ask
+        };
+        let answers = prompt::ask_all(
+            questions,
+            consent,
+            &self.env.tty,
+            &mut *self.env.stdin,
+            &mut *self.env.prompt,
+        );
+        match answers {
+            Ok(a) if a.all_yes() => Ok(true),
+            Ok(_) => {
+                self.say(text::NO_CHANGES);
+                Ok(false)
+            }
+            Err(PromptError::NotInteractive(_)) => {
+                let mut words = vec!["just".to_owned(), "vendor_kit".to_owned()];
+                words.extend(self.env.argv.iter().cloned());
+                let d = Diagnostic::new(&messages::VK0002)
+                    .arg("command_with_y", prompt::command_with_y(&words));
+                Err(self.stop(d))
+            }
+            Err(e) => Err(self.internal(e.to_string())),
+        }
+    }
+
+    fn progress(&mut self, repo_files: bool) -> Step<Progress> {
+        let mut p = match Progress::new(INSTALL_VERB, self.env.run_id, self.env.argv) {
+            Ok(p) => p,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        let set = p
+            .document_mut()
+            .set(&[INSTALL_VERB, REPO_FILES_KEY], repo_files);
+        set.map_err(|e| self.internal(e.to_string()))?;
+        Ok(p)
+    }
+
+    /// 依 `txn` 的順序落地。
+    fn land(
+        &mut self,
+        progress: Progress,
+        edits: &[RootEdit],
+        records: &[(PathBuf, Vec<u8>)],
+        lock: Option<&mut LockFile>,
+    ) -> Step<txn::Done> {
+        let repo_files: Vec<RepoFile> = edits
+            .iter()
+            .map(|e| RepoFile {
+                path: Path::new(e.path),
+                contents: &e.after,
+            })
+            .collect();
+        let record_files: Vec<RecordFile> = records
+            .iter()
+            .map(|(path, contents)| RecordFile { path, contents })
+            .collect();
+        let result = {
+            let mut fx = Disk::new(self.env.dir, self.env.log, self.env.written_by);
+            Txn::begin(&mut fx, progress).and_then(|t| {
+                let t = t
+                    .swap_cache(&[])?
+                    .write_repo_files(&repo_files)?
+                    .write_records(&record_files)?
+                    .write_tools_just(None)?;
+                let t = match lock {
+                    Some(lock) => t.write_lock_line(lock, Target::Engine)?,
+                    None => t.keep_lock_line(),
+                };
+                t.complete()
+            })
+        };
+        result.map_err(|f| self.internal(f.to_string()))
+    }
+}
+
+/// 讀檔；不在回 `None`。
+fn read_optional(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(b) => Ok(Some(b)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}

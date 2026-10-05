@@ -211,6 +211,7 @@ fn expected_members_exist() {
         "add",
         "sync",
         "remove",
+        "install",
     ] {
         assert!(
             m.get(name).is_some_and(|(e, _)| *e),
@@ -260,6 +261,7 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
         "add",
         "sync",
         "remove",
+        "install",
     ] {
         let (_, pkg) = &m[name];
         assert!(
