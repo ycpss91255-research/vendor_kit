@@ -119,7 +119,7 @@ const guard = () => `硬性規則（違反就算這輪失敗）：
 3. 只准改這幾頁（<diagram id>）：${pages.join('、')}。edit_diagram 一律帶 page_id，不用 page_name 或 page_index。其他頁一個 cell 都不准動。
 4. 不准改任何頁的 <diagram id>，不准新增、刪除頁或換頁序。
 5. 不准用 Write、Edit 或腳本改任何檔；圖只透過 MCP 工具改，存回檔案由 workflow 用 script/diagram/state.py get 做。
-6. 樣式照 ${DIA}/STYLE.md；名詞照 ${repo}/GLOSSARY.md（沒有就讀 ${repo}/CONTEXT.md），不用 _Avoid_ 的說法。方塊是最小單位：一格一件事，兩件事就拆成兩格。
+6. 樣式照 ${DIA}/STYLE.md；名詞照 ${repo}/GLOSSARY.md，不用 _Avoid_ 的說法。方塊是最小單位：一格一件事，兩件事就拆成兩格。
 7. 驗證用工具算，不要目視判斷「看起來對」。`
 
 const EDIT = {
@@ -374,7 +374,7 @@ ${result.png.map(p => `   - ${p}`).join('\n')}
 2. XML 差異：跑 \`python3 ${DIA}/state.py diff ${result.backup} ${FILE}\`，看它印出的 JSON（每頁以 <diagram id> 對應，列出 cell 的增刪改）；需要細節就直接讀兩份 XML。
 3. lint 結果（已歸零的是指定頁；outside 是其他頁本來就有的，只當參考）：
 ${JSON.stringify(result.lint, null, 2)}
-4. 規範：${DIA}/STYLE.md、${repo}/GLOSSARY.md（沒有就讀 ${repo}/CONTEXT.md）、${repo}/doc/decisions/review/01_purpose.md、${repo}/doc/decisions/review/02_invariants.md。
+4. 規範：${DIA}/STYLE.md、${repo}/GLOSSARY.md、${repo}/doc/contract/01_purpose.md、${repo}/doc/contract/02_invariants.md。
 
 請回答（只列指定頁的問題）：
 0. task 要求的每一項都做到了嗎？漏的列必改。
@@ -408,7 +408,7 @@ if (rev.must_fix.length) {
   phase('套用必改')
   const ap = await editDiagram('套用必改', '套用審查的必改', `把下面審查的「必改」改進圖裡；建議不要改：
 ${JSON.stringify(rev.must_fix, null, 2)}
-每一條先對照 source 欄的證據確認審查沒看錯；做法照 fix 欄。改法要動到不准改的頁、跟 task 衝突、或會改變 ${repo}/doc/decisions/review/01_purpose.md 的承諾、削弱 02_invariants.md 的不變量：不要改，寫「未改：理由」。確認審查看錯的那條也不要改，寫「未改：理由」。每一條都要逐條寫「已改：…」或「未改：理由」。`)
+每一條先對照 source 欄的證據確認審查沒看錯；做法照 fix 欄。改法要動到不准改的頁、跟 task 衝突、或會改變 ${repo}/doc/contract/01_purpose.md 的承諾、削弱 02_invariants.md 的不變量：不要改，寫「未改：理由」。確認審查看錯的那條也不要改，寫「未改：理由」。每一條都要逐條寫「已改：…」或「未改：理由」。`)
   if (ap.error) return stop('套用必改', ap.error)
   result.applied = ap
   const s2 = await saveBack('套用必改')
