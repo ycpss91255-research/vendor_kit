@@ -1,0 +1,17 @@
+[package]
+name = "shell"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "薄殼：產生帶自描述標頭的薄殼四檔內容、重算比對並與這一版模板比對，找出被改過或不是這一版的薄殼檔"
+
+[dependencies]
+files.workspace = true
+layout.workspace = true
+messages.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
