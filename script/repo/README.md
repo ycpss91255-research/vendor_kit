@@ -21,9 +21,23 @@ python3 script/repo/check_script_layout.py
 
 全部符合時印 `OK`；有問題就逐筆印出 `檔:原因` 並以 1 結束。
 
+## check_local_paths.py
+
+[check_local_paths.py](check_local_paths.py) 掃 `git ls-files` 列出的文字檔，擋本機絕對路徑（對其他人沒用，也會洩漏使用者名稱）。規則直接載入 `.claude/hooks/comment_tag_guard.py` 的 `LOCAL_PATHS`，不另抄一份。符號連結與二進位檔（含 NUL 位元組或不是 UTF-8）跳過。
+
+白名單放在資料檔 [local_paths_allow.json](local_paths_allow.json)，以檔為單位，每條 `path` 與 `reason`；白名單上的檔已經掃不到本機路徑時算過時，也會失敗，提醒刪掉那條。這份資料檔是附屬檔（比照 `script/github/scope.json`），修好被放行的檔時，跟那個檔同一個 PR 刪掉條目，不必改腳本。CI 的 `docs-lint` 會跑這支。
+
+跑法（在 repo 根目錄）：
+
+```sh
+python3 script/repo/check_local_paths.py
+```
+
+輸出一行 JSON：`ok`、`hits`（每筆 `file`、`line`、`rule`）、`stale_allow`。有命中或過時的白名單就以 1 結束；載不到 hook 規則或白名單檔以 2 結束。
+
 ## 測試
 
-測試在 [test/test_check_script_layout.py](test/test_check_script_layout.py)，跑法：
+測試在 [test/test_check_script_layout.py](test/test_check_script_layout.py) 與 [test/test_check_local_paths.py](test/test_check_local_paths.py)，跑法：
 
 ```sh
 python3 -m unittest discover -s script/repo/test

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""檢查根 GLOSSARY.md：照 domain-modeling skill 的格式（.claude/skills/domain-modeling/CONTEXT-FORMAT.md）。
+"""檢查根 GLOSSARY.md：照 domain-modeling skill 的格式（.claude/skills/domain-modeling/GLOSSARY-FORMAT.md）。
 
 - `## Language` 底下用 `### 分群` 分群，名詞一行 `**名詞** (english)：`（舊寫法 `**名詞**（英文）：` 也認），下一行起是定義，可接 `_Avoid_:`。
 - 不寫目錄、不寫 HTML 錨點：skill 沒有這些；不准任何 HTML 標籤（`<ins>` 也不放行；名詞改連到 GLOSSARY.md 分群）。

@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -243,6 +244,24 @@ class PackReviewTest(unittest.TestCase):
         self.run_main("--out", str(out), "04_interface")
         self.assertTrue((out / "review_v2.zip").is_file())
         self.assertEqual(self.table()["review_zip"], 2)
+
+    def test_without_review_dir_reports_and_creates_nothing(self):
+        # main 上還沒有 doc/review/：三種模式都報錯停下，不崩潰、不建 versions.json
+        shutil.rmtree("doc/review")
+        self.commit()
+        cases = [
+            (["--out", str(self.out), "04_interface"], "先跑 mark_changes.py"),
+            (["--replied", "04_interface=1"], "沒有鍵 04_interface 的送審版本 v1"),
+            (["--finalized", "04_interface=1"], "沒有鍵 04_interface 的送審版本 v1"),
+        ]
+        for argv, msg in cases:
+            with self.subTest(argv=argv):
+                with self.assertRaises(SystemExit) as cm:
+                    self.run_main(*argv)
+                self.assertIsInstance(cm.exception.code, str)
+                self.assertIn(msg, cm.exception.code)
+                self.assertFalse(pathlib.Path("doc/review").exists())
+                self.assertFalse(self.out.exists())
 
 
 if __name__ == "__main__":

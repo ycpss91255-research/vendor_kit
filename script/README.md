@@ -6,8 +6,12 @@
 
 | 類別 | 內容 | 說明 |
 |---|---|---|
-| `doc/` | 文件工具：五支 `check_*.py` 自檢、改動標示 `mark_changes.py`、送審打包 `pack_review.py` | [文件工具說明](doc/README.md) |
-| `repo/` | repo 結構檢查：`check_script_layout.py` | [repo 結構檢查說明](repo/README.md) |
+| `doc/` | 文件工具：名詞自檢、改動標示等，各腳本見該類別的 README | [文件工具說明](doc/README.md) |
+| `repo/` | repo 結構檢查：`check_script_layout.py`、本機絕對路徑檢查 `check_local_paths.py` | [repo 結構檢查說明](repo/README.md) |
+| `workflow/` | 命名 workflow 的機械步驟，各腳本見該類別的 README | [workflow 腳本說明](workflow/README.md) |
+| `diagram/` | 圖面工具：drawio 圖頁的抽取與檢查 | [圖面工具說明](diagram/README.md) |
+| `github/` | GitHub 相關工具：盯動靜 `watch_github.sh`、PR 規則檢查 `check_pr_rules.py`（範圍表 `scope.json`） | [GitHub 工具說明](github/README.md) |
+| `git/` | git 相關工具：commit 訊息格式檢查 `check_commit_msg.py` | [git 工具說明](git/README.md) |
 
 ## 新增腳本
 
@@ -20,4 +24,4 @@
 
 這幾條由 [check_script_layout.py](repo/check_script_layout.py) 強制，CI 的 docs-lint job 會跑。
 
-VK 程式碼的測試照舊放根目錄 `test/`，不放在 `script/`。
+VK 程式碼的測試放根目錄 `test/`，不放在 `script/`。

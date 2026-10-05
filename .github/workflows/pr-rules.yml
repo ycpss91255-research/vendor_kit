@@ -1,0 +1,32 @@
+name: pr-rules
+
+# PR 規則檢查（#140）：本文要連 issue，改到的檔要落在同一個範圍（script/github/scope.json）。
+# 規則只寫在 script/github/check_pr_rules.py 與範圍表；本機 hook .claude/hooks/pr_rules_guard.py 呼叫同一支。
+# 一種檢查一個 workflow。不加 paths 過濾：job pr-rules 會設成 ruleset 的必過檢查，被過濾跳過的必過檢查會一直停在 Pending。
+# edited：改 PR 本文（補 issue 連結）後要重跑。
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: check_pr_rules（連 issue、一個範圍）
+        env:
+          # 本文經環境變數傳，不內插進 shell
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr_body.md"
+          gh api --paginate "repos/$GH_REPO/pulls/$PR_NUMBER/files" -q '.[].filename' > "$RUNNER_TEMP/pr_files.txt"
+          echo "改動檔："
+          cat "$RUNNER_TEMP/pr_files.txt"
+          python3 script/github/check_pr_rules.py --body-file "$RUNNER_TEMP/pr_body.md" --files-from "$RUNNER_TEMP/pr_files.txt"

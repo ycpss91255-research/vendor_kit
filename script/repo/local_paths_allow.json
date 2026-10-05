@@ -1,0 +1,17 @@
+{
+  "_說明": "check_local_paths.py 的白名單（#236、#264）。以檔為單位，每條 path（repo 相對路徑）與 reason。只放「這個檔必須寫出樣式」或「這個 PR 不能改、另開 issue 處理」的檔。白名單上的檔已經掃不到本機路徑（或檔不見了）算過時，check_local_paths.py 會失敗，提醒刪掉那條。這份是附屬資料檔（scope.json 設 attach any）：修好被放行的檔時，跟那個檔同一個 PR 刪掉這裡的條目。",
+  "allow": [
+    {
+      "path": ".claude/hooks/comment_tag_guard.py",
+      "reason": "LOCAL_PATHS 的定義本身，以及擋下時給使用者看的說明，必須寫出要擋的樣式"
+    },
+    {
+      "path": "script/workflow/prepare_comment.py",
+      "reason": "REPLACE 是把本機路徑改寫成相對寫法的替換樣式，必須寫出同樣的路徑前綴"
+    },
+    {
+      "path": "script/workflow/body.py",
+      "reason": "docstring 列出自檢擋哪些樣式（用 <user> 佔位），不是真路徑"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 name: docs
 
-# 文件類的檢查都放這支，一種檢查一個 job。文件工具自己的測試（script/doc/test、script/repo/test）也在這支；VK 程式碼的 lint 放 lint.yml、測試（根目錄 test/）放 test.yml。
+# 文件類的檢查都放這支，一種檢查一個 job。script/ 底下工具自己的測試（script/doc/test、script/repo/test、script/workflow/test、script/github/test、script/git/test、script/diagram/test）也在這支；VK 程式碼的 lint 放 lint.yml、測試（根目錄 test/）放 test.yml。
 # 不加 paths 過濾：這些 job 會設成 ruleset 的必過檢查，被過濾跳過的必過檢查會一直停在 Pending，PR 就 merge 不了。
 on:
   pull_request:
@@ -19,16 +19,18 @@ jobs:
         run: python3 script/doc/check_terms.py
       - name: check_context（GLOSSARY.md 格式）
         run: python3 script/doc/check_context.py
-      - name: check_review_pages（對外文件寫法：只准 <ins>、錨點、只能向前依賴）
-        run: python3 script/doc/check_review_pages.py
       - name: check_messages（訊息表 reason_codes.csv：格式、代碼、欄位規則、引用）
         run: python3 script/doc/check_messages.py
       - name: check_typography（排版：ASCII 括號用半形、中文與英數之間空一格）
         run: python3 script/doc/check_typography.py
+      - name: check_review_pages（對外頁寫法：目錄、HTML、連結與錨點、往前依賴、指令選項先定義）
+        run: python3 script/doc/check_review_pages.py
       - name: check_script_layout（script/ 依類型分子目錄：頂層只准 README.md、類別名小寫英數與連字號、每類要有 README.md）
         run: python3 script/repo/check_script_layout.py
+      - name: check_local_paths（repo 追蹤的檔案不准有本機絕對路徑，規則取自 comment_tag_guard 的 LOCAL_PATHS）
+        run: python3 script/repo/check_local_paths.py
 
-  # script/ 底下工具（文件 lint 與產生器、repo 結構檢查）自己的測試；VK 程式碼的測試放根目錄 test/ 與 test.yml，不混在這裡
+  # script/ 底下工具自己的測試；VK 程式碼的測試放根目錄 test/ 與 test.yml，不混在這裡
   docs-tool-test:
     runs-on: ubuntu-latest
     steps:
@@ -37,3 +39,19 @@ jobs:
         run: python3 -m unittest discover -s script/doc/test -v
       - name: script/repo/test（repo 結構檢查的測試）
         run: python3 -m unittest discover -s script/repo/test -v
+      - name: script/workflow/test（workflow 機械步驟腳本的測試）
+        run: python3 -m unittest discover -s script/workflow/test -v
+      - name: script/github/test（PR 規則檢查與範圍表的測試）
+        run: python3 -m unittest discover -s script/github/test -v
+      - name: script/git/test（commit 訊息格式檢查的測試）
+        run: python3 -m unittest discover -s script/git/test -v
+      - name: script/diagram/test（圖面工具的測試）
+        run: python3 -m unittest discover -s script/diagram/test -v
+
+  # .claude/hooks/ 底下 hook 的測試
+  hooks-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: .claude/hooks/test（hook 測試）
+        run: python3 -m unittest discover -s .claude/hooks/test

@@ -2,7 +2,7 @@
 
 這個目錄**不在 skill 結構裡**。skill 只要求四樣東西：根 `GLOSSARY.md`（名詞）、`doc/adr/`（難逆轉的取捨）、`doc/agents/`（三個設定檔）、`AGENTS.md`（工作約定與 Agent skills 段）；spec 與需求走 GitHub issue。這個目錄現在放設計原則、範圍文件與審閱用的工作目錄；對外契約與不變量（審閱頁 01～04）已搬到 `doc/contract/`，研究紀錄原本搬到 `doc/research/`，現已移出 git（本機保留、已 gitignore，調查結論寫進 issue 留言；理由見 `AGENTS.md`「決議與文件流程」）。本檔是這個目錄的地圖，審閱頁也一併列在這裡。
 
-三段：**保留** = 現在還在用；**已歸檔** = 原本的 `_legacy` 目錄，已搬出 repo、只留在維護者本機（相對 repo 根目錄是 `../reference/_legacy`），只作參考；**待處理** = 等使用者拍板存廢（已完成的項目保留結論，標「已完成」）。
+三段：**保留** = 現在還在用；**已歸檔** = 原本的 `_legacy` 目錄，已移出 git、只留在維護者本機（相對 repo 根目錄是 `../reference/_legacy`），只作參考；**待處理** = 等使用者拍板存廢（已完成的項目保留結論，標「已完成」）。舊內容在 git 歷史與 tag `archive/pr-59`。
 
 ## 保留
 
@@ -30,12 +30,12 @@
 |---|---|---|
 | `review_log/`（已移出 git） | 審閱頁（01–04）的審閱往返：codex brief／output、Claude 子代理審查紀錄。本機保留、已 gitignore；審查結論改寫進 issue 留言。原本在這裡的 `versions.json` 已移到 [doc/review/versions.json](../review/versions.json)。 | 本機參考用，不進 git。 |
 | `_backup/`（已移出 git） | 每輪改動前的快照（`<路徑攤平>.pre_rNN.md`）。本機保留、已 gitignore；`script/doc/mark_changes.py` 帶 `<後綴>` 時讀它當基準，doc-edit 取 round 號時也看它。 | 本機用，不進 git。 |
-| [doc/review/](../review/)（送審資料夾，在本目錄外） | 原本的 `_marked/` 已刪，改為 `doc/review/<鍵>/`：`mark_changes.py` 產生固定檔名的 `<鍵>.md`（正文副本）與 `<鍵>.marked.md`（標示版：新增綠底 `<mark>`、刪除紅底 `<mark>`），有 CSV 的頁再加 `<鍵>.csv`，每次產生就覆蓋。版本號不在 repo 檔名裡，只在 `script/doc/pack_review.py` 打包的 zip 內檔名（`<鍵>.v<N>.…`）；`doc/review/versions.json` 記每次送審的版號與 commit。只有對外文件（根目錄 README.md 與審閱頁 01～04）產標示版、送審；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產、不送。 | 進 git；該頁定稿時整個 `<鍵>/` 資料夾在同一個 commit 刪掉。 |
+| [doc/review/](../review/)（送審資料夾，在本目錄外） | 原本的 `_marked/` 已刪，改為 `doc/review/<鍵>/`：`mark_changes.py` 產生固定檔名的 `<鍵>.md`（正文副本）與 `<鍵>.marked.md`（標示版：新增綠底 `<mark>`、刪除紅底 `<mark>`），有 CSV 的頁再加 `<鍵>.csv`，每次產生就覆蓋。版本號不在 repo 檔名裡，只在 `script/doc/pack_review.py` 打包的 zip 內檔名（`<鍵>.v<N>.…`）；`doc/review/versions.json` 記每次送審的版號與 commit。只有對外文件（審閱頁 01～04）產標示版、送審；內部文件（本檔、`AGENTS.md`、`script/README.md` 等）不產、不送。 | 進 git；該頁定稿時整個 `<鍵>/` 資料夾在同一個 commit 刪掉。 |
 | `_legacy`（已搬出） | 原本放已歸檔的檔案；已搬到 repo 外、只留維護者本機的 `../reference/_legacy`，不進 git。見下一段。 | 本機參考用，確認清楚之後刪。 |
 
 ## 已歸檔（repo 外的 `../reference/_legacy`）
 
-這些檔已從 repo 移除，只留在維護者本機，下面的路徑都相對那個目錄。它的 `README.md` 已經寫了「引用這裡的事實之前先確認它還成立」與舊詞→新詞對照表。這裡只說分類。共 103 MB。
+這些檔已從 git 移除，只留在維護者本機，下面的路徑都相對那個目錄。它的 `README.md` 已經寫了「引用這裡的事實之前先確認它還成立」與舊詞→新詞對照表。這裡只說分類。共 103 MB。
 
 | 分類 | 內容 | 為什麼不再用 |
 |---|---|---|
@@ -53,11 +53,11 @@
 
 ### 1. 兩個 `.drawio` 主檔（已完成）
 
-**是什麼**：`dist_distribution.drawio`（主圖 12 頁，457 KB）與 `discussion.drawio`（77 頁，3.4 MB）。
+**是什麼**：`dist_distribution.drawio`（主圖 12 頁）與 `discussion.drawio`（77 頁），畫的是舊模型。
 
 **為什麼卡住**：畫的是舊模型（舊名「三方角色」、「專案根」、「動詞」）。審閱頁 01～04 與根 `GLOSSARY.md` 已改用新名詞，圖沒跟上。`AGENTS.md` 寫「架構圖不是插圖，是測試的依據……模組邊界與泳道由 lint 強制」，但那個 lint 還沒寫，所以現在圖與文字沒有任何機制擋住脫鉤。
 
-**結論（#128）**：兩個檔連同圖的提案草稿移出 repo，歸檔到 workspace 的 `reference/diagram_legacy/`（不在 git；舊內容在 git 歷史，commit 2b4662b 之前）。之後需要圖時依新名詞重畫，不沿用舊產生器；`AGENTS.md` 那條「圖是測試依據」改為適用於重畫後的圖，lint 重畫時一起實作。
+**結論（#35、#128，#164 執行）**：舊圖不進 git，副本留在 workspace 的 `reference/diagram_legacy/`；舊內容也在 git 歷史。只有最新的一份（原 `research/diagram_proposals/proposal_claude_v3.drawio`）進 git，以舊模型畫成，之後依新名詞重畫（#138），不沿用舊產生器。重畫後依 #278 拆成兩個檔：架構圖在 `doc/diagram/architecture.drawio`；流程圖在 `doc/diagram/flow.drawio`。`research/diagram_proposals/` 的其他 proposal 一併移出，`research/` 因此移除。`AGENTS.md` 那條「圖是測試依據」改為適用於重畫後的圖，lint 重畫時一起實作。
 
 （歷史：以上「是什麼」「為什麼卡住」是當時的狀況。原本的選項是）(a) 依新名詞重畫（成本高：77 頁討論圖是產生器輸出，得先改產生器）；(b) 廢掉兩個檔，等實作階段需要時重畫需要的那幾頁；(c) 留在原位當歷史，檔頭標「舊模型，不要引用」，並把 `AGENTS.md` 那條「圖是測試依據」降級為「待重畫後生效」。
 
@@ -67,7 +67,7 @@
 
 **為什麼卡住**：依賴的圖頁已作廢（跟第 1 項綁在一起）。`verify_r15.py`、`verify_r16.py` 指向 `decisions/review/terms.md`，但這個檔早就不存在（名詞表現在是根 `GLOSSARY.md`，而且不是逐字上圖了），兩支腳本現在跑起來必定失敗。
 
-**結論（#128）**：整個 `script/diagram/`（含本機的 `_backup/`、`_misc/`）移出 repo，跟舊圖放在一起，歸檔到 workspace 的 `reference/diagram_legacy/`（不在 git；舊內容在 git 歷史，commit 2b4662b 之前）。之後重畫不沿用這些產生器。
+**結論（#35，#164 執行）**：舊圖的產生器（`gen57.py`、`gen_disc.py`、`disc_v1_*.py`）跟舊圖放在一起，移出 git，副本在 workspace 的 `reference/diagram_legacy/script_diagram/`。可重用的工具（`check_overflow.py`、`check_overlap.py`、`lint_pages.py`、`extract_pages.py`、`shrink_png.py`、`drawio_common.py`）與 `README.md`、`STYLE.md` 留著，等 #138 重做時處理。
 
 （歷史：以上「是什麼」「為什麼卡住」是當時的狀況。原本的選項是）(a) 整個 `script/diagram/` 歸檔（移到 repo 外的本機參考目錄）；(b) 只留通用的四支（`extract_pages.py`、`lint_pages.py`、`shrink_png.py`、`drawio_common.py`）加 `review_v2_README.md`，其餘歸檔。已歸檔的 `diagram-review-v2` workflow 當時的前置步驟就是跑前三支；(c) 全留，只刪 `verify_r15/16.py` 這類明確壞掉的。
 
@@ -89,13 +89,13 @@
 
 **是什麼**：每輪改動前的快照（路徑攤平的命名）。
 
-**結論（#128）**：移出 git，本機保留、已 gitignore。`script/doc/mark_changes.py` 不帶後綴時改用 `doc/review/versions.json` 記的送審 commit 以 `git show` 取基準，`--base-version <鍵>=<N>` 取指定送審版本；只有帶 `<後綴>` 時才讀本機 `_backup/`。（歷史：原本的選項是只留最新快照、改用 `git show` 取舊版，或審閱頁定案後整個刪。）
+**結論（#128、#142）**：移出 git，本機保留、已 gitignore；舊內容在 git 歷史與 tag `archive/pr-59`。`script/doc/mark_changes.py` 不帶後綴時改用 `doc/review/versions.json` 記的送審 commit 以 `git show` 取基準，`--base-version <鍵>=<N>` 取指定送審版本；只有帶 `<後綴>` 時才讀本機 `_backup/`。（歷史：原本的選項是只留最新快照、改用 `git show` 取舊版，或審閱頁定案後整個刪。）
 
 ### 6. `review_log/`（已完成）
 
 **是什麼**：審閱頁（01–04）的審閱往返。
 
-**結論（#128）**：移出 git，本機保留、已 gitignore；審查結論改寫進 issue 留言，不再靠往返檔追「哪幾條被採納、為什麼」。原本在這裡的 `versions.json` 移到 `doc/review/versions.json`。（歷史：9/17–9/22 的舊輪次單檔與子目錄也一併留在本機，不進 git。）
+**結論（#128、#142）**：移出 git，本機保留、已 gitignore；舊內容在 git 歷史與 tag `archive/pr-59`。審查結論改寫進 issue 留言，不再靠往返檔追「哪幾條被採納、為什麼」。原本在這裡的 `versions.json` 移到 `doc/review/versions.json`。（歷史：9/17–9/22 的舊輪次單檔與子目錄也一併留在本機，不進 git；原本的選項是每輪寫結論摘要、全部歸檔，或留在原位直到兩頁分流完成。）
 
 ### 7. proto 的 ADR-0001、0002（已完成）
 
@@ -107,6 +107,6 @@
 
 ### 8. `doc/agents/domain.md` 的檔案結構區塊（已完成）
 
-`domain.md` 原本有一個 `## 檔案結構` 區塊，用樹狀圖列出 agent 該讀的檔，每次搬檔都會過時。已採選項 (b)：樹狀圖整段移除，只留「動手之前先讀這些」那四個檔。原先記的三處不對也隨之消失：`dist_distribution_notes.md` 那一行連同樹一起沒了；`GLOSSARY.md` 現在不提 `discussion.drawio` 的頁數。（歷史：當時 `script/diagram/README.md` 的「77 頁」跟檔案實際頁數一致；這兩者後來都已歸檔出 repo，見待處理第 1、2 項。）
+`domain.md` 原本有一個 `## 檔案結構` 區塊，用樹狀圖列出 agent 該讀的檔，每次搬檔都會過時。已採選項 (b)：樹狀圖整段移除，只留「動手之前先讀這些」那四個檔。原先記的三處不對也隨之消失：`dist_distribution_notes.md` 那一行連同樹一起沒了；`GLOSSARY.md` 現在不提 `discussion.drawio` 的頁數；`script/diagram/README.md` 的「77 頁」那行已隨舊圖移出 git 刪除（#164）。
 
 編號保留，不重排 1–7。剩下的只有一個沒拍板的餘項：要不要寫一支 lint 檢查文件裡的路徑都存在（原選項 (c)），掛進 `just test`。目前 `AGENTS.md`、`issue-tracker.md`、`triage-labels.md`、`doc/adr/*` 的路徑引用都對得上。

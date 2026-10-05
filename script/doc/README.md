@@ -144,6 +144,19 @@ python3 script/doc/pack_review.py --finalized 03_output=14 README=3
 
 版號遞增、內容、缺檔報錯（含還沒有 `doc/review/` 的情況：三種模式都報錯停下，不建 `versions.json`）與定案處理由 [pack_review 測試](test/test_pack_review.py) 涵蓋。
 
+## 送審副本路徑與版本表（`review_paths.py`）
+
+給 `review-pack` workflow 用：列出每頁送審副本的本機路徑、這次打包的版號與基準，以及送審 zip 的內容，都印成一行 JSON。
+
+```sh
+python3 script/doc/review_paths.py pages --repo <repo> 02_invariants 03_output 04_interface GLOSSARY.md
+python3 script/doc/review_paths.py zip <review_vN.zip>
+```
+
+`pages` 在 `--repo` 讀 `doc/review/versions.json` 與 `doc/review/<鍵>/`，頁鍵寫法跟 `mark_changes.py` 相同；鍵、送審資料夾、版號與基準都呼叫 `mark_changes.py` 的函式算。輸出的 `zip_next` 是這次打包會用的 zip 號（`review_zip`＋1）；`pages` 每筆有送審資料夾的絕對路徑 `dir`、相對路徑 `rel_dir`、資料夾裡 `.md`、`.marked.md`、`.csv` 的絕對路徑 `files`、這次的版號 `version`（最後送審的版號＋1），以及 `mark_changes.py` 預設的基準 `base`（`kind` 是 `finalized` 定案版、`replied` 維護者最後回覆的版本、或 `none` 整份標新增）；`dirty` 是送審資料夾裡未 commit 的 `git status --porcelain` 行。版號與基準要在 `pack_review.py` 打包之前取：打包會追加這一版的紀錄並清掉 `finalized`。`zip` 印出 zip 內的檔名（照 zip 內順序）。成功結束碼 0；找不到檔或不是 git repo 時結束碼 1，JSON 的 `ok` 是 false、`error` 寫原因。
+
+版號、三種基準、附屬 CSV、絕對路徑與 zip 清單由 [review_paths 測試](test/test_review_paths.py) 涵蓋。
+
 ## 名詞表自檢（`check_context.py`）
 
 根 `CONTEXT.md` 每改一次就跑，不要目視：
@@ -191,7 +204,7 @@ python3 script/doc/check_typography.py --fix
 - 中文與英文字母或阿拉伯數字相鄰時中間空一格：「VK的recipe」寫成「VK 的 recipe」、「第12條」寫成「第 12 條」。全形標點（，。、：；「」（）等）與英數之間不加空白。
 - 行內程式碼（反引號包住的）與前後的中文相鄰時也空一格：「`0`結束」寫成「`0` 結束」、「印`VK0024`」寫成「印 `VK0024`」。與全形標點相鄰不加空白；隔著連結的 `[` 或 `](…)` 時照上一條，連結記號不算字元。
 
-不查行內程式碼的內容、程式碼區塊、URL、Markdown 連結目標（括號裡的路徑與錨點）與 HTML 標籤。CSV 只查文字欄（`situation`、`message`、`description`、`next_step`），`code`、`status`、`level`、`exit_code`、`disposition` 是固定值域，不查；英文的 `message` 與 `next_step` 仍會掃描，但不會因英文排版本身誤報。`--fix` 改到 CSV 時，若 `next_step` 不再逐字出現在 `message` 裡，這支照樣報錯，要手動把兩欄對齊；改到標題時 GitHub 產生的錨點跟著變，連到舊錨點的連結不會自動改，要另外改。
+不查行內程式碼的內容、程式碼區塊、URL、Markdown 連結目標（括號裡的路徑與錨點）與 HTML 標籤。CSV 只查文字欄：依表頭找每個語言的 `situation.<lang>`、`message.<lang>`（不寫死語言與欄數）；`code`、`status`、`level`、`exit_code`、`disposition`、`source` 是固定值域，不查。英文欄（`situation.en`、`message.en`）仍會掃描，但不會因英文排版本身誤報。`--fix` 改到標題時 GitHub 產生的錨點跟著變，連到舊錨點的連結不會自動改，要另外改。
 
 各條規則的正反例與排除範圍在 [check_typography 測試](test/test_check_typography.py)。
 
@@ -205,10 +218,10 @@ python3 script/doc/check_messages.py
 
 在 repo 根目錄執行。全過印 `OK` 回 0，任一不過逐條印出回 1。CSV 還不存在時印 `OK` 並跳過。CSV 與 03 頁的路徑只寫在 `check_messages.py` 頂端的 `CSV_PATH`、`MD_PATH` 兩個常數（#137：CSV 從 `03_output.csv` 改名為 `reason_codes.csv`）。錯誤位置報 `<檔>:<代碼>:<欄名>`，例如 `doc/contract/reason_codes.csv:VK0003:message.zh-TW`，不報實體行號。
 
-表頭（#343）：`code,status,level,exit_code,disposition,situation.en,message.en,situation.zh-TW,message.zh-TW`。前五欄給程式讀、用英文；給人看的欄照語言分組放右邊，以後加語言就在最右邊接一組 `situation.<lang>,message.<lang>`。`en` 是基準語言：VK 印出的字句目前都用英文，其他語言的欄跟 `message.en` 比對。查這幾件事：
+表頭（#343、#365）：`code,status,level,exit_code,disposition,source,situation.zh-TW,message.zh-TW,situation.en,message.en`。前六欄給程式讀、用英文；給人看的欄照語言分組放右邊，以後加語言就在最右邊接一組 `situation.<lang>,message.<lang>`。`en` 是基準語言：VK 印出的字句目前都用英文，其他語言的欄跟 `message.en` 比對。查這幾件事：
 
 - 格式：UTF-8 開頭恰好一個 BOM、只准 LF、檔尾恰好一個換行；用 `csv` 模組以 strict 照 RFC 4180 解析，每列欄數與表頭相同。格內換行（雙引號包住的 LF）解析得過。欄位頭尾不准空白，不准以 `=`、`+`、`-`、`@`、Tab、CR 開頭（Excel 會當成公式）。
-- 表頭：讀表依首行欄名，不依欄序。首行必須以 `code,status,level,exit_code,disposition` 開頭，其後是一組組 `situation.<lang>,message.<lang>`（同一語言成組、`situation` 在前）；必須有 `en` 與 `zh-TW` 兩組（`REQUIRED_LANGS`）。其他欄名（包括舊的 `situation`、`message`、`description`、`next_step`）報錯。
+- 表頭：讀表依首行欄名，不依欄序。首行必須以 `code,status,level,exit_code,disposition,source` 開頭（`BASE_FIELDS`），其後是一組組 `situation.<lang>,message.<lang>`（同一語言成組、`situation` 在前）；必須有 `en` 與 `zh-TW` 兩組（`REQUIRED_LANGS`）。其他欄名（包括舊的 `situation`、`message`、`description`、`next_step`）報錯。
 - 代碼：`VK` 加四位數字，從 `VK0001` 起逐列加一，所以唯一、遞增、不缺列；停用的代碼留列。
 - `status` 只准 `active`、`retired`。每列每個語言的 `situation.<lang>` 都必填；`retired` 列只留 `code`、`status` 與所有 `situation.<lang>`，其餘欄要空白。
 - `active` 列：`level` 只准 `warn`、`error`、`fatal`；`exit_code` 必須依序對應 `1`、`2`、`3`；每個語言的 `message.<lang>` 必填。

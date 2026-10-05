@@ -11,7 +11,7 @@
     python3 script/doc/mark_changes.py --base-version 03_output=13 GLOSSARY=6   # 指定送審版本當基準
     python3 script/doc/mark_changes.py <舊版後綴> <檔名…>           # 本機 _backup 的改前快照當基準
 例：
-    python3 script/doc/mark_changes.py 01_purpose 02_invariants README.md
+    python3 script/doc/mark_changes.py 01_purpose 02_invariants GLOSSARY.md
     python3 script/doc/mark_changes.py pre_r63 01_purpose 02_invariants
     python3 script/doc/mark_changes.py new doc/contract/README.md   # 新建的檔：整份標新增
 
@@ -753,9 +753,8 @@ def build(name: str, suffix: str) -> tuple[int, int]:
 def resolve_base_name(name: str) -> str:
     """參數裡的名字 → mark_changes 的名字。
 
-    審閱頁照舊傳頁名；其他檔可傳路徑，也可以直接傳鍵：repo 根目錄有 <名>.md 時（例如 GLOSSARY、README），
-    當成那個根目錄檔。根目錄檔優先：鍵 README 是根目錄的 README.md，doc/contract/README.md 的鍵是
-    doc_contract_README（傳路徑），兩者不能共用一個鍵。
+    審閱頁照舊傳頁名；其他檔可傳路徑，也可以直接傳鍵：repo 根目錄有 <名>.md 時（例如 GLOSSARY），
+    當成那個根目錄檔。根目錄檔優先：doc/contract/README.md 要傳路徑，鍵是 doc_contract_README。
     """
     name = normalize(name)
     if "/" not in name and not name.endswith(".md") and pathlib.Path(f"{name}.md").exists():

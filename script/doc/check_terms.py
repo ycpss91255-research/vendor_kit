@@ -25,6 +25,7 @@ EXCLUDE_PREFIXES = (
     "doc/review/",  # 送審資料夾：正文副本與標示版，正式檔另外掃
     ".claude/skills/",
     ".agents/skills/",  # skill 的實體目錄；.claude/skills 是指過來的 symlink，git 追蹤的是這條路徑
+    "script/diagram/",  # 圖面工具與樣式規範，寫的是舊模型的圖，等重畫時一起處理
 )
 EXCLUDE_FILES = ()
 
