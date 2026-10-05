@@ -209,7 +209,7 @@ fn expected_members_exist() {
             "{name} must be under engine/"
         );
     }
-    for name in ["e2e", "boundary"] {
+    for name in ["e2e", "boundary", "reason_lint"] {
         assert!(
             m.get(name).is_some_and(|(e, _)| !*e),
             "{name} must be under test/"
