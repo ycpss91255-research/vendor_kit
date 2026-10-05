@@ -16,13 +16,17 @@ COPY doc/contract/reason_codes.csv doc/contract/reason_codes.csv
 # test/boundary 讀架構圖檢查模組邊界（ADR-0014）。
 COPY doc/diagram doc/diagram
 
-# 檢查與靜態編譯：產物與訊息表一致、格式、clippy、musl 靜態執行檔，再以該執行檔跑全部測試。
+# 檢查與靜態編譯：產物與訊息表一致、格式、clippy、musl 靜態執行檔，再以該執行檔跑全部測試；
+# 接著跑啟動器（launcher/）的 shellcheck、命令白名單 lint 與 bats。
 # bootstrap.sh 用的訊息片段只寫到 /out，不進 git。
 FROM source AS test
 # engine/merge 的 unit 測試要呼叫 git merge-file，rust:1-slim 不帶 git。
+# bats 與 shellcheck 取 base（Debian trixie）的套件；bats 版本固定在 1.11.x，換 base 時版本變了就在這裡停。
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends git bats shellcheck \
+    && rm -rf /var/lib/apt/lists/* \
+    && bats --version | grep -q '^Bats 1\.11\.' \
+    && shellcheck --version
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     set -eu; \
     target="$(uname -m)-unknown-linux-musl"; \
@@ -35,6 +39,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --locked --release -p vendor_kit --target "$target"; \
     cp "target/$target/release/vendor_kit" /out/vendor_kit; \
     VK_BIN=/out/vendor_kit cargo test --locked --workspace
+# 啟動器：shellcheck（啟動器本體與白名單 lint）、命令白名單 lint、bats。
+# bats 的訊息文字取自上一步 msggen 產生的片段（VK_MESSAGES）。launcher/ 在 cargo 之後才 COPY，
+# 只改啟動器時不必重跑 Rust 的建置與測試。
+COPY launcher launcher
+RUN set -eu; \
+    shellcheck -x launcher/*.sh launcher/lint/check_commands.sh; \
+    launcher/lint/check_commands.sh; \
+    VK_MESSAGES=/out/bootstrap_messages.sh bats launcher/test
 
 # 最終 image：引擎是 musl 靜態執行檔，不需要 libc；但引擎在容器內要用 git（ADR-0007 的 git merge-file），
 # 帶得到 git 的最小 base 是 alpine。工具 image 只搬不跑（ADR-0006），這裡不放其他工具。
