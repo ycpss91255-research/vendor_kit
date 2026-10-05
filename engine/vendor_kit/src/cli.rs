@@ -6,7 +6,7 @@
 //!   判用法與安裝目錄，再分派到指令；結束前寫 `engine_finished` 與 `done`。
 //! - 直接呼叫（其他）：沒有執行紀錄與往返，只處理不帶指令的用法；其餘以 VK0026 回報，待決議（#457）。
 //!
-//! 目前只實作 `add`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
+//! 目前只實作 `add` 與 `sync`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
 //! 暫以 VK0026（不認得的參數）回報並附用法，`-h`／`--help` 的用法文字還沒定，以 VK0056 停下。
 
 use std::ffi::OsString;
@@ -300,6 +300,33 @@ where
                 image: image.as_deref(),
             };
             let code = add::run(&req, &mut env);
+            let _ = stdout.flush();
+            code
+        }
+        args::Command::Sync => {
+            let dir = layout::InstallDir::new(&mounts.root);
+            let argv: Vec<String> = inv
+                .rest
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            let host_root = inv.host_root.display().to_string();
+            let mut stdout = stdout;
+            let mut env = sync::Env {
+                dir: &dir,
+                host_root: &host_root,
+                run_log: host_log,
+                inbox: &mounts.inbox,
+                channel,
+                poll: POLL,
+                argv: &argv,
+                run_id: inv.run_id.as_str(),
+                written_by: VERSION,
+                stdout: &mut stdout,
+                diags,
+                log,
+            };
+            let code = sync::run(&mut env);
             let _ = stdout.flush();
             code
         }

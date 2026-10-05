@@ -19,6 +19,7 @@ messages.workspace = true
 output.workspace = true
 plan.workspace = true
 runlog.workspace = true
+sync.workspace = true
 
 [lints]
 workspace = true

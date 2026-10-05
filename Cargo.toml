@@ -30,6 +30,7 @@ members = [
     "engine/initfiles",
     "engine/tools_just",
     "engine/add",
+    "engine/sync",
     "test/e2e",
     "test/boundary",
     "test/reason_lint",
@@ -67,6 +68,7 @@ fetch = { path = "engine/fetch" }
 initfiles = { path = "engine/initfiles" }
 tools_just = { path = "engine/tools_just" }
 add = { path = "engine/add" }
+sync = { path = "engine/sync" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"
