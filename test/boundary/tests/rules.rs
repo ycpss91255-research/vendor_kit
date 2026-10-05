@@ -199,6 +199,7 @@ fn expected_members_exist() {
         "args",
         "version_file",
         "progress",
+        "shell",
         "msggen",
     ] {
         assert!(
@@ -237,6 +238,7 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
         "args",
         "version_file",
         "progress",
+        "shell",
         "msggen",
     ] {
         let (_, pkg) = &m[name];
