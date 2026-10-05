@@ -8,3 +8,4 @@ doc/decisions/_backup/
 doc/decisions/review_log/
 doc/research/
 script/diagram/_backup/
+.claude/settings.local.json
