@@ -29,6 +29,9 @@ class PackReviewTest(unittest.TestCase):
         git("config", "user.email", "t@example.com")
         git("config", "user.name", "t")
         git("config", "commit.gpgsign", "false")
+        # 不讓 git 在背景跑 auto gc／maintenance，否則 tearDown 刪暫存目錄時 objects 還在被寫
+        git("config", "gc.auto", "0")
+        git("config", "maintenance.auto", "false")
         pathlib.Path("doc/contract").mkdir(parents=True)
         pathlib.Path("doc/contract/03_output.md").write_text("# 03\n\n[名詞](../../GLOSSARY.md)\n")
         pathlib.Path("doc/contract/reason_codes.csv").write_text("code,status\nVK0001,active\n")
