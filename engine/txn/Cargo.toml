@@ -1,0 +1,22 @@
+[package]
+name = "txn"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "可寫 recipe 的落地順序：writes_started → 進度檔 → cache／印記 → repo 檔 → gen/tools.just → 版本鎖定行 → 刪進度檔，以型別狀態固定順序（ADR-0004）"
+
+[dependencies]
+files.workspace = true
+layout.workspace = true
+messages.workspace = true
+progress.workspace = true
+runlog.workspace = true
+stamp.workspace = true
+version_file.workspace = true
+
+[dev-dependencies]
+imageref.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
