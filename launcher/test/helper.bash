@@ -11,6 +11,7 @@ launcher_dir=$(cd -- "$BATS_TEST_DIRNAME/.." && pwd)
 repo_root=$(cd -- "$launcher_dir/.." && pwd)
 
 common_setup() {
+    vk_env=()
     if [[ -z ${VK_MESSAGES:-} || ! -r $VK_MESSAGES ]]; then
         echo "VK_MESSAGES must point to the msggen bash fragment (bootstrap_messages.sh)" >&2
         return 1
@@ -46,11 +47,16 @@ fake_version() {
 
 # vk <bash 片段>：在乾淨的 bash 裡載入片段與 launcher/*.sh，cwd 是 $work，PATH 只有 shim 目錄，
 # 跑完以 vk_diag_exit 結束（片段自己 exit 的話照它的）。stdout、stderr 分開收。
+# 陣列 vk_env 的 `名=值` 另外傳進環境（預設沒有）。
 vk() {
-    local script
-    script="source '$VK_MESSAGES'; source '$launcher_dir/diag.sh'; source '$launcher_dir/host.sh'; source '$launcher_dir/log.sh'; $1"$'\n''exit "$vk_diag_exit"'
+    local script f
+    script="source '$VK_MESSAGES';"
+    for f in diag host log wire launch; do
+        script+=" source '$launcher_dir/$f.sh';"
+    done
+    script+=" $1"$'\n''exit "$vk_diag_exit"'
     cd "$work" || return 1
-    run --separate-stderr env -i PATH="$shim" HOME="$work" "$BASH" -c "$script"
+    run --separate-stderr env -i PATH="$shim" HOME="$work" "${vk_env[@]}" "$BASH" -c "$script"
     cd - >/dev/null || return 1
 }
 
