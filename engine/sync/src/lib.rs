@@ -58,7 +58,8 @@
 //!   （#119）怎麼並存，都沒定。所以 `dev` 之後工具 recipe 前的自動 `sync` 也會停下。引擎的覆寫與工具同步
 //!   無關，不看。
 //! - 殘留的進度檔不是 `sync` 或 `add` 的。`undev` 的：04 本機覆寫說 `sync` 不代替完成或清掉它，VK0053 只寫
-//!   `undev` 自己同步失敗與唯讀 recipe 偵測到，`sync` 遇到時怎麼報沒定。
+//!   `undev` 自己同步失敗與唯讀 recipe 偵測到，`sync` 遇到時怎麼報沒定。`upgrade` 的（格式見
+//!   `progress::upgrade`）同理：VK0041 只寫唯讀 recipe 偵測到，`sync` 是可寫 recipe，又不代替完成 upgrade。
 //! - 基準版落後（VK0014）：`metadata` 沒有記基準版是哪一版，判不出來；工具有 metadata 時停下。目前
 //!   `add` 只在有初始檔時才寫 metadata，而 `init.toml` 格式未定，所以實際上碰不到。
 //! - 取到的內容與同一版本的既有印記不符（計畫 G1：印記被改過，或同一 digest 取出不同內容），沒有代碼。

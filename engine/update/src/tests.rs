@@ -241,18 +241,48 @@ fn residual_progress_is_detected_before_the_target_check_and_left_alone() {
 }
 
 #[test]
-fn residual_upgrade_progress_stops_as_a_gap() {
+fn residual_tool_upgrade_progress_is_vk0041_with_the_original_command() {
     let fx = Fx::new();
-    fx.residual(UPGRADE_VERB, &[UPGRADE_VERB, "tool"], None);
+    fx.residual(
+        UPGRADE_VERB,
+        &[UPGRADE_VERB, "tool@v1.3.0", "-y"],
+        Some((progress::upgrade::TARGET, "tool")),
+    );
+    let before = fx.snapshot();
+    let out = run_update(&fx, None);
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0041]: Upgrade of tool is incomplete. Run again: just vendor_kit upgrade tool@v1.3.0 -y\n"
+    );
+    // 唯讀 recipe：不恢復、不刪進度檔。
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn residual_engine_upgrade_or_upgrade_without_target_is_a_gap() {
+    let fx = Fx::new();
+    fx.residual(
+        UPGRADE_VERB,
+        &[UPGRADE_VERB, "--engine"],
+        Some((progress::upgrade::TARGET, progress::upgrade::ENGINE_TARGET)),
+    );
     let out = run_update(&fx, None);
     assert_eq!(out.code, 2);
     assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
     assert!(
         out.stderr
-            .contains("reporting the incomplete upgrade operation"),
+            .contains("reporting the incomplete engine upgrade"),
         "{}",
         out.stderr
     );
+
+    let fx = Fx::new();
+    fx.residual(UPGRADE_VERB, &[UPGRADE_VERB, "tool"], None);
+    let out = run_update(&fx, None);
+    assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
+    assert!(out.stderr.contains("without its [upgrade] target field"));
 }
 
 #[test]
