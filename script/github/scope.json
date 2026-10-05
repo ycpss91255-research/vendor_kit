@@ -29,7 +29,6 @@
     {"pattern": "^doc/adr/(README|TEMPLATE)\\.md$", "scope": "adr:meta"},
     {"pattern": "^doc/adr/(?P<num>[0-9]{4})-[^/]+\\.md$", "scope": "adr:{num}"},
     {"pattern": "^doc/contract/(?P<page>[^/.]+)", "scope": "contract:{page}"},
-    {"pattern": "^doc/decisions/review/(?P<page>[^/.]+)", "scope": "contract:{page}"},
     {"pattern": "^doc/review/", "scope": "review", "_why": "送審資料夾與版本表（mark_changes.py、pack_review.py 的產物，#59）"},
     {"pattern": "^doc/decisions/README\\.md$", "scope": "decisions:README", "attach": "any"},
     {"pattern": "^doc/decisions/research/", "scope": "decisions:research"},

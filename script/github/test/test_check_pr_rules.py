@@ -106,7 +106,7 @@ class ScopeTest(unittest.TestCase):
         self.assertIn("沒有列到", p[0])
 
     def test_contract_pages_are_separate(self):
-        s, _ = self.scopes(["doc/decisions/review/01_purpose.md", "doc/decisions/review/02_invariants.md"])
+        s, _ = self.scopes(["doc/contract/01_purpose.md", "doc/contract/02_invariants.md"])
         self.assertEqual(s, ["contract:01_purpose", "contract:02_invariants"])
 
     def test_every_tracked_file_is_listed(self):
