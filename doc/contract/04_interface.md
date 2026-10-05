@@ -68,6 +68,7 @@
 - 提示為 `[y/N]`，印到 stderr；答案從 stdin 讀，空白 Enter 等於否，EOF 不算同意
 - 沒帶 `-y` 又不能互動時，不做需詢問的修改；重跑方式、[診斷](../../GLOSSARY.md#執行與結果)與[結束碼](../../GLOSSARY.md#執行與結果)見[訊息表](reason_codes.csv)
 - 每次呼叫先問完所有問題，全部同意才寫入（執行紀錄除外），含恢復舊操作；答否的正常取消輸出見 [03 輸出](03_output.md#輸出)
+- 詢問前[取件](../../GLOSSARY.md#工具與出貨)的內容只放在 repo 外的暫存處，全部同意後才寫進 [cache/](../../GLOSSARY.md#repo-內的檔與狀態)、[印記](../../GLOSSARY.md#repo-內的檔與狀態)與 [gen/](../../GLOSSARY.md#repo-內的檔與狀態)。
 - 詢問中 Ctrl-C 不算同意；最終碼受 just 與外層訊號處理影響
 - 拒絕記錄的保存方式仍待確認，見[介面修改討論](https://github.com/ycpss91255-research/vendor_kit/issues/47)
 
@@ -200,9 +201,9 @@ just vendor_kit <cmd> [arguments] [options]
 
 ### 說明與用法錯誤
 
-判定順序：用法 → 主機前置檢查 → 辨識救援呼叫 → 版本組合。版本組合判定依 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)。
+判定順序：主機前置檢查 → 辨識救援呼叫 → 版本組合 → 用法。VK recipe 的用法只有引擎判得出，引擎要在主機前置檢查、辨識救援呼叫與[介面版](../../GLOSSARY.md#介面版與契約)判定之後才啟動；[檔案版](../../GLOSSARY.md#介面版與契約)由引擎在判用法之前判定。版本組合判定依 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)。
 
-版本組合不合又有用法錯誤時（如 `upgrade --engine --bogus`），拒絕優先次序仍待確認，見[介面修改討論](https://github.com/ycpss91255-research/vendor_kit/issues/47)，不因此擴充救援清單。
+版本組合不合又有用法錯誤時（如 `upgrade --engine --bogus`），先報版本組合不合，不因此擴充救援清單。
 
 | 版本組合不合時仍可用的類別 | 呼叫 |
 |---|---|
