@@ -201,6 +201,7 @@ fn expected_members_exist() {
         "progress",
         "shell",
         "retract",
+        "runlog",
         "msggen",
     ] {
         assert!(
@@ -241,6 +242,7 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
         "progress",
         "shell",
         "retract",
+        "runlog",
         "msggen",
     ] {
         let (_, pkg) = &m[name];
