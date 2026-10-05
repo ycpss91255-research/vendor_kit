@@ -12,9 +12,11 @@
 //! 3. 讀 `version.toml`（檔案版過高回 VK0008）。
 //! 4. 查詢前先判，只讀、有任何一項不能做就把每一項都印出來再停下：
 //!    - `version.local.toml` 檔案版過高：VK0008。
-//!    - 殘留的進度檔（04 成對與無害：唯讀 recipe 只偵測，不恢復、不刪）：`add` 的回 VK0004；`upgrade`、
-//!      `undev` 的見「缺口」；其他可寫 recipe（`sync`、`remove`、`install`、`uninstall`、`dev` 等）回
-//!      VK0054，`<original_command>` 由進度檔的 `command` 重組、各參數依 POSIX shell 規則加引號。
+//!    - 殘留的進度檔（04 成對與無害：唯讀 recipe 只偵測，不恢復、不刪）：`add` 的回 VK0004；`undev` 的回
+//!      VK0053，`<target>` 讀進度檔 `[undev]` 表的 `target`（engine/dev 寫的），`<undev_command>` 由進度檔
+//!      的 `command` 重組；`upgrade` 的見「缺口」；其他可寫 recipe（`sync`、`remove`、`install`、
+//!      `uninstall`、`dev` 等）回 VK0054，`<original_command>` 由進度檔的 `command` 重組、各參數依 POSIX
+//!      shell 規則加引號。
 //! 5. 判查詢對象：不帶工具參數是版本鎖定行裡的全部工具與引擎；`update <repo>` 只查那個工具，不在版本
 //!    鎖定行回 VK0046（訊息表：先辨識未完成進度，再判斷對象不存在，所以排在第 4 步之後）。
 //! 6. 查詢對象有本機覆寫時，stderr 印一行提醒、不加診斷前綴（04 本機覆寫、03 輸出）；仍照版本鎖定行查，
@@ -37,8 +39,7 @@
 //!   VK0058 也還碰不到。
 //! - 殘留的 `upgrade` 進度檔：要分工具（VK0041）或引擎（VK0023），VK0023 的 `<vY>` 也要從進度檔讀，
 //!   `upgrade` 還沒實作、進度檔格式沒定。
-//! - 殘留的 `undev` 進度檔（VK0053 的 `<target>`、`<undev_command>`）：`undev` 還沒實作、格式沒定。
-//! - 殘留的 `add` 進度檔沒有 `[add]` 的 `repo` 欄位。
+//! - 殘留的 `add` 進度檔沒有 `[add]` 的 `repo` 欄位；殘留的 `undev` 進度檔沒有 `[undev]` 的 `target` 欄位。
 
 pub mod text;
 
@@ -59,8 +60,10 @@ use version_file::{LocalFile, LockFile};
 pub const ADD_VERB: &str = "add";
 /// `upgrade` 的進度檔 `<verb>`（還沒實作，見模組說明的缺口）。
 pub const UPGRADE_VERB: &str = "upgrade";
-/// `undev` 的進度檔 `<verb>`（還沒實作，見模組說明的缺口）。
+/// `undev` 的進度檔 `<verb>` 與它記 `<target>` 的鍵（engine/dev 的 `UNDEV_VERB`、`TARGET_KEY`；指令之間互不
+/// 依賴，照抄）。
 pub const UNDEV_VERB: &str = "undev";
+pub const UNDEV_TARGET_KEY: &str = "target";
 /// 重組 `<original_command>` 時接在參數前面的字。
 pub const COMMAND_PREFIX: [&str; 2] = ["just", "vendor_kit"];
 
@@ -340,7 +343,23 @@ impl<W: Write, S: Sink> Update<'_, '_, W, S> {
                     )),
                 }
             }
-            UPGRADE_VERB | UNDEV_VERB => self.gap_diag(format_args!(
+            UNDEV_VERB => {
+                let target = loaded
+                    .document()
+                    .get(&[UNDEV_VERB, UNDEV_TARGET_KEY])
+                    .and_then(|i| i.as_str())
+                    .map(str::to_owned);
+                match target {
+                    Some(target) => Diagnostic::new(&messages::VK0053)
+                        .arg("target", target)
+                        .arg("undev_command", original_command(loaded.command())),
+                    None => self.gap_diag(format_args!(
+                        "reporting the incomplete undev in {} without its [undev] {UNDEV_TARGET_KEY} field",
+                        self.rel(&entry.path)
+                    )),
+                }
+            }
+            UPGRADE_VERB => self.gap_diag(format_args!(
                 "reporting the incomplete {} operation in {}",
                 entry.verb,
                 self.rel(&entry.path)
