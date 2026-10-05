@@ -244,6 +244,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dev"
+version = "0.0.0"
+dependencies = [
+ "config",
+ "diagnostics",
+ "fetch",
+ "filelock",
+ "imageref",
+ "layout",
+ "messages",
+ "progress",
+ "runlog",
+ "schema",
+ "stamp",
+ "tempfile",
+ "tools_just",
+ "txn",
+ "version_file",
+]
+
+[[package]]
 name = "diagnostics"
 version = "0.0.0"
 dependencies = [
@@ -965,6 +986,7 @@ dependencies = [
  "add",
  "args",
  "compat",
+ "dev",
  "diagnostics",
  "install",
  "layout",

@@ -1,0 +1,28 @@
+[package]
+name = "dev"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "dev 與 undev 指令：讀設定、持排他鎖、辨識殘留進度、判對象與本機開發來源、寫 version.local.toml 的本機覆寫、重產 gen/tools.just"
+
+[dependencies]
+config.workspace = true
+diagnostics.workspace = true
+fetch.workspace = true
+filelock.workspace = true
+imageref.workspace = true
+layout.workspace = true
+messages.workspace = true
+progress.workspace = true
+runlog.workspace = true
+schema.workspace = true
+stamp.workspace = true
+tools_just.workspace = true
+txn.workspace = true
+version_file.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

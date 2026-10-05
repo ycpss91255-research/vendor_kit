@@ -6,7 +6,7 @@
 //!   判用法與安裝目錄，再分派到指令；結束前寫 `engine_finished` 與 `done`。
 //! - 直接呼叫（其他）：沒有執行紀錄與往返，只處理不帶指令的用法；其餘以 VK0026 回報，待決議（#457）。
 //!
-//! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall` 與 `update`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
+//! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`dev` 與 `undev`。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
 //! 暫以 VK0026（不認得的參數）回報並附用法，`-h`／`--help` 的用法文字還沒定，以 VK0056 停下。
 
 use std::ffi::OsString;
@@ -355,6 +355,42 @@ where
             let _ = stdout.flush();
             code
         }
+        args::Command::DevTool { repo, path } => run_dev(
+            &dev::Request::DevTool { repo, path },
+            inv,
+            mounts,
+            host_log,
+            stdout,
+            diags,
+            log,
+        ),
+        args::Command::DevEngine { image } => run_dev(
+            &dev::Request::DevEngine { image },
+            inv,
+            mounts,
+            host_log,
+            stdout,
+            diags,
+            log,
+        ),
+        args::Command::UndevTool { repo } => run_dev(
+            &dev::Request::UndevTool { repo },
+            inv,
+            mounts,
+            host_log,
+            stdout,
+            diags,
+            log,
+        ),
+        args::Command::UndevEngine => run_dev(
+            &dev::Request::UndevEngine,
+            inv,
+            mounts,
+            host_log,
+            stdout,
+            diags,
+            log,
+        ),
         args::Command::Install { yes } => run_install(
             *yes, inv, mounts, host_log, stdin, stdout, stderr, diags, log,
         ),
@@ -385,6 +421,44 @@ where
             2
         }
     }
+}
+
+/// `dev` 與 `undev`（四種呼叫）。
+fn run_dev<O, E>(
+    req: &dev::Request<'_>,
+    inv: &plan::Invocation,
+    mounts: &Mounts,
+    host_log: &str,
+    stdout: O,
+    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
+    log: &mut runlog::Writer<&File>,
+) -> u8
+where
+    O: Write + Clone,
+    E: Write + Clone,
+{
+    let dir = layout::InstallDir::new(&mounts.root);
+    let argv: Vec<String> = inv
+        .rest
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let host_root = inv.host_root.display().to_string();
+    let mut stdout = stdout;
+    let mut env = dev::Env {
+        dir: &dir,
+        host_root: &host_root,
+        run_log: host_log,
+        argv: &argv,
+        run_id: inv.run_id.as_str(),
+        written_by: VERSION,
+        stdout: &mut stdout,
+        diags,
+        log,
+    };
+    let code = dev::run(req, &mut env);
+    let _ = stdout.flush();
+    code
 }
 
 /// `install [-y]`。

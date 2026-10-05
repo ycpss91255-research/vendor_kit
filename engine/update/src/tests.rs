@@ -241,20 +241,44 @@ fn residual_progress_is_detected_before_the_target_check_and_left_alone() {
 }
 
 #[test]
-fn residual_upgrade_and_undev_progress_stop_as_gaps() {
-    for verb in [UPGRADE_VERB, UNDEV_VERB] {
-        let fx = Fx::new();
-        fx.residual(verb, &[verb, "tool"], None);
-        let out = run_update(&fx, None);
-        assert_eq!(out.code, 2);
-        assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
-        assert!(
-            out.stderr
-                .contains(&format!("reporting the incomplete {verb} operation")),
-            "{}",
-            out.stderr
-        );
-    }
+fn residual_upgrade_progress_stops_as_a_gap() {
+    let fx = Fx::new();
+    fx.residual(UPGRADE_VERB, &[UPGRADE_VERB, "tool"], None);
+    let out = run_update(&fx, None);
+    assert_eq!(out.code, 2);
+    assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
+    assert!(
+        out.stderr
+            .contains("reporting the incomplete upgrade operation"),
+        "{}",
+        out.stderr
+    );
+}
+
+#[test]
+fn residual_undev_progress_is_vk0053_with_the_original_command() {
+    let fx = Fx::new();
+    fx.residual(
+        UNDEV_VERB,
+        &[UNDEV_VERB, "tool"],
+        Some((UNDEV_TARGET_KEY, "tool")),
+    );
+    let before = fx.snapshot();
+    let out = run_update(&fx, None);
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0053]: The undev operation for tool is incomplete. Run again: just vendor_kit undev tool\n"
+    );
+    assert_eq!(fx.snapshot(), before);
+
+    // 沒有 `[undev] target` 欄位：缺口。
+    let fx = Fx::new();
+    fx.residual(UNDEV_VERB, &[UNDEV_VERB, "--engine"], None);
+    let out = run_update(&fx, None);
+    assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
+    assert!(out.stderr.contains("without its [undev] target field"));
 }
 
 #[test]

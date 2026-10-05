@@ -11,6 +11,11 @@
 //! - 依 `<ns>` 的位元組順序排列，同一組工具只有一種內容（ADR-0012）。同一個 `<ns>` 出現兩次
 //!   （撞名，應該在 `fetch` 就擋下）也拒絕。沒有工具時內容是空的。
 //! - 沒有檔頭或註解：檔的每一行都是一個 `<ns>`。
+//! - 工具開著本機覆寫（`dev <repo> -p <dir>`，04 本機覆寫）時，那個工具的行改指本機開發來源：
+//!   `mod <ns> '../../<dir>/just/<ns>.just'`（[`render_with`]）。`<dir>` 是相對於安裝目錄、已正規化的
+//!   路徑（只由一般路徑段組成，或整個是 `.` 表示安裝目錄本身）；`gen/tools.just` 在 `.vendor_kit/gen/`，
+//!   所以前面接兩層 `..` 回到安裝目錄。本機目錄的內容與 `dist/` 同形（04：符合交付格式），底下同樣是
+//!   `just/<ns>.just`。路徑段含 `'` 或控制字元時放不進單引號字串，拒絕（[`Error::InvalidLocalDir`]）。
 //!
 //! 這裡只算內容，不寫檔；寫入由 `txn` 在 `cache/` 換好之後做。誰載入 `gen/tools.just`
 //! （薄殼 `entry.just` 的模板）不在這裡。
@@ -32,6 +37,8 @@ pub enum Error {
     InvalidRepo(String),
     /// `<ns>` 不是 just 名稱。
     InvalidNamespace(String),
+    /// 本機開發來源的目錄不是正規化的相對路徑，或含放不進單引號字串的字元。
+    InvalidLocalDir(String),
     /// 同一個 `<ns>` 由兩個工具交付。
     Duplicate {
         ns: String,
@@ -45,6 +52,10 @@ impl fmt::Display for Error {
         match self {
             Error::InvalidRepo(r) => write!(f, "tool name {r:?} is not a just name"),
             Error::InvalidNamespace(n) => write!(f, "namespace {n:?} is not a just name"),
+            Error::InvalidLocalDir(d) => write!(
+                f,
+                "local source {d:?} is not a normalized relative path that fits in a just string"
+            ),
             Error::Duplicate { ns, first, second } => {
                 write!(
                     f,
@@ -70,8 +81,36 @@ pub fn line(repo: &str, ns: &str) -> String {
     format!("mod {ns} '../cache/{repo}/just/{ns}.just'\n")
 }
 
+/// 開著本機覆寫的工具的一行（含結尾 LF）：`dir` 是相對於安裝目錄的本機開發來源。
+pub fn local_line(dir: &str, ns: &str) -> String {
+    if dir == "." {
+        format!("mod {ns} '../../just/{ns}.just'\n")
+    } else {
+        format!("mod {ns} '../../{dir}/just/{ns}.just'\n")
+    }
+}
+
+/// `dir` 能不能原樣放進 [`local_line`]：整個是 `.`，或以 `/` 分隔的一般路徑段（不是空段、`.`、`..`），
+/// 每段不含 `'`、反斜線與控制字元。
+pub fn is_local_dir(dir: &str) -> bool {
+    dir == "."
+        || dir.split('/').all(|seg| {
+            !seg.is_empty()
+                && seg != "."
+                && seg != ".."
+                && !seg
+                    .chars()
+                    .any(|c| c == '\'' || c == '\\' || c.is_control())
+        })
+}
+
 /// 全部工具的入口檔內容。
 pub fn render(tools: &[Tool]) -> Result<String, Error> {
+    render_with(tools, &BTreeMap::new())
+}
+
+/// 全部工具的入口檔內容；`local` 裡的工具（`<repo>` → 相對於安裝目錄的本機開發來源）改指本機目錄。
+pub fn render_with(tools: &[Tool], local: &BTreeMap<String, String>) -> Result<String, Error> {
     let mut by_ns: BTreeMap<&str, &str> = BTreeMap::new();
     for tool in tools {
         if !is_name(tool.repo) {
@@ -90,7 +129,18 @@ pub fn render(tools: &[Tool]) -> Result<String, Error> {
             }
         }
     }
-    Ok(by_ns.into_iter().map(|(ns, repo)| line(repo, ns)).collect())
+    for dir in local.values() {
+        if !is_local_dir(dir) {
+            return Err(Error::InvalidLocalDir(dir.clone()));
+        }
+    }
+    Ok(by_ns
+        .into_iter()
+        .map(|(ns, repo)| match local.get(repo) {
+            Some(dir) => local_line(dir, ns),
+            None => line(repo, ns),
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -123,6 +173,42 @@ mod tests {
              mod base '../cache/base/just/base.just'\n\
              mod lint '../cache/a_tool/just/lint.just'\n"
         );
+    }
+
+    #[test]
+    fn local_override_points_at_the_local_source() {
+        let a = ns(&["a"]);
+        let b = ns(&["b"]);
+        let tools = [
+            Tool {
+                repo: "a",
+                namespaces: &a,
+            },
+            Tool {
+                repo: "b",
+                namespaces: &b,
+            },
+        ];
+        let mut local = BTreeMap::new();
+        local.insert("a".to_owned(), "dev/a-tool".to_owned());
+        assert_eq!(
+            render_with(&tools, &local).unwrap(),
+            "mod a '../../dev/a-tool/just/a.just'\n\
+             mod b '../cache/b/just/b.just'\n"
+        );
+        local.insert("a".to_owned(), ".".to_owned());
+        assert_eq!(
+            render_with(&tools[..1], &local).unwrap(),
+            "mod a '../../just/a.just'\n"
+        );
+        for bad in ["/abs", "../up", "a/../b", "a//b", "./a", "it's", "a\nb", ""] {
+            local.insert("a".to_owned(), bad.to_owned());
+            assert_eq!(
+                render_with(&tools[..1], &local).unwrap_err(),
+                Error::InvalidLocalDir(bad.to_owned()),
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]
