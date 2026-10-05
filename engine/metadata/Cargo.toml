@@ -1,0 +1,19 @@
+[package]
+name = "metadata"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "baseline/ 下的逐檔紀錄：每個初始檔一筆 [[file]]，寫入前 hash 相符的紀錄才更新成寫入後的 hash（ADR-0003）"
+
+[dependencies]
+files.workspace = true
+layout.workspace = true
+messages.workspace = true
+schema.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
