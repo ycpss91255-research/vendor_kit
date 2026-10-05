@@ -1,0 +1,11 @@
+# 事件註冊表真本（ADR-0005）：執行紀錄的 event_name 只能是這裡的名字，一行一個。
+# 寫紀錄前查表，未登錄就以 VK0056 停下。啟動器的 log.sh 內嵌其中寫啟動器事件的子集，只准少不准多。
+run_started
+engine_started
+diagnostic_emitted
+writes_started
+lock_line_write_started
+lock_line_written
+progress_removed
+engine_finished
+run_finished

@@ -1,0 +1,13 @@
+[package]
+name = "runlog"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "執行紀錄 JSONL：事件註冊表、引擎端的里程碑事件寫入、診斷的 sink，與未完成首次導入的判定（ADR-0005）"
+
+[dependencies]
+diagnostics.workspace = true
+messages.workspace = true
+
+[lints]
+workspace = true
