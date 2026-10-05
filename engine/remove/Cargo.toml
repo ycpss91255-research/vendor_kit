@@ -1,0 +1,31 @@
+[package]
+name = "remove"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "remove 與 uninstall 指令：讀設定、持排他鎖、併入殘留進度、以 retract 收齊詢問、一次問完、依收回順序落地"
+
+[dependencies]
+config.workspace = true
+diagnostics.workspace = true
+fetch.workspace = true
+filelock.workspace = true
+layout.workspace = true
+messages.workspace = true
+metadata.workspace = true
+progress.workspace = true
+prompt.workspace = true
+retract.workspace = true
+runlog.workspace = true
+schema.workspace = true
+stamp.workspace = true
+toml_edit.workspace = true
+tools_just.workspace = true
+txn.workspace = true
+version_file.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
