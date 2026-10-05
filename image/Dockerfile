@@ -13,6 +13,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY engine engine
 COPY test test
 COPY doc/contract/reason_codes.csv doc/contract/reason_codes.csv
+# test/boundary 讀架構圖檢查模組邊界（ADR-0014）。
+COPY doc/diagram doc/diagram
 
 # 檢查與靜態編譯：產物與訊息表一致、格式、clippy、musl 靜態執行檔，再以該執行檔跑全部測試。
 # bootstrap.sh 用的訊息片段只寫到 /out，不進 git。
