@@ -1,0 +1,12 @@
+[package]
+name = "boundary"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "模組邊界檢查：讀 workspace 依賴圖，擋不准有的依賴"
+
+[dev-dependencies]
+cargo_metadata.workspace = true
+
+[lints]
+workspace = true

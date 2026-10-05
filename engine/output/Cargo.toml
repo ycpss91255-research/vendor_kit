@@ -1,0 +1,9 @@
+[package]
+name = "output"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "非診斷的輸出：stdout 的正常結果，以及 stderr 的版本行與用法"
+
+[lints]
+workspace = true

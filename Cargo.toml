@@ -1,0 +1,35 @@
+# VK 在 Docker 內的程式都在這個 workspace（#372）：engine/ 一個模組一個 crate，test/ 放只經執行檔的端到端測試與模組邊界檢查。
+[workspace]
+resolver = "2"
+members = [
+    "engine/vendor_kit",
+    "engine/diagnostics",
+    "engine/output",
+    "engine/messages",
+    "engine/msggen",
+    "test/e2e",
+    "test/boundary",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+diagnostics = { path = "engine/diagnostics" }
+output = { path = "engine/output" }
+messages = { path = "engine/messages" }
+csv = "1"
+assert_cmd = "2"
+snapbox = "1"
+tempfile = "3"
+cargo_metadata = "0.23"
+
+# 測試例外：各 crate 在 #[cfg(test)] 與 test/ 的測試檔以 allow 屬性放行 unwrap／expect。
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

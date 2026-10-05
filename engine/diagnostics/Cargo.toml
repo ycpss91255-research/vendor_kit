@@ -1,0 +1,12 @@
+[package]
+name = "diagnostics"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "診斷的唯一出口：格式、嚴重度與結束碼照 03 輸出"
+
+[dependencies]
+messages.workspace = true
+
+[lints]
+workspace = true

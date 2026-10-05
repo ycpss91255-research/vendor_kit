@@ -1,0 +1,9 @@
+[package]
+name = "messages"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "訊息表的型別與由 msggen 從 reason_codes.csv 產生的常數"
+
+[lints]
+workspace = true
