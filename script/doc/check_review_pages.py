@@ -244,7 +244,7 @@ def csv_command_texts(path: pathlib.Path):
 
 
 def check_commands(errors: list[str]) -> None:
-    # 選項要先在名詞表定義；還沒有 GLOSSARY.md（main 上仍是 CONTEXT.md）時整段跳過。
+    # 選項要先在名詞表定義；沒有根 GLOSSARY.md 時整段跳過。
     if not (ROOT / "GLOSSARY.md").is_file():
         return
     defined = set()
