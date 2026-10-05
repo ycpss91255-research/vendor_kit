@@ -15,7 +15,7 @@
 鍵：
 - backup_key：路徑去掉結尾的 .md 或 .csv、/ 換成 _、去掉開頭的點（跟 mark_changes.py 的 target() 同一套），
   例如 doc/contract/03_output.csv → doc_contract_03_output。備份檔名用它。
-- run_key：.md 或 .csv 檔是 backup_key 接 `_` 加副檔名（doc_contract_03_output_csv、README_md）；
+- run_key：.md 或 .csv 檔是 backup_key 接 `_` 加副檔名（doc_contract_03_output_csv、GLOSSARY_md）；
   其他檔等於 backup_key（副檔名沒被去掉，本來就不會撞）。暫存目錄與 review_log 檔名用它。
 
 備份放 <R>/doc/decisions/_backup/：
