@@ -1,0 +1,13 @@
+[package]
+name = "args"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "VK recipe 的參數解析：指令名、-y、--engine、<repo>@<tag>、選項結束標記 --、-h／--help；回結構化的指令值或用法錯誤（VK0024–VK0027），不印任何東西（04 說明與用法錯誤）"
+
+[dependencies]
+imageref.workspace = true
+messages.workspace = true
+
+[lints]
+workspace = true

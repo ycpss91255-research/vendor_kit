@@ -196,6 +196,7 @@ fn expected_members_exist() {
         "metadata",
         "stamp",
         "merge",
+        "args",
         "msggen",
     ] {
         assert!(
@@ -231,6 +232,7 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
         "metadata",
         "stamp",
         "merge",
+        "args",
         "msggen",
     ] {
         let (_, pkg) = &m[name];
