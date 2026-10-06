@@ -212,6 +212,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "check"
+version = "0.0.0"
+dependencies = [
+ "compat",
+ "config",
+ "diagnostics",
+ "fetch",
+ "filelock",
+ "layout",
+ "messages",
+ "metadata",
+ "progress",
+ "schema",
+ "shell",
+ "stamp",
+ "tempfile",
+ "tools_just",
+ "version_file",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1267,6 +1288,7 @@ version = "0.0.0"
 dependencies = [
  "add",
  "args",
+ "check",
  "compat",
  "dev",
  "diagnostics",

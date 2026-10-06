@@ -18,10 +18,11 @@
 //! 剛好只有那一個參數才算，在 `args` 之前認出來，交給 `shell_check`；其餘一律照 `args` 解析，所以保留入口帶了
 //! 其他參數就是 VK0026。保留入口屬救援路徑，介面版不在區間內也照常執行（[`gate`]），執行位置照樣檢查（VK0028）。
 //!
-//! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`dev`、`undev` 與 `prune`。
-//! 04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；還沒實作的 `upgrade --engine`、`test`、`test dist`
-//! 以 VK0056 停下（#372 N62）。`-h`／`--help` 把 [`output::Help`] 的用法印到 stdout、以 0 結束（03 輸出），
-//! 不看執行位置；救援呼叫的 `-h` 在介面版不合時也照印，其餘的 `-h` 跟一般呼叫一樣先報版本（[`gate`]）。
+//! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`dev`、`undev`、`prune`
+//! 與不帶 path 的 `test`（安裝檢查，engine/check）。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；
+//! 還沒實作的 `upgrade --engine`、`test <path>`、`test dist` 以 VK0056 停下（#372 N62）。
+//! `-h`／`--help` 把 [`output::Help`] 的用法印到 stdout、以 0 結束（03 輸出），不看執行位置；救援呼叫的 `-h`
+//! 在介面版不合時也照印，其餘的 `-h` 跟一般呼叫一樣先報版本（[`gate`]）。
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -640,7 +641,10 @@ where
             None, inv, mounts, host_log, stdin, stdout, stderr, diags, log,
         ),
         args::Command::UpgradeEngine { .. } => not_implemented("upgrade --engine", host_log, diags),
-        args::Command::Test { .. } => not_implemented("test", host_log, diags),
+        args::Command::Test { path: None } => run_check(inv, mounts, host_log, stdout, diags),
+        args::Command::Test { path: Some(_) } => {
+            not_implemented("test with a path", host_log, diags)
+        }
         args::Command::TestDist => not_implemented("test dist", host_log, diags),
     }
 }
@@ -656,6 +660,37 @@ fn not_implemented<E: Write>(
         .arg("path", host_log);
     let _ = diags.emit(&d);
     2
+}
+
+/// `test` 不帶 path：完整安裝檢查（engine/check）。
+fn run_check<O, E>(
+    inv: &plan::Invocation,
+    mounts: &Mounts,
+    host_log: &str,
+    stdout: O,
+    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
+) -> u8
+where
+    O: Write,
+    E: Write,
+{
+    let release = match release(host_log, diags) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+    let dir = layout::InstallDir::new(&mounts.root);
+    let host_root = inv.host_root.display().to_string();
+    let mut stdout = stdout;
+    let mut env = check::Env {
+        dir: &dir,
+        host_root: &host_root,
+        run_log: host_log,
+        written_by: VERSION,
+        shell_templates: release.shell.as_ref(),
+        stdout: &mut stdout,
+        diags,
+    };
+    check::run(&mut env)
 }
 
 /// `dev` 與 `undev`（四種呼叫）。
@@ -1295,7 +1330,7 @@ mod tests {
     fn unimplemented_commands_are_internal_errors_not_usage_errors() {
         for (rest, what) in [
             (&["upgrade", "--engine"][..], "upgrade --engine"),
-            (&["test"], "test"),
+            (&["test", "test/unit"], "test with a path"),
             (&["test", "dist"], "test dist"),
         ] {
             let s = Scratch::new("unimplemented");
