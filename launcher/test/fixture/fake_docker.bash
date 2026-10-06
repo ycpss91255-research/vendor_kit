@@ -9,7 +9,10 @@
 #                      create-runner、start-runner）；不存在是 0
 #   info               docker info 的 SecurityOptions 輸出
 #   ps                 docker ps 的輸出
-#   engine             引擎的行為（bash，以 source 執行；可用下面的 send、raw、await、finish）
+#   engine             引擎的行為（bash，以 source 執行；可用下面的 send、raw、await、hang、interrupt、finish）
+#   engine.init        引擎容器帶 --init 建立時才有：tini 會把轉來的訊號交給引擎
+#   engine.ignores     有這個檔時引擎收到轉來的訊號也不停（等的 docker wait 被再次中斷），kill 才停
+#   engine.pending     訊號已轉給引擎、容器還沒停時引擎之後的結束碼（docker wait 取走）
 #   runner.notstarted  有這個檔時 runner 的 StartedAt 是零值
 #   runner.rc          runner 的結束碼
 #   got/               引擎收到的 res.<seq> 與 res.<seq>.out
@@ -102,6 +105,23 @@ hang() {
     exit 124
 }
 
+# interrupt <INT|TERM>：像在終端按 Ctrl-C（或外層送 SIGTERM 給整個 process group）：訊號同時送到
+# 啟動器與 `docker start -ai`，再等著被停。
+interrupt() {
+    kill -s "$1" "$PPID" "$$"
+    hang
+}
+
+# start_signaled <128＋訊號編號>：`docker start -ai` 收到訊號。跟真的 docker CLI 一樣，把訊號轉給容器後
+# 馬上返回、不等容器停（docker 29 實測）。沒有 --init 時引擎是 PID 1，訊號被忽略，容器一直跑。
+start_signaled() {
+    : >"$fake/engine.running"
+    if [[ -e $fake/engine.init && ! -e $fake/engine.ignores ]]; then
+        printf '%s' "$1" >"$fake/engine.pending"
+    fi
+    exit 0
+}
+
 # finish <done 的碼> [<容器結束碼>]：寫 done，以容器結束碼結束。
 finish() {
     raw done "vk-resolve/$engine_proto $engine_id done $1\n"
@@ -144,6 +164,9 @@ create)
     args=("${@:2}")
     if [[ ${args[0]} == -i ]]; then
         rc_of create-engine || exit
+        if [[ ${args[1]} == --init ]]; then
+            : >"$fake/engine.init"
+        fi
         for ((i = 0; i < ${#args[@]}; i++)); do
             if [[ ${args[i]} == --mount && ${args[i + 1]} == *target=/vk/ctl* ]]; then
                 mount_source "${args[i + 1]}"
@@ -172,6 +195,8 @@ start)
         done
         engine_ctl=$(<"$fake/ctl_path")
         printf '0' >"$fake/engine.exit"
+        trap 'start_signaled 130' INT
+        trap 'start_signaled 143' TERM
         # shellcheck source=/dev/null
         source "$fake/engine"
         exit "$(<"$fake/engine.exit")"
@@ -181,6 +206,16 @@ start)
         exit 0
     fi
     exit 1
+    ;;
+wait)
+    # wait <cid>：引擎有之後的結束碼就停下、印出碼；否則像等的時候又被中斷，以 1 返回。
+    if [[ $2 == "$engine_cid" && -f $fake/engine.pending ]]; then
+        mv -f "$fake/engine.pending" "$fake/engine.exit"
+        rm -f "$fake/engine.running"
+        printf '%s\n' "$(<"$fake/engine.exit")"
+    else
+        exit 1
+    fi
     ;;
 container)
     # container inspect --format F <cid>
@@ -218,6 +253,10 @@ ps)
 kill)
     if [[ $2 == "$engine_cid" ]]; then
         : >"$fake/killed"
+        if [[ -e $fake/engine.ignores ]]; then
+            rm -f "$fake/engine.running"
+            printf '137' >"$fake/engine.exit"
+        fi
     fi
     printf '%s\n' "$2"
     ;;
