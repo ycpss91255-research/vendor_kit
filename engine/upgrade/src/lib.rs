@@ -11,7 +11,8 @@
 //!    讀不到回 VK0052（見「本機覆寫」）。
 //! 4. 恢復殘留的進度檔（04 成對與無害：可寫 recipe 先恢復再判是否重複）；做法見 `Upgrade::recover`。
 //! 5. 判對象與目標版本：
-//!    - 工具不在版本鎖定行：見「缺口」。
+//!    - 工具不在版本鎖定行：VK0046（訊息表：先辨識未完成進度，再判斷對象不存在，所以排在第 4 步之後；
+//!      情境擴到 upgrade，契約文字待補，#372 N80）。工具名不是合法的 just 名稱已在 `args` 回 VK0026。
 //!    - 不帶 tag：工具有逐檔紀錄時先停下（判不出基準版落後，見「缺口」；04 規定基準版落後時不再查最新版，
 //!      所以在連 registry 之前停）；否則這時才讀 `--registry-token-file`，向 registry 列鎖定行
 //!      `<registry>/<路徑>` 的 tag，依 04 指定版本取最新版（[`imageref::Tag::latest`]）當目標（見「線上解析」）。
@@ -22,7 +23,8 @@
 //!    registry 查 tag 指向的 digest、`pull <registry>/<路徑>@<digest>` 再以同一個引用 inspect。組成新的版本
 //!    鎖定行值 `<registry>/<路徑>:<tag>@<digest>`，再以 image ID `extract`；docker 動作失敗回 VK0055。
 //! 7. `fetch::verify`：digest、dist 格式、逐檔指紋、`<ns>` 撞名（對象是其他已裝工具、根 `justfile` 的
-//!    recipe 與 module、保留名 `vendor_kit`；這個工具自己的舊 `<ns>` 不算）。
+//!    recipe 與 module、保留名 `vendor_kit`；這個工具自己的舊 `<ns>` 不算）。撞名回 VK0030，每個撞到的名字
+//!    各一則（情境擴到 upgrade，契約文字待補，#372 N79）。
 //! 8. `initfiles`（`Command::Upgrade`）以基準版副本、目前檔、新版算出每個初始檔的動作與問題，`prompt`
 //!    一次問完（帶 `-y` 全部同意、不問）：答否是正常取消（stdout 說明未變更，以 0 結束）；不能互動回
 //!    VK0002；兩者除執行紀錄外都不寫任何檔。
@@ -85,6 +87,8 @@
 //!   的（`dev` 收的絕對路徑，或開頭是 `..` 的相對路徑）引擎看不到，照 engine/dev 請啟動器 `stage-dir` 複製
 //!   進 session 目錄的 `in/<slot>`，再讀那份複本。讀不到回 VK0052（04 本機覆寫：覆寫來源失效只擋需讀它的
 //!   動作；重產 `gen/tools.just` 要讀它），列出每個讀不到的覆寫，在任何 docker 動作與寫入之前停下。
+//!   本機開發來源交付保留名 `vendor_kit` 的回 VK0030（`<repo>` 是那個開著覆寫的工具，`<owner>` 是
+//!   `vendor_kit`），跟讀不到的一起列出。
 //! - `gen/tools.just` 裡開著覆寫的工具（對象或其他工具）那幾行指向本機開發來源（`tools_just::render_with`）；
 //!   撞名判定裡開著覆寫的其他工具也以本機開發來源的 `<ns>` 為準（入口檔裡生效的是它）。
 //! - 每次以 0 結束時（換好、已是該版、答否取消）都在 stdout 報告用了哪個覆寫，排在那條路徑的字句前面
@@ -116,8 +120,6 @@
 //! - `@<tag>` 而本機沒有、package 又是私有的：04 規定指定 tag 不讀 token 檔，匿名取 digest 會被拒，報 VK0055；
 //!   pull 本身用的是主機的 Docker 認證。
 //! - 帶 token 的流程還沒對私有 package 手動測過（`registry` 的缺口）。
-//! - 工具不在版本鎖定行：VK0046 只寫 remove、undev、update（計畫 G5）。
-//! - `<ns>` 撞名：VK0030 只寫 `add`。
 //! - 判基準版落後（04：鎖定行比基準版新時，不帶 tag 的 `upgrade` 只完成鎖定行那一版的合併）：`metadata`
 //!   沒有記基準版是哪一版。所以不帶 tag、或 `@<tag>` 與鎖定行同 tag，而工具有逐檔紀錄時停下；沒有紀錄的
 //!   工具沒有基準版，不帶 tag 就查最新版，同 tag 就是未變更。
@@ -125,7 +127,6 @@
 //!   就沒有新版初始檔。`initfiles` 判成缺口的檔（新版不再提供的除外）。
 //! - 覆寫指到不在版本鎖定行的工具：ADR-0002 說覆寫只覆蓋已存在的鎖定行，訊息表沒有代碼
 //!   （`version_file::OrphanOverrides`），停下（同 engine/sync）。
-//! - 開著覆寫的工具的本機開發來源交付保留名 `vendor_kit`：沒有代碼，停下（同 engine/sync）。
 //! - 其他已裝、沒開覆寫的工具的 `cache/<repo>/` 讀不到（N4）：撞名判定與入口檔都要它的 `<ns>`。
 //!   只在真的要換版（或恢復殘留的 `upgrade`）、要讀其他工具時才讀，在落地之前收齊全部讀不到的工具
 //!   一起報（`fetch::CacheCheck`）：
@@ -178,6 +179,14 @@ use version_file::{LocalFile, LockFile, Versions};
 
 pub use source::{Inspected, RepoDigest, digest_for, parse_inspect, repo_digest};
 pub use token::{TokenPath, locate};
+
+/// VK0030：`repo` 交付的 `<ns>` 撞到已被使用的名字（#372 N79 擴到 upgrade）。
+fn collision(repo: &str, c: &fetch::Collision) -> Diagnostic {
+    Diagnostic::new(&messages::VK0030)
+        .arg("repo", repo)
+        .arg("ns", c.ns.as_str())
+        .arg("owner", c.owner.to_string())
+}
 
 /// 進度檔的 `<verb>`。
 pub const VERB: &str = table::VERB;
@@ -408,8 +417,12 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
     // ---- 流程 ----
 
     fn run(&mut self, req: &Request) -> Step<()> {
+        // `args` 已擋下不是 just 名稱的工具名（VK0026，#372 N84）；到這裡還不是就是 VK 的錯。
         if !fetch::is_namespace(req.repo) {
-            return Err(self.gap(format_args!("tool name {:?} (not a just name)", req.repo)));
+            return Err(self.internal(format!(
+                "tool name {:?} (not a just name) reached upgrade",
+                req.repo
+            )));
         }
         let config = self.config()?;
         let _lock = self.lock(&config)?;
@@ -419,11 +432,10 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             lockfile = self.lockfile()?;
         }
 
+        // 先恢復殘留的進度檔，再判對象不存在（訊息表 VK0046；#372 N80 擴到 upgrade）。
         let Some(current) = lockfile.tool(req.repo).cloned() else {
-            return Err(self.gap(format_args!(
-                "upgrade of {}, which is not in the lock version lines",
-                req.repo
-            )));
+            let d = Diagnostic::new(&messages::VK0046).arg("repo", req.repo);
+            return Err(self.stop(d));
         };
         let name = format!("{}/{}", current.registry(), current.path());
         let registry = self.env.registry;
@@ -561,7 +573,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         }
     }
 
-    /// 一個工具的本機開發來源：讀不到回 `Ok(Err(VK0052))`；交付保留名是缺口（模組說明）。
+    /// 一個工具的本機開發來源：讀不到回 `Ok(Err(VK0052))`；交付保留名回 `Ok(Err(VK0030))`（模組說明）。
     fn local_source(&mut self, repo: &str, source: &str) -> Step<Result<Local, Diagnostic>> {
         let unreadable = |reason: String| {
             Diagnostic::new(&messages::VK0052)
@@ -579,10 +591,12 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             Err(p) => return Ok(Err(unreadable(p.reason()))),
         };
         if namespaces.iter().any(|n| n == fetch::RESERVED) {
-            return Err(self.gap(format_args!(
-                "upgrade while the local source of {repo} delivers the reserved namespace {} \
-                 (no reason code)",
-                fetch::RESERVED
+            return Ok(Err(collision(
+                repo,
+                &fetch::Collision {
+                    ns: fetch::RESERVED.to_owned(),
+                    owner: fetch::Owner::Reserved,
+                },
             )));
         }
         Ok(Ok(Local {
@@ -882,14 +896,10 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         match fetch::verify(&staged, &installed.taken, None) {
             Ok(c) => Ok((c, installed)),
             Err(fetch::Error::Collision { collisions, .. }) => {
-                let list: Vec<String> = collisions
-                    .iter()
-                    .map(|c| format!("{} (used by {})", c.ns, c.owner))
-                    .collect();
-                Err(self.gap(format_args!(
-                    "upgrade of {repo} whose new version delivers colliding namespaces: {}",
-                    list.join(", ")
-                )))
+                for c in &collisions {
+                    self.emit(collision(repo, c));
+                }
+                Err(Stop)
             }
             Err(e) => Err(self.internal(format!("tool content of {repo}: {e}"))),
         }

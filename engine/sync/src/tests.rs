@@ -859,6 +859,44 @@ fn unreadable_local_source_is_vk0052_and_writes_nothing() {
     assert!(out.log.is_empty());
 }
 
+/// 本機開發來源交付保留名 `vendor_kit`（#372 N79）：VK0030，跟其他停下原因一樣在取件之前停下。
+#[test]
+fn local_source_delivering_the_reserved_name_is_vk0030_before_any_fetch() {
+    let fx = Fx::new(&[&TOOL, &OTHER]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    override_tool(&fx, "work/tool");
+    content(&fx.dir.root().join("work/tool"), &["vendor_kit"]);
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 2);
+    assert!(out.ops.is_empty(), "{:?}", out.ops);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0030]: Cannot add tool: namespace vendor_kit is already used by vendor_kit.\n"
+    );
+    assert!(untouched(&fx, &lock));
+}
+
+/// 兩個工具交付同一個 `<ns>`（#372 N79）：VK0030，`<repo>` 是依名字排在後面的工具，在寫入之前停下。
+#[test]
+fn two_tools_delivering_the_same_namespace_is_vk0030_and_writes_nothing() {
+    let fx = Fx::new(&[&TOOL, &OTHER]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    override_tool(&fx, "work/tool");
+    content(&fx.dir.root().join("work/tool"), &["other"]);
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0030]: Cannot add tool: namespace other is already used by other.\n"
+    );
+    assert!(out.log.is_empty());
+    assert!(!fx.dir.gen_dir().exists());
+    assert!(fx.stamp("other").is_none());
+    assert_eq!(fs::read(fx.dir.version_toml()).unwrap(), lock);
+}
+
 /// 主機上安裝目錄（`/h/proj`）外的 `/h/elsewhere/tool`（交付 `tool`、`tool-extra`），`tool` 的覆寫指到 `source`。
 fn override_outside(fx: &Fx, source: &str) -> PathBuf {
     let host = fx._tmp.path().join("host");

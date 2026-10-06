@@ -993,13 +993,120 @@ vendor_kit: error[VK0046]: Tool tool is not in the lock version lines. The reque
         ["engine_started", "diagnostic_emitted", "engine_finished"]
     );
 
-    // dev 未導入的工具：訊息表沒有代碼（VK0046 只寫 remove、undev、update），以 VK0056 停下。
+    // dev 未導入的工具：同樣是 VK0046（#372 N80 把情境擴到 dev）。
     let (code, stdout, stderr) = run_idle(&m, &["dev", "tool", "-p", "work/tool"]);
     assert_eq!(code, 2);
     assert_data_eq!(stdout, "");
-    assert!(
-        stderr.starts_with("vendor_kit: error[VK0056]: Internal vendor_kit error: dev for tool, which is not in the lock version lines"),
-        "{stderr}"
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0046]: Tool tool is not in the lock version lines. The requested operation did not complete.
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
+}
+
+/// `dev`、`undev` 的工具名不是合法的 just 名稱：用法錯誤（VK0026，結束碼 2，#372 N84），什麼都不寫。
+#[test]
+fn a_tool_name_that_is_not_a_just_name_is_a_usage_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let before = snapshot(&m);
+    for (rest, value) in [
+        (&["dev", "li.nt", "-p", "work/tool"][..], "li.nt"),
+        (&["undev", "1tool"][..], "1tool"),
+    ] {
+        let (code, stdout, stderr) = run_idle(&m, rest);
+        assert_eq!(code, 2, "{stderr}");
+        assert_data_eq!(stdout, "");
+        assert!(
+            stderr.starts_with(&format!(
+                "vendor_kit: error[VK0026]: Unknown, extra, or disallowed argument: {value}.\n"
+            )),
+            "{stderr}"
+        );
+        assert_eq!(snapshot(&m), before);
+    }
+}
+
+/// 有 `tool` 與 `other` 兩個工具、`cache/` 都在的安裝目錄；`work/tool/` 是 `tool` 的本機開發來源。
+fn install_two_tools(m: &Mounts) {
+    install(m);
+    let vk = m.root.join(".vendor_kit");
+    fs::write(
+        vk.join("version.toml"),
+        format!(
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nother = \"ghcr.io/acme/other:v1.0.0@{DIGEST}\"\ntool = \"{IMAGE}@{DIGEST}\"\n"
+        ),
+    )
+    .unwrap();
+    for repo in ["other", "tool"] {
+        let just = vk.join(format!("cache/{repo}/just"));
+        fs::create_dir_all(&just).unwrap();
+        fs::write(just.join(format!("{repo}.just")), "x:\n").unwrap();
+    }
+    tool_content(&m.root.join("work/tool"));
+}
+
+/// 本機開發來源撞到其他工具與保留名（#372 N79）：每個撞到的名字各一則 VK0030，什麼都不寫。
+#[test]
+fn dev_whose_local_source_collides_is_vk0030() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install_two_tools(&m);
+    fs::write(m.root.join("work/tool/just/other.just"), "").unwrap();
+    fs::write(m.root.join("work/tool/just/vendor_kit.just"), "").unwrap();
+    let before = snapshot(&m);
+
+    let (code, stdout, stderr) = run_idle(&m, &["dev", "tool", "-p", "work/tool"]);
+
+    assert_eq!(code, 2, "{stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0030]: Cannot add tool: namespace other is already used by other.
+vendor_kit: error[VK0030]: Cannot add tool: namespace vendor_kit is already used by vendor_kit.
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
+    assert!(!events(&m).iter().any(|e| e == "writes_started"));
+}
+
+/// 對象不同的 `dev`、`undev` 殘留（#372 N81）：VK0054、VK0053，下一步是重跑原指令；進度檔留著。
+#[test]
+fn dev_with_a_residual_of_another_target_reports_how_to_finish_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install_two_tools(&m);
+    let vk = m.root.join(".vendor_kit");
+    fs::write(
+        vk.join(".tmp.dev.r0.toml"),
+        "command = [\"dev\", \"other\", \"-p\", \"work/other\"]\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[dev]\ntarget = \"other\"\npath = \"work/other\"\n",
+    )
+    .unwrap();
+    fs::write(
+        vk.join(".tmp.undev.r0.toml"),
+        "command = [\"undev\", \"other\"]\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[undev]\ntarget = \"other\"\n",
+    )
+    .unwrap();
+    let before = snapshot(&m);
+
+    let (code, stdout, stderr) = run_idle(&m, &["dev", "tool", "-p", "work/tool"]);
+
+    assert_eq!(code, 2, "{stderr}");
+    assert_data_eq!(stdout, "");
+    let mut lines: Vec<&str> = stderr.lines().collect();
+    lines.sort_unstable();
+    assert_eq!(
+        lines,
+        [
+            "vendor_kit: error[VK0053]: The undev operation for other is incomplete. Run again: just vendor_kit undev other",
+            "vendor_kit: error[VK0054]: Operation dev in /srv/proj is incomplete. Run again: just vendor_kit dev other -p work/other",
+        ]
     );
     assert_eq!(snapshot(&m), before);
 }
@@ -1039,4 +1146,32 @@ vendor_kit: error[VK0056]: Internal vendor_kit error: the cache of installed too
     );
     assert_eq!(snapshot(&m), before);
     assert!(!events(&m).iter().any(|e| e == "writes_started"));
+}
+
+/// 開著覆寫的工具的本機開發來源交付保留名 `vendor_kit`：`sync` 回 VK0030（#372 N79），在取件之前停下。
+#[test]
+fn sync_with_a_local_source_delivering_the_reserved_name_is_vk0030() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install_two_tools(&m);
+    fs::write(m.root.join("work/tool/just/vendor_kit.just"), "").unwrap();
+    fs::write(
+        m.root.join(".vendor_kit/version.local.toml"),
+        "schema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"work/tool\"\n",
+    )
+    .unwrap();
+    let before = snapshot(&m);
+
+    let (code, stdout, stderr) = run_idle(&m, &["sync"]);
+
+    assert_eq!(code, 2, "{stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0030]: Cannot add tool: namespace vendor_kit is already used by vendor_kit.
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
 }

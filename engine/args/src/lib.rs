@@ -27,6 +27,8 @@
 //! - `add` 的 `--image-path` 與 `-i` 並用時，`--image-path` 算不允許的參數（`-i` 的引用已含路徑）。
 //! - 帶值的選項一律把下一個參數原樣當值，即使它以 `-` 開頭或是 `--`。
 //! - 不收 tag 的指令遇到 `<repo>@<tag>`，整個參數算不允許的參數，不檢查 tag 格式；`<repo>` 是空字串也一樣。
+//! - `dev`、`undev`、`upgrade` 的 `<repo>` 不是合法的 just 名稱（`[A-Za-z_][A-Za-z0-9_-]*`）時，整個參數（含
+//!   `@<tag>`）算不允許的參數（VK0026，#372 N84）。`add`、`remove`、`update` 這一版還不檢查。
 //! - `dist` 不論在不在 `--` 之後，都當 `test dist` 的指令名，不當 path。
 //!
 //! 錯誤的優先次序：先 VK0026（不認得、多出或不允許的參數，取最前面的那一個），再 VK0027（tag 格式不合），
@@ -505,8 +507,14 @@ impl<'a> Seen<'a> {
         }
     }
 
-    /// 工具名，可帶 `@<tag>`（`with_tag` 為假時整個參數算不允許）。
-    fn repo(&mut self, repo: (usize, &OsStr), with_tag: bool) -> Option<(String, Option<Tag>)> {
+    /// 工具名，可帶 `@<tag>`（`with_tag` 為假時整個參數算不允許）。`just_name` 為真時工具名必須是合法的
+    /// just 名稱（[`is_just_name`]），不合時整個參數算不允許。
+    fn repo(
+        &mut self,
+        repo: (usize, &OsStr),
+        with_tag: bool,
+        just_name: bool,
+    ) -> Option<(String, Option<Tag>)> {
         let (at, raw) = repo;
         let Some(text) = raw.to_str() else {
             self.reject(at, raw);
@@ -520,7 +528,7 @@ impl<'a> Seen<'a> {
             }
             None => (text, None),
         };
-        if name.is_empty() {
+        if name.is_empty() || (just_name && !is_just_name(name)) {
             self.reject(at, raw);
             return None;
         }
@@ -576,6 +584,14 @@ impl<'a> Seen<'a> {
     }
 }
 
+/// just 的名稱：`[A-Za-z_][A-Za-z0-9_-]*`（與 `fetch::is_namespace` 同一條規則；指令之間互不依賴，照抄）。
+fn is_just_name(s: &str) -> bool {
+    let mut b = s.bytes();
+    b.next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+        && b.all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+}
+
 /// `--engine` 參數的原字串，給 VK0026 的 `<value>`。
 fn engine_raw(engine: Option<(usize, Option<&str>)>) -> String {
     match engine {
@@ -600,7 +616,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
     let cmd = match name {
         Name::Add | Name::Remove | Name::Update => {
             let (_, target) = s.target(false);
-            let repo = target.and_then(|r| s.repo(r, name == Name::Add));
+            let repo = target.and_then(|r| s.repo(r, name == Name::Add, false));
             let token_file = s.token_file.map(|(_, v)| v.to_owned());
             let image = s.image.map(|(_, v)| v.to_owned());
             let image_path = s.image_path_value();
@@ -634,7 +650,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                 s.finish(None)?;
                 Command::UpgradeEngine { tag, yes }
             } else {
-                let repo = target.and_then(|r| s.repo(r, true));
+                let repo = target.and_then(|r| s.repo(r, true, true));
                 let registry_token_file = s.token_file.map(|(_, v)| v.to_owned());
                 s.finish(target.is_none().then_some(REPO))?;
                 let Some((repo, tag)) = repo else {
@@ -660,7 +676,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                 Command::DevEngine { image }
             } else {
                 s.forbid(s.image, &typed(&tokens, s.image, "-i"));
-                let repo = target.and_then(|r| s.repo(r, false));
+                let repo = target.and_then(|r| s.repo(r, false, true));
                 let path = s.path.map(|(_, v)| v.to_owned());
                 let need = if target.is_none() {
                     Some(REPO)
@@ -678,7 +694,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
         }
         Name::Undev => {
             let (engine, target) = s.target(true);
-            let repo = target.and_then(|r| s.repo(r, false));
+            let repo = target.and_then(|r| s.repo(r, false, true));
             s.finish((!engine && target.is_none()).then_some(REPO))?;
             match repo {
                 _ if engine => Command::UndevEngine,
@@ -1059,6 +1075,32 @@ mod tests {
         bad_tag(&["upgrade", "--engine=1.4.0"], "1.4.0");
         bad_tag(&["upgrade", "--engine="], "");
         bad_tag(&["upgrade", "--engine=v1.4.0+build"], "v1.4.0+build");
+    }
+
+    /// `dev`、`undev`、`upgrade` 的 `<repo>` 不是合法的 just 名稱：整個參數算不允許（#372 N84），
+    /// 排在 tag 格式之前；`add`、`remove`、`update` 這一版不檢查。
+    #[test]
+    fn tool_name_must_be_a_just_name() {
+        for name in ["1lint", "li.nt", "li nt", "-lint", "lint/x", "lïnt"] {
+            bad(&["upgrade", name], name);
+            bad(&["dev", name, "-p", "d"], name);
+            bad(&["undev", name], name);
+        }
+        bad(&["upgrade", "li.nt@v1.0.0"], "li.nt@v1.0.0");
+        bad(&["upgrade", "li.nt@v1.0"], "li.nt@v1.0");
+        bad(&["upgrade", "--", "-lint"], "-lint");
+        for name in ["_lint", "Lint-2", "a_b-c"] {
+            assert!(matches!(
+                run(&["upgrade", name]),
+                Command::UpgradeTool { repo, .. } if repo == name
+            ));
+        }
+        assert_eq!(
+            run(&["remove", "li.nt"]),
+            Command::Remove {
+                repo: "li.nt".into()
+            }
+        );
     }
 
     // ---- dev ----
