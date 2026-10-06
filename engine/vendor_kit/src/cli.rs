@@ -48,7 +48,7 @@ pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";
 /// 起引擎容器時不帶任何環境變數）；e2e 在主機上直接跑執行檔，沒有 image 裡的模板，用它給 fixture 模板。
 pub const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
 
-/// 測試用：設了這個環境變數，`update` 的 registry client 改連這個 base URL（`registry::Client::with_base_url`），
+/// 測試用：設了這個環境變數，`update` 與 `upgrade <repo>` 的 registry client 改連這個 base URL（`registry::Client::with_base_url`），
 /// 不連 `registry::BASE_URL`；image 名稱仍只收 ghcr.io。正式執行時一定不設（啟動器起引擎容器時不帶任何環境
 /// 變數）；e2e 用它接假 registry，不連外網。
 pub const REGISTRY_URL_ENV: &str = "VK_TEST_REGISTRY_URL";
@@ -564,7 +564,16 @@ where
             let _ = stdout.flush();
             code
         }
-        args::Command::UpgradeTool { repo, tag, yes, .. } => {
+        args::Command::UpgradeTool {
+            repo,
+            tag,
+            yes,
+            registry_token_file,
+        } => {
+            let registry = match registry_client(host_log, diags) {
+                Ok(c) => c,
+                Err(code) => return code,
+            };
             let dir = layout::InstallDir::new(&mounts.root);
             let argv: Vec<String> = inv
                 .rest
@@ -581,6 +590,7 @@ where
                 inbox: &mounts.inbox,
                 channel,
                 poll: POLL,
+                registry: &registry,
                 tty: inv.tty,
                 argv: &argv,
                 run_id: inv.run_id.as_str(),
@@ -595,6 +605,7 @@ where
                 repo,
                 tag: *tag,
                 yes: *yes,
+                registry_token_file: registry_token_file.as_deref(),
             };
             let code = upgrade::run(&req, &mut env);
             let _ = stdout.flush();

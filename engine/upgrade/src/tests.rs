@@ -1,7 +1,9 @@
-//! 單元測試：以背景的假啟動器回 inspect、pull、extract 與 `stage-dir`，跑整段 `upgrade <repo>`。初始檔經 [`run_with`]
+//! 單元測試：以背景的假啟動器回 inspect、pull、extract、`stage` 與 `stage-dir`，跑整段 `upgrade <repo>`。初始檔經 [`run_with`]
 //! 直接給（`init.toml` 格式未定，經執行檔做不出會詢問的工具），驗基準版合併、合併衝突、答否、不能互動、
-//! `-y`；另驗恢復殘留進度與各個停下點。
+//! `-y`；另驗恢復殘留進度與各個停下點。向假 registry 線上解析 tag 與 digest 的測試在 [`online`]。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+mod online;
 
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -162,6 +164,9 @@ struct Script {
     fail: Option<&'static str>,
     /// inspect 回的 RepoDigests。
     digests: &'static [&'static str],
+    /// 本機有 `<registry>/<路徑>:<tag>`；`false` 時不帶 digest 的 inspect 回 failed 1（帶 digest 的照常，
+    /// 當成 pull 進來了）。
+    local: bool,
 }
 
 const NEW: Script = Script {
@@ -170,10 +175,11 @@ const NEW: Script = Script {
     digests: &[
         "ghcr.io/acme/tool@sha256:2222222222222222222222222222222222222222222222222222222222222222",
     ],
+    local: true,
 };
 
-/// 假啟動器：inspect 回 RepoDigests，extract 放進 `just/<ns>.just`；`stage-dir` 把主機路徑 `/h/<x>` 對到的
-/// [`Fx::host`]`/<x>` 複製進 `in/<slot>`。回傳看到的 op 行。
+/// 假啟動器：inspect 回 RepoDigests，extract 放進 `just/<ns>.just`；`stage` 與 `stage-dir` 把主機路徑
+/// `/h/<x>` 對到的 [`Fx::host`]`/<x>`（檔或目錄）複製進 `in/<slot>`。回傳看到的 op 行。
 struct Peer {
     stop: Arc<AtomicBool>,
     handle: JoinHandle<Vec<String>>,
@@ -223,6 +229,20 @@ impl Peer {
                                 _ => Outcome::Failed(1),
                             }
                         }
+                        // launcher/launch.sh 的 vk_launch_stage：來源不是檔或 slot 已存在回 failed 1。
+                        Op::Stage(path, slot) => {
+                            let path = String::from_utf8(path.as_bytes().to_vec()).unwrap();
+                            let src = path.strip_prefix("/h/").map(|rest| host.join(rest));
+                            let dest = inbox.join(slot.as_str());
+                            match src {
+                                Some(src) if src.is_file() && !dest.exists() => {
+                                    fs::copy(&src, &dest).unwrap();
+                                    Outcome::Ok
+                                }
+                                _ => Outcome::Failed(1),
+                            }
+                        }
+                        Op::Inspect(r) if !script.local && !r.is_pinned() => Outcome::Failed(1),
                         Op::Inspect(_) => {
                             let ds: Vec<String> =
                                 script.digests.iter().map(|d| format!("\"{d}\"")).collect();
@@ -295,8 +315,35 @@ impl Shared {
     }
 }
 
+/// 不該連到 registry 的執行：給一個不會被用到的位址。
+fn unused_registry() -> Client {
+    Client::with_base_url("http://127.0.0.1:9").unwrap()
+}
+
 /// 跑一次 `upgrade`：`argv` 是 `just vendor_kit` 之後的參數，`<repo>[@<tag>]` 與 `-y` 從裡面取。
 fn run_upgrade(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &str) -> Out {
+    let registry = unused_registry();
+    let call = Online {
+        registry: &registry,
+        token_file: None,
+    };
+    run_online(fx, argv, init, tty, input, &call)
+}
+
+/// 線上解析用的 registry 與 `--registry-token-file`。
+struct Online<'a> {
+    registry: &'a Client,
+    token_file: Option<&'a str>,
+}
+
+fn run_online(
+    fx: &Fx,
+    argv: &[&str],
+    init: Vec<OwnedInit>,
+    tty: Tty,
+    input: &str,
+    online: &Online<'_>,
+) -> Out {
     let target = argv[1];
     let (repo, tag) = match target.split_once('@') {
         Some((r, t)) => (r, Some(Tag::parse(t).unwrap())),
@@ -306,6 +353,7 @@ fn run_upgrade(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &s
         repo,
         tag,
         yes: argv.contains(&"-y"),
+        registry_token_file: online.token_file.map(OsStr::new),
     };
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     fx.assert_fresh_session();
@@ -331,6 +379,7 @@ fn run_upgrade(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &s
             inbox: &fx.inbox,
             channel: &mut channel,
             poll: Duration::from_millis(1),
+            registry: online.registry,
             tty,
             argv: &argv,
             run_id: "r1",
@@ -734,8 +783,6 @@ fn stops_before_fetching() {
     let fx = Fx::new();
     let before = fx.snapshot();
     let peer = Peer::start(&fx, NEW);
-    let out = run_upgrade(&fx, &["upgrade", "tool"], Vec::new(), tty(false), "");
-    assert_gap(&out, "upgrade tool without @<tag> (listing tags");
     let out = run_upgrade(
         &fx,
         &["upgrade", "other@v1.0.0"],
@@ -759,34 +806,9 @@ fn same_tag_with_init_file_records_is_a_gap() {
     let out = run_upgrade(&fx, &["upgrade", "tool@v1.0.0"], Vec::new(), tty(false), "");
     assert_gap(&out, "judging whether the baseline of tool is behind");
     assert_eq!(fx.snapshot(), before);
-}
-
-#[test]
-fn tag_that_is_not_a_local_image_is_a_gap() {
-    let fx = Fx::new();
-    let before = fx.snapshot();
-    let peer = Peer::start(
-        &fx,
-        Script {
-            fail: Some("inspect"),
-            ..NEW
-        },
-    );
-    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
-    assert_eq!(peer.finish(), [format!("inspect {NEW_REF}")]);
-    assert_gap(&out, "which is not a local image");
-    assert_eq!(fx.snapshot(), before);
-
-    let peer = Peer::start(
-        &fx,
-        Script {
-            digests: &[],
-            ..NEW
-        },
-    );
-    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
-    peer.finish();
-    assert_gap(&out, "without a repository digest for ghcr.io/acme/tool");
+    // 不帶 tag 也一樣：在讀 token 檔、連 registry 之前停下（registry 給的是連不到的位址）。
+    let out = run_upgrade(&fx, &["upgrade", "tool"], Vec::new(), tty(false), "");
+    assert_gap(&out, "judging whether the baseline of tool is behind");
     assert_eq!(fx.snapshot(), before);
 }
 
@@ -1218,6 +1240,7 @@ fn progress_records_the_upgrade_table_while_landing() {
             inbox: &fx.inbox,
             channel: &mut Channel::new(&fx.ctl, header()),
             poll: Duration::from_millis(1),
+            registry: &unused_registry(),
             tty: tty(false),
             argv: &["upgrade".to_owned(), "tool@v1.2.0".to_owned()],
             run_id: "r9",

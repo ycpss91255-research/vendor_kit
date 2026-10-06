@@ -1,8 +1,11 @@
-//! 假的 registry：在 127.0.0.1 起 std `TcpListener`，照 GHCR 的 token 認證回應 `tags/list`，不連外網。
+//! 假的 registry：在 127.0.0.1 起 std `TcpListener`，照 GHCR 的 token 認證回應 `tags/list` 與 HEAD
+//! manifest，不連外網。
 //!
 //! - 沒帶 Bearer 的請求回 401 加 `WWW-Authenticate: Bearer realm=<base>/token,…`。
 //! - `/token`：匿名給 `anon`；Basic 認證帶 [`GOOD_TOKEN`] 給 `pat`；其他 Basic 回 401。
 //! - `/v2/<路徑>/tags/list`：依 [`Repo`] 回 tag；沒列的路徑回 404。
+//! - `HEAD /v2/<路徑>/manifests/<tag>`：依 [`Registry::start_with`] 給的 digest 回 `Docker-Content-Digest`
+//!   （認證跟同一個路徑的 `tags/list` 一樣）；沒給的 tag 或路徑回 404。
 //!
 //! 不依賴任何 engine crate（test/boundary 檢查），協定照 engine/registry 的說明手寫。
 
@@ -45,9 +48,18 @@ pub struct Registry {
 impl Registry {
     /// 起一個假 registry；`repos` 是 `(路徑, 內容)`，路徑不含 `ghcr.io/`。
     pub fn start(repos: &[(&str, Repo)]) -> Registry {
+        Registry::start_with(repos, &[])
+    }
+
+    /// 同 [`Registry::start`]，另給 tag 指向的 digest：`(路徑, tag, digest)`。
+    pub fn start_with(repos: &[(&str, Repo)], digests: &[(&str, &str, &str)]) -> Registry {
         let repos: BTreeMap<String, Repo> = repos
             .iter()
             .map(|(p, r)| ((*p).to_owned(), r.clone()))
+            .collect();
+        let digests: BTreeMap<(String, String), String> = digests
+            .iter()
+            .map(|(p, t, d)| (((*p).to_owned(), (*t).to_owned()), (*d).to_owned()))
             .collect();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -60,8 +72,10 @@ impl Registry {
                     continue;
                 };
                 log2.lock().unwrap().push(line.clone());
-                let (status, header, body) = respond(&repos, &base2, &line, auth.as_deref());
-                write_response(stream, status, header.as_deref(), &body);
+                let (status, header, body) =
+                    respond(&repos, &digests, &base2, &line, auth.as_deref());
+                let body = if line.starts_with("HEAD ") { "" } else { &body };
+                write_response(stream, status, header.as_deref(), body);
             }
         });
         Registry { base, log }
@@ -80,6 +94,7 @@ impl Registry {
 
 fn respond(
     repos: &BTreeMap<String, Repo>,
+    digests: &BTreeMap<(String, String), String>,
     base: &str,
     line: &str,
     auth: Option<&str>,
@@ -92,11 +107,12 @@ fn respond(
             Some(_) => (401, None, String::new()),
         };
     }
-    let Some(path) = target
-        .strip_prefix("/v2/")
-        .and_then(|t| t.split_once("/tags/list"))
-        .map(|(p, _)| p)
-    else {
+    let rest = target.strip_prefix("/v2/").unwrap_or("");
+    let (path, tag) = if let Some((p, _)) = rest.split_once("/tags/list") {
+        (p, None)
+    } else if let Some((p, t)) = rest.split_once("/manifests/") {
+        (p, Some(t))
+    } else {
         return (404, None, String::new());
     };
     let Some(bearer) = auth.and_then(|a| a.strip_prefix("Bearer ")) else {
@@ -111,6 +127,16 @@ fn respond(
         Some(Repo::Private(tags)) if bearer == "pat" => tags,
         Some(Repo::Private(_)) => return (403, None, String::new()),
     };
+    if let Some(tag) = tag {
+        return match digests.get(&(path.to_owned(), tag.to_owned())) {
+            Some(d) => (
+                200,
+                Some(format!("Docker-Content-Digest: {d}")),
+                String::new(),
+            ),
+            None => (404, None, String::new()),
+        };
+    }
     let list: Vec<String> = tags.iter().map(|t| format!("\"{t}\"")).collect();
     let body = format!(r#"{{"name":"{path}","tags":[{}]}}"#, list.join(","));
     (200, None, body)

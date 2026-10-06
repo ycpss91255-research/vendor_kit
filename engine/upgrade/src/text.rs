@@ -85,3 +85,39 @@ pub fn question(repo: &str, path: &str, ask: Ask) -> String {
 pub fn docker_failed(op: &str, rc: u8) -> String {
     format!("docker {op} exited with {rc}")
 }
+
+/// VK0031 的 `<reason>`：本機 image 沒有這個 registry 與路徑的 RepoDigest（訊息表列的填法之一）。
+pub const DIGEST_MISSING: &str = "required digest information is missing";
+
+/// VK0055 的 `<reason>`：registry 列得到、但一個 tag 都沒有（同 engine/update；模組說明的缺口）。
+pub const NO_TAGS: &str = "the registry lists no tags";
+
+/// VK0055 的 `<reason>`：token 檔不是 UTF-8（同 engine/update）。
+pub const TOKEN_NOT_UTF8: &str = "the registry token file is not UTF-8";
+
+/// VK0055 的 `<reason>`：token 檔去掉前後空白後是空的（同 engine/update）。
+pub const TOKEN_EMPTY: &str = "the registry token file is empty";
+
+/// VK0055 的 `<reason>`：讀 token 檔失敗（同 engine/update）。
+pub fn token_unreadable(error: &str) -> String {
+    format!("cannot read the registry token file: {error}")
+}
+
+/// VK0055 的 `<reason>`：token 檔的主機路徑放不進往返協定的欄位（同 engine/update）。
+pub fn token_unpassable(error: &str) -> String {
+    format!("cannot pass the registry token file path to the launcher: {error}")
+}
+
+/// VK0055 的 `<reason>`：啟動器複製 token 檔失敗（同 engine/update）。
+pub fn token_copy_failed(rc: u8) -> String {
+    format!("the launcher could not copy the registry token file (exit {rc})")
+}
+
+/// 同一個 tag 指向不同 digest（VK0056 的 `<reason>` 前段，後面接草稿碼的說明）：`<image>` 是
+/// `<registry>/<路徑>:<tag>`，`digests` 依找到的順序（本機的在前、registry 的在後）。
+pub fn tag_digests(image: &str, digests: &[String]) -> String {
+    format!(
+        "{image} points to more than one digest ({})",
+        digests.join(", ")
+    )
+}

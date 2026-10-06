@@ -35,6 +35,16 @@ const ALLOWS: &[Allow] = &[
         code: "VK0071",
         reason: "test 讀到指向不存在鎖定行的本機覆寫的草稿碼（N76），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
     },
+    Allow {
+        path: "engine/upgrade/src/lib.rs",
+        code: "VK0078",
+        reason: "upgrade 遇到同一個 tag 指向不同 digest 的草稿碼（N53），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
+    },
+    Allow {
+        path: "test/e2e/tests/upgrade.rs",
+        code: "VK0078",
+        reason: "驗 upgrade 同一個 tag 指向不同 digest 時原因寫明草稿碼（N53）；e2e 不能依賴 engine crate 的常數",
+    },
 ];
 
 fn repo_root() -> PathBuf {
