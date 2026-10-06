@@ -809,3 +809,77 @@ fn removed_paths_must_stay_inside_the_vk_dir() {
     assert!(outside.path().join("keep").is_file());
     assert!(fs::symlink_metadata(f.dir.vk_dir().join("link")).is_err());
 }
+
+// ---- 唯讀 recipe 的順序 ----
+
+fn run_refresh(f: &Fixture, fail_at: Option<usize>) -> (Result<(), Failed>, Vec<u8>, usize) {
+    let mut w = Writer::new(Vec::new(), header(Component::Engine)).with_clock(fixed_time);
+    let (result, calls) = {
+        let mut fx = Faulty::new(Disk::new(&f.dir, &mut w, WRITTEN_BY), fail_at);
+        let result = refresh(&mut fx, &[f.tool()], Some(TOOLS_JUST_TEXT));
+        (result, fx.calls)
+    };
+    (result, w.into_inner(), calls)
+}
+
+#[test]
+fn refresh_swaps_cache_and_writes_entry_without_a_progress_file() {
+    let f = Fixture::new();
+    let before = f.lock_text();
+    let (result, log, calls) = run_refresh(&f, None);
+    result.unwrap();
+    assert_eq!(calls, Step::REFRESH.len());
+    assert_eq!(events(&log), ["writes_started"]);
+    assert!(!f.progress_left());
+    assert!(f.cache_is_new());
+    let stamp = Stamp::load(&f.stamp_file).unwrap().unwrap();
+    assert_eq!(stamp.version(), TOOL);
+    assert!(
+        stamp
+            .verify(&f.dir.tool_cache("tool").unwrap())
+            .unwrap()
+            .is_match()
+    );
+    assert_eq!(fs::read(f.tools_just()).unwrap(), TOOLS_JUST_TEXT);
+    assert_eq!(f.lock_text(), before);
+}
+
+#[test]
+fn refresh_with_nothing_to_write_only_logs_writes_started() {
+    let f = Fixture::new();
+    let mut w = Writer::new(Vec::new(), header(Component::Engine)).with_clock(fixed_time);
+    {
+        let mut fx = Disk::new(&f.dir, &mut w, WRITTEN_BY);
+        refresh(&mut fx, &[], None).unwrap();
+    }
+    assert_eq!(events(&w.into_inner()), ["writes_started"]);
+    assert!(!f.progress_left());
+    assert!(!f.tools_just().exists());
+    assert!(!f.stamp_file.exists());
+}
+
+#[test]
+fn refresh_interrupted_at_each_step_leaves_no_progress_file_and_keeps_the_lock_line() {
+    for (n, step) in Step::REFRESH.into_iter().enumerate() {
+        let f = Fixture::new();
+        let before = f.lock_text();
+        let (result, log, _) = run_refresh(&f, Some(n));
+        let failed = result.unwrap_err();
+        assert_eq!(failed.step, step);
+        assert!(!f.progress_left(), "{step}");
+        assert_eq!(f.lock_text(), before, "{step}");
+        // 入口檔最後才寫：在它之前中斷時，入口檔還沒寫。
+        assert!(!f.tools_just().exists(), "{step}");
+        // 換 cache/ 之前中斷：舊內容與印記都不動；重跑時照常判定。
+        if step < Step::SwapCache {
+            assert!(!f.cache_is_new(), "{step}");
+            assert!(!f.stamp_file.exists(), "{step}");
+            assert!(events(&log).is_empty(), "{step}");
+        } else {
+            assert_eq!(events(&log), ["writes_started"], "{step}");
+        }
+        if step == Step::ToolsJust {
+            assert!(f.cache_is_new(), "{step}");
+        }
+    }
+}

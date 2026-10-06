@@ -178,6 +178,9 @@ const LANDED_EVENTS: [&str; 4] = [
     "engine_finished",
 ];
 
+/// `sync` 落地時的事件：唯讀 recipe 不建進度檔，所以沒有 `progress_removed`。
+const SYNC_LANDED_EVENTS: [&str; 3] = ["engine_started", "writes_started", "engine_finished"];
+
 #[test]
 fn add_then_dev_uses_the_local_source_and_undev_returns_to_the_locked_version() {
     let tmp = tempfile::tempdir().unwrap();
@@ -332,7 +335,7 @@ Updated .vendor_kit/gen/tools.just.
     );
     assert_data_eq!(stderr, "");
     assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
-    assert_eq!(events(&m), LANDED_EVENTS);
+    assert_eq!(events(&m), SYNC_LANDED_EVENTS);
     let vk_gen = vk.join("gen");
     let without_gen = |state: Vec<(PathBuf, Vec<u8>)>| -> Vec<(PathBuf, Vec<u8>)> {
         state

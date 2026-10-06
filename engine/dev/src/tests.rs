@@ -352,7 +352,7 @@ fn residual_dev_of_the_same_tool_is_completed_before_undev() {
 #[test]
 fn other_residual_progress_stops_before_the_target_check_without_writing() {
     let fx = Fx::new();
-    fx.residual("sync", &["sync"], &[]);
+    fx.residual("install", &["install"], &[]);
     fx.residual(UNDEV_VERB, &["undev", "other"], &[(TARGET_KEY, "other")]);
     let before = fx.snapshot();
     let out = undev(&fx, "missing");
@@ -364,7 +364,7 @@ fn other_residual_progress_stops_before_the_target_check_without_writing() {
         out.stderr
     );
     assert!(
-        out.stderr.contains("incomplete sync operation"),
+        out.stderr.contains("incomplete install operation"),
         "{}",
         out.stderr
     );

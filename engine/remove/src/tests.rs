@@ -317,7 +317,7 @@ fn answering_no_keeps_the_residual_progress_file() {
 
 #[test]
 fn residuals_that_cannot_be_folded_in_stop_before_any_write() {
-    for (verb, repo_files) in [("add", false), ("sync", false), (REMOVE_VERB, true)] {
+    for (verb, repo_files) in [("add", false), ("install", false), (REMOVE_VERB, true)] {
         let fx = Fx::new();
         fx.residual(verb, "r0", &["other"], repo_files);
         let out = run(&fx, &["remove", "tool"], true, "y\n");

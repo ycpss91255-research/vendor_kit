@@ -16,7 +16,7 @@
 //!      VK0053，`<target>` 讀進度檔 `[undev]` 表的 `target`（engine/dev 寫的），`<undev_command>` 由進度檔
 //!      的 `command` 重組；工具 `upgrade` 的回 VK0041，`<repo>` 讀進度檔 `[upgrade]` 表的 `target`（格式見
 //!      `progress::upgrade`），`<original_command>` 由進度檔的 `command` 重組；引擎 `upgrade` 的見「缺口」；
-//!      其他可寫 recipe（`sync`、`remove`、`install`、
+//!      其他可寫 recipe（`remove`、`install`、
 //!      `uninstall`、`dev` 等）回 VK0054，`<original_command>` 由進度檔的 `command` 重組、各參數依 POSIX
 //!      shell 規則加引號。
 //! 5. 判查詢對象：不帶工具參數是版本鎖定行裡的全部工具與引擎；`update <repo>` 只查那個工具，不在版本

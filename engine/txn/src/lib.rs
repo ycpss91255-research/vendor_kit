@@ -1,4 +1,4 @@
-//! 可寫 recipe 的落地順序（ADR-0004 可寫 recipe 的時序、`cache/` 與 `gen/` 的寫入順序；04 共同選項
+//! 可寫 recipe 與唯讀 recipe 的落地順序（ADR-0004 可寫 recipe 的時序、`cache/` 與 `gen/` 的寫入順序；04 共同選項
 //! 「全部同意才寫入」；#372 取件時機定案：先取到 repo 外暫存，全部同意才寫 cache／印記／gen）。
 //!
 //! 呼叫端問完所有問題、全部同意之後，才用 [`Txn`] 依序落地。順序固定：
@@ -29,6 +29,16 @@
 //! 7. 改版本鎖定行，或整份刪掉 `version.toml`（[`Txn::remove_lock_file`]）。
 //! 8. 執行紀錄記 `lock_line_written`。
 //! 9. 刪進度檔，再記 `progress_removed`。
+//!
+//! 唯讀 recipe（`sync`）只重建 `cache/` 與入口檔，不建進度檔、不改版本鎖定行（名詞表：唯讀 recipe 不動
+//! 追蹤檔、也不動進度檔；ADR-0007），走 [`refresh`] 這條順序：
+//!
+//! 1. 執行紀錄記 `writes_started`。
+//! 2. 換 `cache/<repo>/` 與印記，一個工具接一個工具。
+//! 3. 寫入口檔 `gen/tools.just`（`cache/` 換好之後才寫）。
+//!
+//! 沒有進度檔，所以沒有完成點；中斷安全靠這個順序與重跑冪等：換到一半的 `cache/<repo>/` 跟印記對不上，
+//! 重跑時判成不一致而重取；入口檔最後才寫，中途中斷時入口檔仍是上一版，重跑時重產。
 //!
 //! 每一步是一個消耗 `self` 的方法，回傳下一個狀態的 [`Txn`]，所以順序寫錯編譯不過；失敗回 [`Failed`]，
 //! 這次操作就此結束，不能接著寫。第 3–5 步一次收齊全部項目（可以是空的），第 6 步可以不寫，第 7–9 步
@@ -143,7 +153,8 @@ pub struct RecordFile<'a> {
 // ---------------------------------------------------------------------------
 // 步驟與錯誤
 
-/// 落地順序的每一步；導入的順序見 [`Step::ALL`]，收回的順序見 [`Step::RETRACT`]。
+/// 落地順序的每一步；導入的順序見 [`Step::ALL`]，收回的順序見 [`Step::RETRACT`]，唯讀 recipe 的順序見
+/// [`Step::REFRESH`]。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Step {
     /// 記 `writes_started`。
@@ -202,6 +213,9 @@ impl Step {
         Step::DeleteProgress,
         Step::ProgressRemoved,
     ];
+
+    /// 唯讀 recipe（[`refresh`]）的順序：每一個都對應一次 [`Effects`] 呼叫（換 `cache/` 每個工具一次）。
+    pub const REFRESH: [Step; 3] = [Step::WritesStarted, Step::SwapCache, Step::ToolsJust];
 
     /// 在這一步失敗時，完成點（刪進度檔）是否已經過了：只有記 `progress_removed` 失敗是。
     pub fn completed(self) -> bool {
@@ -757,6 +771,24 @@ impl<'e, E: Effects + ?Sized, S> Txn<'e, E, S> {
             state: PhantomData,
         }
     }
+}
+
+/// 唯讀 recipe（`sync`）的落地：記 `writes_started`，依序換每個工具的 `cache/<repo>/` 與印記（可以是空的），
+/// 再寫 `gen/tools.just`（`None` 表示入口檔不變）。不建進度檔、不改版本鎖定行，見模組說明。
+pub fn refresh<E: Effects + ?Sized>(
+    fx: &mut E,
+    tools: &[ToolContent],
+    entry: Option<&[u8]>,
+) -> Result<(), Failed> {
+    fx.log(&Event::WritesStarted)
+        .map_err(at(Step::WritesStarted))?;
+    for tool in tools {
+        fx.swap_cache(tool).map_err(at(Step::SwapCache))?;
+    }
+    if let Some(contents) = entry {
+        fx.write_tools_just(contents).map_err(at(Step::ToolsJust))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
