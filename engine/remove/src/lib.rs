@@ -14,7 +14,9 @@
 //!    回 VK0046（訊息表：先辨識未完成進度，再判斷對象不存在）。對象以外的工具開著覆寫時讀它的本機開發
 //!    來源，讀不到回 VK0052（見「本機覆寫」），在詢問之前停下。
 //! 5. 這次的對象是 `<repo>` 加上殘留 `remove` 記的工具。每個對象的逐檔紀錄（`baseline/<repo>.toml`，
-//!    沒有就是沒有初始檔）交給 `retract`，收齊這次全部的詢問。
+//!    沒有就是沒有初始檔）交給 `retract`，收齊這次全部的詢問。紀錄自相矛盾（非 `appended` 卻有 `lines`、
+//!    `appended` 卻沒有 `lines`）時不收回：每份這樣的紀錄檔各回一則 VK0013（`<file>` 是那份紀錄檔；
+//!    #372 N86 擴的情境，契約文字待補），在詢問與任何寫入之前停下。`uninstall` 相同。
 //! 6. `prompt` 一次問完（04 共同選項：全部同意才寫入，含恢復舊操作）：答否是正常取消（stdout 說明未變更，
 //!    以 0 結束）；不能互動回 VK0002，除執行紀錄外不寫任何檔。
 //! 7. 經 `txn` 的收回順序落地：收回插入行後的 repo 檔 → 重產 `gen/tools.just`（拿掉對象的 `<ns>`，
@@ -93,7 +95,6 @@
 //! - `-y`：兩個指令都還不收（#47，`args` 照 #489）；VK0002 的下一步指令照訊息表插入 `-y`。
 //! - 殘留的進度檔不是可以併入的 verb（`add`、`install` 等），或殘留的操作要寫 repo 檔：那次寫了哪些
 //!   repo 檔沒有記錄，重新判定會把 VK 自己剛收回的結果當成使用者改過（假的 VK0061）。
-//! - `retract` 判成契約沒寫到的紀錄組合（非 `appended` 卻有 `lines` 等）。
 //! - 其他已裝、沒開覆寫的工具的 `cache/<repo>/` 讀不到（N4）：重產入口檔要它的 `<ns>`。
 //!   在詢問與任何寫入之前讀，收齊全部讀不到的工具一起報（`fetch::CacheCheck`）：
 //!   不在的合成一則、下一步 `run just vendor_kit sync first`；讀不到或損壞的各一則、保留實際原因。
@@ -204,9 +205,10 @@ enum LockAction<'l> {
     RemoveFile,
 }
 
-/// 一份逐檔紀錄檔與它屬於誰。
+/// 一份逐檔紀錄檔、它的位置與它屬於誰。
 struct Record {
     owner: Owner,
+    path: PathBuf,
     metadata: Metadata,
 }
 
@@ -471,7 +473,8 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         }
     }
 
-    /// `retract` 判定；契約沒寫到的紀錄組合停下。
+    /// `retract` 判定。自相矛盾的紀錄（`retract` 判成 [`Verdict::Gap`]）不收回：每份有這種紀錄的紀錄檔各報
+    /// 一則 VK0013（#372 N86 擴的情境，契約文字待補），在詢問與任何寫入之前停下。
     fn plan(&mut self, records: &[Record]) -> Step<Plan> {
         let sources: Vec<Source<'_>> = records
             .iter()
@@ -483,18 +486,22 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         let root = self.env.dir.root().to_path_buf();
         let planned = retract::plan(&sources, |p| read_optional(&root.join(p)));
         let planned = planned.map_err(|e| self.internal(e.to_string()))?;
-        if let Some(r) = planned
+        let broken: BTreeSet<&Owner> = planned
             .records
             .iter()
-            .find(|r| matches!(r.verdict, Verdict::Gap(_)))
-        {
-            let what = format!(
-                "retracting the {} record of {} with state {} ({:?})",
-                r.owner, r.path, r.state, r.verdict
-            );
-            return Err(self.gap(what));
+            .filter(|r| matches!(r.verdict, Verdict::Gap(_)))
+            .map(|r| &r.owner)
+            .collect();
+        if broken.is_empty() {
+            return Ok(planned);
         }
-        Ok(planned)
+        for r in records.iter().filter(|r| broken.contains(&r.owner)) {
+            let d = Diagnostic::new(&messages::VK0013)
+                .arg("file", self.rel(&r.path))
+                .arg("path", self.env.run_log);
+            self.emit(d);
+        }
+        Err(Stop)
     }
 
     /// 一次問完；全部同意回 `true`，答否印未變更回 `false`，不能互動回 VK0002。
@@ -615,6 +622,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             if let Some(metadata) = self.load_metadata(&path)? {
                 records.push(Record {
                     owner: Owner::Tool(t.clone()),
+                    path,
                     metadata,
                 });
             }
@@ -1041,8 +1049,13 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                     }
                 }
             };
-            if let Some(metadata) = self.load_metadata(&dir.join(&name))? {
-                records.push(Record { owner, metadata });
+            let path = dir.join(&name);
+            if let Some(metadata) = self.load_metadata(&path)? {
+                records.push(Record {
+                    owner,
+                    path,
+                    metadata,
+                });
             }
         }
         // 不屬於任何工具的紀錄排在最後，問題的順序跟著工具名。

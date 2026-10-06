@@ -468,6 +468,48 @@ fn changed_and_extra_cache_files_are_refetched_with_vk0015() {
     assert_eq!(fx.entry().unwrap(), BOTH_GEN);
 }
 
+/// `cache/<repo>/` 裡的 symlink、socket 等非一般檔當成多出的檔：重新取件、警告 VK0015（#372 N85）。
+#[test]
+fn symlinks_and_special_files_in_cache_are_refetched_with_vk0015() {
+    let fx = Fx::new(&[&TOOL, &OTHER]);
+    synced(&fx);
+    let cache = fx.dir.tool_cache("tool").unwrap();
+    std::os::unix::fs::symlink("readme.txt", cache.join("share/link.txt")).unwrap();
+    // socket 檔：不是一般檔，也不是目錄。
+    let socket = cache.join("share/sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 1, "{}", out.stderr);
+    assert_eq!(out.ops, ["inspect", "extract"], "only tool is refetched");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: warn[VK0015]: The file set or per-file digests in cache/ for tool did not match; refetched according to the lock version line.\n"
+    );
+    assert!(fs::symlink_metadata(cache.join("share/link.txt")).is_err());
+    assert!(fs::symlink_metadata(&socket).is_err());
+    assert!(fx.stamp("tool").unwrap().verify(&cache).unwrap().is_match());
+    assert_eq!(fx.entry().unwrap(), BOTH_GEN);
+}
+
+/// `cache/<repo>` 本身是 symlink：同樣當成不一致，換回取到的內容，不動 symlink 指到的目錄。
+#[test]
+fn a_symlinked_cache_directory_is_refetched_with_vk0015() {
+    let fx = Fx::new(&[&TOOL]);
+    synced(&fx);
+    let cache = fx.dir.tool_cache("tool").unwrap();
+    let elsewhere = fx.dir.cache_dir().join("elsewhere");
+    fs::rename(&cache, &elsewhere).unwrap();
+    std::os::unix::fs::symlink("elsewhere", &cache).unwrap();
+
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 1, "{}", out.stderr);
+    assert!(out.stderr.contains("warn[VK0015]"), "{}", out.stderr);
+    assert!(fs::symlink_metadata(&cache).unwrap().is_dir());
+    assert!(elsewhere.join("just").is_dir());
+    assert!(fx.stamp("tool").unwrap().verify(&cache).unwrap().is_match());
+}
+
 #[test]
 fn missing_cache_directory_with_a_stamp_is_refetched_with_vk0015() {
     let fx = Fx::new(&[&TOOL]);
