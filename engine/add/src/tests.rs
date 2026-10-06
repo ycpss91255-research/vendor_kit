@@ -63,6 +63,21 @@ impl Fx {
         fs::read_to_string(self.dir.version_toml()).unwrap()
     }
 
+    /// 每次執行的 ctl 目錄是新的：上一次留下的 `req.*`、`res.*` 會被新的假啟動器或引擎誤讀。
+    fn new_session(&self) {
+        fs::remove_dir_all(&self.ctl).unwrap();
+        fs::create_dir_all(&self.ctl).unwrap();
+    }
+
+    /// 執行前 ctl 目錄必須是空的（假啟動器啟動時清過）。
+    fn assert_fresh_session(&self) {
+        let left: Vec<_> = fs::read_dir(&self.ctl)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert!(left.is_empty(), "ctl/ has leftovers: {left:?}");
+    }
+
     fn root(&self) -> &Path {
         self.dir.root()
     }
@@ -80,6 +95,8 @@ struct Peer {
 
 impl Peer {
     fn start(fx: &Fx, namespaces: &'static [&'static str], fail: Option<&'static str>) -> Peer {
+        // 先清 ctl/ 再起執行緒：新的假啟動器不能讀到上一次的 req.1。
+        fx.new_session();
         let (ctl, inbox) = (fx.ctl.clone(), fx.inbox.clone());
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
@@ -167,6 +184,7 @@ fn run_add(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &str) 
         image,
     };
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
+    fx.assert_fresh_session();
     let mut channel = Channel::new(&fx.ctl, header());
     let mut stdin = Cursor::new(input.as_bytes().to_vec());
     let mut stdout = Vec::new();
