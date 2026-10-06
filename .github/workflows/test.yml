@@ -51,3 +51,13 @@ jobs:
           JUST_ARGS: ${{ steps.just.outputs.args }}
         # JUST_ARGS 不加引號：空白分開的 --build-arg，值都已在上一步核對過格式。
         run: docker build --target test $JUST_ARGS -f image/Dockerfile .
+
+  # 驗收層（ADR-0010、ADR-0011）：test/acceptance/run.sh 自己起 docker:dind（不連外網的 --internal 網路），用這次建的
+  # 引擎 image 走公開入口跑生命週期；跟本機 `just acceptance` 同一支腳本。不用 GitHub 的 services：services 本機跑不到，
+  # 而且引擎的 bind mount 由 dind 解析路徑，fixture repo 要放在 dind 與測試端共用、同一路徑的 volume 上。
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: just acceptance
+        run: bash test/acceptance/run.sh
