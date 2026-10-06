@@ -9,6 +9,8 @@ use progress::Progress;
 
 use super::*;
 
+mod user;
+
 const WRITTEN_BY: &str = "v0.0.0";
 const ENGINE: &str = "ghcr.io/acme/vendor_kit:v1.0.0@sha256:1111111111111111111111111111111111111111111111111111111111111111";
 const HOST_ROOT: &str = "/h/proj";
@@ -132,15 +134,19 @@ impl Fx {
         p.create(&self.dir, WRITTEN_BY).unwrap();
     }
 
-    /// 安裝目錄下每個一般檔的路徑與內容。
+    /// 安裝目錄下每個一般檔的路徑與內容；符號連結記它指到哪裡，不跟過去。
     fn snapshot(&self) -> Vec<(String, Vec<u8>)> {
         fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
             for entry in fs::read_dir(dir).unwrap() {
                 let path = entry.unwrap().path();
-                if path.is_dir() {
+                let meta = fs::symlink_metadata(&path).unwrap();
+                let rel = path.strip_prefix(root).unwrap().display().to_string();
+                if meta.is_symlink() {
+                    let target = fs::read_link(&path).unwrap();
+                    out.push((rel, target.display().to_string().into_bytes()));
+                } else if meta.is_dir() {
                     walk(root, &path, out);
                 } else {
-                    let rel = path.strip_prefix(root).unwrap().display().to_string();
                     out.push((rel, fs::read(&path).unwrap()));
                 }
             }

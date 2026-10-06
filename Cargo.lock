@@ -223,6 +223,7 @@ dependencies = [
  "layout",
  "messages",
  "metadata",
+ "plan",
  "progress",
  "schema",
  "shell",

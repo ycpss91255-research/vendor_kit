@@ -1,8 +1,9 @@
-//! `test` 不帶 path 的完整安裝檢查（04 檢查 (test)、04 指令表 `test`）：檢查版本、快取與薄殼的一致性。
+//! `test` 的完整安裝檢查（04 檢查 (test)、04 指令表 `test`）：檢查版本、快取與薄殼的一致性；`test <path>`
+//! 通過檢查後跑使用者測試的部分在 [`user_test`]。
 //!
 //! `test` 是唯讀 recipe：不準備或修復 `cache/`、`gen/`、進度檔，不寫追蹤檔；除執行紀錄外零寫入（04 檢查、
 //! 02 不變量 4）。呼叫端（入口 `vendor_kit`）已解析好參數、判過安裝目錄（VK0028），並接好執行紀錄。
-//! 這裡不送任何 docker 動作，所以不需要 `plan` 往返。依序做：
+//! 不帶 path 時不送任何 docker 動作，所以不需要 `plan` 往返（`test <path>` 只送一個 `runner` op）。依序做：
 //!
 //! 1. 讀 `.vendor_kit/config.toml`（VK0059），在取鎖之前（04 設定）。
 //! 2. 取安裝目錄的共享鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束（04 鎖與逾時「讀取持共享鎖」）。
@@ -65,9 +66,10 @@
 //! - 工具名不是合法的 just 名稱、兩個工具交付同一個 `<ns>`：沒有代碼。
 //! - 訊息表 VK0047 的 situation 還寫著「全新 checkout 是否算缺件待確認」、只講缺件；04 檢查也還寫「待確認」。
 //!   這裡照 #372 N12、N87 的結論（缺件或不一致都報 VK0047），契約文字另案更新。
-//! - `test <path>`（跑使用者測試）與 `test dist` 不在這裡。
+//! - `test dist` 不在這裡。
 
 pub mod text;
+pub mod user_test;
 
 #[cfg(test)]
 mod tests;
@@ -106,7 +108,8 @@ pub const DRAFT_NOT_CANONICAL: &str = "reason code pending (draft VK0070, N76)";
 /// 本機覆寫指到不存在的鎖定行的草稿碼。
 pub const DRAFT_ORPHAN_OVERRIDE: &str = "reason code pending (draft VK0071, N76)";
 
-/// 這次執行的環境：容器內的安裝目錄與輸出。`test` 不詢問、不送 docker 動作，所以沒有 stdin 與往返通道。
+/// 這次執行的環境：容器內的安裝目錄與輸出。`test` 不詢問，所以沒有 stdin；`test <path>` 的往返通道另外給
+/// （[`user_test::Runner`]），不帶 path 時不送 docker 動作。
 pub struct Env<'a, W: Write, S: Sink> {
     /// 容器內的安裝目錄（`plan::mount::ROOT`）。
     pub dir: &'a InstallDir,
@@ -247,7 +250,11 @@ impl<W: Write, S: Sink> Check<'_, '_, W, S> {
     fn run(&mut self) -> Step<()> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
+        self.inspect()
+    }
 
+    /// 逐項檢查（模組說明第 3 步）；呼叫端已讀好設定、持共享鎖。有任何一項不過就全部印出、回 `Err`。
+    fn inspect(&mut self) -> Step<()> {
         let mut blocked: Vec<Diagnostic> = Vec::new();
         if let Some(d) = self.shell() {
             blocked.push(d);
