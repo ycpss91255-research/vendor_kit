@@ -5,6 +5,10 @@
 #   calls              每次呼叫一行，參數以 %q 接起來
 #   labels             引擎 image 的 LABEL 查詢輸出；不存在表示本機沒有 image
 #   labels_after_pull  pull 之後才有的 LABEL 輸出
+#   local              本機 image（bootstrap.sh 的 -i <ref>），一行一個 `<ref> <Id> [<RepoDigest>...]`：
+#                      以 `{{.Id}}{{range .RepoDigests}} {{.}}{{end}}` 為格式的 inspect 照 ref 找、印 ref 之後的部分
+#   tags               `docker load` 之後的 tag，一行一個 `<ref> <Id>`：以 `{{.Id}}` 為格式的 inspect 照 ref 找
+#   load_out           `docker load -q` 的 stdout；不存在時印 `Loaded image ID: sha256:0123…`
 #   rc.<名>            該動作的結束碼（pull、load、cp、rm、inspect、ps、info、create-engine、create-extract、
 #                      create-runner、start-runner）；不存在是 0。非 0 時跟真的 docker 一樣在 stderr 印一行原文
 #                      （`fake docker: <名> failed`），用來驗啟動器有沒有把 docker 的原文攔下（N20）
@@ -154,6 +158,20 @@ image)
     if [[ $3 == --format && $4 == *vendor_kit.protocol* ]]; then
         [[ -f $fake/labels ]] || exit 1
         printf '%s\n' "$(<"$fake/labels")"
+    elif [[ $3 == --format && ($4 == '{{.Id}}{{range .RepoDigests}} {{.}}{{end}}' || $4 == '{{.Id}}') ]]; then
+        table=$fake/local
+        if [[ $4 == '{{.Id}}' ]]; then
+            table=$fake/tags
+        fi
+        [[ -f $table ]] || exit 1
+        while read -r t_ref t_rest; do
+            if [[ $t_ref == "$5" ]]; then
+                printf '%s\n' "$t_rest"
+                exit 0
+            fi
+        done <"$table"
+        printf 'Error response from daemon: No such image: %s\n' "$5" >&2
+        exit 1
     else
         rc_of inspect || exit
         printf '[{"Id":"sha256:%s"}]\n' 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
@@ -169,7 +187,12 @@ pull)
 load)
     rc_of load || exit
     # load -q 的 stdout：image ID（N43）
-    printf 'Loaded image ID: sha256:%s\n' 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    if [[ -f $fake/load_out ]]; then
+        printf '%s' "$(<"$fake/load_out")"
+        printf '\n'
+    else
+        printf 'Loaded image ID: sha256:%s\n' 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    fi
     ;;
 create)
     args=("${@:2}")
