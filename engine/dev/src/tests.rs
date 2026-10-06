@@ -50,6 +50,8 @@ struct Image {
     local: bool,
     /// `extract` 放進 `in/<slot>` 的檔：相對路徑與本文。
     files: Vec<(String, String)>,
+    /// inspect 回的 `Config.Labels`（JSON 物件的內容，不含大括號）；`None` 就不帶 `Config`。
+    labels: Option<String>,
 }
 
 impl Image {
@@ -59,6 +61,18 @@ impl Image {
             repo_digest: pinned.to_owned(),
             local,
             files: vec![("just/tool.just".to_owned(), tool_text.to_owned())],
+            labels: None,
+        }
+    }
+
+    /// 本機的引擎 image：`reference` 原樣給 `inspect`，帶 `labels`。
+    fn engine(reference: &str, labels: &str) -> Image {
+        Image {
+            pinned: reference.to_owned(),
+            repo_digest: reference.to_owned(),
+            local: true,
+            files: Vec::new(),
+            labels: Some(labels.to_owned()),
         }
     }
 }
@@ -80,6 +94,8 @@ struct Fx {
     host: PathBuf,
     /// 假啟動器回取件 op 用的 image。
     registry: RefCell<Registry>,
+    /// 這次呼叫的薄殼介面版（`plan` header 的 P）。
+    protocol: std::cell::Cell<u32>,
 }
 
 impl Fx {
@@ -124,6 +140,7 @@ impl Fx {
             inbox,
             host,
             registry: RefCell::new(Registry::default()),
+            protocol: std::cell::Cell::new(1),
         }
     }
 
@@ -226,8 +243,8 @@ struct Out {
     ops: Vec<String>,
 }
 
-fn header() -> Header {
-    Header::new(1, RunId::parse("r1").unwrap()).unwrap()
+fn header(protocol: u32) -> Header {
+    Header::new(protocol, RunId::parse("r1").unwrap()).unwrap()
 }
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -259,10 +276,11 @@ impl Peer {
         }
         let (ctl, inbox, host) = (fx.ctl.clone(), fx.inbox.clone(), fx.host.clone());
         let registry = fx.registry.borrow().clone();
+        let protocol = fx.protocol.get();
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
         let handle = thread::spawn(move || {
-            let header = header();
+            let header = header(protocol);
             let mut seen = Vec::new();
             let mut pulled: BTreeSet<String> = BTreeSet::new();
             let find = |r: &str| registry.images.iter().find(|i| i.pinned == r).cloned();
@@ -291,8 +309,13 @@ impl Peer {
                         seen.push(format!("inspect {}", r.as_str()));
                         match find(r.as_str()) {
                             Some(i) if i.local || pulled.contains(&i.pinned) => {
+                                let config = i
+                                    .labels
+                                    .as_ref()
+                                    .map(|l| format!(",\"Config\":{{\"Labels\":{{{l}}}}}"))
+                                    .unwrap_or_default();
                                 let json = format!(
-                                    "[{{\"Id\":\"{IMAGE_ID}\",\"RepoDigests\":[\"{}\"]}}]",
+                                    "[{{\"Id\":\"{IMAGE_ID}\",\"RepoDigests\":[\"{}\"]{config}}}]",
                                     i.repo_digest
                                 );
                                 fs::write(ctl.join(format!("res.{s}.out")), json).unwrap();
@@ -382,7 +405,7 @@ fn run_as(fx: &Fx, req: &Request<'_>, argv: &[&str], run_id: &str) -> Out {
         },
     );
     let peer = Peer::start(fx);
-    let mut channel = Channel::new(&fx.ctl, header());
+    let mut channel = Channel::new(&fx.ctl, header(fx.protocol.get()));
     let code = {
         let mut env = Env {
             dir: &fx.dir,
@@ -424,6 +447,16 @@ fn dev(fx: &Fx, repo: &str, path: &str) -> Out {
 
 fn undev(fx: &Fx, repo: &str) -> Out {
     run_with(fx, &Request::UndevTool { repo }, &["undev", repo])
+}
+
+fn dev_engine(fx: &Fx, image: &str) -> Out {
+    run_with(
+        fx,
+        &Request::DevEngine {
+            image: OsStr::new(image),
+        },
+        &["dev", "--engine", "-i", image],
+    )
 }
 
 fn undev_engine(fx: &Fx) -> Out {
@@ -666,7 +699,204 @@ fn undev_engine_removes_only_the_engine_override() {
     assert_eq!(fx.snapshot(), before);
 }
 
+/// 本機引擎 image 的 LABEL：介面版區間 `[floor, current]`（其他 LABEL 不看）。
+fn engine_labels(floor: &str, current: &str) -> String {
+    format!(
+        r#""vendor_kit.protocol.floor":"{floor}","vendor_kit.protocol.current":"{current}","vendor_kit.schema.max":"1""#
+    )
+}
+
+/// `dev --engine -i` 驗過 LABEL 才寫引擎行，入口檔不動；重複同一個 image 未變更；之後 `undev --engine` 拿掉。
+#[test]
+fn dev_engine_checks_the_interface_version_and_writes_the_engine_override() {
+    let fx = Fx::new();
+    fx.registry
+        .borrow_mut()
+        .images
+        .push(Image::engine("vendor_kit:dev", &engine_labels("1", "2")));
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    let entry = fx.entry();
+
+    let out = dev_engine(&fx, "vendor_kit:dev");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(out.ops, ["inspect vendor_kit:dev"]);
+    assert_eq!(
+        out.stdout,
+        "The engine now uses the local image vendor_kit:dev (local override).\n"
+    );
+    assert_eq!(fx.local().unwrap().engine(), Some("vendor_kit:dev"));
+    assert_eq!(fx.entry(), entry);
+    assert_eq!(fs::read(fx.dir.version_toml()).unwrap(), lock);
+    assert_eq!(out.events(), LANDED);
+    assert!(fx.progress_files().is_empty());
+
+    let before = fx.snapshot();
+    let out = dev_engine(&fx, "vendor_kit:dev");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.ops.is_empty(), "{:?}", out.ops);
+    assert_eq!(
+        out.stdout,
+        "The engine already uses the local image vendor_kit:dev. No changes were made.\n"
+    );
+    assert_eq!(fx.snapshot(), before);
+
+    let out = undev_engine(&fx);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(fx.local().unwrap().engine(), None);
+    assert_eq!(fx.entry(), entry);
+}
+
+/// 已有另一個 image 的引擎覆寫：VK0050，不 inspect、不取代。
+#[test]
+fn dev_engine_with_a_different_image_is_vk0050() {
+    let fx = Fx::new();
+    fx.write_local("vendor_kit = \"vendor_kit:old\"\n");
+    let before = fx.snapshot();
+    let out = dev_engine(&fx, "vendor_kit:dev");
+    assert_eq!(out.code, 2);
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0050]: A different local override is already active for vendor_kit. Run first: just vendor_kit undev --engine\n"
+    );
+    assert!(out.ops.is_empty(), "{:?}", out.ops);
+    assert_eq!(fx.snapshot(), before);
+}
+
+/// 比薄殼舊的引擎（區間上限低於薄殼的 P）：草稿碼登錄前以 VK0056 停下（[`DRAFT_ENGINE_TOO_OLD`]），不寫檔。
+#[test]
+fn dev_engine_older_than_the_shell_is_refused_with_the_draft_code() {
+    let fx = Fx::new();
+    fx.protocol.set(2);
+    fx.registry
+        .borrow_mut()
+        .images
+        .push(Image::engine("vendor_kit:old", &engine_labels("1", "1")));
+    let before = fx.snapshot();
+    let out = dev_engine(&fx, "vendor_kit:old");
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&format!(
+            "accepts interface versions [1, 1], older than the shell interface version 2, \
+             and must not regenerate the shell; {DRAFT_ENGINE_TOO_OLD}"
+        )),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(out.ops, ["inspect vendor_kit:old"]);
+    assert!(out.events().is_empty());
+    assert_eq!(fx.snapshot(), before);
+}
+
+/// 區間含薄殼的 P 的較舊引擎照樣接受（ADR-0010：允許跑）。
+#[test]
+fn dev_engine_whose_range_still_contains_the_shell_is_accepted() {
+    let fx = Fx::new();
+    fx.protocol.set(2);
+    fx.registry
+        .borrow_mut()
+        .images
+        .push(Image::engine("vendor_kit:old", &engine_labels("2", "3")));
+    let out = dev_engine(&fx, "vendor_kit:old");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(fx.local().unwrap().engine(), Some("vendor_kit:old"));
+}
+
+/// 引用不合法、inspect 失敗、LABEL 缺或值不合、區間下限高於薄殼的 P：都以 VK0056 停下，不寫檔。
+#[test]
+fn dev_engine_problems_stop_with_vk0056_without_writing() {
+    let fx = Fx::new();
+    {
+        let mut registry = fx.registry.borrow_mut();
+        for (reference, labels) in [
+            ("vk:none", String::new()),
+            ("vk:zero", engine_labels("01", "1")),
+            ("vk:flip", engine_labels("2", "1")),
+            ("vk:new", engine_labels("2", "3")),
+        ] {
+            registry.images.push(Image::engine(reference, &labels));
+        }
+        let mut no_config = Image::engine("vk:bare", "");
+        no_config.labels = None;
+        registry.images.push(no_config);
+    }
+    let before = fx.snapshot();
+    let cases: [(&str, &str, &[&str]); 7] = [
+        ("Vk:Dev", "\"Vk:Dev\" is not a valid image reference", &[]),
+        (
+            "vk:gone",
+            "could not inspect the local engine image vk:gone (exit 1)",
+            &["inspect vk:gone"],
+        ),
+        (
+            "vk:none",
+            "has no vendor_kit.protocol.floor label",
+            &["inspect vk:none"],
+        ),
+        (
+            "vk:bare",
+            "has no vendor_kit.protocol.floor label",
+            &["inspect vk:bare"],
+        ),
+        (
+            "vk:zero",
+            "has vendor_kit.protocol.floor=\"01\"",
+            &["inspect vk:zero"],
+        ),
+        (
+            "vk:flip",
+            "vendor_kit.protocol.floor=2 above vendor_kit.protocol.current=1",
+            &["inspect vk:flip"],
+        ),
+        (
+            "vk:new",
+            "interface versions [2, 3] are all newer than the shell interface version 1 is not supported yet",
+            &["inspect vk:new"],
+        ),
+    ];
+    for (image, what, ops) in cases {
+        let out = dev_engine(&fx, image);
+        assert_eq!(out.code, 2, "{image}: {}", out.stderr);
+        assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
+        assert!(out.stderr.contains(what), "{image}: {}", out.stderr);
+        assert_eq!(out.ops, ops, "{image}");
+        assert!(out.events().is_empty());
+    }
+    assert_eq!(fx.snapshot(), before);
+}
+
 // ---- 恢復 ----
+
+/// 殘留的引擎 `dev`（覆寫還沒寫進檔就斷了）：同一個 image 重跑時併入，不再 inspect。
+#[test]
+fn residual_dev_of_the_engine_is_completed() {
+    let fx = Fx::new();
+    fx.residual(
+        DEV_VERB,
+        &["dev", "--engine", "-i", "vendor_kit:dev"],
+        &[(TARGET_KEY, ENGINE_TARGET), (IMAGE_KEY, "vendor_kit:dev")],
+    );
+    let entry = fx.entry();
+    let out = run_as(
+        &fx,
+        &Request::DevEngine {
+            image: OsStr::new("vendor_kit:dev"),
+        },
+        &["dev", "--engine", "-i", "vendor_kit:dev"],
+        "r2",
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.ops.is_empty(), "{:?}", out.ops);
+    assert_eq!(
+        out.stdout,
+        "The engine now uses the local image vendor_kit:dev (local override).\n\
+         Completed the interrupted dev recorded in .vendor_kit/.tmp.dev.r0.toml.\n"
+    );
+    assert_eq!(fx.local().unwrap().engine(), Some("vendor_kit:dev"));
+    assert_eq!(fx.entry(), entry);
+    assert!(fx.progress_files().is_empty());
+}
 
 #[test]
 fn residual_undev_of_the_same_tool_is_completed() {
@@ -879,16 +1109,6 @@ fn contract_gaps_stop_with_vk0056_without_writing() {
         (dev(&fx, "tool", "../a\"b"), "a double quote"),
         (dev(&fx, "tool", "/.."), "the root directory"),
         (dev(&fx, "tool", "link/tool"), "through a symlink (link)"),
-        (
-            run_with(
-                &fx,
-                &Request::DevEngine {
-                    image: OsStr::new("vk:dev"),
-                },
-                &["dev", "--engine", "-i", "vk:dev"],
-            ),
-            "dev --engine -i vk:dev",
-        ),
     ];
     for (out, what) in gaps {
         assert_eq!(out.code, 2, "{what}");
