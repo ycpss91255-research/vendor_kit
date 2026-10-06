@@ -18,6 +18,8 @@
 vk_log_events=(run_started diagnostic_emitted run_finished)
 vk_log_format=1
 vk_log_file=
+vk_log_max_path=
+vk_log_max_count=0
 vk_log_version=${vk_log_version:-}
 vk_log_invocation_id=${vk_log_invocation_id:-}
 
@@ -181,13 +183,24 @@ vk_log_event() {
 }
 
 # vk_log_max_ts <dir>：dir 裡合格式的紀錄檔名中最大的 ts（微秒）放進 REPLY；沒有就是 -1。
+# 那個檔的路徑放進 vk_log_max_path（沒有就是空字串），帶這個 ts 的檔數放進 vk_log_max_count
+# （同時執行撞到同一個 ts 時大於 1；bootstrap.sh 挑最近一筆紀錄時用）。
+# shellcheck disable=SC2034 # vk_log_max_path 由 bootstrap_main.sh 讀
 vk_log_max_ts() {
     local dir=$1 path name max=-1
+    vk_log_max_path=
+    vk_log_max_count=0
     for path in "$dir"/*.jsonl; do
         name=${path##*/}
         if [[ $name =~ ^([0-9]{8}T[0-9]{6}\.[0-9]{6}Z)-[a-z0-9_]+-[0-9a-z-]+\.jsonl$ ]] &&
-            vk_ts_name_parse "${BASH_REMATCH[1]}" && ((REPLY > max)); then
-            max=$REPLY
+            vk_ts_name_parse "${BASH_REMATCH[1]}"; then
+            if ((REPLY > max)); then
+                max=$REPLY
+                vk_log_max_path=$path
+                vk_log_max_count=1
+            elif ((REPLY == max)); then
+                vk_log_max_count=$((vk_log_max_count + 1))
+            fi
         fi
     done
     REPLY=$max

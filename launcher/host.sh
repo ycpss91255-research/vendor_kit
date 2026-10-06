@@ -6,6 +6,8 @@
 # - VK recipe 的主機前置檢查排在用法之前（用法只有引擎判得出，#497）；bootstrap.sh 自己的判定順序
 #   （04 bootstrap.sh 的判定順序、單獨 -h 不做主機檢查）由 bootstrap.sh 決定什麼時候呼叫這裡。
 # - 只呼叫 docker 與 just 本身；主機不呼叫 git，「在 git repo 裡」以往上找 `.git` 判斷。
+# - 讀版本鎖定行的引擎行（vk_lock_engine_ref）也在這裡：同樣沒有副作用、排在建紀錄之前，
+#   薄殼的 log.sh（main.sh）與 bootstrap.sh 共用，各自決定讀不出時報哪一條診斷。
 #
 # 模式名與 engine/runlog 的 Mode 相同：initial_import、check、repair、recipe。
 
@@ -118,4 +120,44 @@ vk_find_git() {
     done
     vk_diag VK0035
     return 1
+}
+
+# vk_lock_engine_ref <version.toml>：版本鎖定行裡引擎那一行的值（pinned 引用）放進 REPLY，回 0。
+# 引擎行是唯一符合 `^vendor_kit[[:space:]]*=` 的行（ADR-0002），以 `while read` 加字串比對，不用 grep；
+# 行尾的 CR 先去掉（ADR-0012：CRLF 與 LF 等價）。只讀到雙引號為止，其餘的形狀由引擎檢查。
+# 檔不存在算命中 0 行。讀不出（命中數不是 1、值不是雙引號裡的 pinned 引用、檔讀不到）時不印診斷，
+# 把原因（英文、不含結尾句點）放進 REPLY、回 1。
+vk_lock_engine_ref() {
+    local file=$1 line hit='' n=0
+    if [[ -e $file ]]; then
+        if [[ ! -f $file || ! -r $file ]]; then
+            REPLY="cannot read $file"
+            return 1
+        fi
+        while IFS= read -r line || [[ -n $line ]]; do
+            line=${line%$'\r'}
+            if [[ $line =~ ^vendor_kit[[:space:]]*= ]]; then
+                n=$((n + 1))
+                hit=$line
+            fi
+        done <"$file"
+    fi
+    if ((n != 1)); then
+        REPLY="$file has $n engine lock lines, exactly 1 is required"
+        return 1
+    fi
+    local value=${hit#*=}
+    value=${value#"${value%%[![:space:]]*}"}
+    if [[ $value != \"*\"* ]]; then
+        REPLY="the engine lock line in $file is not a double-quoted string"
+        return 1
+    fi
+    value=${value#\"}
+    value=${value%%\"*}
+    if ! vk_wire_ref "$value" pinned; then
+        REPLY="the engine lock line in $file is not a pinned image reference"
+        return 1
+    fi
+    REPLY=$value
+    return 0
 }
