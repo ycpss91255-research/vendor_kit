@@ -1,5 +1,5 @@
 //! `dev <repo> -p <dir>`、`undev <repo>`（04 指令表、成對與無害、本機覆寫；03 輸出）：經假的啟動器跑。
-//! 開著覆寫與解除之後的 `sync`（04 sync、本機覆寫）也在這裡。
+//! 開著覆寫與解除之後的 `sync`（04 sync、本機覆寫），以及開著覆寫時的 `upgrade`（04 本機覆寫）也在這裡。
 //!
 //! `dev`、`undev` 不碰 docker，假啟動器只收 `done`；`add` 那一段照 tests/add.rs 回 inspect 與 extract。
 //! 本機開發來源放在安裝目錄裡：引擎只看得到安裝目錄（engine/dev 的缺口）。
@@ -375,6 +375,73 @@ tool uses the local source work/tool (local override).
         "mod? tool '../cache/tool/just/tool.just'\n"
     );
     assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+}
+
+#[test]
+fn upgrade_during_dev_swaps_the_locked_version_and_keeps_the_override() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+    let entry = vk.join("gen/tools.just");
+
+    let peer = add_launcher(&m);
+    let (code, _, stderr) = run(&m, &["add", "tool", "-i", IMAGE]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+
+    let src = m.root.join("work/tool/just");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo local\n").unwrap();
+    let (code, _, stderr) = run_idle(&m, &["dev", "tool", "-p", "work/tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let local_toml = fs::read(vk.join("version.local.toml")).unwrap();
+    let local_entry = "mod? tool '../../work/tool/just/tool.just'\n";
+    assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
+
+    // 開著覆寫時 upgrade 照常換鎖定行、cache/、印記，入口檔仍指本機開發來源，stdout 先報告覆寫。
+    new_session(&m);
+    let peer = add_launcher(&m);
+    let (code, stdout, stderr) = run(&m, &["upgrade", "tool@v1.3.0"]);
+    let seen = peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+tool uses the local source work/tool (local override).
+Upgraded tool from v1.2.0 to v1.3.0 (ghcr.io/acme/tool:v1.3.0@sha256:2222222222222222222222222222222222222222222222222222222222222222).
+
+"#]]
+    );
+    assert_data_eq!(stderr, "");
+    assert_eq!(
+        seen.requests,
+        [
+            "inspect ghcr.io/acme/tool:v1.3.0".to_owned(),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+    let lock = fs::read_to_string(vk.join("version.toml")).unwrap();
+    assert!(
+        lock.ends_with(&format!("tool = \"ghcr.io/acme/tool:v1.3.0@{DIGEST}\"\n")),
+        "{lock}"
+    );
+    let stamp = fs::read_to_string(vk.join("cache/tool.stamp.toml")).unwrap();
+    assert!(stamp.contains("ghcr.io/acme/tool:v1.3.0@"), "{stamp}");
+    assert_eq!(fs::read(vk.join("version.local.toml")).unwrap(), local_toml);
+    assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
+
+    // undev 之後回到換好的新版。
+    let (code, stdout, stderr) = run_idle(&m, &["undev", "tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert!(stdout.contains("tool uses v1.3.0 "), "{stdout}");
+    assert_eq!(
+        fs::read_to_string(&entry).unwrap(),
+        "mod? tool '../cache/tool/just/tool.just'\n"
+    );
+    let local = fs::read_to_string(vk.join("version.local.toml")).unwrap();
+    assert!(!local.contains("tool ="), "{local}");
 }
 
 #[test]

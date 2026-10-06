@@ -1,12 +1,13 @@
 //! `upgrade` 指令的工具那一半（04 指令表 `upgrade <repo>`、`upgrade <repo>@<tag>`；04 成對與無害的工具升版
-//! 流程、指定版本）：換工具版本，做基準版合併。`upgrade --engine` 不在這裡。
+//! 流程、指定版本、本機覆寫）：換工具版本，做基準版合併。`upgrade --engine` 不在這裡。
 //!
 //! `update` 只查（engine/update）；真正換版本在這裡。呼叫端（入口 `vendor_kit`）已解析好參數、判過安裝
 //! 目錄（VK0028），並接好執行紀錄與 `plan` 往返。這裡依序做：
 //!
 //! 1. 讀 `.vendor_kit/config.toml`（VK0059），在第一次取鎖之前（04 設定）。
 //! 2. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束。
-//! 3. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）。
+//! 3. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）；有工具的覆寫就讀它的本機開發來源，
+//!    讀不到回 VK0052（見「本機覆寫」）。
 //! 4. 恢復殘留的進度檔（04 成對與無害：可寫 recipe 先恢復再判是否重複）；做法見 `Upgrade::recover`。
 //! 5. 判對象與目標版本：
 //!    - 工具不在版本鎖定行：見「缺口」。
@@ -21,10 +22,27 @@
 //!    一次問完（帶 `-y` 全部同意、不問）：答否是正常取消（stdout 說明未變更，以 0 結束）；不能互動回
 //!    VK0002；兩者除執行紀錄外都不寫任何檔。
 //! 9. 重驗暫存內容（ADR-0006 第三層），再經 `txn` 依序落地：`cache/<repo>/` 與印記、repo 檔、紀錄檔
-//!    （這個工具的 metadata、基準版副本、其他紀錄檔裡同一個路徑的 hash）、`gen/tools.just`，最後才寫版本
-//!    鎖定行（04 成對與無害第 3 點），再刪進度檔。
-//! 10. stdout 列出改了什麼，以及不刪、不重建的初始檔清單（04 寫入既有檔的例外）；初始檔的警告
-//!     （VK0019、VK0020、VK0021）照印。
+//!    （這個工具的 metadata、基準版副本、其他紀錄檔裡同一個路徑的 hash）、`gen/tools.just`（開著覆寫的工具
+//!    那幾行指向本機開發來源），最後才寫版本鎖定行（04 成對與無害第 3 點），再刪進度檔。
+//! 10. stdout 先報告用了哪個覆寫，再列出改了什麼，以及不刪、不重建的初始檔清單（04 寫入既有檔的例外）；
+//!     初始檔的警告（VK0019、VK0020、VK0021）照印。
+//!
+//! # 本機覆寫
+//!
+//! `version.local.toml` 有工具的覆寫（`dev <repo> -p <dir>`）時照常換版（04 本機覆寫：除 `test` 外的一般
+//! recipe 照常執行；ADR-0013），做法跟 engine/sync 一致：
+//!
+//! - 對象工具開著覆寫也照常取件、換 `cache/<repo>/`、印記與版本鎖定行：覆寫期間的內容由本機開發來源決定，
+//!   `cache/<repo>/` 與鎖定行記的是鎖定版本，`undev` 之後回到換好的新版。
+//! - 每個覆寫的 `<ns>` 從本機開發來源讀（[`local`]，值照 engine/dev 以安裝目錄為準正規化）；讀不到回 VK0052
+//!   （04 本機覆寫：覆寫來源失效只擋需讀它的動作；重產 `gen/tools.just` 要讀它），列出每個讀不到的覆寫，
+//!   在任何 docker 動作與寫入之前停下。
+//! - `gen/tools.just` 裡開著覆寫的工具（對象或其他工具）那幾行指向本機開發來源（`tools_just::render_with`）；
+//!   撞名判定裡開著覆寫的其他工具也以本機開發來源的 `<ns>` 為準（入口檔裡生效的是它）。
+//! - 每次以 0 結束時（換好、已是該版、答否取消）都在 stdout 報告用了哪個覆寫，排在那條路徑的字句前面
+//!   （04 本機覆寫：不加診斷前綴，`update` 以外到 stdout）；停下時只印診斷。恢復殘留 `upgrade` 的字句在恢復
+//!   當下就印，所以排在覆寫報告前面。
+//! - 引擎的覆寫與工具換版無關，不看。
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
@@ -35,7 +53,8 @@
 //! - 新版不再提供的初始檔：`initfiles` 判成缺口（紀錄記成什麼 state 契約沒寫），但 04 只要求不刪、只列
 //!   清單，所以這裡照列、不改它的紀錄，不因此停下。
 //! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）。
-//! - stdout 的字句與詢問文字（英文）見 [`text`]。
+//! - stdout 的字句與詢問文字（英文）見 [`text`]；覆寫的報告字句跟 engine/sync 相同（[`text::local_override`]）。
+//! - 本機開發來源的正規化與檢查從 engine/dev 照抄（[`local`]，engine/sync 也照抄同一份）。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
@@ -50,8 +69,9 @@
 //!   基準版，同 tag 就是未變更。
 //! - 工具交付 `init.toml`：初始檔清單的格式沒定（同 engine/add），讀不出初始檔；沒有 `init.toml` 的工具
 //!   就沒有新版初始檔。`initfiles` 判成缺口的檔（新版不再提供的除外）。
-//! - 本機覆寫：`version.local.toml` 有工具的覆寫時停下。重產 `gen/tools.just` 要指回覆寫的本機目錄，
-//!   覆寫中換版的行為也沒定（同 engine/sync）。
+//! - 覆寫指到不在版本鎖定行的工具：ADR-0002 說覆寫只覆蓋已存在的鎖定行，訊息表沒有代碼
+//!   （`version_file::OrphanOverrides`），停下（同 engine/sync）。
+//! - 開著覆寫的工具的本機開發來源交付保留名 `vendor_kit`：沒有代碼，停下（同 engine/sync）。
 //! - 其他已裝工具的 `cache/<repo>/` 讀不到（例如全新 checkout 還沒 `sync`）：撞名判定與入口檔都要它。
 //! - 殘留的進度檔不是 `upgrade` 的；殘留的是引擎 upgrade；或殘留的工具 upgrade 寫過初始檔相關的檔（那次
 //!   寫了哪些沒有記錄，重新判定會把它自己寫的內容當成使用者改的）。
@@ -62,6 +82,7 @@
 //! 這裡不直接碰 docker：docker 動作一律是 `plan` 協定的 op，由啟動器代做。
 
 mod justfile;
+pub mod local;
 mod source;
 pub mod text;
 
@@ -69,6 +90,7 @@ pub mod text;
 mod tests;
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -88,7 +110,7 @@ use progress::upgrade as table;
 use prompt::{Consent, PromptError, TtyState};
 use runlog::Target;
 use txn::{Disk, RecordFile, RepoFile, ToolContent, Txn};
-use version_file::{LocalFile, LockFile};
+use version_file::{LocalFile, LockFile, Versions};
 
 pub use source::{Inspected, digest_for, parse_inspect};
 
@@ -180,6 +202,7 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
         init,
         code: 0,
         extracts: 0,
+        local: BTreeMap::new(),
     };
     let _ = upgrade.run(req);
     upgrade.code
@@ -197,6 +220,12 @@ struct Installed {
     namespaces: BTreeMap<String, Vec<String>>,
 }
 
+/// 開著本機覆寫的一個工具：正規化後的本機開發來源與它交付的 `<ns>`。
+struct Local {
+    dir: String,
+    namespaces: Vec<String>,
+}
+
 /// 一個工具這次要換上的版本：版本鎖定行的值與 image ID。
 struct Resolved {
     locked: ImageRef,
@@ -210,6 +239,8 @@ struct Upgrade<'r, 'a, W: Write, S: Sink, L: Write> {
     code: u8,
     /// 這次執行已用掉的 slot 數。
     extracts: u32,
+    /// 開著覆寫的工具（模組說明「本機覆寫」）。
+    local: BTreeMap<String, Local>,
 }
 
 impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
@@ -272,6 +303,18 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         let _ = writeln!(self.env.stdout, "{line}");
     }
 
+    /// 每次報告用了哪個覆寫（04 本機覆寫）。
+    fn report_overrides(&mut self) {
+        let lines: Vec<String> = self
+            .local
+            .iter()
+            .map(|(repo, l)| text::local_override(repo, &l.dir))
+            .collect();
+        for line in lines {
+            self.say(&line);
+        }
+    }
+
     // ---- 流程 ----
 
     fn run(&mut self, req: &Request) -> Step<()> {
@@ -281,7 +324,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
         let mut lockfile = self.lockfile()?;
-        self.local()?;
+        self.local = self.local(&lockfile)?;
         if self.recover_all(&lockfile)? {
             lockfile = self.lockfile()?;
         }
@@ -308,6 +351,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                     req.repo
                 )));
             }
+            self.report_overrides();
             self.say(&text::unchanged(req.repo, tag));
             return Ok(());
         }
@@ -362,22 +406,68 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         }
     }
 
-    /// `version.local.toml`：檔案版過高回 VK0008；有工具的覆寫見模組說明的缺口。
-    fn local(&mut self) -> Step<()> {
+    /// `version.local.toml`：檔案版過高回 VK0008；工具的覆寫讀本機開發來源（模組說明「本機覆寫」），
+    /// 讀不到的每一個都印 VK0052 再停下。
+    fn local(&mut self, lockfile: &LockFile) -> Step<BTreeMap<String, Local>> {
         match LocalFile::load_from(self.env.dir) {
-            Ok(Some(local)) => match local.tools().keys().next() {
-                Some(repo) => Err(self.gap(format_args!(
-                    "upgrade while {repo} has a local override in .vendor_kit/version.local.toml"
-                ))),
-                None => Ok(()),
-            },
-            Ok(None) => Ok(()),
+            Ok(Some(file)) => {
+                if let Err(orphan) = Versions::new(lockfile, Some(&file)) {
+                    return Err(self.gap(format_args!("{orphan} (no reason code)")));
+                }
+                let mut local = BTreeMap::new();
+                let mut blocked: Vec<Diagnostic> = Vec::new();
+                for (repo, source) in file.tools() {
+                    match self.local_source(repo, source) {
+                        Ok(Ok(l)) => {
+                            local.insert(repo.clone(), l);
+                        }
+                        Ok(Err(d)) => blocked.push(d),
+                        Err(stop) => return Err(stop),
+                    }
+                }
+                if blocked.is_empty() {
+                    Ok(local)
+                } else {
+                    for d in blocked {
+                        self.emit(d);
+                    }
+                    Err(Stop)
+                }
+            }
+            Ok(None) => Ok(BTreeMap::new()),
             Err(version_file::Error::Parse {
                 file,
                 source: version_file::ParseError::Read(schema::ReadError::TooNew(t)),
             }) => Err(self.too_new(&file, &t)),
             Err(e) => Err(self.internal(e.to_string())),
         }
+    }
+
+    /// 一個工具的本機開發來源：讀不到回 `Ok(Err(VK0052))`；交付保留名是缺口（模組說明）。
+    fn local_source(&mut self, repo: &str, source: &str) -> Step<Result<Local, Diagnostic>> {
+        let unreadable = |reason: String| {
+            Diagnostic::new(&messages::VK0052)
+                .arg("target", repo)
+                .arg("source", source)
+                .arg("reason", reason)
+                .arg("undev_command", format!("just vendor_kit undev {repo}"))
+        };
+        let dir = match local::normalize(OsStr::new(source)) {
+            Ok(d) => d,
+            Err(reason) => return Ok(Err(unreadable(reason))),
+        };
+        let namespaces = match local::check_dir(self.env.dir.root(), &dir, repo) {
+            Ok(ns) => ns,
+            Err(reason) => return Ok(Err(unreadable(reason))),
+        };
+        if namespaces.iter().any(|n| n == fetch::RESERVED) {
+            return Err(self.gap(format_args!(
+                "upgrade while the local source of {repo} delivers the reserved namespace {} \
+                 (no reason code)",
+                fetch::RESERVED
+            )));
+        }
+        Ok(Ok(Local { dir, namespaces }))
     }
 
     fn meta_path(&mut self, repo: &str) -> Step<PathBuf> {
@@ -494,11 +584,16 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         }
     }
 
-    /// 已裝工具（不含 `repo` 自己）的 `<ns>` 與根 `justfile` 的名字。
+    /// 已裝工具（不含 `repo` 自己）的 `<ns>` 與根 `justfile` 的名字。開著覆寫的工具取本機開發來源的 `<ns>`。
     fn installed(&mut self, repo: &str, lockfile: &LockFile) -> Step<Installed> {
         let mut taken = Taken::new();
         let mut namespaces = BTreeMap::new();
         for other in lockfile.tools().keys().filter(|r| r.as_str() != repo) {
+            if let Some(l) = self.local.get(other) {
+                taken.tool(other, l.namespaces.iter().cloned());
+                namespaces.insert(other.clone(), l.namespaces.clone());
+                continue;
+            }
             let cache = match self.env.dir.tool_cache(other) {
                 Ok(c) => c,
                 Err(e) => return Err(self.internal(e.to_string())),
@@ -603,6 +698,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         match answers {
             Ok(a) if a.all_yes() => {}
             Ok(_) => {
+                self.report_overrides();
                 self.say(text::NO_CHANGES);
                 return Ok(());
             }
@@ -681,6 +777,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             &mut lockfile,
         )?;
 
+        self.report_overrides();
         self.say(&text::upgraded(repo, current, locked));
         for f in &planned.files {
             if let Some(line) = text::file_line(f) {
@@ -751,13 +848,24 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         Ok(())
     }
 
-    /// 這次全部工具的 `gen/tools.just`：其他工具的 `<ns>` 加上換版後的這個工具。
+    /// 這次全部工具的 `gen/tools.just`：其他工具的 `<ns>` 加上換版後的這個工具；開著覆寫的工具（這個工具
+    /// 也算）用本機開發來源的 `<ns>`，那幾行指向本機開發來源。
     fn entry(
         &mut self,
         mut all: BTreeMap<String, Vec<String>>,
         candidate: &Candidate,
     ) -> Step<String> {
-        all.insert(candidate.repo().to_owned(), candidate.namespaces().to_vec());
+        let repo = candidate.repo();
+        let namespaces = match self.local.get(repo) {
+            Some(l) => l.namespaces.clone(),
+            None => candidate.namespaces().to_vec(),
+        };
+        all.insert(repo.to_owned(), namespaces);
+        let dirs: BTreeMap<String, String> = self
+            .local
+            .iter()
+            .map(|(r, l)| (r.clone(), l.dir.clone()))
+            .collect();
         let tools: Vec<tools_just::Tool> = all
             .iter()
             .map(|(r, ns)| tools_just::Tool {
@@ -765,7 +873,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                 namespaces: ns,
             })
             .collect();
-        tools_just::render(&tools).map_err(|e| self.internal(e.to_string()))
+        tools_just::render_with(&tools, &dirs).map_err(|e| self.internal(e.to_string()))
     }
 
     /// 這次的進度檔：共同欄位之外記 `[upgrade]` 表（`progress::upgrade`）。
