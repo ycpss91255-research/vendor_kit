@@ -1,4 +1,5 @@
-//! 本機開發來源的正規化與檢查（GLOSSARY 本機開發來源；04 本機覆寫）：`dev`、`sync`、`upgrade` 共用。
+//! 本機開發來源的正規化與檢查（GLOSSARY 本機開發來源；04 本機覆寫）：`dev`、`sync`、`upgrade`、
+//! `add`、`remove` 共用。
 //!
 //! `version.local.toml` 的工具覆寫是 `dev <repo> -p <dir>` 寫進去、正規化過的值。讀它的指令照同一條規則
 //! 以安裝目錄為準再正規化一次（[`normalize`]，手改過的值與 `dev` 認定同一個來源），再檢查目錄讀不讀得到、

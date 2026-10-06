@@ -6,6 +6,8 @@
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
+use plan::{Header, RunId};
+
 use diagnostics::NoSink;
 use metadata::FileHash;
 
@@ -161,11 +163,18 @@ fn run(fx: &Fx, argv: &[&str], interactive: bool, input: &str) -> Out {
             invocation_id: "r1".to_owned(),
         },
     );
+    // 安裝目錄裡的覆寫不送 request；這裡沒有假啟動器，送了就等不到 result。
+    let ctl = fx._tmp.path().join("ctl");
+    let inbox = fx._tmp.path().join("in");
+    let mut channel = Channel::new(&ctl, Header::new(1, RunId::parse("r1").unwrap()).unwrap());
     let code = {
         let mut env = Env {
             dir: &fx.dir,
             host_root: "/h/proj",
             run_log: "/h/proj/.vendor_kit/log/r1.jsonl",
+            inbox: &inbox,
+            channel: &mut channel,
+            poll: Duration::from_millis(1),
             tty: TtyState {
                 stdin: interactive,
                 stderr: interactive,
@@ -342,6 +351,23 @@ fn write_local(fx: &Fx, tools: &[(&str, &str)]) {
     local.save_to(&fx.dir, WRITTEN_BY).unwrap();
 }
 
+/// 安裝目錄裡的本機開發來源 `work/other`：交付 `other` 與 `other-extra`。
+const OTHER_SOURCE: &str = "work/other";
+
+fn other_source(fx: &Fx) {
+    let just = fx.dir.root().join(OTHER_SOURCE).join("just");
+    fs::create_dir_all(&just).unwrap();
+    fs::write(just.join("other.just"), "y:\n").unwrap();
+    fs::write(just.join("other-extra.just"), "z:\n").unwrap();
+}
+
+/// `other` 開著覆寫（[`OTHER_SOURCE`]）時的入口檔。
+const OTHER_LOCAL_ENTRY: &str = "mod? other '../../work/other/just/other.just'\n\
+                                 mod? other-extra '../../work/other/just/other-extra.just'\n";
+
+/// 用了 `other` 的覆寫的報告。
+const OTHER_REPORT: &str = "other uses the local source work/other (local override).\n";
+
 fn local_tools(fx: &Fx) -> Vec<(String, String)> {
     let local = LocalFile::load_from(&fx.dir).unwrap().unwrap();
     local
@@ -355,13 +381,15 @@ fn local_tools(fx: &Fx) -> Vec<(String, String)> {
 fn a_local_override_of_the_target_is_lifted_and_its_source_is_kept() {
     let fx = Fx::new();
     // 對象的來源不存在（覆寫來源失效）也不擋；其他工具的覆寫照留。
-    write_local(&fx, &[("tool", "../gone"), ("other", "../other")]);
+    other_source(&fx);
+    write_local(&fx, &[("tool", "../gone"), ("other", OTHER_SOURCE)]);
     let out = run(&fx, &["remove", "tool"], true, "y\n");
     assert_eq!(out.code, 0, "{}", out.stderr);
     assert_eq!(
         out.stdout,
         format!(
-            "Removed tool v1.2.0 ({TOOL}).\n\
+            "{OTHER_REPORT}\
+             Removed tool v1.2.0 ({TOOL}).\n\
              Removed the local override of tool (../gone).\n\
              Kept the local development source of tool: ../gone\n\
              Removed inserted lines from .gitignore\nKept .gitignore\n"
@@ -370,8 +398,9 @@ fn a_local_override_of_the_target_is_lifted_and_its_source_is_kept() {
     assert_eq!(out.events(), LANDED);
     assert_eq!(
         local_tools(&fx),
-        [("other".to_owned(), "../other".to_owned())]
+        [("other".to_owned(), OTHER_SOURCE.to_owned())]
     );
+    assert_eq!(fx.read(".vendor_kit/gen/tools.just"), OTHER_LOCAL_ENTRY);
     assert!(fx.lock().tool("tool").is_none());
     assert!(!fx.vk().join("cache/tool").exists());
     assert!(fx.progress_left().is_empty());
@@ -388,14 +417,67 @@ fn lifting_the_last_override_keeps_version_local_toml() {
 }
 
 #[test]
-fn an_override_of_another_tool_leaves_version_local_toml_untouched() {
+fn an_override_of_another_tool_is_applied_reported_and_left_untouched() {
+    // 對象以外的覆寫：入口檔照本機開發來源重產、報告用了它，`version.local.toml` 不動。
     let fx = Fx::new();
-    write_local(&fx, &[("other", "../other")]);
+    other_source(&fx);
+    write_local(&fx, &[("other", OTHER_SOURCE)]);
     let before = fs::read(fx.dir.version_local_toml()).unwrap();
     let out = run(&fx, &["remove", "tool"], true, "y\n");
     assert_eq!(out.code, 0, "{}", out.stderr);
-    assert!(!out.stdout.contains("local override"), "{}", out.stdout);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "{OTHER_REPORT}Removed tool v1.2.0 ({TOOL}).\n\
+             Removed inserted lines from .gitignore\nKept .gitignore\n"
+        )
+    );
+    assert_eq!(fx.read(".vendor_kit/gen/tools.just"), OTHER_LOCAL_ENTRY);
     assert_eq!(fs::read(fx.dir.version_local_toml()).unwrap(), before);
+}
+
+#[test]
+fn answering_no_still_reports_the_override_of_another_tool() {
+    let fx = Fx::new();
+    other_source(&fx);
+    write_local(&fx, &[("other", OTHER_SOURCE)]);
+    let out = run(&fx, &["remove", "tool"], true, "n\n");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stdout, format!("{OTHER_REPORT}No changes were made.\n"));
+    assert!(out.events().is_empty());
+}
+
+#[test]
+fn an_unreadable_override_of_another_tool_is_vk0052_before_asking() {
+    // 重產入口檔要讀它（04 本機覆寫：覆寫來源失效只擋需讀它的動作）：在詢問與任何寫入之前停下。
+    let fx = Fx::new();
+    write_local(&fx, &[("other", "work/gone")]);
+    let entry = fx.read(".vendor_kit/gen/tools.just");
+    let out = run(&fx, &["remove", "tool"], true, "y\n");
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0052]: Cannot read the local override source work/gone for other: \
+         the directory does not exist. Run: just vendor_kit undev other\n"
+    );
+    assert_eq!(fx.read(".gitignore"), GITIGNORE);
+    assert_eq!(fx.read(".vendor_kit/gen/tools.just"), entry);
+    assert!(fx.lock().tool("tool").is_some());
+    assert!(out.events().is_empty());
+}
+
+#[test]
+fn an_orphan_override_of_another_tool_is_a_gap() {
+    let fx = Fx::new();
+    other_source(&fx);
+    write_local(&fx, &[("ghost", OTHER_SOURCE)]);
+    let out = run(&fx, &["remove", "tool"], true, "y\n");
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("error[VK0056]"), "{}", out.stderr);
+    assert!(out.stderr.contains("ghost"), "{}", out.stderr);
+    assert!(fx.lock().tool("tool").is_some());
+    assert!(out.events().is_empty());
 }
 
 #[test]
@@ -435,20 +517,22 @@ fn recovery_after_the_lock_line_was_removed_lifts_the_override() {
     lock.remove_tool("tool").unwrap();
     lock.save_to(&fx.dir, WRITTEN_BY).unwrap();
     fs::remove_file(fx.vk().join("baseline/tool.toml")).unwrap();
-    write_local(&fx, &[("tool", "../tool"), ("other", "../other")]);
+    other_source(&fx);
+    write_local(&fx, &[("tool", "../tool"), ("other", OTHER_SOURCE)]);
     fx.residual(REMOVE_VERB, "r0", &["tool"], false);
 
     let out = run(&fx, &["remove", "tool"], false, "");
     assert_eq!(out.code, 0, "{}", out.stderr);
     assert_eq!(
         out.stdout,
-        "Completed the interrupted remove of tool.\n\
+        "other uses the local source work/other (local override).\n\
+         Completed the interrupted remove of tool.\n\
          Removed the local override of tool (../tool).\n\
          Kept the local development source of tool: ../tool\n"
     );
     assert_eq!(
         local_tools(&fx),
-        [("other".to_owned(), "../other".to_owned())]
+        [("other".to_owned(), OTHER_SOURCE.to_owned())]
     );
     assert!(!fx.vk().join("cache/tool").exists());
     // 版本鎖定行沒有要改的：不記鎖定行的事件。

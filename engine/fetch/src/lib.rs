@@ -41,7 +41,7 @@
 //! # 本機開發來源
 //!
 //! `version.local.toml` 的工具覆寫指到的本機開發來源，正規化與交付格式的檢查在 [`local`]（`dev`、`sync`、
-//! `upgrade` 共用）。
+//! `upgrade`、`add`、`remove` 共用）。
 //!
 //! 這裡不印診斷；要怎麼印由呼叫端經 `diagnostics` 決定。
 

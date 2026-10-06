@@ -13,6 +13,7 @@ filelock.workspace = true
 layout.workspace = true
 messages.workspace = true
 metadata.workspace = true
+plan.workspace = true
 progress.workspace = true
 prompt.workspace = true
 retract.workspace = true

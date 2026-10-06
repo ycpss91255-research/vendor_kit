@@ -1,9 +1,10 @@
 //! `dev <repo> -p <dir>`、`undev <repo>`（04 指令表、成對與無害、本機覆寫；03 輸出）：經假的啟動器跑。
-//! 開著覆寫與解除之後的 `sync`（04 sync、本機覆寫），以及開著覆寫時的 `upgrade`（04 本機覆寫）也在這裡。
+//! 開著覆寫與解除之後的 `sync`（04 sync、本機覆寫），以及開著覆寫時的 `upgrade`、其他工具的 `add`、`remove`
+//! （04 本機覆寫）也在這裡。
 //!
 //! 本機開發來源在安裝目錄裡時，`dev`、`undev` 不送 request，假啟動器只收 `done`；在安裝目錄外時，`dev`、
-//! `sync`、`upgrade` 送 `stage-dir`，假啟動器把對應的目錄複製進 `in/<slot>`（[`stage_launcher`]；`upgrade`
-//! 另要取件，用 [`stage_add_launcher`]）。`undev` 的對象 `cache/`
+//! `sync`、`upgrade`、`add`、`remove` 送 `stage-dir`，假啟動器把對應的目錄複製進 `in/<slot>`（[`stage_launcher`]；
+//! `upgrade` 另要取件，用 [`stage_add_launcher`]；`add` 另一個工具用 [`stage_other_launcher`]）。`undev` 的對象 `cache/`
 //! 跟版本鎖定行對不上時，`undev` 送 `inspect`、`pull`、`extract` 取件（[`fetch_launcher`]）。`add` 那一段照
 //! tests/add.rs 回 inspect 與 extract。`sync` 要判薄殼，所以安裝目錄放好跟這一版引擎一致的薄殼，模板從
 //! fixture 目錄讀（[`e2e::shell`]）。
@@ -166,6 +167,36 @@ fn stage_add_launcher(m: &Mounts, host: &Path) -> std::thread::JoinHandle<Seen> 
         } else {
             add_reply(&ctl, &inbox, req)
         }
+    })
+}
+
+/// 另一個工具 `other` 的 image 與 digest（開著 `tool` 的覆寫時 `add other`、`remove other`）。
+const OTHER_IMAGE: &str = "ghcr.io/acme/other:v1.0.0";
+const OTHER_DIGEST: &str =
+    "sha256:6666666666666666666666666666666666666666666666666666666666666666";
+
+/// `stage-dir` 照 [`stage_launcher`]；inspect 回 `other` 的 RepoDigests，extract 放 `other` 的內容。
+fn stage_other_launcher(m: &Mounts, host: &Path) -> std::thread::JoinHandle<Seen> {
+    let (ctl, inbox, host) = (m.ctl.clone(), m.inbox.clone(), host.to_path_buf());
+    launcher::serve(&m.ctl, HEADER, move |req: &Request| match req.op.as_str() {
+        "stage-dir" => stage_reply(&inbox, &host, req),
+        "inspect" => {
+            let digests = [format!("ghcr.io/acme/other@{OTHER_DIGEST}")];
+            let digests: Vec<&str> = digests.iter().map(String::as_str).collect();
+            fs::write(
+                ctl.join(format!("res.{}.out", req.seq)),
+                launcher::inspect_json(IMAGE_ID, &digests),
+            )
+            .unwrap();
+            Reply::Ok
+        }
+        "extract" => {
+            let dir = inbox.join(&req.args[1]).join("just");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("other.just"), "hi:\n    echo other\n").unwrap();
+            Reply::Ok
+        }
+        _ => Reply::Failed(1),
     })
 }
 
@@ -840,6 +871,101 @@ Upgraded tool from v1.2.0 to v1.3.0 (ghcr.io/acme/tool:v1.3.0@sha256:22222222222
         "{lock}"
     );
     assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
+}
+
+#[test]
+fn add_and_remove_of_another_tool_keep_and_report_an_outside_override() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let entry = m.root.join(".vendor_kit/gen/tools.just");
+
+    let peer = add_launcher(&m);
+    let (code, _, stderr) = run(&m, &["add", "tool", "-i", IMAGE]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+
+    // 主機上安裝目錄（/srv/proj）外的 /srv/elsewhere/tool。
+    let host = tmp.path().join("host");
+    fs::create_dir_all(host.join("proj")).unwrap();
+    let src = host.join("elsewhere/tool/just");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo outside\n").unwrap();
+    let ((code, _, stderr), _) =
+        run_staged(&m, &host, &["dev", "tool", "-p", "/srv/elsewhere/tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let local_entry = "mod? tool '/srv/elsewhere/tool/just/tool.just'\n";
+    assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
+    let report = "tool uses the local source /srv/elsewhere/tool (local override).\n";
+    let other_locked = format!("{OTHER_IMAGE}@{OTHER_DIGEST}");
+
+    // add other：先經 stage-dir 讀 tool 的覆寫，重產的入口檔裡 tool 仍指主機上的本機開發來源。
+    new_session(&m);
+    let peer = stage_other_launcher(&m, &host);
+    let (code, stdout, stderr) = run(&m, &["add", "other", "-i", OTHER_IMAGE]);
+    let seen = peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(
+        seen.requests,
+        [
+            "stage-dir e:/srv/elsewhere/tool dev1".to_owned(),
+            format!("inspect {OTHER_IMAGE}"),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(
+        stdout,
+        format!("{report}Added other v1.0.0 ({other_locked}).\n")
+    );
+    assert_data_eq!(stderr, "");
+    assert_eq!(
+        fs::read_to_string(&entry).unwrap(),
+        format!("mod? other '../cache/other/just/other.just'\n{local_entry}")
+    );
+
+    // 主機上的來源不見了：remove other 要重產入口檔、讀不到 tool 的覆寫，回 VK0052，什麼都不寫。
+    fs::remove_dir_all(host.join("elsewhere")).unwrap();
+    let before = snapshot(&m);
+    let ((code, stdout, stderr), requests) = run_staged(&m, &host, &["remove", "other"]);
+    assert_eq!(code, 2);
+    assert_eq!(requests, ["stage-dir e:/srv/elsewhere/tool dev1"]);
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0052]: Cannot read the local override source /srv/elsewhere/tool for tool: the launcher could not copy it (exit 1): it does not exist, is not a directory, or cannot be read. Run: just vendor_kit undev tool
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
+
+    // 來源回來：remove other 照常收回，入口檔留下 tool 指本機開發來源的那一行。
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo outside\n").unwrap();
+    let ((code, stdout, stderr), requests) = run_staged(&m, &host, &["remove", "other"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(requests, ["stage-dir e:/srv/elsewhere/tool dev1"]);
+    assert_eq!(
+        stdout,
+        format!("{report}Removed other v1.0.0 ({other_locked}).\n")
+    );
+    assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
+
+    // 來源又不見了：add other 在任何 docker 動作之前回 VK0052。
+    fs::remove_dir_all(host.join("elsewhere")).unwrap();
+    let before = snapshot(&m);
+    new_session(&m);
+    let peer = stage_other_launcher(&m, &host);
+    let (code, stdout, stderr) = run(&m, &["add", "other", "-i", OTHER_IMAGE]);
+    let seen = peer.join().unwrap();
+    assert_eq!(code, 2);
+    assert_eq!(seen.requests, ["stage-dir e:/srv/elsewhere/tool dev1"]);
+    assert_data_eq!(stdout, "");
+    assert!(
+        stderr.starts_with("vendor_kit: error[VK0052]: "),
+        "{stderr}"
+    );
+    assert_eq!(snapshot(&m), before);
 }
 
 #[test]
