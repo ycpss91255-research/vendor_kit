@@ -30,6 +30,20 @@
 //! 8. 執行紀錄記 `lock_line_written`。
 //! 9. 刪進度檔，再記 `progress_removed`。
 //!
+//! 本機覆寫的增減（`dev`、`undev`）走另一條順序（[`Txn::write_overrides`] 起），同樣以型別狀態固定：
+//!
+//! 1. 執行紀錄記 `writes_started`。
+//! 2. 建進度檔。
+//! 3. 寫覆寫紀錄 `version.local.toml`（紀錄檔那一步）：04 本機覆寫「`undev` 解除覆寫，隨即同步到當下鎖定
+//!    版本」「`undev` 同步未完成時，覆寫已解除」，覆寫先解除，才同步。
+//! 4. 換 `cache/<repo>/` 與印記，一個工具接一個工具（`undev` 的對象 `cache/` 跟版本鎖定行對不上時；
+//!    取件本身在建進度檔之前就取到 repo 外暫存，這裡只換）。
+//! 5. 寫入口檔 `gen/tools.just`（`cache/` 換好之後才寫）。
+//! 6. 不改版本鎖定行（[`Txn::keep_lock_line`]；型別上也可以接第 7–9 步，同導入的順序）。
+//! 7. 刪進度檔，再記 `progress_removed`。
+//!
+//! 第 3–6 步中斷時進度檔還在，覆寫已解除、`cache/` 或入口檔還沒同步，重跑原指令即可補完（呼叫端報出未完成）。
+//!
 //! 唯讀 recipe（`sync`）只重建 `cache/` 與入口檔，不建進度檔、不改版本鎖定行（名詞表：唯讀 recipe 不動
 //! 追蹤檔、也不動進度檔；ADR-0007），走 [`refresh`] 這條順序：
 //!
@@ -78,6 +92,27 @@
 //! ```compile_fail
 //! # fn demo<E: txn::Effects>(fx: &mut E, p: progress::Progress) -> Result<(), txn::Failed> {
 //! txn::Txn::begin(fx, p)?.write_repo_files(&[])?;
+//! # Ok(()) }
+//! ```
+//!
+//! 本機覆寫的順序：先寫覆寫紀錄，再換 `cache/`，再寫入口檔：
+//!
+//! ```no_run
+//! # fn demo<E: txn::Effects>(fx: &mut E, p: progress::Progress) -> Result<(), txn::Failed> {
+//! txn::Txn::begin(fx, p)?
+//!     .write_overrides(&[])?
+//!     .swap_cache(&[])?
+//!     .write_tools_just(None)?
+//!     .keep_lock_line()
+//!     .complete()?;
+//! # Ok(()) }
+//! ```
+//!
+//! 先換 `cache/` 再寫覆寫紀錄，編譯不過：
+//!
+//! ```compile_fail
+//! # fn demo<E: txn::Effects>(fx: &mut E, p: progress::Progress) -> Result<(), txn::Failed> {
+//! txn::Txn::begin(fx, p)?.swap_cache(&[])?.write_overrides(&[])?;
 //! # Ok(()) }
 //! ```
 //!
@@ -153,8 +188,9 @@ pub struct RecordFile<'a> {
 // ---------------------------------------------------------------------------
 // 步驟與錯誤
 
-/// 落地順序的每一步；導入的順序見 [`Step::ALL`]，收回的順序見 [`Step::RETRACT`]，唯讀 recipe 的順序見
-/// [`Step::REFRESH`]。
+/// 落地順序的每一步；導入的順序見 [`Step::ALL`]，收回的順序見 [`Step::RETRACT`]，本機覆寫的順序見
+/// [`Step::OVERRIDE`]，唯讀 recipe 的順序見 [`Step::REFRESH`]。宣告順序是導入的順序；其他順序的前後
+/// 要看各自的陣列（[`Step::position`]），不能直接比大小。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Step {
     /// 記 `writes_started`。
@@ -213,6 +249,26 @@ impl Step {
         Step::DeleteProgress,
         Step::ProgressRemoved,
     ];
+
+    /// 本機覆寫（`dev`、`undev`；[`Txn::write_overrides`] 起）的順序：每一個都對應一次 [`Effects`] 呼叫
+    /// （換 `cache/` 每個工具一次）。
+    pub const OVERRIDE: [Step; 10] = [
+        Step::WritesStarted,
+        Step::CreateProgress,
+        Step::Records,
+        Step::SwapCache,
+        Step::ToolsJust,
+        Step::LockLineWriteStarted,
+        Step::LockLine,
+        Step::LockLineWritten,
+        Step::DeleteProgress,
+        Step::ProgressRemoved,
+    ];
+
+    /// 這一步在 `order` 裡排第幾（從 0 起）；不在裡面回 `None`。
+    pub fn position(self, order: &[Step]) -> Option<usize> {
+        order.iter().position(|s| *s == self)
+    }
 
     /// 唯讀 recipe（[`refresh`]）的順序：每一個都對應一次 [`Effects`] 呼叫（換 `cache/` 每個工具一次）。
     pub const REFRESH: [Step; 3] = [Step::WritesStarted, Step::SwapCache, Step::ToolsJust];
@@ -569,6 +625,9 @@ pub struct Retracted;
 /// 收回：入口檔已處理，下一步寫保留的紀錄檔、刪要收回的路徑。
 pub struct EntryRetracted;
 
+/// 本機覆寫：覆寫紀錄已寫好，下一步換 `cache/`。
+pub struct OverridesWritten;
+
 /// 收回時入口檔 `gen/tools.just` 怎麼處理。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Entry<'a> {
@@ -629,6 +688,27 @@ impl<'e, E: Effects + ?Sized> Txn<'e, E, Begun> {
 
     /// 第 3 步：依序換每個工具的 `cache/<repo>/` 與印記；可以是空的。
     pub fn swap_cache(self, tools: &[ToolContent]) -> Result<Txn<'e, E, CacheSwapped>, Failed> {
+        for tool in tools {
+            self.fx.swap_cache(tool).map_err(at(Step::SwapCache))?;
+        }
+        Ok(self.next())
+    }
+
+    /// 本機覆寫的第 3 步：依序寫覆寫紀錄（`version.local.toml` 等紀錄檔）；可以是空的。之後換 `cache/`。
+    pub fn write_overrides(
+        self,
+        files: &[RecordFile],
+    ) -> Result<Txn<'e, E, OverridesWritten>, Failed> {
+        for file in files {
+            self.fx.write_record_file(file).map_err(at(Step::Records))?;
+        }
+        Ok(self.next())
+    }
+}
+
+impl<'e, E: Effects + ?Sized> Txn<'e, E, OverridesWritten> {
+    /// 本機覆寫的第 4 步：依序換每個工具的 `cache/<repo>/` 與印記；可以是空的。之後寫入口檔。
+    pub fn swap_cache(self, tools: &[ToolContent]) -> Result<Txn<'e, E, RecordsWritten>, Failed> {
         for tool in tools {
             self.fx.swap_cache(tool).map_err(at(Step::SwapCache))?;
         }

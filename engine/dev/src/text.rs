@@ -38,6 +38,11 @@ pub fn undev_tool_unchanged(repo: &str) -> String {
 /// 沒有引擎覆寫與未完成操作的 `undev --engine`。
 pub const UNDEV_ENGINE_UNCHANGED: &str = "The engine has no local override. No changes were made.";
 
+/// `undev <repo>` 依版本鎖定行取件並換好 `cache/<repo>/`（字句同 engine/sync）。
+pub fn fetched(repo: &str, locked: &ImageRef) -> String {
+    format!("Fetched {repo} {} ({locked}).", locked.tag())
+}
+
 /// 重產了入口檔。
 pub const TOOLS_JUST_UPDATED: &str = "Updated .vendor_kit/gen/tools.just.";
 

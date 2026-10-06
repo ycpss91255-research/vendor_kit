@@ -20,16 +20,32 @@
 //! 7. 算出新的 `gen/tools.just`（`tools_just::render_with`）：開著覆寫的工具指向本機目錄，其他工具指向
 //!    `cache/<repo>/`。`<ns>` 從各自的來源讀：其他開著覆寫的工具要讀它的本機目錄（安裝目錄外的同樣經
 //!    `stage-dir`），讀不到回 VK0052（04：
-//!    覆寫來源失效只擋需讀它的動作）。`undev <repo>` 的對象回到鎖定版本，要 `cache/<repo>/` 與印記、版本
-//!    鎖定行一致才能直接指回去（見「缺口」）。`undev --engine` 不動入口檔。
-//! 8. 經 `txn` 落地：建進度檔 → 寫 `version.local.toml`（記錄檔那一步）→ 寫 `gen/tools.just` → 刪進度檔；
-//!    不改版本鎖定行（`keep_lock_line`），不動 `cache/`（`swap_cache(&[])`）。覆寫的增減排在入口檔之前：
-//!    04 本機覆寫「`undev` 同步未完成時，覆寫已解除，須重跑原 `undev`」。之後才刪併入的殘留進度檔。
-//!    `undev` 在覆寫已寫好、入口檔還沒寫好時失敗，回 VK0053（訊息表：undev 解除覆寫後同步失敗）。
+//!    覆寫來源失效只擋需讀它的動作）。`undev <repo>` 的對象回到鎖定版本：`cache/<repo>/` 與印記、版本
+//!    鎖定行一致就直接指回去；對不上就取件（見「取件」），入口檔照取到的內容算。`undev --engine` 不動入口檔。
+//! 8. 經 `txn` 的本機覆寫順序落地：建進度檔 → 寫 `version.local.toml`（記錄檔那一步）→ 換 `cache/<repo>/` 與
+//!    印記（`undev` 要取件時；其他情況是空的）→ 寫 `gen/tools.just` → 刪進度檔；不改版本鎖定行
+//!    （`keep_lock_line`）。覆寫的增減排在 `cache/` 與入口檔之前：04 本機覆寫「`undev` 解除覆寫，隨即同步到
+//!    當下鎖定版本」「`undev` 同步未完成時，覆寫已解除，須重跑原 `undev`」。之後才刪併入的殘留進度檔。
+//!    `undev` 在覆寫已寫好、`cache/` 或入口檔還沒寫好時失敗，回 VK0053（訊息表：undev 解除覆寫後同步失敗）。
 //! 9. stdout 列出改了什麼與用了哪個覆寫（04 本機覆寫：每次報告用了哪個覆寫，不加診斷前綴）。
 //!
-//! 這裡不直接碰 docker：唯一的往返是安裝目錄外的本機開發來源的 `stage-dir`（不在 `plan::RESCUE_OPS`
-//! 裡；`dev` 不是救援路徑）。
+//! 這裡不直接碰 docker：往返只有安裝目錄外的本機開發來源的 `stage-dir`（不在 `plan::RESCUE_OPS`
+//! 裡；`dev` 不是救援路徑），與 `undev` 取件的 `inspect`、`pull`、`extract`。
+//!
+//! # 取件
+//!
+//! `undev <repo>` 時 `cache/<repo>/` 跟版本鎖定行對不上（印記不在、損壞、版本不同，或版本相同而內容不符，
+//! 例如開著覆寫時 `git pull` 換了鎖定行），不叫使用者先 `sync`，解除覆寫後一起同步（04 本機覆寫）。取件照
+//! engine/sync 的做法（指令之間互不依賴，照抄）：請啟動器 `inspect` 帶 digest 的引用
+//! `<registry>/<路徑>@<digest>`，本機沒有就 `pull` 同一個引用再 `inspect`，再以 image ID `extract` 進
+//! `in/<slot>`；`fetch::verify` 驗 RepoDigests、交付格式，版本相同時另比對既有印記的逐檔指紋。取件在寫任何檔
+//! 之前做，取到 repo 外的暫存處（#372 取件時機），落地前重驗（ADR-0006 第三層），`txn` 在解除覆寫之後才換
+//! `cache/` 與印記、再寫入口檔。
+//!
+//! 取件失敗也回 VK0053：docker 動作失敗或下載的內容與鎖定的 digest 不符時，訊息表的 VK0055、VK0043 只寫
+//! update、add、upgrade、sync，`undev` 的同步失敗只有 VK0053（「請再執行一次」）。這時還沒寫任何檔，覆寫
+//! 照留、沒有進度檔，重跑同一個 `undev` 就是從頭再做。重跑也補不好的（取到的內容與同一版本的既有印記不符、
+//! 交付格式不符、交付保留名 `vendor_kit`）見「缺口」。
 //!
 //! # 本機目錄
 //!
@@ -79,12 +95,12 @@
 //!   `local` 只收安裝目錄裡的值，回 VK0052）；要先 `undev`。
 //! - `dev` 的 `<ns>` 撞名：VK0030 只寫 `add`。工具之間撞名、或交付保留名 `vendor_kit` 時停下；根
 //!   `justfile` 的 recipe 與 module 這一版不比對。
-//! - `undev <repo>` 時 `cache/<repo>/` 跟版本鎖定行對不上（印記不在、損壞、版本不同或內容不符，例如開著
-//!   覆寫時 `git pull` 換了鎖定行）：要在解除覆寫之後取件，但 `txn` 的順序是先換 `cache/` 再寫記錄檔，
-//!   跟「覆寫先解除」相反，要另加 `txn` 的順序；這一版在寫任何檔之前停下。
+//! - `undev <repo>` 取到的內容與同一版本的既有印記不符（計畫 G1）、交付格式不符（G2），或交付保留名
+//!   `vendor_kit`：重跑也補不好，VK0053 的「請再執行一次」不適用，在寫任何檔之前停下（同 engine/sync）。
 //! - 其他工具的 `cache/<repo>/` 讀不到（例如還沒 `sync`）：重產入口檔要用到它的 `<ns>`。
 //! - 殘留的進度檔是其他 verb 的，或 `dev`、`undev` 但對象不同：怎麼併入沒定。
-//! - 中途寫檔失敗沒有代碼（G4），`undev` 解除覆寫後的那一段除外（VK0053）。
+//! - 中途寫檔失敗沒有代碼（G4），`undev` 解除覆寫後的那一段（換 `cache/`、寫入口檔、刪進度檔）除外
+//!   （VK0053）。
 
 pub mod text;
 
@@ -100,12 +116,14 @@ use std::time::Duration;
 
 use config::{Config, ConfigError};
 use diagnostics::{Diagnostic, Diagnostics, Message, Sink};
+use fetch::{Candidate, Staged, Taken};
 use filelock::{Lock, Mode};
 use imageref::ImageRef;
 use layout::InstallDir;
-use plan::{Channel, Field, Op, Outcome, Slot};
+use plan::{Channel, Field, ImageId, Op, Outcome, Slot};
 use progress::Progress;
-use txn::{Disk, RecordFile, Txn};
+use stamp::Stamp;
+use txn::{Disk, RecordFile, ToolContent, Txn};
 use version_file::{LocalFile, LockFile};
 
 /// `dev` 的進度檔 `<verb>`。
@@ -122,6 +140,8 @@ pub const ENGINE_TARGET: &str = "vendor_kit";
 pub const COMMAND_PREFIX: [&str; 2] = ["just", "vendor_kit"];
 /// 安裝目錄外的本機開發來源經 `stage-dir` 放進 `in/` 的 slot 名前綴，後接這次執行裡的序號（`dev1`…）。
 pub const STAGE_SLOT_PREFIX: &str = "dev";
+/// `undev` 取件 `extract` 進 `in/` 的 slot 名前綴，後接這次執行裡的序號（`tool1`…；同 engine/sync）。
+pub const FETCH_SLOT_PREFIX: &str = "tool";
 /// `version.local.toml` 相對於 `.vendor_kit/` 的路徑（`txn` 記錄檔那一步收這種路徑）。
 const LOCAL_FILE: &str = "version.local.toml";
 
@@ -154,7 +174,8 @@ impl Request<'_> {
     }
 }
 
-/// 這次執行的環境。`dev`、`undev` 不詢問，所以沒有 stdin 與終端狀態；往返只用來 `stage-dir`。
+/// 這次執行的環境。`dev`、`undev` 不詢問，所以沒有 stdin 與終端狀態；往返只用來 `stage-dir` 與 `undev`
+/// 的取件。
 pub struct Env<'a, W: Write, S: Sink, L: Write> {
     /// 容器內的安裝目錄（`plan::mount::ROOT`）。
     pub dir: &'a InstallDir,
@@ -185,9 +206,54 @@ pub fn run<W: Write, S: Sink, L: Write>(req: &Request<'_>, env: &mut Env<'_, W, 
         env,
         code: 0,
         slots: 0,
+        extracts: 0,
     };
     let _ = dev.run(req);
     dev.code
+}
+
+/// `docker image inspect` 輸出裡用得到的兩個欄位。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Inspected {
+    /// `Id`：`sha256:<64hex>`。
+    id: String,
+    /// `RepoDigests`：每筆 `<registry>/<路徑>@sha256:<digest>`。
+    repo_digests: Vec<String>,
+}
+
+/// 解析 `docker image inspect <ref>` 的 JSON：一個陣列，剛好一個物件（engine/sync 的 `parse_inspect`；
+/// 指令之間互不依賴，照抄）。
+fn parse_inspect(bytes: &[u8]) -> Result<Inspected, String> {
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|e| format!("image inspect output is not JSON: {e}"))?;
+    let items = value
+        .as_array()
+        .ok_or("image inspect output is not a JSON array")?;
+    let [item] = items.as_slice() else {
+        return Err(format!(
+            "image inspect output has {} entries, expected 1",
+            items.len()
+        ));
+    };
+    let id = item
+        .get("Id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("image inspect output has no Id")?
+        .to_owned();
+    let repo_digests = match item.get("RepoDigests") {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(v) => v
+            .as_array()
+            .ok_or("image inspect RepoDigests is not an array")?
+            .iter()
+            .map(|d| {
+                d.as_str()
+                    .map(str::to_owned)
+                    .ok_or("image inspect RepoDigests has a non-string entry")
+            })
+            .collect::<Result<_, _>>()?,
+    };
+    Ok(Inspected { id, repo_digests })
 }
 
 /// POSIX shell 引號：只含安全字元的字原樣留下；其他（含空字串）包單引號，`'` 換成 `'\''`
@@ -377,12 +443,22 @@ struct Residual {
     path: Option<String>,
 }
 
+/// `undev <repo>` 的對象 `cache/<repo>/` 跟版本鎖定行比的結果。
+enum Cached {
+    /// 一致：`cache/<repo>/` 交付的 `<ns>`。
+    Keep(Vec<String>),
+    /// 對不上，要取件；`previous` 是同一個版本的既有印記（內容不符時），取到的要跟它一致。
+    Fetch { previous: Option<Box<Stamp>> },
+}
+
 /// 判定後要落地的內容。
 struct Plan {
     /// 新的 `version.local.toml`；`None` 表示覆寫不變。
     local: Option<LocalFile>,
     /// 新的 `gen/tools.just`；`None` 表示入口檔不變。
     entry: Option<String>,
+    /// `undev <repo>` 取到、要換進 `cache/<repo>/` 的內容。
+    fetched: Option<Candidate>,
     /// 落地後要印的字句（不含入口檔與恢復）。
     said: Vec<String>,
 }
@@ -392,6 +468,8 @@ struct Dev<'r, 'a, W: Write, S: Sink, L: Write> {
     code: u8,
     /// 這次執行已用掉的 `stage-dir` slot 數。
     slots: usize,
+    /// 這次執行已用掉的取件 slot 數。
+    extracts: usize,
 }
 
 impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
@@ -512,6 +590,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 Plan {
                     local: Some(local),
                     entry: None,
+                    fetched: None,
                     said,
                 }
             }
@@ -520,14 +599,21 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
 
         // 覆寫的實際內容跟檔上一樣就不寫（殘留併進來時，記憶體裡的可能已經跟檔上不同）。
         let local = plan.local.filter(|l| !same_overrides(l, disk.as_ref()));
-        if local.is_none() && plan.entry.is_none() && residual.is_empty() {
+        if local.is_none() && plan.entry.is_none() && plan.fetched.is_none() && residual.is_empty()
+        {
             for line in &plan.said {
                 self.say(line);
             }
             return Ok(());
         }
 
-        self.land(req, local, plan.entry.as_deref())?;
+        if let Some(c) = &plan.fetched
+            && let Err(e) = c.recheck()
+        {
+            let repo = c.repo().to_owned();
+            return Err(self.internal(format!("staged content of {repo} changed: {e}")));
+        }
+        self.land(req, local, plan.entry.as_deref(), plan.fetched.as_ref())?;
         for r in &residual {
             if let Err(err) = progress::delete(self.env.dir, &r.entry.verb, &r.entry.id) {
                 let d = self.failed_diag(&r.entry.path, err.message(), err.to_string());
@@ -537,6 +623,9 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
 
         for line in &plan.said {
             self.say(line);
+        }
+        if let Some(c) = &plan.fetched {
+            self.say(&text::fetched(c.repo(), c.locked()));
         }
         if plan.entry.is_some() {
             self.say(text::TOOLS_JUST_UPDATED);
@@ -584,6 +673,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                     return Ok(Plan {
                         local: None,
                         entry: None,
+                        fetched: None,
                         said: vec![text::dev_unchanged(repo, &dir)],
                     });
                 }
@@ -591,6 +681,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 return Ok(Plan {
                     local: Some(local.clone()),
                     entry,
+                    fetched: None,
                     said: vec![text::dev_enabled(repo, &dir)],
                 });
             }
@@ -618,6 +709,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         Ok(Plan {
             local: Some(local.clone()),
             entry,
+            fetched: None,
             said: vec![text::dev_enabled(repo, &dir)],
         })
     }
@@ -639,10 +731,17 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             return Ok(Plan {
                 local: None,
                 entry: None,
+                fetched: None,
                 said: vec![text::undev_tool_unchanged(repo)],
             });
         }
-        let ns = self.locked_cache(repo, locked)?;
+        let (ns, fetched) = match self.locked_cache(repo, locked)? {
+            Cached::Keep(ns) => (ns, None),
+            Cached::Fetch { previous } => {
+                let c = self.fetch(repo, locked, previous.as_deref())?;
+                (c.namespaces().to_vec(), Some(c))
+            }
+        };
         if let Err(e) = local.remove_tool(repo) {
             return Err(self.internal(e.to_string()));
         }
@@ -652,22 +751,18 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         Ok(Plan {
             local: Some(local.clone()),
             entry,
+            fetched,
             said: vec![text::undev_tool(repo, locked)],
         })
     }
 
-    /// `undev <repo>` 的對象回到鎖定版本：`cache/<repo>/` 要與印記一致，印記的版本要是版本鎖定行的值。
-    /// 回傳 `cache/<repo>/` 交付的 `<ns>`。
-    fn locked_cache(&mut self, repo: &str, locked: &ImageRef) -> Step<Vec<String>> {
-        let refetch = || {
-            format!(
-                "undev {repo} while cache/{repo}/ does not match the lock version line \
-                 (fetching the locked version after removing the override)"
-            )
-        };
-        let stamp = match stamp::Stamp::load(&stamp::tool_file(self.env.dir, repo)) {
+    /// `undev <repo>` 的對象回到鎖定版本：`cache/<repo>/` 要與印記一致，印記的版本要是版本鎖定行的值，
+    /// 否則要取件（模組說明「取件」；判法同 engine/sync）。
+    fn locked_cache(&mut self, repo: &str, locked: &ImageRef) -> Step<Cached> {
+        let fetch = Cached::Fetch { previous: None };
+        let stamp = match Stamp::load(&stamp::tool_file(self.env.dir, repo)) {
             Ok(Some(s)) if s.version() == locked.to_string() => s,
-            Ok(_) | Err(stamp::Error::Corrupt { .. }) => return Err(self.gap(refetch())),
+            Ok(_) | Err(stamp::Error::Corrupt { .. }) => return Ok(fetch),
             Err(stamp::Error::TooNew { file, too_new }) => {
                 let d = self.too_new_diag(&file, &too_new);
                 return Err(self.stop(d));
@@ -680,14 +775,121 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         };
         match stamp.verify(&cache) {
             Ok(diff) if diff.is_match() => {}
-            Ok(_) => return Err(self.gap(refetch())),
+            Ok(_) => {
+                return Ok(Cached::Fetch {
+                    previous: Some(Box::new(stamp)),
+                });
+            }
             Err(e) => return Err(self.internal(format!("cache of {repo}: {e}"))),
         }
-        fetch::namespaces(&cache).map_err(|e| {
+        fetch::namespaces(&cache).map(Cached::Keep).map_err(|e| {
             self.internal(format!(
                 "cache of {repo} matches its stamp, but its tool content is invalid: {e}"
             ))
         })
+    }
+
+    /// 請啟動器做一個 docker 動作，等結果。
+    fn request(&mut self, op: &Op) -> Step<(plan::Seq, Outcome)> {
+        let sent = self.env.channel.send(op);
+        let seq = sent.map_err(|e| self.internal(e.to_string()))?;
+        let reply = self.env.channel.receive(self.env.poll);
+        let reply = reply.map_err(|e| self.internal(e.to_string()))?;
+        Ok((seq, reply.outcome))
+    }
+
+    /// VK0053：`undev` 的同步沒完成（模組說明「取件」），請再執行一次原指令。
+    fn incomplete(&mut self, target: &str) -> Stop {
+        let d = Diagnostic::new(&messages::VK0053)
+            .arg("target", target)
+            .arg("undev_command", full_command(self.env.argv));
+        self.stop(d)
+    }
+
+    /// inspect 一個引用；docker 失敗回 `Ok(Err(rc))`。
+    fn inspect(&mut self, wire: &plan::ImageRef) -> Step<Result<Inspected, u8>> {
+        let (seq, outcome) = self.request(&Op::Inspect(wire.clone()))?;
+        match outcome {
+            Outcome::Ok => {}
+            Outcome::Failed(rc) => return Ok(Err(rc)),
+            Outcome::Runner(_) => return Err(self.internal("inspect returned a runner result")),
+        }
+        let out = self.env.channel.output_path(seq);
+        let bytes = fs::read(&out).map_err(|e| self.internal(format!("{}: {e}", out.display())))?;
+        parse_inspect(&bytes).map(Ok).map_err(|e| self.internal(e))
+    }
+
+    /// 依版本鎖定行取件並驗證（模組說明「取件」）：docker 動作失敗與 digest 不符回 VK0053。
+    fn fetch(
+        &mut self,
+        repo: &str,
+        locked: &ImageRef,
+        previous: Option<&Stamp>,
+    ) -> Step<Candidate> {
+        let pinned = format!(
+            "{}/{}@{}",
+            locked.registry(),
+            locked.path(),
+            locked.digest()
+        );
+        let Some(wire) = plan::ImageRef::parse(&pinned).filter(plan::ImageRef::is_pinned) else {
+            return Err(self.internal(format!("cannot request {pinned}")));
+        };
+        let inspected = match self.inspect(&wire)? {
+            Ok(i) => i,
+            Err(_) => {
+                // 本機沒有這個 image：以同一個帶 digest 的引用 pull，再 inspect。
+                let (_, outcome) = self.request(&Op::Pull(wire.clone()))?;
+                match outcome {
+                    Outcome::Ok => {}
+                    Outcome::Failed(_) => return Err(self.incomplete(repo)),
+                    Outcome::Runner(_) => {
+                        return Err(self.internal("pull returned a runner result"));
+                    }
+                }
+                match self.inspect(&wire)? {
+                    Ok(i) => i,
+                    Err(_) => return Err(self.incomplete(repo)),
+                }
+            }
+        };
+        let Some(id) = ImageId::parse(&inspected.id) else {
+            return Err(self.internal(format!("image inspect returned Id {:?}", inspected.id)));
+        };
+
+        self.extracts += 1;
+        let slot = format!("{FETCH_SLOT_PREFIX}{}", self.extracts);
+        let Some(slot_v) = Slot::parse(&slot) else {
+            return Err(self.internal(format!("invalid slot {slot}")));
+        };
+        let (_, outcome) = self.request(&Op::Extract(id, slot_v))?;
+        match outcome {
+            Outcome::Ok => {}
+            Outcome::Failed(_) => return Err(self.incomplete(repo)),
+            Outcome::Runner(_) => return Err(self.internal("extract returned a runner result")),
+        }
+        let root = self.env.inbox.join(&slot);
+        let staged = Staged {
+            repo,
+            locked,
+            root: &root,
+            repo_digests: &inspected.repo_digests,
+        };
+        match fetch::verify(&staged, &Taken::new(), previous) {
+            Ok(c) => Ok(c),
+            Err(fetch::Error::DigestMismatch { .. }) => Err(self.incomplete(repo)),
+            Err(fetch::Error::Collision { .. }) => Err(self.gap(format_args!(
+                "undev of {repo}, whose locked version delivers the reserved namespace {}",
+                fetch::RESERVED
+            ))),
+            Err(fetch::Error::Fingerprint(_)) => Err(self.gap(format_args!(
+                "undev of {repo} whose fetched content does not match its existing stamp \
+                 for the same lock version line"
+            ))),
+            Err(e) => Err(self.gap(format_args!(
+                "undev of {repo} whose fetched tool content is invalid ({e})"
+            ))),
+        }
     }
 
     /// 依覆寫算出新的 `gen/tools.just`（模組說明第 7 步），跟現有內容一樣回 `None`。`known` 是這次已經讀過
@@ -826,12 +1028,13 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             .arg("undev_command", undev_command(repo))
     }
 
-    /// 經 `txn` 落地（模組說明第 8 步）。
+    /// 經 `txn` 的本機覆寫順序落地（模組說明第 8 步）。
     fn land(
         &mut self,
         req: &Request<'_>,
         local: Option<LocalFile>,
         entry: Option<&str>,
+        fetched: Option<&Candidate>,
     ) -> Step<()> {
         let mut progress = match Progress::new(req.verb(), self.env.run_id, self.env.argv) {
             Ok(p) => p,
@@ -862,29 +1065,38 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 contents: text.as_bytes(),
             })
             .collect();
+        let stamp_file = fetched.map(|c| stamp::tool_file(self.env.dir, c.repo()));
+        let tools: Vec<ToolContent> = fetched
+            .zip(stamp_file.as_deref())
+            .map(|(c, stamp_file)| ToolContent {
+                repo: c.repo(),
+                staged: c.root(),
+                version: c.version(),
+                stamp_file,
+            })
+            .into_iter()
+            .collect();
         let result = {
             let mut fx = Disk::new(self.env.dir, self.env.log, self.env.written_by);
             Txn::begin(&mut fx, progress).and_then(|t| {
-                t.swap_cache(&[])?
-                    .write_repo_files(&[])?
-                    .write_records(&records)?
+                t.write_overrides(&records)?
+                    .swap_cache(&tools)?
                     .write_tools_just(entry.map(str::as_bytes))?
                     .keep_lock_line()
                     .complete()
             })
         };
+        let order = &txn::Step::OVERRIDE;
+        let records_at = txn::Step::Records.position(order);
         match result {
             Ok(_) => Ok(()),
-            // 覆寫已經解除、入口檔或完成點沒寫好：訊息表的「undev 解除覆寫後同步失敗」。
+            // 覆寫已經解除、`cache/`、入口檔或完成點沒寫好：訊息表的「undev 解除覆寫後同步失敗」。
             Err(f)
                 if req.verb() == UNDEV_VERB
-                    && f.step > txn::Step::Records
+                    && f.step.position(order) > records_at
                     && !f.step.completed() =>
             {
-                let d = Diagnostic::new(&messages::VK0053)
-                    .arg("target", req.target())
-                    .arg("undev_command", full_command(self.env.argv));
-                Err(self.stop(d))
+                Err(self.incomplete(req.target()))
             }
             Err(f) => Err(self.internal(f.to_string())),
         }
