@@ -84,6 +84,8 @@ Add a tool at its latest version, at <tag>, or from a local image.
 
 Options:
   -i, --image <image>               Use a local image or image tar instead of the registry
+      --image-path <registry>/<path>
+                                    Registry path of a tool not yet in the lock file
       --registry-token-file <path>  Read a registry token from <path> to list versions
   -h, --help                        Print this help
 

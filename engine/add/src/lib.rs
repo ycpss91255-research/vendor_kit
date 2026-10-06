@@ -9,10 +9,11 @@
 //! 4. 讀 `version.toml`。
 //! 5. 恢復殘留的進度檔（04 成對與無害：可寫 recipe 先恢復再判是否重複）。恢復本身不寫 repo 檔，
 //!    沒有要問的事；做法見 `Add::recover`。
-//! 6. 判來源：目前只有 `-i <本機 image 引用>`（見「缺口」）。
-//! 7. 已在版本鎖定行：tag 不同回 VK0045；完全相同 stdout 說明未變更，以 0 結束。
-//! 8. 經 `plan` 協定請啟動器 `inspect`（讀 Id 與 RepoDigests；沒有對應的 digest 回 VK0031）
-//!    再以 image ID `extract`；docker 動作失敗回 VK0055。
+//! 6. 判來源：`-i <本機 image 引用>`，或不帶 `-i` 的線上 `add`（見「線上解析」）。
+//! 7. 已在版本鎖定行：tag 不同回 VK0045；完全相同 stdout 說明未變更，以 0 結束。線上 `add` 已在版本鎖定行
+//!    而不帶 tag 也是未變更（已完整導入，04 成對與無害），不連 registry、不送 docker 動作。
+//! 8. `-i`：經 `plan` 協定請啟動器 `inspect`（讀 Id 與 RepoDigests；沒有對應的 digest 回 VK0031）。線上：
+//!    解析 tag 與 digest，必要時 `pull`（見「線上解析」）。之後以 image ID `extract`；docker 動作失敗回 VK0055。
 //! 9. `fetch::verify`：digest、dist 格式、逐檔指紋、`<ns>` 撞名（VK0030，對象是已裝工具、根
 //!    `justfile` 的 recipe 與 module、保留名 `vendor_kit`）。
 //! 10. `initfiles` 算出每個初始檔的動作與問題，`prompt` 一次問完：答否是正常取消（stdout 說明未變更，
@@ -20,6 +21,50 @@
 //! 11. 重驗暫存內容（ADR-0006 第三層），再經 `txn` 依序落地：`cache/<repo>/` 與印記、repo 檔、
 //!     紀錄檔（metadata、基準版副本）、`gen/tools.just`、版本鎖定行，最後刪進度檔。
 //! 12. stdout 列出改了什麼；初始檔的警告（VK0018 等）照印。
+//!
+//! # 線上解析（N2、N53）
+//!
+//! 不帶 `-i` 時，工具 image 的 `<registry>/<路徑>`：
+//!
+//! - 已有版本鎖定行：一律讀鎖定行的路徑，`--image-path` 不看（第 7 步：這時不會走到 registry）。
+//! - 沒有版本鎖定行：取 `--image-path`（`args` 已驗過是 `ghcr.io/<路徑>`、不帶 tag 或 digest，不合是 VK0026）；
+//!   沒給就回 VK0025，`<argument>` 是 [`IMAGE_PATH_ARGUMENT`]。`<repo>` 怎麼對到 GHCR 路徑契約沒定（N2b），
+//!   選項名稱也是暫定。
+//!
+//! 之後跟 engine/upgrade 同一套做法，registry 只經 `registry` crate，不用任何查詢快取：
+//!
+//! - 不帶 tag：列 tag（帶 token 時用它）→ 取最新版（[`imageref::Tag::latest`]）→ inspect 本機
+//!   `<registry>/<路徑>:<最新版>`。本機有：再以同一個查詢（沿用換到的 bearer）取 registry 上這個 tag 的 digest，
+//!   跟本機的比對；本機沒有：取 digest 後 pull。
+//! - `@<tag>`：先 inspect 本機，本機有就用它、不連 registry（指定 tag 不查清單，也不讀 token 檔；離線照樣
+//!   能用）。本機沒有才匿名取 registry 上這個 tag 的 digest，再 pull。
+//! - pull 一律用帶 digest、不帶 tag 的引用 `<registry>/<路徑>@<digest>`，之後也以同一個引用 inspect：
+//!   以 digest pull 的 image 不會帶上 tag，拿 `<路徑>:<tag>` 去 inspect 會找不到。
+//! - 版本鎖定行的值是 `<registry>/<路徑>:<tag>@<digest>`；之後的取件、驗證、詢問、落地跟 `-i` 相同。
+//!
+//! 無法唯一判定 digest 就停下（02 不變量 12），在任何寫入之前：
+//!
+//! - 本機 image 的 RepoDigests 沒有這個 `<registry>/<路徑>` 的 digest（例如本機建置、從 tar 載入）：VK0031，
+//!   `<image>` 是 `<registry>/<路徑>:<tag>`，`<reason>` 是 [`text::DIGEST_MISSING`]。
+//! - 同一個 tag 指向不同 digest（本機 RepoDigests 有兩個以上不同的 digest，或本機的跟 registry 的不同）：
+//!   拒絕。草稿碼 VK0078 還沒登錄，先以 VK0056 停下，`<reason>` 寫明各個 digest，結尾是 [`DRAFT_TAG_DIGESTS`]。
+//!
+//! # registry token 檔（04 registry token 檔案）
+//!
+//! `--registry-token-file <path>` 只在線上、不帶 tag、真的要列 tag 時才讀，一次執行只讀一次；`@<tag>`、`-i`
+//! 都不讀、不送 `stage`。路徑判定照抄 engine/update（[`locate`]）：落在安裝目錄裡就直接讀；在外面就請啟動器
+//! `stage` 複製進 `in/`[`TOKEN_SLOT`] 再讀那份複本。讀不到或去掉前後空白後是空的：VK0055，`<source>` 是使用者
+//! 給的路徑，在連 registry 之前停下。往返本身出錯是 VK 的錯，以 VK0056 停下。
+//!
+//! # 查詢失敗（訊息表 VK0001、VK0055、VK0058）
+//!
+//! `registry` 的錯誤類別照它的模組說明對應，`<target>` 是 `<repo>`：
+//!
+//! - 列 tag 時沒帶 token、registry 要求認證：VK0001，`<cmd>` 印 [`VK0001_CMD`]。
+//! - 列 tag 的其他錯誤（token 被拒、網路或逾時、404、回應不合協定）：VK0055，`<source>` 是查的
+//!   `<registry>/<路徑>`。被拒後不改走匿名重試。
+//! - 列得到 tag、但沒有一個是合法的 `vX.Y.Z`：VK0058（情境寫的是 update，同一種情況擴到 add，契約文字待補）。
+//! - 取 tag 的 digest 失敗（含要求認證）：VK0055，`<source>` 是 `<registry>/<路徑>:<tag>`。
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
@@ -29,13 +74,17 @@
 //! - 進度檔 `.tmp.add.<run-id>.toml` 另記 `[add]` 表的 `repo`、`image`（版本鎖定行的值）與
 //!   `repo_files`（這次有沒有要寫 repo 檔）。
 //! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）：啟動器不收已存在的
-//!   slot，恢復好幾份殘留時每次取件都要一個新的。
+//!   slot，恢復好幾份殘留時每次取件都要一個新的。token 檔 `stage` 的 slot 是 [`TOKEN_SLOT`]。
+//! - 同一個 tag 指向不同 digest 的 `<reason>` 字句（[`text::tag_digests`]）。
 //! - stdout 的字句與詢問文字（英文）見 [`text`]。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
-//! - 不帶 `-i`：`<repo>` 對應到哪個 GHCR 路徑沒定，列版本與 tag→digest 要 registry client（計畫 D8），
-//!   `plan` 的 `pull` 只收帶 digest 的引用。所以線上 `add` 還做不了，`pull` 也還用不到。
+//! - `<repo>` 對應到哪個 GHCR 路徑沒定（N2b）：沒有版本鎖定行時要使用者給 `--image-path`（名稱暫定）。
+//! - registry 列得到、但一個 tag 都沒有：照 engine/update 當查詢失敗，報 VK0055，`<reason>` 寫 [`text::NO_TAGS`]。
+//! - 取 digest 時不檢查 manifest 的 media type 是不是多架構 index（`registry` 把判斷交給呼叫端，契約沒定）。
+//! - `@<tag>` 而本機沒有、package 又是私有的：04 規定指定 tag 不讀 token 檔，匿名取 digest 會被拒，報 VK0055；
+//!   pull 本身用的是主機的 Docker 認證。帶 token 的流程還沒對私有 package 手動測過（`registry` 的缺口）。
 //! - `-i` 給 image tar：啟動器丟掉 `docker load` 的輸出，引擎不知道載入了哪個 image；`.digest` 檔的格式也沒定。
 //! - `-i` 的引用沒有 tag、tag 不是 `vX.Y.Z`、已帶 digest、不在 ghcr.io，或 `-i` 與 `@<tag>` 並用。
 //! - 工具交付 `init.toml`：初始檔的清單與 `strategy` 寫在哪裡、什麼格式都沒定（ADR-0003 只提到
@@ -49,11 +98,12 @@
 //! - 中途寫檔失敗沒有代碼（計畫 G4）；dist 格式不符（G2）、指紋不符（G1）沒有代碼。
 //! - `add` 不收 `-y`（#47），但 VK0002 的下一步指令照訊息表插入 `-y`。
 //!
-//! 這裡不直接碰 docker：docker 動作一律是 `plan` 協定的 op，由啟動器代做。
+//! 這裡不直接碰 docker：docker 動作與 `stage` 一律是 `plan` 協定的 op，由啟動器代做。
 
 mod justfile;
 mod source;
 pub mod text;
+mod token;
 
 #[cfg(test)]
 mod tests;
@@ -73,14 +123,18 @@ use imageref::{ImageRef, Tag};
 use initfiles::{FilePlan, InitFile, Strategy};
 use layout::InstallDir;
 use metadata::Metadata;
-use plan::{Channel, ImageId, Op, Outcome, Slot, Tty};
+use plan::{Channel, Field, ImageId, Op, Outcome, Slot, Tty};
 use progress::Progress;
 use prompt::{Consent, PromptError, TtyState};
+use registry::{Client, ErrorKind, Repository, Token};
 use runlog::Target;
 use txn::{Disk, RecordFile, RepoFile, ToolContent, Txn};
 use version_file::LockFile;
 
-pub use source::{Inspected, LocalRef, digest_for, parse_inspect, parse_local};
+pub use source::{
+    Inspected, LocalRef, RepoDigest, digest_for, parse_inspect, parse_local, repo_digest,
+};
+pub use token::{TokenPath, locate};
 
 /// 進度檔的 `<verb>`。
 pub const VERB: &str = "add";
@@ -90,14 +144,25 @@ pub const PROGRESS_TABLE: &str = "add";
 pub const SLOT_PREFIX: &str = "tool";
 /// 工具交付初始檔清單的檔名（格式未定，見模組說明的缺口）。
 pub const INIT_TOML: &str = "init.toml";
+/// token 檔在安裝目錄外時，`stage` 放進 `in/` 的 slot 名（同 engine/update）。
+pub const TOKEN_SLOT: &str = "token";
+/// VK0001 的 `<cmd>`（訊息表：add 時印 add）。
+pub const VK0001_CMD: &str = "add";
+/// 線上 `add` 沒有版本鎖定行又沒給 `--image-path`：VK0025 的 `<argument>`（選項名稱暫定，N2b）。
+pub const IMAGE_PATH_ARGUMENT: &str = "--image-path";
+/// 同一個 tag 指向不同 digest：草稿碼 VK0078（N53）登錄前，以 VK0056 停下時 `<reason>` 的結尾。
+pub const DRAFT_TAG_DIGESTS: &str = "reason code pending (draft VK0078, N53)";
 
-/// 一次 `add` 的參數（`args::Command::Add`）。`--registry-token-file` 只在查版本清單時才讀，
-/// 線上 `add` 還沒做，所以這裡不收。
+/// 一次 `add` 的參數（`args::Command::Add`）。
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
     pub repo: &'a str,
     pub tag: Option<Tag>,
     pub image: Option<&'a OsStr>,
+    /// `--image-path` 的值（`args` 已驗過是 `ghcr.io/<路徑>`）；只在線上、沒有版本鎖定行時用。
+    pub image_path: Option<&'a str>,
+    /// `--registry-token-file` 的值，原樣；只在線上、不帶 tag、要列 tag 時才讀（模組說明「registry token 檔」）。
+    pub registry_token_file: Option<&'a OsStr>,
 }
 
 /// 這次執行的環境：容器內的路徑、往返通道、終端狀態與輸出。
@@ -113,6 +178,8 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
     pub channel: &'a mut Channel,
     /// 等 result 時多久看一次。
     pub poll: Duration,
+    /// 線上 `add` 列 tag 與取 digest 用的 registry client（模組說明「線上解析」）。
+    pub registry: &'a Client,
     pub tty: Tty,
     /// `just vendor_kit` 之後的參數原樣（第一個是 `add`）。
     pub argv: &'a [String],
@@ -278,11 +345,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         }
 
         let local = match (req.image, req.tag) {
-            (None, _) => {
-                return Err(self.gap(
-                    "add without -i (resolving <repo> to an image and querying the registry)",
-                ));
-            }
+            (None, _) => return self.online(req, lockfile),
             (Some(_), Some(_)) => return Err(self.gap("add -i together with <repo>@<tag>")),
             (Some(image), None) => {
                 let given = image.to_string_lossy();
@@ -293,16 +356,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         if let Some(current) = lockfile.tool(req.repo).cloned()
             && current.tag() != local.tag
         {
-            let upgrade = format!("{}@{}", req.repo, local.tag);
-            let command = prompt::command_with_y(&["just", "vendor_kit", "upgrade", &upgrade]);
-            // VK0045 的下一步不帶 -y：去掉 command_with_y 補在最後的那一個（沒有 `--`，所以一定在最後）。
-            let command = command.strip_suffix(" -y").unwrap_or(&command).to_owned();
-            let d = Diagnostic::new(&messages::VK0045)
-                .arg("repo", req.repo)
-                .arg("tag", local.tag.to_string())
-                .arg("current_tag", current.tag().to_string())
-                .arg("upgrade_command", command);
-            return Err(self.stop(d));
+            return Err(self.already_at(req.repo, local.tag, &current));
         }
 
         let pinned = self.inspect(req.repo, &local)?;
@@ -318,6 +372,245 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         }
         let candidate = self.fetch(req.repo, &pinned.1, &pinned.0, &lockfile)?;
         self.import(req.repo, &pinned.0, candidate, lockfile)
+    }
+
+    /// VK0045：已以別的 tag 導入，改用 `upgrade`。
+    fn already_at(&mut self, repo: &str, tag: Tag, current: &ImageRef) -> Stop {
+        let upgrade = format!("{repo}@{tag}");
+        let command = prompt::command_with_y(&["just", "vendor_kit", "upgrade", &upgrade]);
+        // VK0045 的下一步不帶 -y：去掉 command_with_y 補在最後的那一個（沒有 `--`，所以一定在最後）。
+        let command = command.strip_suffix(" -y").unwrap_or(&command).to_owned();
+        let d = Diagnostic::new(&messages::VK0045)
+            .arg("repo", repo)
+            .arg("tag", tag.to_string())
+            .arg("current_tag", current.tag().to_string())
+            .arg("upgrade_command", command);
+        self.stop(d)
+    }
+
+    /// 不帶 `-i` 的線上 `add`（模組說明第 7、8 步與「線上解析」）。
+    fn online(&mut self, req: &Request, lockfile: LockFile) -> Step<()> {
+        if let Some(current) = lockfile.tool(req.repo).cloned() {
+            return match req.tag {
+                Some(tag) if tag != current.tag() => Err(self.already_at(req.repo, tag, &current)),
+                _ => {
+                    self.say(&text::unchanged(req.repo, &current));
+                    Ok(())
+                }
+            };
+        }
+        let Some(name) = req.image_path else {
+            let d = Diagnostic::new(&messages::VK0025).arg("argument", IMAGE_PATH_ARGUMENT);
+            return Err(self.stop(d));
+        };
+        let registry = self.env.registry;
+        let token = match (req.tag, req.registry_token_file) {
+            (None, Some(given)) => Some(self.token(given, req.repo)?),
+            _ => None,
+        };
+        let mut listed = None;
+        let tag = match req.tag {
+            Some(tag) => tag,
+            None => {
+                let mut online = match registry.repository(name, token.as_ref()) {
+                    Ok(r) => r,
+                    Err(e) => return Err(self.list_failed(&e, name, req.repo)),
+                };
+                let latest = self.latest(&mut online, name, req.repo)?;
+                listed = Some(online);
+                latest
+            }
+        };
+        let (locked, id) = self.resolve(name, tag, listed.as_mut(), req.repo)?;
+        let candidate = self.fetch(req.repo, &id, &locked, &lockfile)?;
+        self.import(req.repo, &locked, candidate, lockfile)
+    }
+
+    /// 目標 tag 換成版本鎖定行的值與 image ID（模組說明「線上解析」）：先 inspect 本機 image，讀 RepoDigests
+    /// 的 digest；`listed` 是不帶 tag 時列過 tag 的查詢，有它就再跟 registry 的 digest 比對。本機沒有就向
+    /// registry 取 digest（沒有 `listed` 就匿名開一個查詢），pull 之後再 inspect。
+    fn resolve(
+        &mut self,
+        name: &str,
+        tag: Tag,
+        listed: Option<&mut Repository<'_>>,
+        repo: &str,
+    ) -> Step<(ImageRef, ImageId)> {
+        let given = format!("{name}:{tag}");
+        let Some(wire) = plan::ImageRef::parse(&given) else {
+            return Err(self.internal(format!("cannot inspect {given}")));
+        };
+        let inspected = match self.inspect_local(&wire)? {
+            Ok(i) => i,
+            Err(_) => {
+                return match listed {
+                    Some(online) => self.pull(online, name, tag, repo),
+                    None => {
+                        let registry = self.env.registry;
+                        let mut online = match registry.repository(name, None) {
+                            Ok(r) => r,
+                            Err(e) => return Err(self.digest_failed(&e, &given, repo)),
+                        };
+                        self.pull(&mut online, name, tag, repo)
+                    }
+                };
+            }
+        };
+        let digest = match repo_digest(name, &inspected.repo_digests) {
+            RepoDigest::One(d) => d,
+            RepoDigest::Missing => {
+                let d = Diagnostic::new(&messages::VK0031)
+                    .arg("image", given.as_str())
+                    .arg("reason", text::DIGEST_MISSING);
+                return Err(self.stop(d));
+            }
+            RepoDigest::Conflicting(found) => return Err(self.tag_digests(&given, &found)),
+        };
+        if let Some(online) = listed {
+            let remote = self.remote_digest(online, tag, &given, repo)?;
+            if remote != digest {
+                return Err(self.tag_digests(&given, &[digest, remote]));
+            }
+        }
+        self.resolved(&given, &digest, &inspected)
+    }
+
+    /// 版本鎖定行值 `<given>@<digest>` 與 inspect 到的 image ID。
+    fn resolved(
+        &mut self,
+        given: &str,
+        digest: &str,
+        inspected: &Inspected,
+    ) -> Step<(ImageRef, ImageId)> {
+        let Ok(locked) = ImageRef::parse(&format!("{given}@{digest}")) else {
+            return Err(self.internal(format!("cannot pin {given} to {digest}")));
+        };
+        let Some(id) = ImageId::parse(&inspected.id) else {
+            return Err(self.internal(format!("image inspect returned Id {:?}", inspected.id)));
+        };
+        Ok((locked, id))
+    }
+
+    /// 本機沒有目標 image：向 registry 取 tag 的 digest，`pull <name>@<digest>`，再以同一個引用 inspect
+    /// （以 digest pull 的 image 不帶 tag）。
+    fn pull(
+        &mut self,
+        online: &mut Repository<'_>,
+        name: &str,
+        tag: Tag,
+        repo: &str,
+    ) -> Step<(ImageRef, ImageId)> {
+        let given = format!("{name}:{tag}");
+        let digest = self.remote_digest(online, tag, &given, repo)?;
+        let shown = format!("{given}@{digest}");
+        let pinned = format!("{name}@{digest}");
+        let Some(wire) = plan::ImageRef::parse(&pinned).filter(plan::ImageRef::is_pinned) else {
+            return Err(self.internal(format!("cannot request {pinned}")));
+        };
+        let (_, outcome) = self.request(&Op::Pull(wire.clone()))?;
+        match outcome {
+            Outcome::Ok => {}
+            Outcome::Failed(rc) => {
+                return Err(self.access_failed(&shown, repo, text::docker_failed("pull", rc)));
+            }
+            Outcome::Runner(_) => return Err(self.internal("pull returned a runner result")),
+        }
+        let inspected = match self.inspect_local(&wire)? {
+            Ok(i) => i,
+            Err(rc) => {
+                return Err(self.access_failed(&shown, repo, text::docker_failed("inspect", rc)));
+            }
+        };
+        self.resolved(&given, &digest, &inspected)
+    }
+
+    /// registry 上 `tag` 指向的 digest（`sha256:<hex>`）；失敗回 VK0055（模組說明「查詢失敗」）。
+    fn remote_digest(
+        &mut self,
+        online: &mut Repository<'_>,
+        tag: Tag,
+        given: &str,
+        repo: &str,
+    ) -> Step<String> {
+        match online.manifest(&tag) {
+            Ok(m) => Ok(m.digest.to_string()),
+            Err(e) => Err(self.digest_failed(&e, given, repo)),
+        }
+    }
+
+    /// 同一個 tag 指向不同 digest：拒絕（草稿碼 VK0078 登錄前以 VK0056 停下）。
+    fn tag_digests(&mut self, given: &str, digests: &[String]) -> Stop {
+        let reason = format!("{}; {DRAFT_TAG_DIGESTS}", text::tag_digests(given, digests));
+        self.internal(reason)
+    }
+
+    /// 列 tag 取最新版（模組說明「查詢失敗」）。
+    fn latest(&mut self, online: &mut Repository<'_>, name: &str, repo: &str) -> Step<Tag> {
+        match online.tags() {
+            Ok(tags) if tags.is_empty() => {
+                Err(self.access_failed(name, repo, text::NO_TAGS.to_owned()))
+            }
+            Ok(tags) => match Tag::latest(tags.iter().map(String::as_str)) {
+                Some(latest) => Ok(latest),
+                None => {
+                    let d = Diagnostic::new(&messages::VK0058).arg("repo", repo);
+                    Err(self.stop(d))
+                }
+            },
+            Err(e) => Err(self.list_failed(&e, name, repo)),
+        }
+    }
+
+    /// 列 tag 失敗：要求認證而沒帶 token 是 VK0001，其他是 VK0055。
+    fn list_failed(&mut self, e: &registry::Error, name: &str, repo: &str) -> Stop {
+        match e.kind() {
+            ErrorKind::AuthRequired => {
+                let d = Diagnostic::new(&messages::VK0001)
+                    .arg("repo", repo)
+                    .arg("cmd", VK0001_CMD);
+                self.stop(d)
+            }
+            ErrorKind::TokenRejected
+            | ErrorKind::Network
+            | ErrorKind::NotFound
+            | ErrorKind::Protocol => self.access_failed(name, repo, e.detail().to_owned()),
+        }
+    }
+
+    /// 取 digest 失敗：一律 VK0055（模組說明「查詢失敗」）。
+    fn digest_failed(&mut self, e: &registry::Error, given: &str, repo: &str) -> Stop {
+        self.access_failed(given, repo, e.detail().to_owned())
+    }
+
+    /// 讀 token 檔（模組說明「registry token 檔」）。讀不到印 VK0055 停下；往返本身失敗是 VK 的錯。
+    fn token(&mut self, given: &OsStr, repo: &str) -> Step<Token> {
+        let read = match locate(given, self.env.host_root) {
+            TokenPath::Inside(rel) => Ok(self.env.dir.root().join(rel)),
+            TokenPath::Outside(host) => self.stage_token(host)?,
+        };
+        let read = read.and_then(|path| match fs::read(&path) {
+            Ok(bytes) => String::from_utf8(bytes).map_err(|_| text::TOKEN_NOT_UTF8.to_owned()),
+            Err(e) => Err(text::token_unreadable(&e.to_string())),
+        });
+        let token = read.and_then(|s| Token::new(&s).ok_or_else(|| text::TOKEN_EMPTY.to_owned()));
+        token.map_err(|reason| self.access_failed(&given.to_string_lossy(), repo, reason))
+    }
+
+    /// 請啟動器把安裝目錄外的 token 檔複製進 `in/`[`TOKEN_SLOT`]，回那份複本的路徑。
+    fn stage_token(&mut self, host: Vec<u8>) -> Step<Result<PathBuf, String>> {
+        let Some(slot) = Slot::parse(TOKEN_SLOT) else {
+            return Err(self.internal(format!("stage slot {TOKEN_SLOT} is not a valid slot")));
+        };
+        let field = match Field::new(host) {
+            Ok(f) => f,
+            Err(e) => return Ok(Err(text::token_unpassable(&e.to_string()))),
+        };
+        let (_, outcome) = self.request(&Op::Stage(field, slot))?;
+        match outcome {
+            Outcome::Ok => Ok(Ok(self.env.inbox.join(TOKEN_SLOT))),
+            Outcome::Failed(rc) => Ok(Err(text::token_copy_failed(rc))),
+            Outcome::Runner(_) => Err(self.internal("stage got a runner result")),
+        }
     }
 
     fn config(&mut self) -> Step<Config> {
@@ -405,17 +698,23 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
     }
 
     fn inspect_ref(&mut self, wire: plan::ImageRef, shown: &str, target: &str) -> Step<Inspected> {
-        let (seq, outcome) = self.request(&Op::Inspect(wire))?;
+        match self.inspect_local(&wire)? {
+            Ok(i) => Ok(i),
+            Err(rc) => Err(self.access_failed(shown, target, text::docker_failed("inspect", rc))),
+        }
+    }
+
+    /// 請啟動器 inspect；docker 回非零時回 `Err(結束碼)`，交給呼叫端判斷（本機沒有、或真的失敗）。
+    fn inspect_local(&mut self, wire: &plan::ImageRef) -> Step<Result<Inspected, u8>> {
+        let (seq, outcome) = self.request(&Op::Inspect(wire.clone()))?;
         match outcome {
             Outcome::Ok => {}
-            Outcome::Failed(rc) => {
-                return Err(self.access_failed(shown, target, text::docker_failed("inspect", rc)));
-            }
+            Outcome::Failed(rc) => return Ok(Err(rc)),
             Outcome::Runner(_) => return Err(self.internal("inspect returned a runner result")),
         }
         let out = self.env.channel.output_path(seq);
         let bytes = fs::read(&out).map_err(|e| self.internal(format!("{}: {e}", out.display())))?;
-        parse_inspect(&bytes).map_err(|e| self.internal(e))
+        parse_inspect(&bytes).map(Ok).map_err(|e| self.internal(e))
     }
 
     /// 取件並驗證：extract 到這次執行的下一個 slot，再 `fetch::verify`（含撞名）。

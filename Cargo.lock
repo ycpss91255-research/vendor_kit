@@ -18,6 +18,7 @@ dependencies = [
  "plan",
  "progress",
  "prompt",
+ "registry",
  "runlog",
  "schema",
  "serde_json",

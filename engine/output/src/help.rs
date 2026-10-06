@@ -1,8 +1,8 @@
 //! 各指令 `-h`／`--help` 的用法文字。
 //!
 //! 實際的 help 輸出就是唯一來源（04 共同選項），04 不另寫一份。文字只列這一版 `args` 收的選項；
-//! 之後加的選項（`add --image-path`、`add`／`remove`／`uninstall` 的 `-y`、`--dry-run`）由加它的 PR
-//! 在這裡補上自己的那一行。
+//! 之後加的選項（`add`／`remove`／`uninstall` 的 `-y`、`--dry-run`）由加它的 PR 在這裡補上自己的那一行。
+//! `add --image-path` 的名稱是暫定（#372 N2b）。
 
 /// 印哪一份用法：一個指令一份；`upgrade`、`dev`、`undev` 帶 `--engine` 時各另一份。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,6 +72,8 @@ Add a tool at its latest version, at <tag>, or from a local image.
 
 Options:
   -i, --image <image>               Use a local image or image tar instead of the registry
+      --image-path <registry>/<path>
+                                    Registry path of a tool not yet in the lock file
       --registry-token-file <path>  Read a registry token from <path> to list versions
   -h, --help                        Print this help
 ";

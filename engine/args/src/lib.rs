@@ -13,6 +13,9 @@
 //! - 引擎一律用 `--engine`，只有 `upgrade`、`dev`、`undev` 收；帶版本只收 `upgrade --engine=<tag>`，
 //!   `--engine <tag>` 的 `<tag>` 算多出的位置參數。工具用 `<repo>@<tag>`，只有 `add`、`upgrade` 收。
 //! - `--registry-token-file <path>` 只有 `update`、`add`、`upgrade <repo>` 收；值是單獨的 `-` 算用法錯誤。
+//! - `--image-path <registry>/<path>`（名稱暫定，待維護者確認，#372 N2b）只有長選項、只有 `add` 收：線上 `add`
+//!   還沒有版本鎖定行時，工具 image 在 registry 的位置。值只收 `ghcr.io/<路徑>`（路徑照
+//!   [`imageref::is_valid_path`]），不帶 tag 或 digest；不合算不允許的參數（VK0026，`<value>` 印那個值）。
 //! - `dev <repo>` 必須帶 `-p <dir>`、`dev --engine` 必須帶 `-i <image>`，各自不收對方的選項（04 本機覆寫）。
 //! - `-h`／`--help`（出現在 `--` 之前）只准與決定印哪份用法的 `--engine` 並用；`<repo>`、`--engine=<tag>`
 //!   都不算。`test dist -h` 的 `dist` 是指令名的一部分，可以並用。
@@ -21,6 +24,7 @@
 //!
 //! - 同一個選項給兩次（含 `-y` 與 `--yes`、`--engine` 與 `--engine=<tag>`）時，第二個算不允許的參數；`-h` 例外。
 //! - 帶值的選項只收以空白分開的 `-i <image>`、`--image <image>`，不收 `--image=<image>`，短選項不合併（`-yi` 不認得）。
+//! - `add` 的 `--image-path` 與 `-i` 並用時，`--image-path` 算不允許的參數（`-i` 的引用已含路徑）。
 //! - 帶值的選項一律把下一個參數原樣當值，即使它以 `-` 開頭或是 `--`。
 //! - 不收 tag 的指令遇到 `<repo>@<tag>`，整個參數算不允許的參數，不檢查 tag 格式；`<repo>` 是空字串也一樣。
 //! - `dist` 不論在不在 `--` 之後，都當 `test dist` 的指令名，不當 path。
@@ -137,11 +141,13 @@ impl Invocation {
 /// 各指令的參數值（04 指令表）。路徑與 image 保留原本的 [`OsString`]。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    /// `add <repo>[@<tag>] [-i <image>] [--registry-token-file <path>]`
+    /// `add <repo>[@<tag>] [-i <image>] [--image-path <registry>/<path>] [--registry-token-file <path>]`
     Add {
         repo: String,
         tag: Option<Tag>,
         image: Option<OsString>,
+        /// `--image-path` 的值，已驗過是 `ghcr.io/<路徑>`（crate 文件的規則）。
+        image_path: Option<String>,
         registry_token_file: Option<OsString>,
     },
     /// `upgrade <repo>[@<tag>] [-y] [--registry-token-file <path>]`
@@ -304,6 +310,7 @@ enum Kind<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Opt {
     Image,
+    ImagePath,
     Path,
     TokenFile,
 }
@@ -313,6 +320,7 @@ impl Opt {
     fn missing(self, typed: &OsStr) -> String {
         let value = match self {
             Opt::Image => "<image>",
+            Opt::ImagePath => "<registry>/<path>",
             Opt::Path => "<dir>",
             Opt::TokenFile => "<path>",
         };
@@ -348,6 +356,7 @@ fn tokenize<'a>(rest: &[&'a OsStr]) -> Vec<Token<'a>> {
             Some("-i" | "--image") => Some(Kind::Value(Opt::Image, None)),
             Some("-p" | "--path") => Some(Kind::Value(Opt::Path, None)),
             Some("--registry-token-file") => Some(Kind::Value(Opt::TokenFile, None)),
+            Some("--image-path") => Some(Kind::Value(Opt::ImagePath, None)),
             Some(t) if t.starts_with('-') && t != "-" => Some(Kind::Unknown),
             None if raw.as_encoded_bytes().starts_with(b"-") => Some(Kind::Unknown),
             _ => None,
@@ -375,6 +384,7 @@ fn accepts(name: Name, kind: &Kind<'_>) -> bool {
         Kind::Engine(None) => name.takes_engine(),
         Kind::Engine(Some(_)) => name == Name::Upgrade,
         Kind::Value(Opt::Image, _) => matches!(name, Name::Add | Name::Dev),
+        Kind::Value(Opt::ImagePath, _) => name == Name::Add,
         Kind::Value(Opt::Path, _) => name == Name::Dev,
         Kind::Value(Opt::TokenFile, _) => {
             matches!(name, Name::Add | Name::Upgrade | Name::Update)
@@ -393,6 +403,7 @@ struct Seen<'a> {
     yes: Option<usize>,
     engine: Option<(usize, Option<&'a str>)>,
     image: Option<(usize, &'a OsStr)>,
+    image_path: Option<(usize, &'a OsStr)>,
     path: Option<(usize, &'a OsStr)>,
     token_file: Option<(usize, &'a OsStr)>,
     positionals: Vec<(usize, &'a OsStr)>,
@@ -437,12 +448,14 @@ impl<'a> Seen<'a> {
                 Kind::Value(opt, Some(v)) => {
                     let slot = match opt {
                         Opt::Image => s.image,
+                        Opt::ImagePath => s.image_path,
                         Opt::Path => s.path,
                         Opt::TokenFile => s.token_file,
                     };
                     let slot = s.once(slot, t.at, t.raw, (t.at, v));
                     match opt {
                         Opt::Image => s.image = slot,
+                        Opt::ImagePath => s.image_path = slot,
                         Opt::Path => s.path = slot,
                         Opt::TokenFile => s.token_file = slot,
                     }
@@ -522,6 +535,18 @@ impl<'a> Seen<'a> {
         Some((name.to_owned(), tag))
     }
 
+    /// `--image-path` 的值：只收 `ghcr.io/<路徑>`，不帶 tag 或 digest；不合時那個值算不允許的參數。
+    fn image_path_value(&mut self) -> Option<String> {
+        let (at, raw) = self.image_path?;
+        match raw.to_str().filter(|v| is_image_path(v)) {
+            Some(v) => Some(v.to_owned()),
+            None => {
+                self.reject(at + 1, raw);
+                None
+            }
+        }
+    }
+
     fn engine_tag(&mut self) -> Option<Tag> {
         let (at, tag) = self.engine?;
         match Tag::parse(tag?) {
@@ -561,6 +586,15 @@ fn engine_raw(engine: Option<(usize, Option<&str>)>) -> String {
 
 const REPO: &str = "<repo>";
 
+/// `--image-path` 的值合不合（crate 文件）：`ghcr.io/` 加合法的路徑；路徑的規則不收 `:`、`@`，所以帶 tag 或
+/// digest 都不合。
+pub fn is_image_path(value: &str) -> bool {
+    value
+        .strip_prefix(imageref::GHCR)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(imageref::is_valid_path)
+}
+
 fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
     let mut s = Seen::collect(name, &tokens);
     let cmd = match name {
@@ -569,6 +603,10 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
             let repo = target.and_then(|r| s.repo(r, name == Name::Add));
             let token_file = s.token_file.map(|(_, v)| v.to_owned());
             let image = s.image.map(|(_, v)| v.to_owned());
+            let image_path = s.image_path_value();
+            if image.is_some() {
+                s.forbid(s.image_path, "--image-path");
+            }
             let need = (name != Name::Update && target.is_none()).then_some(REPO);
             s.finish(need)?;
             match (name, repo) {
@@ -580,6 +618,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                     repo,
                     tag,
                     image,
+                    image_path,
                     registry_token_file: token_file,
                 },
                 (_, Some((repo, _))) => Command::Remove { repo },
@@ -806,6 +845,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 image: None,
+                image_path: None,
                 registry_token_file: None
             }
         );
@@ -815,6 +855,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: Some(tag("v1.2.0")),
                 image: None,
+                image_path: None,
                 registry_token_file: None
             }
         );
@@ -824,6 +865,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 image: Some(os("lint.tar")),
+                image_path: None,
                 registry_token_file: None
             }
         );
@@ -833,6 +875,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 image: Some(os("ghcr.io/o/lint:v1.0.0")),
+                image_path: None,
                 registry_token_file: None
             }
         );
@@ -842,7 +885,18 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 image: None,
+                image_path: None,
                 registry_token_file: Some(os("tok"))
+            }
+        );
+        assert_eq!(
+            run(&["add", "--image-path", "ghcr.io/acme/lint", "lint@v1.2.0"]),
+            Command::Add {
+                repo: "lint".into(),
+                tag: Some(tag("v1.2.0")),
+                image: None,
+                image_path: Some("ghcr.io/acme/lint".into()),
+                registry_token_file: None
             }
         );
     }
@@ -872,6 +926,51 @@ mod tests {
         bad_tag(&["add", "lint@1.0.0"], "1.0.0");
         bad_tag(&["add", "lint@"], "");
         bad_tag(&["add", "lint@v1.0.0-rc1"], "v1.0.0-rc1");
+    }
+
+    #[test]
+    fn add_image_path_errors() {
+        missing(
+            &["add", "lint", "--image-path"],
+            "--image-path <registry>/<path>",
+        );
+        for value in [
+            "acme/lint",
+            "docker.io/acme/lint",
+            "ghcr.io/acme/lint:v1.0.0",
+            "ghcr.io/acme/lint@sha256:00",
+            "ghcr.io/",
+            "ghcr.io/Acme/lint",
+            "ghcr.io//lint",
+        ] {
+            bad(&["add", "lint", "--image-path", value], value);
+        }
+        bad(
+            &[
+                "add",
+                "lint",
+                "--image-path",
+                "ghcr.io/a/l",
+                "--image-path",
+                "ghcr.io/a/l",
+            ],
+            "--image-path",
+        );
+        bad(
+            &["add", "lint", "-i", "x.tar", "--image-path", "ghcr.io/a/l"],
+            "--image-path",
+        );
+        bad(
+            &["add", "lint", "--image-path=ghcr.io/a/l"],
+            "--image-path=ghcr.io/a/l",
+        );
+        for name in ["upgrade", "update", "remove", "dev"] {
+            bad(
+                &[name, "lint", "--image-path", "ghcr.io/a/l"],
+                "--image-path",
+            );
+        }
+        assert!(is_image_path("ghcr.io/acme/sub/lint"));
     }
 
     // ---- upgrade ----
