@@ -580,17 +580,61 @@ fn an_unreadable_cache_of_a_remaining_tool_stops_before_any_write() {
     assert!(out.events().is_empty());
 }
 
+/// 自相矛盾的逐檔紀錄（#372 N86）：每份紀錄檔一則 VK0013，不收回、不寫任何檔。
 #[test]
-fn an_appended_record_without_lines_is_a_gap() {
+fn a_self_contradictory_record_is_vk0013() {
+    let records = [
+        // appended 卻沒有 lines。
+        "schema = 1\n\n[[file]]\npath = \".gitignore\"\nstate = \"appended\"\n",
+        // 非 appended 卻有 lines。
+        "schema = 1\n\n[[file]]\npath = \".gitignore\"\nstate = \"managed\"\nlines = [\"x\"]\n",
+    ];
+    for record in records {
+        let fx = Fx::new();
+        fs::write(fx.vk().join("baseline/tool.toml"), record).unwrap();
+        let out = run(&fx, &["remove", "tool"], true, "y\n");
+        assert_eq!(out.code, 2);
+        assert_eq!(
+            out.stderr,
+            "vendor_kit: error[VK0013]: Cannot process .vendor_kit/baseline/tool.toml: metadata is missing \
+             or corrupt and cannot be restored reliably. vendor_kit does not guess when records are \
+             unavailable; no files of the tool that .vendor_kit/baseline/tool.toml belongs to were \
+             modified. Preserve .vendor_kit/baseline/tool.toml and run log /h/proj/.vendor_kit/log/r1.jsonl. \
+             If the metadata was committed to Git, restore it from Git and retry. Otherwise, report the \
+             issue at https://github.com/ycpss91255-research/vendor_kit/issues and attach both files.\n"
+        );
+        assert_eq!(fx.read(".gitignore"), GITIGNORE);
+        assert!(fx.lock().tool("tool").is_some());
+        assert!(out.events().is_empty());
+    }
+}
+
+/// `uninstall` 也一樣，只報有矛盾紀錄的那幾份，在詢問之前停下。
+#[test]
+fn uninstall_reports_each_self_contradictory_record_file() {
     let fx = Fx::new();
+    fx.record("baseline/.vendor_kit.toml", "justfile", IMPORT, JUSTFILE);
     fs::write(
         fx.vk().join("baseline/tool.toml"),
         "schema = 1\n\n[[file]]\npath = \".gitignore\"\nstate = \"appended\"\n",
     )
     .unwrap();
-    let out = run(&fx, &["remove", "tool"], true, "y\n");
+    let out = run(&fx, &["uninstall"], true, "y\ny\n");
     assert_eq!(out.code, 2);
-    assert!(out.stderr.contains("error[VK0056]"), "{}", out.stderr);
+    assert_eq!(
+        out.stderr.matches("error[VK0013]").count(),
+        1,
+        "{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr
+            .contains("Cannot process .vendor_kit/baseline/tool.toml:"),
+        "{}",
+        out.stderr
+    );
+    assert!(!out.stderr.contains("[y/N]"), "{}", out.stderr);
+    assert_eq!(fx.read(".gitignore"), GITIGNORE);
     assert!(fx.lock().tool("tool").is_some());
 }
 

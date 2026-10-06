@@ -28,7 +28,9 @@
 //!    - 印記的版本與版本鎖定行不同（例如 `git pull` 換了鎖定行）：取件，不警告；VK0015 的情況只講檔案集合
 //!      與逐檔指紋不符。
 //!    - 版本相同：以印記比對 `cache/<repo>/` 的檔案集合與逐檔指紋，包括多出的檔與整個目錄不在；不一致就
-//!      重新取件，警告 VK0015。一致就不動，`<ns>` 從 `cache/<repo>/` 讀。
+//!      重新取件，警告 VK0015。`cache/<repo>/` 本身或底下有 symlink、FIFO 等非一般檔，印記不記這種項目，
+//!      當成多出的檔，同樣重新取件、警告 VK0015（#372 N85 擴的情境，契約文字待補）。一致就不動，`<ns>` 從
+//!      `cache/<repo>/` 讀。
 //!    - 未列在版本鎖定行的工具目錄不看，留給 `prune`；初始檔不動（基準版落後見「缺口」）。
 //! 6. 要取件的工具，經 `plan` 協定請啟動器 `inspect` 帶 digest 的引用 `<registry>/<路徑>@<digest>`；本機沒有
 //!    就 `pull` 同一個引用再 `inspect`，再以 image ID `extract`。docker 動作失敗回 VK0055。取件只用
@@ -805,6 +807,15 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         };
         let diff = match stamp.verify(&cache) {
             Ok(d) => d,
+            // symlink 或非一般檔：印記只記一般檔，當成多出的檔（#372 N85）。
+            Err(stamp::ComputeError::Walk(
+                files::Error::Symlink { .. } | files::Error::NotRegular { .. },
+            )) => {
+                return Ok(Need::Fetch {
+                    warn: Some(&messages::VK0015),
+                    previous: Some(stamp),
+                });
+            }
             Err(e) => return Err(self.internal(format!("cache of {repo}: {e}"))),
         };
         if !diff.is_match() {

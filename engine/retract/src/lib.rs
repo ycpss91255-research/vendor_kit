@@ -11,8 +11,8 @@
 //!     hash 與目前不同、檔不在，這筆的每一行都只列不刪；hash 相符才逐行數原文命中次數，恰好一處的行
 //!     列進要問的收回，零處或多處的行只列不刪。不因其中一行對不上就整批放棄。
 //!   - 其他 state 且沒有 `lines`：沒有要收回的行，檔保留（[`Verdict::Keep`]）。
-//!   - 契約沒寫到的組合（非 `appended` 卻有 `lines`、`appended` 卻沒有 `lines`）：不收回、不自己補規則，
-//!     標成 [`Verdict::Gap`] 交呼叫端。
+//!   - 自相矛盾的紀錄（非 `appended` 卻有 `lines`、`appended` 卻沒有 `lines`）：不收回、不自己補規則，
+//!     標成 [`Verdict::Gap`] 交呼叫端；呼叫端當成紀錄損壞報 VK0013（#372 N86）。
 //! - 原文比對只把 CRLF 與 LF 視為相同，其他（含行首行尾空白）都照原樣；行號從 1 起算。
 //! - 同一個檔出現在好幾筆紀錄裡時，每個檔只讀一次，全部紀錄都以同一份寫入前的內容判定；要收回的行
 //!   合併成一個 [`Edit`]，刪掉整行（含行尾），其他位元組（別行的 CRLF、最後一行沒有換行）原樣保留。
@@ -140,7 +140,7 @@ pub struct Edit {
     pub removed: Vec<usize>,
 }
 
-/// 契約沒寫到的紀錄組合。
+/// 自相矛盾的紀錄組合（呼叫端報 VK0013）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gap {
     /// state 不是 `appended`，卻有 `lines`。
@@ -156,7 +156,7 @@ pub enum Verdict {
     Keep,
     /// append 型：插入行逐行判定，結果在 [`Plan::questions`] 與 [`Plan::unretracted`]。
     Judged,
-    /// 契約沒寫到：不收回、不判定。
+    /// 紀錄自相矛盾：不收回、不判定。
     Gap(Gap),
 }
 

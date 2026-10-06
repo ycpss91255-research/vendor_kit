@@ -1081,6 +1081,7 @@ dependencies = [
  "diagnostics",
  "fetch",
  "filelock",
+ "files",
  "imageref",
  "layout",
  "messages",
