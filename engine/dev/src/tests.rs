@@ -490,6 +490,22 @@ fn dev_points_the_entry_at_the_local_source_and_undev_points_it_back() {
 }
 
 #[test]
+fn dev_again_after_undev_removed_the_last_override() {
+    // undev 解除最後一個覆寫後，version.local.toml 留下空的 [tools]；再 dev 不是少寫。
+    let fx = Fx::new();
+    assert_eq!(dev(&fx, "tool", "dev/tool").code, 0);
+    assert_eq!(undev(&fx, "tool").code, 0);
+    assert_eq!(fx.local().unwrap().tool("tool"), None);
+
+    let out = dev(&fx, "tool", "dev/tool");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(fx.entry(), DEV_GEN);
+    assert_eq!(fx.local().unwrap().tool("tool"), Some("dev/tool"));
+    assert_eq!(out.events(), LANDED);
+}
+
+#[test]
 fn repeated_dev_with_the_same_source_and_undev_without_override_are_unchanged() {
     let fx = Fx::new();
     assert_eq!(dev(&fx, "tool", "dev/tool").code, 0);
@@ -544,9 +560,9 @@ fn dev_outside_the_install_directory_stages_the_source_and_keeps_the_given_form(
     assert!(out.ops.is_empty(), "{:?}", out.ops);
     assert_eq!(fx.snapshot(), before);
 
+    // 以下各情境在同一個安裝目錄串著跑，每次先 undev。
     // 以 `..` 跑出安裝目錄的相對路徑：留相對路徑；主機路徑接在 --host-root 後面，`..` 留給主機解析。
-    let fx = Fx::new();
-    fx.host_source("elsewhere/tool", &["tool", "tool-extra"]);
+    assert_eq!(undev(&fx, "tool").code, 0);
     let out = dev(&fx, "tool", "./x/../../elsewhere/tool");
     assert_eq!(out.code, 0, "{}", out.stderr);
     assert_eq!(out.ops, ["stage-dir /h/proj/../elsewhere/tool dev1"]);
@@ -559,7 +575,7 @@ fn dev_outside_the_install_directory_stages_the_source_and_keeps_the_given_form(
     assert_eq!(fx.local().unwrap().tool("tool"), Some("../elsewhere/tool"));
 
     // 絕對路徑落在 --host-root 底下：當成安裝目錄裡的來源，直接讀。
-    let fx = Fx::new();
+    assert_eq!(undev(&fx, "tool").code, 0);
     let out = dev(&fx, "tool", "/h/proj/dev/tool");
     assert_eq!(out.code, 0, "{}", out.stderr);
     assert!(out.ops.is_empty(), "{:?}", out.ops);

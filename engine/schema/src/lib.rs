@@ -7,7 +7,8 @@
 //!   （例如 metadata 的 `[[file]]`）用的 [`Document::push_table`]、[`Document::set_in`]、
 //!   [`Document::remove_in`]。
 //! - 保留不了就拒絕寫，不悄悄少寫：會蓋掉表或陣列表的 `set` 直接回錯；[`Document::render`]
-//!   輸出前再比對一次，讀進來時的每個值，凡是沒被明確改動的，輸出裡都得原樣還在，否則回錯。
+//!   輸出前再比對一次，讀進來時的每個值，凡是沒被明確改動的，輸出裡都得原樣還在，否則回錯；
+//!   空的標準表只要求表還在，往裡面加鍵不算少寫。
 //! - 這裡不讀寫檔案；輸入是檔案內容，輸出是要寫回的字串，原子寫入交給呼叫端。
 
 use std::collections::BTreeMap;
@@ -299,7 +300,7 @@ impl Document {
             .original
             .iter()
             .filter(|(path, _)| !self.is_touched(path))
-            .filter(|(path, repr)| now.get(*path) != Some(*repr))
+            .filter(|(path, repr)| !kept(&now, path, repr))
             .map(|(path, _)| render_path(path))
             .collect();
         if dropped.is_empty() {
@@ -482,9 +483,25 @@ fn render_path(path: &[Seg]) -> String {
 }
 
 /// 攤平成「路徑 → 正規化的值」；空表也記一筆，空的未知表一樣要保留。
+/// 空的標準表的記號。跟 [`canonical`] 的輸出都不同，空的 inline table 仍是 `{}`。
+const EMPTY_TABLE: &str = "<empty table>";
+
+/// 讀進來時的 `path` 現在還在不在。空的標準表只要求表還在：之後往裡面加鍵
+/// （例如 `undev` 留下空的 `[tools]` 後再 `dev`）不算少寫，表整個不見才算。
+fn kept(now: &BTreeMap<Vec<Seg>, String>, path: &[Seg], repr: &str) -> bool {
+    if now.get(path).map(String::as_str) == Some(repr) {
+        return true;
+    }
+    repr == EMPTY_TABLE
+        && now
+            .range(path.to_vec()..)
+            .take_while(|(p, _)| p.starts_with(path))
+            .any(|(p, _)| p.len() > path.len())
+}
+
 fn collect_table(table: &Table, path: &mut Vec<Seg>, out: &mut BTreeMap<Vec<Seg>, String>) {
     if table.is_empty() && !path.is_empty() {
-        out.insert(path.clone(), "{}".to_owned());
+        out.insert(path.clone(), EMPTY_TABLE.to_owned());
     }
     for (key, item) in table.iter() {
         path.push(Seg::Key(key.to_owned()));
@@ -722,6 +739,39 @@ id = 2
             doc.render("v0.1.0"),
             Err(WriteError::WouldDrop {
                 paths: vec!["later[1].id".to_owned()]
+            })
+        );
+    }
+
+    #[test]
+    fn keys_added_to_an_empty_table_are_not_a_drop() {
+        // undev 解除最後一個覆寫後留下空的 [tools]，再 dev 往裡面加鍵。
+        let mut doc = Document::parse("schema = 1\n\n[tools]\n\n[[later]]\n").unwrap();
+        doc.set(&["tools", "tool"], "dev/tool").unwrap();
+        doc.set_in("later", 0, "id", 1).unwrap();
+        let out = doc.render("v0.1.0").unwrap();
+        assert!(out.contains("tool = \"dev/tool\""), "{out}");
+        assert!(out.contains("id = 1"), "{out}");
+    }
+
+    #[test]
+    fn render_refuses_when_an_empty_table_would_be_dropped() {
+        let mut doc = Document::parse("schema = 1\n\n[tools]\n\n[[later]]\n").unwrap();
+        doc.doc.as_table_mut().remove("tools").unwrap();
+        assert_eq!(
+            doc.render("v0.1.0"),
+            Err(WriteError::WouldDrop {
+                paths: vec!["tools".to_owned()]
+            })
+        );
+        // 空表換成值也不算還在；空的 inline table 照舊整個比對。
+        let mut doc = Document::parse("schema = 1\nempty = {}\n\n[tools]\n").unwrap();
+        doc.doc["tools"] = toml_edit::value("x");
+        doc.doc["empty"] = toml_edit::value(toml_edit::InlineTable::from_iter([("k", 1)]));
+        assert_eq!(
+            doc.render("v0.1.0"),
+            Err(WriteError::WouldDrop {
+                paths: vec!["empty".to_owned(), "tools".to_owned()]
             })
         );
     }
