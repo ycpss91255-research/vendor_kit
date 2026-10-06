@@ -1047,43 +1047,6 @@ fn another_override_whose_source_is_gone_is_vk0052() {
 // ---- 純函式 ----
 
 #[test]
-fn normalize_resolves_against_the_install_directory() {
-    let n = |s: &str| normalize(OsStr::new(s), HOST_ROOT);
-    let inside = |s: &str| Source::Inside(s.to_owned());
-    let outside = |s: &str| Source::Outside(s.to_owned());
-    assert_eq!(n("dev/tool").unwrap(), inside("dev/tool"));
-    assert_eq!(n("./dev//tool/").unwrap(), inside("dev/tool"));
-    assert_eq!(n("a/../b").unwrap(), inside("b"));
-    assert_eq!(n(".").unwrap(), inside("."));
-    assert_eq!(n("/h/proj/").unwrap(), inside("."));
-    assert_eq!(n("/h/proj/./a/../dev").unwrap(), inside("dev"));
-    assert_eq!(n("..").unwrap(), outside(".."));
-    assert_eq!(n("a/../../b/").unwrap(), outside("../b"));
-    assert_eq!(n("../../x/./y").unwrap(), outside("../../x/y"));
-    // 相對路徑跑出去又繞回來，照樣算安裝目錄外（`..` 留給主機解析，不在這裡消掉）。
-    assert_eq!(n("../proj/dev").unwrap(), outside("../proj/dev"));
-    assert_eq!(n("/abs//x/").unwrap(), outside("/abs/x"));
-    assert_eq!(n("/h/projx").unwrap(), outside("/h/projx"));
-    assert_eq!(n("/../srv").unwrap(), outside("/srv"));
-    assert_eq!(
-        n("").unwrap_err(),
-        PathProblem::Unusable("the path is empty".to_owned())
-    );
-    for bad in ["/", "/..", "it's", "a\\b", "../a\"b", "/x\ty"] {
-        assert!(matches!(n(bad), Err(PathProblem::Gap(_))), "{bad:?}");
-    }
-    assert_eq!(
-        outside("/abs").host_path(HOST_ROOT).as_deref(),
-        Some("/abs")
-    );
-    assert_eq!(
-        outside("../b").host_path(HOST_ROOT).as_deref(),
-        Some("/h/proj/../b")
-    );
-    assert_eq!(inside("b").host_path(HOST_ROOT), None);
-}
-
-#[test]
 fn inspect_output_reads_the_id_and_repo_digests() {
     let json = format!("[{{\"Id\":\"{IMAGE_ID}\",\"RepoDigests\":[\"{PINNED}\"],\"Size\":1}}]");
     let i = parse_inspect(json.as_bytes()).unwrap();

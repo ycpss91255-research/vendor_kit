@@ -7,7 +7,8 @@ use initfiles::{Ask, FilePlan, Gap, Syntax, Verdict};
 /// 答否的正常取消（03 輸出：不做變更，在 stdout 說明未變更）。
 pub const NO_CHANGES: &str = "No changes were made.";
 
-/// 這次 `<repo>` 用的是本機開發來源 `<dir>`（正規化後、相對於安裝目錄）；字句跟 engine/sync 相同。
+/// 這次 `<repo>` 用的是本機開發來源 `<dir>`（正規化後、存進 `version.local.toml` 的值：安裝目錄裡的是相對
+/// 路徑，安裝目錄外的是開頭為 `..` 的相對路徑或絕對路徑）；字句跟 engine/sync 相同。
 pub fn local_override(repo: &str, dir: &str) -> String {
     format!("{repo} uses the local source {dir} (local override).")
 }

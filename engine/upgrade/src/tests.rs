@@ -1,4 +1,4 @@
-//! 單元測試：以背景的假啟動器回 inspect、pull 與 extract，跑整段 `upgrade <repo>`。初始檔經 [`run_with`]
+//! 單元測試：以背景的假啟動器回 inspect、pull、extract 與 `stage-dir`，跑整段 `upgrade <repo>`。初始檔經 [`run_with`]
 //! 直接給（`init.toml` 格式未定，經執行檔做不出會詢問的工具），驗基準版合併、合併衝突、答否、不能互動、
 //! `-y`；另驗恢復殘留進度與各個停下點。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -85,6 +85,11 @@ impl Fx {
         self.dir.root()
     }
 
+    /// 假啟動器的主機目錄：主機路徑 `/h/<x>` 對到這裡的 `<x>`（安裝目錄是 `/h/proj`）。
+    fn host(&self) -> PathBuf {
+        self._tmp.path().join("host")
+    }
+
     /// 一個已納管的整份型初始檔：基準版副本是 `base`、目前檔是 `now`，紀錄的 hash 是 VK 上次寫的 `base`。
     fn managed(&self, path: &str, base: &str, now: &str) {
         fs::write(self.root().join(path), now).unwrap();
@@ -131,6 +136,19 @@ impl Fx {
     }
 }
 
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
 fn header() -> Header {
     Header::new(1, RunId::parse("r1").unwrap()).unwrap()
 }
@@ -154,7 +172,8 @@ const NEW: Script = Script {
     ],
 };
 
-/// 假啟動器：inspect 回 RepoDigests，extract 放進 `just/<ns>.just`。回傳看到的 op 行。
+/// 假啟動器：inspect 回 RepoDigests，extract 放進 `just/<ns>.just`；`stage-dir` 把主機路徑 `/h/<x>` 對到的
+/// [`Fx::host`]`/<x>` 複製進 `in/<slot>`。回傳看到的 op 行。
 struct Peer {
     stop: Arc<AtomicBool>,
     handle: JoinHandle<Vec<String>>,
@@ -164,7 +183,7 @@ impl Peer {
     fn start(fx: &Fx, script: Script) -> Peer {
         // 先清 ctl/ 再起執行緒：新的假啟動器不能讀到上一次的 req.1。
         fx.new_session();
-        let (ctl, inbox) = (fx.ctl.clone(), fx.inbox.clone());
+        let (ctl, inbox, host) = (fx.ctl.clone(), fx.inbox.clone(), fx.host());
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
         let handle = thread::spawn(move || {
@@ -190,6 +209,19 @@ impl Peer {
                         // 啟動器不收已存在的 slot（launcher/launch.sh 的 vk_launch_extract）。
                         Op::Extract(_, slot) if inbox.join(slot.as_str()).exists() => {
                             Outcome::Failed(1)
+                        }
+                        // launcher/launch.sh 的 vk_launch_stage_dir：來源不是目錄或 slot 已存在回 failed 1。
+                        Op::StageDir(path, slot) => {
+                            let path = String::from_utf8(path.as_bytes().to_vec()).unwrap();
+                            let src = path.strip_prefix("/h/").map(|rest| host.join(rest));
+                            let dest = inbox.join(slot.as_str());
+                            match src {
+                                Some(src) if src.is_dir() && !dest.exists() => {
+                                    copy_dir(&src, &dest);
+                                    Outcome::Ok
+                                }
+                                _ => Outcome::Failed(1),
+                            }
                         }
                         Op::Inspect(_) => {
                             let ds: Vec<String> =
@@ -957,6 +989,97 @@ fn unreadable_local_source_is_vk0052_before_any_docker_action() {
     assert_eq!(fx.snapshot(), before);
 }
 
+/// 主機上安裝目錄（`/h/proj`）外的本機開發來源 `/h/<dir>`，交付 `just/<ns>.just`。
+fn outside_source(fx: &Fx, dir: &str, namespaces: &[&str]) {
+    fs::create_dir_all(fx.host().join("proj")).unwrap();
+    let just = fx.host().join(dir).join("just");
+    fs::create_dir_all(&just).unwrap();
+    for ns in namespaces {
+        fs::write(just.join(format!("{ns}.just")), "local:\n").unwrap();
+    }
+}
+
+#[test]
+fn outside_local_source_is_staged_before_the_upgrade_and_the_entry_points_at_it() {
+    let fx = Fx::new();
+    outside_source(&fx, "elsewhere/tool", &["tool", "extra"]);
+    overrides(&fx, &[("tool", "/h/elsewhere/tool")]);
+    let local_toml = fs::read(fx.dir.version_local_toml()).unwrap();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    assert_eq!(
+        peer.finish(),
+        [
+            "stage-dir e:/h/elsewhere/tool dev1".to_owned(),
+            format!("inspect {NEW_REF}"),
+            format!("extract {IMAGE_ID} tool1")
+        ],
+        "stage-dir has its own slot numbering"
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "tool uses the local source /h/elsewhere/tool (local override).\n{}",
+            upgraded_line()
+        )
+    );
+    assert_eq!(out.stderr, "");
+    assert!(
+        fx.lock_text()
+            .ends_with(&format!("tool = \"{}\"\n", new_locked()))
+    );
+    assert_eq!(
+        fs::read_to_string(fx.dir.cache_dir().join("tool/just/tool.just")).unwrap(),
+        "new:\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fx.dir.gen_dir().join("tools.just")).unwrap(),
+        "mod? extra '/h/elsewhere/tool/just/extra.just'\nmod? tool '/h/elsewhere/tool/just/tool.just'\n"
+    );
+    assert_eq!(fs::read(fx.dir.version_local_toml()).unwrap(), local_toml);
+    assert!(progress::find(&fx.dir).unwrap().is_empty());
+}
+
+#[test]
+fn relative_outside_local_source_of_another_tool_is_staged_from_under_the_host_root() {
+    let fx = Fx::new();
+    fs::write(
+        fx.dir.version_toml(),
+        format!(
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nother = \"ghcr.io/acme/other:v1.0.0@{DIGEST}\"\ntool = \"{OLD}\"\n"
+        ),
+    )
+    .unwrap();
+    outside_source(&fx, "other", &["other"]);
+    overrides(&fx, &[("other", "../other")]);
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish()[0], "stage-dir e:/h/proj/../other dev1");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        fs::read_to_string(fx.dir.gen_dir().join("tools.just")).unwrap(),
+        "mod? other '../../../other/just/other.just'\nmod? tool '../cache/tool/just/tool.just'\n"
+    );
+}
+
+#[test]
+fn outside_local_source_that_cannot_be_copied_is_vk0052_before_any_docker_action() {
+    let fx = Fx::new();
+    overrides(&fx, &[("tool", "/h/nowhere")]);
+    let before = fx.snapshot();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish(), ["stage-dir e:/h/nowhere dev1"]);
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0052]: Cannot read the local override source /h/nowhere for tool: the launcher could not copy it (exit 1): it does not exist, is not a directory, or cannot be read. Run: just vendor_kit undev tool\n"
+    );
+    assert_eq!(fx.snapshot(), before);
+}
+
 #[test]
 fn recovering_a_residual_upgrade_keeps_the_override_in_the_entry() {
     let fx = Fx::new();
@@ -1115,6 +1238,7 @@ fn progress_records_the_upgrade_table_while_landing() {
         init: &|_: &Path| Ok(Vec::new()),
         code: 0,
         extracts: 0,
+        stages: 0,
         local: BTreeMap::new(),
     };
     let locked = ImageRef::parse(&new_locked()).unwrap();

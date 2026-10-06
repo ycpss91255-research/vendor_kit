@@ -103,7 +103,8 @@ pub const OPS: [&str; 9] = [
     "runner",
 ];
 
-/// 救援路徑用到的 op；文法跨介面版永久不變（見 crate 文件「救援路徑」）。`stage-dir` 只給 `dev` 用，不在這裡。
+/// 救援路徑用到的 op；文法跨介面版永久不變（見 crate 文件「救援路徑」）。`stage-dir`（`dev`、`sync`、`upgrade`
+/// 讀安裝目錄外的本機開發來源）不在這裡，救援路徑的 `sync` 送不出。
 pub const RESCUE_OPS: [&str; 5] = ["pull", "load", "inspect", "extract", "stage"];
 
 /// 引擎入口的具名選項，依啟動器傳的順序；`--` 之後是 recipe 與使用者參數原樣。救援路徑也走這一行，永久不變。

@@ -38,6 +38,11 @@
 //!   recipe 與 module 名稱。這裡不解析 justfile。
 //! - `add vendor_kit`（VK0057）在取件前看參數字面就擋，不在這裡。
 //!
+//! # 本機開發來源
+//!
+//! `version.local.toml` 的工具覆寫指到的本機開發來源，正規化與交付格式的檢查在 [`local`]（`dev`、`sync`、
+//! `upgrade` 共用）。
+//!
 //! 這裡不印診斷；要怎麼印由呼叫端經 `diagnostics` 決定。
 
 use std::collections::BTreeSet;
@@ -49,6 +54,8 @@ use std::path::{Path, PathBuf};
 use imageref::ImageRef;
 use messages::Message;
 use stamp::{Diff, Entry, Stamp};
+
+pub mod local;
 
 #[cfg(test)]
 mod tests;

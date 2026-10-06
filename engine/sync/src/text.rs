@@ -7,7 +7,8 @@
 
 use imageref::ImageRef;
 
-/// 這次 `<repo>` 用的是本機開發來源 `<dir>`（正規化後、相對於安裝目錄）。
+/// 這次 `<repo>` 用的是本機開發來源 `<dir>`（正規化後、存進 `version.local.toml` 的值：安裝目錄裡的是相對
+/// 路徑，安裝目錄外的是開頭為 `..` 的相對路徑或絕對路徑）。
 pub fn local_override(repo: &str, dir: &str) -> String {
     format!("{repo} uses the local source {dir} (local override).")
 }
