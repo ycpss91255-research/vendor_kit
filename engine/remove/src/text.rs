@@ -31,7 +31,12 @@ pub fn kept(path: &str) -> String {
     format!("Kept {path}")
 }
 
-/// `uninstall` 解除覆寫時保留的本機開發來源。
+/// `remove` 解除了對象的本機覆寫（04 本機覆寫：報告用了哪個覆寫，不加診斷前綴）。
+pub fn lifted_override(repo: &str, dir: &str) -> String {
+    format!("Removed the local override of {repo} ({dir}).")
+}
+
+/// `remove`、`uninstall` 解除覆寫時保留的本機開發來源。
 pub fn kept_local_source(repo: &str, dir: &str) -> String {
     format!("Kept the local development source of {repo}: {dir}")
 }

@@ -18,10 +18,16 @@
 //!    以 0 結束）；不能互動回 VK0002，除執行紀錄外不寫任何檔。
 //! 7. 經 `txn` 的收回順序落地：收回插入行後的 repo 檔 → 重產 `gen/tools.just`（拿掉對象的 `<ns>`，
 //!    其他工具的 `<ns>` 讀 `cache/<repo>/`）→ 仍保留的紀錄檔（其他工具與 `baseline/.vendor_kit.toml`
-//!    裡同一個檔的紀錄跟著換成寫入後的 hash，ADR-0003）→ 刪 `cache/<repo>/`、印記、基準版副本、
-//!    `baseline/<repo>.toml` → 拿掉版本鎖定行 → 刪進度檔；之後才刪殘留的進度檔。
-//! 8. stdout 列出改了什麼與保留清單（04：初始檔保留，保留清單印到 stdout）；只列不刪的每一行在落地後
+//!    裡同一個檔的紀錄跟著換成寫入後的 hash，ADR-0003；對象開著本機覆寫時，拿掉 `version.local.toml`
+//!    裡對象那一行）→ 刪 `cache/<repo>/`、印記、基準版副本、`baseline/<repo>.toml` → 拿掉版本鎖定行 →
+//!    刪進度檔；之後才刪殘留的進度檔。
+//! 8. stdout 列出改了什麼與保留清單（04：初始檔保留，保留清單印到 stdout）；解除了哪個覆寫、保留的本機
+//!    開發來源也列出來（04 本機覆寫：報告用了哪個覆寫，不加診斷前綴）；只列不刪的每一行在落地後
 //!    印一則 VK0061（warn，結束碼 1）。
+//!
+//! 對象開著本機覆寫時比照 `uninstall`：先解除覆寫紀錄再收回，不要求先 `undev`（04：`test` 以外的一般
+//! recipe 照常執行；02：覆寫只能覆蓋已存在的版本鎖定行，鎖定行收回後覆寫只能一起解除）。只拿掉那一行，
+//! 不讀覆寫來源，所以來源失效也不擋；本機開發來源不動，其他工具與引擎的覆寫照留。
 //!
 //! # `uninstall`
 //!
@@ -44,10 +50,17 @@
 //! 一次。殘留的詢問與這次的詢問一起問完、全部同意才寫，答否時殘留的進度檔照留。這次落地完成之後才刪殘留
 //! 的那幾份，中途再斷也還認得出來。
 //!
+//! 覆寫紀錄的解除也一樣可重做，兩種半套都照常再做一次就補完：覆寫已解除、版本鎖定行還在（落地停在紀錄檔
+//! 之後、鎖定行之前），重跑時覆寫已不在、照常收回鎖定行；鎖定行已拿掉、覆寫還在，殘留 `remove` 記的對象
+//! 一樣會解除覆寫。
+//!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
 //! - 進度檔 `.tmp.<verb>.<run-id>.toml` 另記 `[<verb>]` 表的 `repos`（這次收回的工具）與
 //!   `repo_files`（這次有沒有要寫 repo 檔）。
+//! - 覆寫的解除排在紀錄檔那一步（寫回拿掉對象那一行的 `version.local.toml`），在版本鎖定行之前；進度檔不另記
+//!   覆寫，恢復時照 `repos` 重算。上一次已解除的覆寫，恢復時不再報告（原來的來源已經不在檔裡）。
+//! - 覆寫全部解除後 `version.local.toml` 照留（只剩檔案版與寫入者），跟 `dev` 相同。
 //! - 保留清單列逐檔紀錄裡 state 是 `managed` 或 `appended` 的檔（VK 建立或插入過的初始檔）。
 //! - `uninstall` 把 `cache/`、`baseline/`、`gen/` 整個目錄當成 VK 的工作狀態刪掉（含未鎖定工具的
 //!   `cache/` 目錄與沒有對應版本鎖定行的紀錄），不逐項比對。
@@ -56,7 +69,8 @@
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
-//! - 對象開著本機覆寫（`version.local.toml` 有 `<repo>`）時 `remove` 的處置待 #47。
+//! - 版本鎖定行沒有 `<repo>`、也沒有殘留的 `remove` 記它，`version.local.toml` 卻還有它的覆寫（孤兒覆寫）：
+//!   照 VK0046 停下；孤兒覆寫訊息表還沒有代碼（`version_file::OrphanOverrides`）。
 //! - `-y`：兩個指令都還不收（#47，`args` 照 #489）；VK0002 的下一步指令照訊息表插入 `-y`。
 //! - 殘留的進度檔不是可以併入的 verb（`add`、`install` 等），或殘留的操作要寫 repo 檔：那次寫了哪些
 //!   repo 檔沒有記錄，重新判定會把 VK 自己剛收回的結果當成使用者改過（假的 VK0061）。
@@ -526,11 +540,6 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             if !fetch::is_namespace(t) {
                 return Err(self.gap(format_args!("tool name {t:?} (not a just name)")));
             }
-            if local.as_ref().is_some_and(|l| l.tool(t).is_some()) {
-                return Err(self.gap(format_args!(
-                    "remove while {t} has a local override in .vendor_kit/version.local.toml (#47)"
-                )));
-            }
         }
 
         let mut records = Vec::new();
@@ -548,7 +557,8 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             return Ok(());
         }
 
-        let writes = self.other_records(&targets, &lockfile, &plan)?;
+        let mut writes = self.other_records(&targets, &lockfile, &plan)?;
+        let lifted = self.lift_overrides(local, &targets, &mut writes)?;
         let mut removed = Vec::new();
         for t in &targets {
             match lockfile.remove_tool(t) {
@@ -595,9 +605,43 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                 self.say(&text::recovered(t));
             }
         }
+        for (t, dir) in &lifted {
+            self.say(&text::lifted_override(t, dir));
+            self.say(&text::kept_local_source(t, dir));
+        }
         self.report_files(&plan);
         self.report_unretracted(&plan);
         Ok(())
+    }
+
+    /// 解除對象的覆寫紀錄（`version.local.toml` 裡 `<repo>` 那一行）：有要解除的才把新內容排進紀錄檔那一步，
+    /// 本機開發來源不讀也不動。回傳解除了哪些覆寫與它們的來源。
+    fn lift_overrides(
+        &mut self,
+        local: Option<LocalFile>,
+        targets: &BTreeSet<String>,
+        writes: &mut Vec<(PathBuf, Vec<u8>)>,
+    ) -> Step<Vec<(String, String)>> {
+        let Some(mut local) = local else {
+            return Ok(Vec::new());
+        };
+        let mut lifted = Vec::new();
+        for t in targets {
+            match local.remove_tool(t) {
+                Ok(Some(dir)) => lifted.push((t.clone(), dir)),
+                Ok(None) => {}
+                Err(e) => return Err(self.internal(e.to_string())),
+            }
+        }
+        if lifted.is_empty() {
+            return Ok(lifted);
+        }
+        let text = local.render(self.env.written_by);
+        let text = text.map_err(|e| self.internal(e.to_string()))?;
+        let local_toml = self.env.dir.version_local_toml();
+        let path = self.vk_rel(&local_toml)?;
+        writes.push((path, text.into_bytes()));
+        Ok(lifted)
     }
 
     fn tool_metadata(&mut self, repo: &str) -> Step<PathBuf> {
