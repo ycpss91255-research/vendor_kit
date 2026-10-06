@@ -2,7 +2,7 @@
 # bootstrap.sh 的組裝（#372 的 N1）：把內嵌引用、msggen 的訊息片段與 launcher/ 各檔串成發佈用的 bootstrap.sh。
 #
 # 用法：assemble.sh <engine ref> <P> <messages fragment> <out>
-#   engine ref 是內嵌引擎的 pinned 引用 `<registry>/<路徑>:vX.Y.Z@sha256:<64 位十六進位>`，P 是介面版（正整數）。
+#   engine ref 是內嵌引擎的 pinned 引用 `<registry>[:port]/<路徑>:vX.Y.Z@sha256:<64 位十六進位>`，P 是介面版（正整數）。
 #   兩者格式不合、或任何一份輸入不合，就不寫 out、在 stderr 說明、以 1 結束。
 #
 # - 串接順序：開頭（shebang 與內嵌引用 vk_bootstrap_engine、vk_bootstrap_proto），接著訊息片段、launcher/ 的
@@ -24,7 +24,11 @@ source "$launcher/shell/assemble.sh"
 # bootstrap.sh 在訊息片段之後的各檔，依串接順序（launcher/ 下的檔名，不含 .sh）。
 vk_bootstrap_parts=(diag host log wire launch bootstrap_main)
 
-vk_bootstrap_re_ref='^[a-z0-9][a-z0-9._/-]*:v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)@sha256:[0-9a-f]{64}$'
+# 內嵌引用的格式（OCI image 引用）：第一段是 registry 的 host，可帶 :port；帶 port 時後面一定接 /路徑，
+# 所以 port 的冒號後面是數字與 /，tag 的冒號後面是 vX.Y.Z 與 @，兩者分得開。
+vk_bootstrap_re_part='[a-z0-9][a-z0-9._-]*'
+vk_bootstrap_re_ref="^$vk_bootstrap_re_part((:[0-9]{1,5})?(/$vk_bootstrap_re_part)+)?"
+vk_bootstrap_re_ref+=':v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)@sha256:[0-9a-f]{64}$'
 vk_bootstrap_re_proto='^[1-9][0-9]{0,9}$'
 
 main() {
@@ -34,7 +38,7 @@ main() {
     fi
     local ref=$1 proto=$2 fragment=$3 out=$4 name
     if [[ ! $ref =~ $vk_bootstrap_re_ref ]]; then
-        printf 'assemble: engine ref %s is not a pinned <registry>/<path>:vX.Y.Z@sha256:<digest> reference\n' "$ref" >&2
+        printf 'assemble: engine ref %s is not a pinned <registry>[:port]/<path>:vX.Y.Z@sha256:<digest> reference\n' "$ref" >&2
         return 1
     fi
     if [[ ! $proto =~ $vk_bootstrap_re_proto ]]; then

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # 組好的 bootstrap.sh 的 smoke 測試（#372 的 N1）：組裝結果的開頭與決定性、以 bash 直接執行時入口照常、
-# 內嵌引用真的被讀到，以及 image/bootstrap/assemble.sh 擋下不合格式的引用與介面版。
+# 內嵌引用真的被讀到，以及 image/bootstrap/assemble.sh 接受帶 port 的 registry、擋下不合格式的引用與介面版。
 # 各判定的完整測試在 launcher/test/bootstrap*.bats（那裡 source 各檔，這裡跑組好的單一檔）。
 #
 # 執行前設：
@@ -107,7 +107,9 @@ bs() {
 @test "assemble.sh rejects a reference that is not pinned vX.Y.Z and an invalid interface version" {
     local d=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa out=$BATS_TEST_TMPDIR/bad.sh bad
     for bad in "ghcr.io/acme/vendor_kit:v1.0.0" "ghcr.io/acme/vendor_kit@$d" "ghcr.io/acme/vendor_kit:latest@$d" \
-        "ghcr.io/acme/vendor_kit:v1.0@$d" "ghcr.io/acme/vendor_kit:v01.0.0@$d" "ghcr.io/acme/vendor_kit:v1.0.0@$d'"; do
+        "ghcr.io/acme/vendor_kit:v1.0@$d" "ghcr.io/acme/vendor_kit:v01.0.0@$d" "ghcr.io/acme/vendor_kit:v1.0.0@$d'" \
+        "localhost:5000:v1.0.0@$d" "localhost:/acme/vendor_kit:v1.0.0@$d" "localhost:50x0/acme/vendor_kit:v1.0.0@$d" \
+        "localhost:5000/acme/vendor_kit@$d" "localhost:5000/acme/vendor_kit:v1.0.0"; do
         run bash "$assemble" "$bad" 1 "$VK_MESSAGES" "$out"
         [ "$status" -eq 1 ]
         [[ $output == *"is not a pinned"* ]]
@@ -123,4 +125,17 @@ bs() {
     [ "$status" -eq 1 ]
     [ ! -e "$out" ]
     [ ! -e "$out.head" ]
+}
+
+@test "assemble.sh accepts a registry with a port and embeds the reference as given" {
+    local d=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb out=$BATS_TEST_TMPDIR/port.sh good
+    for good in "localhost:5000/acme/vendor_kit:v1.2.3@$d" "registry.example.com:443/vendor_kit:v0.0.1@$d"; do
+        run bash "$assemble" "$good" "$proto" "$VK_MESSAGES" "$out"
+        [ "$status" -eq 0 ]
+        [ "$(sed -n 2p "$out")" = "vk_bootstrap_engine='$good'" ]
+        # 除了內嵌引用那一行，其餘逐位元組跟用假引用組的那份相同。
+        cmp <(sed 2d "$VK_BOOTSTRAP") <(sed 2d "$out")
+        [ ! -e "$out.head" ]
+        rm -f -- "$out"
+    done
 }
