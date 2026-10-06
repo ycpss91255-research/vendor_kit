@@ -21,6 +21,7 @@ messages.workspace = true
 output.workspace = true
 plan.workspace = true
 prompt.workspace = true
+prune.workspace = true
 remove.workspace = true
 runlog.workspace = true
 sync.workspace = true
