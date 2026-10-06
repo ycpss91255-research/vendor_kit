@@ -104,8 +104,8 @@ check = { path = "engine/check" }
 # - tempfile：merge 給 git merge-file 的暫存目錄；其他 crate 只在測試用它建暫存目錄。
 # - ureq（default-features = false, features = ["rustls"]）：registry 向 GHCR 發 HTTPS 請求。
 #   ureq 是同步 client，`rustls` feature 帶 rustls、ring 與 webpki-roots；CA 憑證用 webpki-roots
-#   編進執行檔，最終 image 不必裝 ca-certificates。ring 要編 C：vendor_kit 第一次依賴 registry 時，
-#   image/Dockerfile 的 test stage 要加 musl 的 C 編譯器（Debian 的 musl-tools），musl 靜態編譯才編得過。
+#   編進執行檔，最終 image 不必裝 ca-certificates。ring 要編 C：vendor_kit 經 update 依賴 registry，
+#   image/Dockerfile 的 test stage 因此裝了 musl 的 C 編譯器（Debian 的 musl-tools），musl 靜態編譯才編得過。
 #   比較過的方案與結果見 #577。
 toml_edit = "0.25"
 serde_json = "1"

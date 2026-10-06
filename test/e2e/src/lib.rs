@@ -1,8 +1,11 @@
-//! 端到端測試共用的輔助：找出受測的執行檔、扮演啟動器、產生薄殼 fixture。測試本體在 `tests/`。
+//! 端到端測試共用的輔助：找出受測的執行檔、扮演啟動器與 registry、產生薄殼 fixture。測試本體在 `tests/`。
 
 // 測試輔助：失敗就讓測試失敗，unwrap 放行（workspace lints 的測試例外）。
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 pub mod launcher;
+// 同上：假 registry。
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+pub mod registry;
 
 use std::path::PathBuf;
 
@@ -37,6 +40,10 @@ pub const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 /// 引擎的測試用環境變數：三個掛載點改到 `<值>/vk/root`、`<值>/vk/ctl`、`<值>/vk/in`
 /// （engine/vendor_kit 的 `MOUNT_PREFIX_ENV`；這裡不能依賴 engine crate，照抄名字）。
 pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";
+
+/// 引擎的測試用環境變數：registry client 改連這個 base URL（engine/vendor_kit 的 `REGISTRY_URL_ENV`；照抄名字）。
+/// 給 [`registry::Registry::base`]，不連外網。
+pub const REGISTRY_URL_ENV: &str = "VK_TEST_REGISTRY_URL";
 
 /// 薄殼的 fixture：隨 image 出貨的模板目錄，與安裝目錄裡跟這一版引擎一致的薄殼四檔。
 ///

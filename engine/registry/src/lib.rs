@@ -48,13 +48,16 @@
 //!
 //! 錯誤訊息與任何型別的 `Debug` 都不含 token。
 //!
+//! # 建置
+//!
+//! ring 要編 C：`vendor_kit` 經 `update` 連到這個 crate，image/Dockerfile 的 test stage 裝了 Debian 的
+//! `musl-tools`（`musl-gcc`），musl 靜態編譯才編得過（#577）。CA 憑證用 webpki-roots 編進執行檔，最終 image
+//! 不必裝 ca-certificates。
+//!
 //! # 缺口
 //!
 //! - 帶 token 的流程照 GHCR 文件與 token 認證規格實作，還沒對私有 package 手動測過（#28 的待辦）；
 //!   fine-grained token 與 SSO 的行為以手動測試為準。
-//! - ring 要編 C：`vendor_kit` 第一次連到這個 crate（update 查 registry）時，image/Dockerfile 的 test
-//!   stage 要加 `musl-tools`，musl 靜態編譯才編得過（#577）。目前只有測試用到，test stage 以主機的
-//!   gnu 目標編譯，不受影響。
 
 use std::fmt;
 use std::thread;

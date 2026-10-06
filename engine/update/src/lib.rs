@@ -23,40 +23,80 @@
 //!    鎖定行回 VK0046（訊息表：先辨識未完成進度，再判斷對象不存在，所以排在第 4 步之後）。
 //! 6. 查詢對象有本機覆寫時，stderr 印一行提醒、不加診斷前綴（04 本機覆寫、03 輸出）；仍照版本鎖定行查，
 //!    覆寫來源失效也不擋（VK0052 不適用於 `update`）。
-//! 7. 每個對象即時列 registry 的 tag、依 04 指定版本算最新版（[`imageref::Tag::latest`]），stdout 每個
-//!    對象印一行 [`text::result_line`]。列 tag 還做不了，見「缺口」。
+//! 7. 每個對象即時列 registry 的 tag（`registry` crate；不用任何查詢快取），依 04 指定版本算最新版
+//!    （[`imageref::Tag::latest`]），stdout 每個對象印一行 [`text::result_line`]，已最新也印。工具查版本鎖定行
+//!    的 `<registry>/<路徑>`；引擎查 [`ENGINE_REPO`]（不看鎖定行的路徑），工具名欄印 [`text::ENGINE_NAME`]。
+//!    一個對象查詢失敗不擋其他對象：該行印 `latest: none`、報一條診斷，整次結束碼取最大值（見「查詢失敗」）。
 //!
-//! 不送任何 docker 動作、不建進度檔、不經 `txn`。
+//! 不建進度檔、不經 `txn`、不寫安裝目錄的任何檔。唯一跟啟動器的往返是 token 檔在安裝目錄外時的 `stage`
+//! （見「registry token 檔」），它只寫這次 session 的 `in/`。
+//!
+//! # registry token 檔（04 registry token 檔案）
+//!
+//! `--registry-token-file <path>` 到第 7 步、真的要列 tag 時才讀，一次執行只讀一次；第 4、5 步停下時不讀、
+//! 不送 `stage`。路徑只看字面正規化（[`locate`]）：相對路徑以安裝目錄為準。
+//!
+//! - 落在安裝目錄裡：直接讀安裝目錄底下那個檔。
+//! - 在安裝目錄外（相對路徑以 `..` 跑出去，或絕對路徑不在 `--host-root` 底下）：請啟動器 `stage` 把檔複製進
+//!   `in/`[`TOKEN_SLOT`]，再讀那份複本。送給啟動器的主機路徑：絕對路徑是正規化後的值；相對路徑是
+//!   `<--host-root>/<原值>`，開頭的 `..` 留給主機解析（同 `fetch::local::Source::host_path`）。
+//!
+//! 讀不到（不存在、主機路徑放不進往返欄位、`stage` 失敗、不是 UTF-8）或去掉前後空白後是空的：每個查詢對象都
+//! 印 `latest: none` 並各報一條 VK0055，`<source>` 是使用者給的路徑。單獨的 `-` 在 `args` 就是用法錯誤。
+//! 往返本身出錯（寫不了 request、協定不對）是 VK 的錯，以 VK0056 停下。
+//!
+//! # 查詢失敗（訊息表 VK0001、VK0055、VK0058）
+//!
+//! `registry` 的錯誤類別照它的模組說明對應：
+//!
+//! - 沒帶 token、registry 要求認證（`AuthRequired`）：VK0001，`<cmd>` 印 `upgrade`（訊息表：update 時印
+//!   upgrade），`<path>`、`<tag>` 原樣印出。
+//! - token 被拒、網路或逾時（`TokenRejected`、`Network`）：VK0055。被拒後不改走匿名重試（`registry` 不會改走匿名）。
+//! - 404（`NotFound`）與回應不合協定（`Protocol`）：訊息表 VK0055 寫「網路、registry 或認證錯誤」，歸 VK0055。
+//! - 列得到 tag、但沒有一個是合法的 `vX.Y.Z`：VK0058。
+//! - 一個 tag 都沒有（200 但清單是空的）：見「缺口」。
+//!
+//! VK0055 的 `<target>` 是結果行的工具名欄、`<source>` 是查的 `<registry>/<路徑>`、`<reason>` 是 `registry` 的
+//! 錯誤說明（不含 token）。
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
 //! - 本機覆寫提醒的字句（[`text::override_notice`]）。
 //! - `add` 的進度檔記 `<repo>` 的表（engine/add 的 `PROGRESS_TABLE`；指令之間互不依賴，照抄）。
+//! - [`ENGINE_REPO`] 照抄 engine/install 的同名常數（指令之間互不依賴），兩邊相等由入口 crate 的測試檢查。
+//! - token 檔在安裝目錄外時 `stage` 用的 slot 名 [`TOKEN_SLOT`]。
+//! - token 檔讀不到時每個對象各報一條 VK0055（不併成一條），跟每個 `latest: none` 一一對應。
 //!
-//! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
+//! # 缺口（契約或其他 crate 沒定，不自己補規則）
 //!
-//! - 列 tag：`<repo>` 對應到哪個 GHCR 路徑、列 tag 要 registry client（計畫 D8），`plan` 協定也沒有列 tag
-//!   的 op。第 7 步一律以 VK0056 停下，stdout 不印結果行：`latest: none` 是查詢失敗的顯示值，不拿來表示
-//!   還沒實作。所以 `--registry-token-file`（04：只有真的要查版本清單時才讀）這一版不讀，VK0001、VK0055、
-//!   VK0058 也還碰不到。
+//! - registry 列得到、但一個 tag 都沒有（200、清單是空的）：VK0058 只寫「有 tag 卻沒有合法 vX.Y.Z」，04 只寫
+//!   查詢失敗印 `latest: none`。這裡當查詢失敗，該行印 `latest: none` 並報 VK0055，`<reason>` 寫
+//!   [`text::NO_TAGS`]；之後訊息表定了再改。
 //! - 殘留的引擎 `upgrade` 進度檔（`[upgrade] target` 是引擎）：VK0023 的 `<vY>` 要從進度檔讀，
-//!   `upgrade --engine` 還沒實作、它的欄位沒定。
+//!   `upgrade --engine` 還沒實作、它的欄位沒定，以 VK0056 停下。
 //! - 殘留的 `add` 進度檔沒有 `[add]` 的 `repo` 欄位；殘留的 `undev` 進度檔沒有 `[undev]` 的 `target` 欄位；
-//!   殘留的 `upgrade` 進度檔沒有 `[upgrade]` 的 `target` 欄位。
+//!   殘留的 `upgrade` 進度檔沒有 `[upgrade]` 的 `target` 欄位：以 VK0056 停下。
+//! - 帶 token 的流程還沒對私有 package 手動測過（`registry` 的缺口）。
 
 pub mod text;
 
 #[cfg(test)]
 mod tests;
 
+use std::ffi::OsStr;
+use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::os::unix::ffi::OsStrExt;
+use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 use config::{Config, ConfigError};
 use diagnostics::{Diagnostic, Diagnostics, Sink};
 use filelock::{Lock, Mode};
 use imageref::Tag;
 use layout::InstallDir;
+use plan::{Channel, Field, Op, Outcome, Slot};
+use registry::{Client, ErrorKind, Token};
 use version_file::{LocalFile, LockFile};
 
 /// `add` 的進度檔 `<verb>` 與它記 `<repo>` 的表（engine/add 的 `VERB`、`PROGRESS_TABLE`）。
@@ -69,19 +109,34 @@ pub const UNDEV_VERB: &str = "undev";
 pub const UNDEV_TARGET_KEY: &str = "target";
 /// 重組 `<original_command>` 時接在參數前面的字。
 pub const COMMAND_PREFIX: [&str; 2] = ["just", "vendor_kit"];
+/// 引擎 image 的 `<registry>/<路徑>`（engine/install 的 `release::ENGINE_REPO`；指令之間互不依賴，照抄）。
+pub const ENGINE_REPO: &str = "ghcr.io/ycpss91255-research/vendor_kit";
+/// token 檔在安裝目錄外時，`stage` 放進 `in/` 的 slot 名。
+pub const TOKEN_SLOT: &str = "token";
+/// VK0001 的 `<cmd>`：訊息表寫 update 時印 upgrade。
+pub const VK0001_CMD: &str = "upgrade";
 
-/// 一次 `update` 的參數（`args::Command::Update`）。`--registry-token-file` 只在真的要查版本清單時才讀，
-/// 列 tag 還沒做（見模組說明的缺口），所以這裡不收。
+/// 一次 `update` 的參數（`args::Command::Update`）。
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
     /// `update <repo>` 的 `<repo>`；不帶是查全部工具與引擎。
     pub repo: Option<&'a str>,
+    /// `--registry-token-file` 的值，原樣（模組說明「registry token 檔」）。
+    pub registry_token_file: Option<&'a OsStr>,
 }
 
 /// 這次執行的環境。`update` 不詢問、不寫檔，所以沒有 stdin、終端狀態與執行紀錄的寫入端。
 pub struct Env<'a, W: Write, S: Sink> {
     /// 容器內的安裝目錄（`plan::mount::ROOT`）。
     pub dir: &'a InstallDir,
+    /// 容器內的 `in/`（`plan::mount::IN`）：token 檔 `stage` 進來的地方。
+    pub inbox: &'a Path,
+    /// 跟啟動器的往返（只有 token 檔在安裝目錄外時送 `stage`）。
+    pub channel: &'a mut Channel,
+    /// 等啟動器回 result 時多久看一次。
+    pub poll: Duration,
+    /// 列 tag 用的 registry client。
+    pub registry: &'a Client,
     /// 主機上的安裝目錄，填 `<install_dir>`。
     pub host_root: &'a str,
     /// 主機上的執行紀錄路徑，填 VK0056 的 `<path>`。
@@ -125,11 +180,66 @@ struct Stop;
 
 type Step<T> = Result<T, Stop>;
 
-/// 一個查詢對象：結果行的工具名欄、鎖定版本的 tag、本機覆寫來源。
+/// 一個查詢對象：結果行的工具名欄、查的 `<registry>/<路徑>`、鎖定版本的 tag、本機覆寫來源。
 struct Target {
     name: String,
+    image: String,
     current: Tag,
     local: Option<String>,
+}
+
+/// token 檔路徑只看字面正規化後的位置（模組說明「registry token 檔」）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenPath {
+    /// 落在安裝目錄裡：相對於安裝目錄的路徑（安裝目錄本身是空路徑）。
+    Inside(PathBuf),
+    /// 在安裝目錄外：請啟動器 `stage` 時送的主機路徑。
+    Outside(Vec<u8>),
+}
+
+/// 判 token 檔在安裝目錄裡還是外（只看字面：`.` 略過、`..` 往上一層，不碰檔案系統）。相對路徑以安裝目錄
+/// 為準；絕對路徑在 `host_root` 底下時換成相對於安裝目錄的寫法。
+pub fn locate(given: &OsStr, host_root: &str) -> TokenPath {
+    fn lexical(path: &Path) -> (bool, usize, Vec<&OsStr>) {
+        let (mut absolute, mut ups, mut parts) = (false, 0, Vec::new());
+        for c in path.components() {
+            match c {
+                Component::RootDir => absolute = true,
+                Component::CurDir | Component::Prefix(_) => {}
+                Component::ParentDir => {
+                    if parts.pop().is_none() && !absolute {
+                        ups += 1;
+                    }
+                }
+                Component::Normal(seg) => parts.push(seg),
+            }
+        }
+        (absolute, ups, parts)
+    }
+    let join = |parts: &[&OsStr]| parts.iter().collect::<PathBuf>();
+    let (absolute, ups, parts) = lexical(Path::new(given));
+    if absolute {
+        let (_, _, root) = lexical(Path::new(host_root));
+        if parts.starts_with(&root) {
+            return TokenPath::Inside(join(&parts[root.len()..]));
+        }
+        let mut host = Vec::new();
+        for p in &parts {
+            host.push(b'/');
+            host.extend_from_slice(p.as_bytes());
+        }
+        if host.is_empty() {
+            host.push(b'/');
+        }
+        return TokenPath::Outside(host);
+    }
+    if ups == 0 {
+        return TokenPath::Inside(join(&parts));
+    }
+    let mut host = host_root.trim_end_matches('/').as_bytes().to_vec();
+    host.push(b'/');
+    host.extend_from_slice(given.as_bytes());
+    TokenPath::Outside(host)
 }
 
 struct Update<'r, 'a, W: Write, S: Sink> {
@@ -164,11 +274,6 @@ impl<W: Write, S: Sink> Update<'_, '_, W, S> {
 
     fn gap_diag(&self, what: impl std::fmt::Display) -> Diagnostic {
         self.internal_diag(format!("{what} is not supported yet"))
-    }
-
-    fn gap(&mut self, what: impl std::fmt::Display) -> Stop {
-        let d = self.gap_diag(what);
-        self.stop(d)
     }
 
     /// VK0008：檔案版過高。
@@ -223,15 +328,108 @@ impl<W: Write, S: Sink> Update<'_, '_, W, S> {
         }
         let _ = self.env.stderr.flush();
 
-        // 第 7 步：列 tag 還做不了（模組說明的缺口）。
-        let names: Vec<String> = targets
-            .iter()
-            .map(|t| format!("{} ({})", t.name, t.current))
-            .collect();
-        Err(self.gap(format_args!(
-            "listing tags from the registry for update ({})",
-            names.join(", ")
-        )))
+        // 第 7 步：真的要列 tag 了，這時才讀 token 檔（04 registry token 檔案）。
+        let token = match req.registry_token_file {
+            None => Ok(None),
+            Some(given) => self.token(given)?.map(Some),
+        };
+        for t in &targets {
+            let latest = match &token {
+                Ok(token) => self.latest(t, token.as_ref()),
+                Err(reason) => {
+                    let given = req.registry_token_file.unwrap_or_default();
+                    let d = Diagnostic::new(&messages::VK0055)
+                        .arg("source", given.to_string_lossy())
+                        .arg("target", t.name.clone())
+                        .arg("reason", reason.clone());
+                    self.emit(d);
+                    None
+                }
+            };
+            let _ = writeln!(
+                self.env.stdout,
+                "{}",
+                text::result_line(&t.name, t.current, latest)
+            );
+        }
+        let _ = self.env.stdout.flush();
+        Ok(())
+    }
+
+    /// 一個對象的最新版；查詢失敗時報診斷、回 `None`（模組說明「查詢失敗」）。
+    fn latest(&mut self, t: &Target, token: Option<&Token>) -> Option<Tag> {
+        let registry = self.env.registry;
+        let listed = registry
+            .repository(&t.image, token)
+            .and_then(|mut repo| repo.tags());
+        let d = match listed {
+            Ok(tags) if tags.is_empty() => self.access_diag(t, text::NO_TAGS.to_owned()),
+            Ok(tags) => match Tag::latest(tags.iter().map(String::as_str)) {
+                Some(latest) => return Some(latest),
+                None => Diagnostic::new(&messages::VK0058).arg("repo", t.name.clone()),
+            },
+            Err(e) => match e.kind() {
+                ErrorKind::AuthRequired => Diagnostic::new(&messages::VK0001)
+                    .arg("repo", t.name.clone())
+                    .arg("cmd", VK0001_CMD),
+                ErrorKind::TokenRejected
+                | ErrorKind::Network
+                | ErrorKind::NotFound
+                | ErrorKind::Protocol => self.access_diag(t, e.detail().to_owned()),
+            },
+        };
+        self.emit(d);
+        None
+    }
+
+    /// VK0055：列 tag 失敗。
+    fn access_diag(&self, t: &Target, reason: String) -> Diagnostic {
+        Diagnostic::new(&messages::VK0055)
+            .arg("source", t.image.clone())
+            .arg("target", t.name.clone())
+            .arg("reason", reason)
+    }
+
+    /// 讀 token 檔（模組說明「registry token 檔」）。讀不到回 `Ok(Err(說明))`；往返本身失敗是 VK 的錯，停下。
+    fn token(&mut self, given: &OsStr) -> Step<Result<Token, String>> {
+        let path = match locate(given, self.env.host_root) {
+            TokenPath::Inside(rel) => self.env.dir.root().join(rel),
+            TokenPath::Outside(host) => match self.stage(host)? {
+                Ok(path) => path,
+                Err(reason) => return Ok(Err(reason)),
+            },
+        };
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => return Ok(Err(text::token_unreadable(&e.to_string()))),
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
+            return Ok(Err(text::TOKEN_NOT_UTF8.to_owned()));
+        };
+        Ok(Token::new(&text).ok_or_else(|| text::TOKEN_EMPTY.to_owned()))
+    }
+
+    /// 請啟動器把安裝目錄外的 token 檔複製進 `in/`[`TOKEN_SLOT`]，回那份複本的路徑。
+    fn stage(&mut self, host: Vec<u8>) -> Step<Result<PathBuf, String>> {
+        let Some(slot) = Slot::parse(TOKEN_SLOT) else {
+            return Err(self.internal(format!("stage slot {TOKEN_SLOT} is not a valid slot")));
+        };
+        let field = match Field::new(host) {
+            Ok(f) => f,
+            Err(e) => return Ok(Err(text::token_unpassable(&e.to_string()))),
+        };
+        if let Err(e) = self.env.channel.send(&Op::Stage(field, slot)) {
+            return Err(self.internal(e.to_string()));
+        }
+        let reply = match self.env.channel.receive(self.env.poll) {
+            Ok(r) => r,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        match reply.outcome {
+            Outcome::Ok => Ok(Ok(self.env.inbox.join(TOKEN_SLOT))),
+            Outcome::Failed(rc) => Ok(Err(text::token_copy_failed(rc))),
+            Outcome::Runner(_) => Err(self.internal("stage got a runner result")),
+        }
     }
 
     fn config(&mut self) -> Step<Config> {
@@ -397,6 +595,7 @@ impl<W: Write, S: Sink> Update<'_, '_, W, S> {
             };
             return Ok(vec![Target {
                 name: repo.to_owned(),
+                image: format!("{}/{}", locked.registry(), locked.path()),
                 current: locked.tag(),
                 local: tool_local(repo),
             }]);
@@ -406,12 +605,14 @@ impl<W: Write, S: Sink> Update<'_, '_, W, S> {
             .iter()
             .map(|(repo, locked)| Target {
                 name: repo.clone(),
+                image: format!("{}/{}", locked.registry(), locked.path()),
                 current: locked.tag(),
                 local: tool_local(repo),
             })
             .collect();
         targets.push(Target {
             name: text::ENGINE_NAME.to_owned(),
+            image: ENGINE_REPO.to_owned(),
             current: lockfile.engine().tag(),
             local: local.and_then(LocalFile::engine).map(str::to_owned),
         });

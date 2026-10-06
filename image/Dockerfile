@@ -21,9 +21,11 @@ COPY doc/diagram doc/diagram
 # 主機端 bash（bootstrap.sh、啟動器）用的訊息片段與最終 stage 的 LABEL 值（image_labels.env）只寫到 /out，不進 git。
 FROM source AS test
 # engine/merge 的 unit 測試要呼叫 git merge-file，rust:1-slim 不帶 git。
+# musl-tools（musl-gcc）：引擎經 update 連到 engine/registry，它的 TLS（rustls 的 ring）要編 C，
+# musl 靜態編譯要 musl 的 C 編譯器（#577）；只有這個 stage 編執行檔，其他 stage 不裝。
 # bats 與 shellcheck 取 base（Debian trixie）的套件；bats 版本固定在 1.11.x，換 base 時版本變了就在這裡停。
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git bats shellcheck \
+    && apt-get install -y --no-install-recommends git musl-tools bats shellcheck \
     && rm -rf /var/lib/apt/lists/* \
     && bats --version | grep -q '^Bats 1\.11\.' \
     && shellcheck --version
