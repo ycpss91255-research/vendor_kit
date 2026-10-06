@@ -12,7 +12,8 @@
 //! 寫好的引擎引用檔 [`files::IN_ENGINE`]）。控制檔都在 `ctl/`（[`files`]）：
 //!
 //! - 引擎寫 `req.<seq>`：先寫 `req.<seq>.tmp` 再 rename，啟動器只讀 rename 完的檔。
-//! - 啟動器寫 `res.<seq>`（同樣先寫暫存再 rename）；有原始輸出（inspect、ps）時另存 `res.<seq>.out`。
+//! - 啟動器寫 `res.<seq>`（同樣先寫暫存再 rename）；有原始輸出（inspect、ps、load）時另存 `res.<seq>.out`。
+//!   load 的 `.out` 是 #589 起才寫的，引擎讀它時要容許檔不存在。
 //! - 同一時間只有一個未完成的 request；seq 從 1 起連續。
 //! - 引擎最後寫 `done`（同樣先寫暫存再 rename），帶自己的結束碼。
 //!
@@ -31,7 +32,7 @@
 //! seq     = %x31-39 *3DIGIT                   ; 1–9999，不補零（檔名 req.<seq> 要逐字相等）
 //! exit    = "0" / "1" / "2" / "3"
 //! op      = "pull" SP pinned                  ; 只收帶 digest 的引用，不收純 tag
-//!         / "load" SP fld                     ; 主機絕對路徑
+//!         / "load" SP fld                     ; 主機絕對路徑；`docker load -q` 的 stdout 寫 res.<seq>.out
 //!         / "inspect" SP ref                  ; image inspect，輸出寫 res.<seq>.out（ID、RepoDigests）
 //!         / "extract" SP imgid SP slot        ; create（入口設成不存在的檔）→ cp /dist/. 進 in/<slot> → rm
 //!         / "stage" SP fld SP slot            ; 安裝目錄外的主機檔（例如 token 檔）複製進 in/<slot>

@@ -10,6 +10,23 @@ pub use messages::{Level, Message};
 /// 診斷第一行的前綴名稱。
 const NAME: &str = "vendor_kit";
 
+/// 本文結尾指令可用的指令名（同 `script/doc/check_messages.py` 的 `COMMAND_NAMES`）。
+pub const COMMAND_NAMES: [&str; 4] = ["just", "git", "sh", "cd"];
+
+/// 結尾片段是不是指令：整段是單一占位符 `<name>`，或是指令名、一個空白、再接非空白開頭的其餘部分
+/// （同 `script/doc/check_messages.py` 的 `COMMAND_TAIL`）。
+fn is_command_tail(tail: &str) -> bool {
+    if let Some(inner) = tail.strip_prefix('<').and_then(|t| t.strip_suffix('>')) {
+        return !inner.is_empty() && !inner.contains(['<', '>']);
+    }
+    COMMAND_NAMES.iter().any(|name| {
+        tail.strip_prefix(name)
+            .and_then(|rest| rest.strip_prefix(' '))
+            .and_then(|rest| rest.chars().next())
+            .is_some_and(|c| !c.is_whitespace())
+    })
+}
+
 /// 一條待印的診斷：訊息表的一列，加上要換進占位符的值。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -43,7 +60,26 @@ impl Diagnostic {
 
     /// 換好占位符的本文，不含前綴；多行時以 `\n` 分隔。
     pub fn body(&self) -> String {
-        let mut text = self.message.text.to_owned();
+        self.fill(self.message.text)
+    }
+
+    /// 本文結尾的下一步指令（03 輸出：下一步指令直接寫在本文句尾），換好占位符；沒有回 `None`。
+    ///
+    /// 規則與 `script/doc/check_messages.py` 的 `ending_command` 相同，看的是訊息表的本文、不是換好值的
+    /// 本文（值裡可能有「: 」）：最後一行最後一個「: 」之後的片段，是單一占位符，或以
+    /// [`COMMAND_NAMES`] 之一加空白再接非空白開頭。執行紀錄把它寫成 `vendor_kit.next_step.command`（#118）。
+    pub fn next_step(&self) -> Option<String> {
+        let last = self.message.text.rsplit('\n').next()?;
+        let (_, tail) = last.rsplit_once(": ")?;
+        if !is_command_tail(tail) {
+            return None;
+        }
+        Some(self.fill(tail))
+    }
+
+    /// 把 `text` 裡給過值的占位符換掉。
+    fn fill(&self, text: &str) -> String {
+        let mut text = text.to_owned();
         for (name, value) in &self.args {
             text = text.replace(&format!("<{name}>"), value);
         }
@@ -130,7 +166,7 @@ impl<W: Write, S: Sink> Diagnostics<W, S> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use messages::{VK0014, VK0024, VK0026, VK0061};
+    use messages::{VK0002, VK0004, VK0014, VK0024, VK0026, VK0028, VK0034, VK0061, VK0067};
 
     #[test]
     fn first_line_has_fixed_prefix() {
@@ -208,6 +244,69 @@ mod tests {
         assert!(d.emit(&Diagnostic::new(&VK0024)).is_err());
         assert_eq!(d.exit_code(), 0);
         assert!(d.into_inner().is_empty());
+    }
+
+    #[test]
+    fn next_step_is_the_filled_ending_command() {
+        let d = Diagnostic::new(&VK0002).arg("command_with_y", "./bootstrap.sh -y");
+        assert_eq!(d.next_step().as_deref(), Some("./bootstrap.sh -y"));
+        // 沒給值的占位符原樣留著，跟本文一致
+        assert_eq!(
+            Diagnostic::new(&VK0002).next_step().as_deref(),
+            Some("<command_with_y>")
+        );
+        let d = Diagnostic::new(&VK0004).arg("repo", "ghcr.io/a/b");
+        assert_eq!(
+            d.next_step().as_deref(),
+            Some("just vendor_kit add ghcr.io/a/b")
+        );
+        // 多行訊息看最後一行
+        let d = Diagnostic::new(&VK0034)
+            .arg("download_url", "u")
+            .arg("install_command", "i");
+        assert_eq!(d.next_step().as_deref(), Some("i"));
+    }
+
+    #[test]
+    fn next_step_comes_from_the_template_not_the_filled_body() {
+        // 值裡的「: 」不會被當成指令的開頭
+        let d = Diagnostic::new(&VK0028).arg("install_dir", "/a: b");
+        assert_eq!(d.next_step().as_deref(), Some("cd /a: b"));
+        assert!(d.body().ends_with(": cd /a: b"));
+    }
+
+    #[test]
+    fn diagnostics_without_an_ending_command_have_no_next_step() {
+        // 沒有「: 」
+        assert_eq!(Diagnostic::new(&VK0024).next_step(), None);
+        // 多行訊息的最後一行「: 」之後是占位符加句點，不是指令
+        assert_eq!(Diagnostic::new(&VK0067).next_step(), None);
+        assert_eq!(Diagnostic::new(&VK0061).next_step(), None);
+    }
+
+    #[test]
+    fn every_pending_message_has_a_next_step_and_it_ends_the_body() {
+        for m in messages::ALL {
+            let d = Diagnostic::new(m);
+            if m.disposition == Some(messages::Disposition::Pending) {
+                assert!(d.next_step().is_some(), "{} has no ending command", m.code);
+            }
+            if let Some(command) = d.next_step() {
+                assert!(d.body().ends_with(&command), "{}", m.code);
+            }
+        }
+    }
+
+    #[test]
+    fn command_tail_rule() {
+        for ok in ["<x>", "just vendor_kit sync", "git a", "sh x", "cd /"] {
+            assert!(is_command_tail(ok), "{ok}");
+        }
+        for bad in [
+            "", "<>", "<a<b>", "<a> b", "just", "just ", "just  x", "justx", "Run x", "make x",
+        ] {
+            assert!(!is_command_tail(bad), "{bad}");
+        }
     }
 
     #[test]
