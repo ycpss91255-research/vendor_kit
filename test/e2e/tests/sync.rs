@@ -445,6 +445,16 @@ vendor_kit: warn[VK0015]: The file set or per-file digests in cache/ for tool di
     );
 }
 
+/// 在 PATH 找可執行的 `name`，找不到是 `None`。先找再跑，不靠 spawn 回 `NotFound` 判斷程式不在：
+/// QEMU 模擬（qemu-user）下 `posix_spawnp` 找不到程式時子行程以 127 結束，不回 ENOENT（#651）。
+fn on_path(name: &str) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(name))
+        .find(|p| fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
+}
+
 /// `cache/<repo>/` 不在時（prune、手動刪除、sync 中斷），`gen/tools.just` 每行都是 `mod?`，just 仍解析得了，
 /// 救援用的 `just vendor_kit sync` 跑得起來（ADR-0007）。主機有 `just` 就實際解析一次；
 /// image 的 test stage 不帶 `just`，那裡只比對字面內容（各版 just 的實測在驗收矩陣，ADR-0011）。
@@ -472,21 +482,18 @@ mod? tool-extra '../cache/tool/just/tool-extra.just'
     );
     assert!(text.lines().all(|l| l.starts_with("mod? ")), "{text}");
 
-    let parsed = match std::process::Command::new("just")
+    let Some(just) = on_path("just") else {
+        eprintln!("just not on PATH; checked the literal content only");
+        return;
+    };
+    let parsed = std::process::Command::new(just)
         .arg("--justfile")
         .arg(&gen_file)
         .arg("--working-directory")
         .arg(vk.join("gen"))
         .arg("--summary")
         .output()
-    {
-        Ok(out) => out,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("just not on PATH; checked the literal content only");
-            return;
-        }
-        Err(e) => panic!("{e}"),
-    };
+        .unwrap();
     assert!(
         parsed.status.success(),
         "{}",
