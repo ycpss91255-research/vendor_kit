@@ -19,3 +19,17 @@ build:
         args+=(--build-arg "$line")
     done <"$dir/image_labels.env"
     docker build "${args[@]}" -t {{image}} -f image/Dockerfile .
+
+# 組出發佈用的 bootstrap.sh，放到 dest 目錄（不在就建）。ref 是內嵌引擎的 pinned 引用
+# `<registry>/<路徑>:vX.Y.Z@sha256:<digest>`，tag 要等於 Cargo workspace version；
+# 介面版 P 先從 labels stage 取出（compat 的 THIS），再跟 ref 一起當 --build-arg 帶給 bootstrap stage。
+bootstrap ref dest:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir=$(mktemp -d)
+    trap 'rm -rf "$dir"' EXIT
+    docker build --target labels --output "type=local,dest=$dir" -f image/Dockerfile .
+    proto=$(sed -n 's/^VK_PROTOCOL_CURRENT=//p' "$dir/image_labels.env")
+    docker build --target bootstrap \
+        --build-arg VK_ENGINE_REF={{ quote(ref) }} --build-arg "VK_PROTOCOL_CURRENT=$proto" \
+        --output type=local,dest={{ quote(dest) }} -f image/Dockerfile .

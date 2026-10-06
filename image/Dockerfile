@@ -48,11 +48,61 @@ RUN set -eu; \
     shellcheck -x launcher/*.sh launcher/lint/check_commands.sh; \
     launcher/lint/check_commands.sh; \
     VK_MESSAGES=/out/bootstrap_messages.sh bats launcher/test
+# bootstrap.sh 的組裝（image/bootstrap/assemble.sh）：用固定的假引用與介面版 1 組一份，跑「內嵌清單 ⊆ 真本」檢查
+# （msggen --embedded：內嵌片段跟訊息表一致，入口走得到的代碼都是 source 含 bootstrap 的 active 代碼）、
+# shellcheck 與 bats 的 smoke。發佈用的那份由下面的 bootstrap stage 以同一支腳本組。
+# 組好的單一檔的 shellcheck 只關掉合併成一檔才出現的誤報（各檔本身已在上一步全規則檢查）：SC2034 是片段的
+# vk_msg_* 由 diag.sh 以間接展開讀；SC2128、SC2178 是不同函式各自 local 的同名變數（host.sh 的陣列 want）。
+ENV VK_BOOTSTRAP_SHELLCHECK_EXCLUDE=SC2034,SC2128,SC2178
+COPY image/bootstrap image/bootstrap
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    set -eu; \
+    shellcheck -x image/bootstrap/assemble.sh; \
+    bash image/bootstrap/assemble.sh \
+        ghcr.io/ycpss91255-research/vendor_kit:v0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+        1 /out/bootstrap_messages.sh /out/bootstrap_smoke.sh; \
+    cargo run --locked -q -p msggen -- \
+        --csv doc/contract/reason_codes.csv \
+        --rust engine/messages/src/generated.rs \
+        --check --embedded /out/bootstrap_smoke.sh; \
+    shellcheck -e "$VK_BOOTSTRAP_SHELLCHECK_EXCLUDE" /out/bootstrap_smoke.sh; \
+    VK_BOOTSTRAP=/out/bootstrap_smoke.sh VK_MESSAGES=/out/bootstrap_messages.sh bats image/bootstrap
 
 # 薄殼模板（ADR-0007：模板隨 image 出貨）：用 test stage 產生的訊息片段跑 launcher/shell/assemble.sh，
 # 組出薄殼四檔的模板本文（不含自描述標頭，標頭由引擎寫進安裝目錄時加）。
 FROM test AS shell
 RUN bash launcher/shell/assemble.sh /out/bootstrap_messages.sh /out/shell
+
+# 發佈用的 bootstrap.sh（#372 的 N1）：`just bootstrap` 以 build-arg 帶內嵌引擎的 pinned 引用（VK_ENGINE_REF）與
+# 介面版 P（VK_PROTOCOL_CURRENT，取自 image_labels.env），組好後同 test stage 跑 msggen --embedded 與 shellcheck（排除同一組規則）。
+# 引用的 tag 要等於這次建置的版本（image_labels.env 的 VK_VERSION），P 要等於 VK_PROTOCOL_CURRENT；
+# 引用的 <registry>/<路徑> 由引擎在首次導入時核對（engine/install 的 release）。
+# 這兩個 stage 放在最終 image 之前：`just build` 不帶 --target，建的是最後一個 stage。
+FROM test AS bootstrap-build
+ARG VK_ENGINE_REF VK_PROTOCOL_CURRENT
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    set -eu; \
+    version=$(sed -n 's/^VK_VERSION=//p' /out/image_labels.env); \
+    proto=$(sed -n 's/^VK_PROTOCOL_CURRENT=//p' /out/image_labels.env); \
+    case $VK_ENGINE_REF in \
+        *:"$version"@*) ;; \
+        *) echo "VK_ENGINE_REF must be tagged $version (this build's version); build with: just bootstrap <ref> <dest>" >&2; exit 1 ;; \
+    esac; \
+    if [ "$VK_PROTOCOL_CURRENT" != "$proto" ]; then \
+        echo "VK_PROTOCOL_CURRENT must be $proto (compat::image_build_args); build with: just bootstrap <ref> <dest>" >&2; \
+        exit 1; \
+    fi; \
+    bash image/bootstrap/assemble.sh "$VK_ENGINE_REF" "$VK_PROTOCOL_CURRENT" \
+        /out/bootstrap_messages.sh /out/bootstrap.sh; \
+    cargo run --locked -q -p msggen -- \
+        --csv doc/contract/reason_codes.csv \
+        --rust engine/messages/src/generated.rs \
+        --check --embedded /out/bootstrap.sh; \
+    shellcheck -e "$VK_BOOTSTRAP_SHELLCHECK_EXCLUDE" /out/bootstrap.sh
+
+# bootstrap.sh 的出口：`just bootstrap` 以 --output 取出 /bootstrap.sh。
+FROM scratch AS bootstrap
+COPY --from=bootstrap-build /out/bootstrap.sh /bootstrap.sh
 
 # LABEL 值的出口：`just build` 先建這個 stage 取出 image_labels.env，再把每行當 --build-arg 帶給最終 stage。
 FROM scratch AS labels
