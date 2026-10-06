@@ -6,7 +6,8 @@
 //! 1. `add vendor_kit` 看參數字面就擋（VK0057），不取件。
 //! 2. 讀 `.vendor_kit/config.toml`（VK0059），在第一次取鎖之前（04 設定）。
 //! 3. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束。
-//! 4. 讀 `version.toml`。
+//! 4. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）；有工具的覆寫就讀它的本機開發來源，
+//!    讀不到回 VK0052（見「本機覆寫」）。
 //! 5. 恢復殘留的進度檔（04 成對與無害：可寫 recipe 先恢復再判是否重複）。恢復本身不寫 repo 檔，
 //!    沒有要問的事；做法見 `Add::recover`。
 //! 6. 判來源：`-i <本機 image 引用>`、`-i <path>.tar`（見「image tar」），或不帶 `-i` 的線上 `add`（見「線上解析」）。
@@ -22,6 +23,23 @@
 //! 11. 重驗暫存內容（ADR-0006 第三層），再經 `txn` 依序落地：`cache/<repo>/` 與印記、repo 檔、
 //!     紀錄檔（metadata、基準版副本）、`gen/tools.just`、版本鎖定行，最後刪進度檔。
 //! 12. stdout 列出改了什麼；初始檔的警告（VK0018 等）照印。
+//!
+//! # 本機覆寫
+//!
+//! `version.local.toml` 有其他工具的覆寫（`dev <repo> -p <dir>`）時照常導入（04 本機覆寫：除 `test` 外的一般
+//! recipe 照常執行），重產 `gen/tools.just` 的做法跟 engine/sync、engine/upgrade 一致：
+//!
+//! - 每個覆寫的 `<ns>` 從本機開發來源讀（`fetch::local`，值照 engine/dev 以安裝目錄為準正規化），不讀那個
+//!   工具的 `cache/<repo>/`。安裝目錄外的（`dev` 收的絕對路徑，或開頭是 `..` 的相對路徑）引擎看不到，照
+//!   engine/dev 請啟動器 `stage-dir` 複製進 session 目錄的 `in/<slot>`，再讀那份複本。讀不到回 VK0052（04 本機
+//!   覆寫：覆寫來源失效只擋需讀它的動作；重產 `gen/tools.just` 要讀它），列出每個讀不到的覆寫，在恢復、
+//!   任何 docker 動作與寫入之前停下。
+//! - `gen/tools.just` 裡開著覆寫的工具那幾行指向本機開發來源（`tools_just::render_with`，恢復殘留 `add` 的
+//!   重產也一樣）；撞名判定裡開著覆寫的工具也以本機開發來源的 `<ns>` 為準（入口檔裡生效的是它）。
+//! - 每次以 0 結束時（導入完成、已導入同一版、答否取消）都在 stdout 報告用了哪個覆寫，排在那條路徑的字句
+//!   前面（04 本機覆寫：不加診斷前綴，`update` 以外到 stdout）；停下時只印診斷。恢復殘留 `add` 的字句在恢復
+//!   當下就印，所以排在覆寫報告前面。
+//! - 覆寫指到不在版本鎖定行的工具（孤兒覆寫）見「缺口」；引擎的覆寫與導入工具無關，不看。
 //!
 //! # 線上解析（N2、N53）
 //!
@@ -95,7 +113,9 @@
 //!   slot，恢復好幾份殘留時每次取件都要一個新的。token 檔 `stage` 的 slot 是 [`TOKEN_SLOT`]，image tar 的
 //!   `.digest` 旁檔是 [`DIGEST_SLOT`]。
 //! - 同一個 tag 指向不同 digest 的 `<reason>` 字句（[`text::tag_digests`]）。
-//! - stdout 的字句與詢問文字（英文）見 [`text`]。
+//! - stdout 的字句與詢問文字（英文）見 [`text`]；覆寫的報告字句跟 engine/sync 相同（[`text::local_override`]）。
+//! - 本機開發來源的正規化與檢查跟 engine/dev、engine/sync、engine/upgrade 共用 `fetch::local`；`stage-dir` 的
+//!   slot 另外編號（`fetch::local::STAGE_SLOT_PREFIX`，`dev1`、`dev2`…）。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
@@ -113,7 +133,10 @@
 //! - 工具交付 `init.toml`：初始檔的清單與 `strategy` 寫在哪裡、什麼格式都沒定（ADR-0003 只提到
 //!   `strategy = "append"`），所以讀不出初始檔；沒有 `init.toml` 的工具就沒有初始檔、沒有詢問。
 //! - 根 `justfile` 的 recipe 與 module 只做保守的逐行掃描（引擎 image 沒有 just），限制見 `justfile` 模組。
-//! - 其他已裝工具的 `cache/<repo>/` 讀不到（例如全新 checkout 還沒 `sync`）：撞名判定與入口檔都要它。
+//! - 其他已裝、沒開覆寫的工具的 `cache/<repo>/` 讀不到（例如全新 checkout 還沒 `sync`）：撞名判定與入口檔
+//!   都要它。
+//! - 覆寫指到不在版本鎖定行的工具（孤兒覆寫）：訊息表沒有代碼（`version_file::OrphanOverrides`）；開著覆寫的
+//!   工具交付保留名 `vendor_kit`：沒有代碼（同 engine/upgrade）。
 //! - 同一個 tag 的版本鎖定行指向別的 digest；`<repo>` 不是 just 名稱；`initfiles` 判成缺口的檔。
 //! - 殘留的進度檔不是 `add` 的（其他可寫 recipe 還沒實作），或殘留的 `add` 要寫 repo 檔。
 //! - 已知偏離：恢復殘留 `add` 的寫入排在這次的詢問之前，04 共同選項要先問完再寫（含恢復）。
@@ -121,7 +144,7 @@
 //! - 中途寫檔失敗沒有代碼（計畫 G4）；dist 格式不符（G2）、指紋不符（G1）沒有代碼。
 //! - `add` 不收 `-y`（#47），但 VK0002 的下一步指令照訊息表插入 `-y`。
 //!
-//! 這裡不直接碰 docker：docker 動作與 `stage` 一律是 `plan` 協定的 op，由啟動器代做。
+//! 這裡不直接碰 docker：docker 動作與 `stage`、`stage-dir` 一律是 `plan` 協定的 op，由啟動器代做。
 
 mod justfile;
 mod source;
@@ -153,7 +176,7 @@ use prompt::{Consent, PromptError, TtyState};
 use registry::{Client, ErrorKind, Repository, Token};
 use runlog::Target;
 use txn::{Disk, RecordFile, RepoFile, ToolContent, Txn};
-use version_file::LockFile;
+use version_file::{LocalFile, LockFile, Versions};
 
 pub use source::{
     DIGEST_SUFFIX, Inspected, Loaded, LocalRef, RepoDigest, TAR_SUFFIX, digest_for, digest_sidecar,
@@ -270,6 +293,8 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
         init,
         code: 0,
         extracts: 0,
+        stages: 0,
+        local: BTreeMap::new(),
     };
     let _ = add.run(req);
     add.code
@@ -279,6 +304,12 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
 struct Stop;
 
 type Step<T> = Result<T, Stop>;
+
+/// 開著本機覆寫的一個工具：正規化後的本機開發來源與它交付的 `<ns>`。
+struct Local {
+    dir: String,
+    namespaces: Vec<String>,
+}
 
 /// 撞名判定與入口檔要用的已裝工具資訊。
 struct Installed {
@@ -293,6 +324,10 @@ struct Add<'r, 'a, W: Write, S: Sink, L: Write> {
     code: u8,
     /// 這次執行已用掉的 slot 數。
     extracts: u32,
+    /// 這次執行已用掉的 `stage-dir` slot 數。
+    stages: u32,
+    /// 開著覆寫的工具（模組說明「本機覆寫」）。
+    local: BTreeMap<String, Local>,
 }
 
 impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
@@ -355,6 +390,35 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let _ = writeln!(self.env.stdout, "{line}");
     }
 
+    /// 每次報告用了哪個覆寫（04 本機覆寫）。
+    fn report_overrides(&mut self) {
+        let lines: Vec<String> = self
+            .local
+            .iter()
+            .map(|(repo, l)| text::local_override(repo, &l.dir))
+            .collect();
+        for line in lines {
+            self.say(&line);
+        }
+    }
+
+    /// 這次全部工具的 `gen/tools.just`：開著覆寫的工具那幾行指向本機開發來源。
+    fn entry(&mut self, all: &BTreeMap<String, Vec<String>>) -> Step<String> {
+        let dirs: BTreeMap<String, String> = self
+            .local
+            .iter()
+            .map(|(r, l)| (r.clone(), l.dir.clone()))
+            .collect();
+        let tools: Vec<tools_just::Tool> = all
+            .iter()
+            .map(|(r, ns)| tools_just::Tool {
+                repo: r,
+                namespaces: ns,
+            })
+            .collect();
+        tools_just::render_with(&tools, &dirs).map_err(|e| self.internal(e.to_string()))
+    }
+
     // ---- 流程 ----
 
     fn run(&mut self, req: &Request) -> Step<()> {
@@ -367,6 +431,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
         let mut lockfile = self.lockfile()?;
+        self.local = self.local(&lockfile)?;
         if self.recover_all(&mut lockfile)? {
             lockfile = self.lockfile()?;
         }
@@ -407,6 +472,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
                 return Err(self.already_at(repo, tag, &current));
             }
             if current == locked {
+                self.report_overrides();
                 self.say(&text::unchanged(repo, &locked));
                 return Ok(());
             }
@@ -543,6 +609,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
             return match req.tag {
                 Some(tag) if tag != current.tag() => Err(self.already_at(req.repo, tag, &current)),
                 _ => {
+                    self.report_overrides();
                     self.say(&text::unchanged(req.repo, &current));
                     Ok(())
                 }
@@ -795,6 +862,107 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         }
     }
 
+    /// `version.local.toml`：檔案版過高回 VK0008；工具的覆寫讀本機開發來源（模組說明「本機覆寫」），
+    /// 讀不到的每一個都印 VK0052 再停下。
+    fn local(&mut self, lockfile: &LockFile) -> Step<BTreeMap<String, Local>> {
+        match LocalFile::load_from(self.env.dir) {
+            Ok(Some(file)) => {
+                if let Err(orphan) = Versions::new(lockfile, Some(&file)) {
+                    return Err(self.gap(format_args!("{orphan} (no reason code)")));
+                }
+                let mut local = BTreeMap::new();
+                let mut blocked: Vec<Diagnostic> = Vec::new();
+                for (repo, source) in file.tools() {
+                    match self.local_source(repo, source)? {
+                        Ok(l) => {
+                            local.insert(repo.clone(), l);
+                        }
+                        Err(d) => blocked.push(d),
+                    }
+                }
+                if blocked.is_empty() {
+                    Ok(local)
+                } else {
+                    for d in blocked {
+                        self.emit(d);
+                    }
+                    Err(Stop)
+                }
+            }
+            Ok(None) => Ok(BTreeMap::new()),
+            Err(version_file::Error::Parse {
+                file,
+                source: version_file::ParseError::Read(schema::ReadError::TooNew(t)),
+            }) => Err(self.too_new(&file, &t)),
+            Err(e) => Err(self.internal(e.to_string())),
+        }
+    }
+
+    /// 一個工具的本機開發來源：讀不到回 `Ok(Err(VK0052))`；交付保留名是缺口（模組說明）。
+    fn local_source(&mut self, repo: &str, source: &str) -> Step<Result<Local, Diagnostic>> {
+        let unreadable = |reason: String| {
+            Diagnostic::new(&messages::VK0052)
+                .arg("target", repo)
+                .arg("source", source)
+                .arg("reason", reason)
+                .arg("undev_command", format!("just vendor_kit undev {repo}"))
+        };
+        let dir = match fetch::local::normalize(OsStr::new(source), self.env.host_root) {
+            Ok(d) => d,
+            Err(p) => return Ok(Err(unreadable(p.reason()))),
+        };
+        let namespaces = match self.read_source(&dir, repo)? {
+            Ok(ns) => ns,
+            Err(p) => return Ok(Err(unreadable(p.reason()))),
+        };
+        if namespaces.iter().any(|n| n == fetch::RESERVED) {
+            return Err(self.gap(format_args!(
+                "add while the local source of {repo} delivers the reserved namespace {} \
+                 (no reason code)",
+                fetch::RESERVED
+            )));
+        }
+        Ok(Ok(Local {
+            dir: dir.as_str().to_owned(),
+            namespaces,
+        }))
+    }
+
+    /// 讀本機開發來源交付的 `<ns>`（`fetch::local::check_dir`）：安裝目錄裡的直接讀；安裝目錄外的先請
+    /// 啟動器 `stage-dir` 複製進 `in/<slot>`（session 目錄），再讀那份複本。往返本身失敗是 VK 的錯，停下。
+    fn read_source(
+        &mut self,
+        source: &fetch::local::Source,
+        repo: &str,
+    ) -> Step<Result<Vec<String>, fetch::local::PathProblem>> {
+        let Some(host) = source.host_path(self.env.host_root) else {
+            return Ok(fetch::local::check_dir(
+                self.env.dir.root(),
+                source.as_str(),
+                repo,
+            ));
+        };
+        self.stages += 1;
+        let name = format!("{}{}", fetch::local::STAGE_SLOT_PREFIX, self.stages);
+        let Some(slot) = Slot::parse(&name) else {
+            return Err(self.internal(format!("stage-dir slot {name} is not a valid slot")));
+        };
+        let field = match Field::new(host.into_bytes()) {
+            Ok(f) => f,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        let (_, outcome) = self.request(&Op::StageDir(field, slot))?;
+        match outcome {
+            Outcome::Ok => Ok(fetch::local::check_dir(
+                &self.env.inbox.join(&name),
+                ".",
+                repo,
+            )),
+            Outcome::Failed(rc) => Ok(Err(fetch::local::copy_failed(rc))),
+            Outcome::Runner(_) => Err(self.internal("stage-dir got a runner result")),
+        }
+    }
+
     fn lockfile(&mut self) -> Step<LockFile> {
         match LockFile::load_from(self.env.dir) {
             Ok(Some(l)) => Ok(l),
@@ -918,11 +1086,16 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         }
     }
 
-    /// 已裝工具（不含 `repo` 自己）的 `<ns>` 與根 `justfile` 的名字。
+    /// 已裝工具（不含 `repo` 自己）的 `<ns>` 與根 `justfile` 的名字。開著覆寫的工具取本機開發來源的 `<ns>`。
     fn installed(&mut self, repo: &str, lockfile: &LockFile) -> Step<Installed> {
         let mut taken = Taken::new();
         let mut namespaces = BTreeMap::new();
         for other in lockfile.tools().keys().filter(|r| r.as_str() != repo) {
+            if let Some(l) = self.local.get(other) {
+                taken.tool(other, l.namespaces.iter().cloned());
+                namespaces.insert(other.clone(), l.namespaces.clone());
+                continue;
+            }
             let cache = match self.env.dir.tool_cache(other) {
                 Ok(c) => c,
                 Err(e) => return Err(self.internal(e.to_string())),
@@ -1022,6 +1195,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         match answers {
             Ok(a) if a.all_yes() => {}
             Ok(_) => {
+                self.report_overrides();
                 self.say(text::NO_CHANGES);
                 return Ok(());
             }
@@ -1071,14 +1245,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         }
         let mut all_ns = installed.namespaces;
         all_ns.insert(repo.to_owned(), candidate.namespaces().to_vec());
-        let tools: Vec<tools_just::Tool> = all_ns
-            .iter()
-            .map(|(r, ns)| tools_just::Tool {
-                repo: r,
-                namespaces: ns,
-            })
-            .collect();
-        let entry = tools_just::render(&tools).map_err(|e| self.internal(e.to_string()))?;
+        let entry = self.entry(&all_ns)?;
 
         let progress = self.progress(repo, locked, !repo_writes.is_empty())?;
         self.land(
@@ -1090,6 +1257,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
             &mut lockfile,
         )?;
 
+        self.report_overrides();
         self.say(&text::added(repo, locked));
         for f in &planned.files {
             if let Some(line) = text::file_line(f) {
@@ -1299,14 +1467,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         }
         let mut all_ns = installed.namespaces;
         all_ns.insert(repo.clone(), candidate.namespaces().to_vec());
-        let tools: Vec<tools_just::Tool> = all_ns
-            .iter()
-            .map(|(r, ns)| tools_just::Tool {
-                repo: r,
-                namespaces: ns,
-            })
-            .collect();
-        let entry_text = tools_just::render(&tools).map_err(|e| self.internal(e.to_string()))?;
+        let entry_text = self.entry(&all_ns)?;
         let progress = self.progress(&repo, &locked, false)?;
         self.land(&candidate, progress, &[], &[], &entry_text, &mut lockfile)?;
         if let Err(e) = progress::delete(self.env.dir, &entry.verb, &entry.id) {

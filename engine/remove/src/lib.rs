@@ -2,8 +2,8 @@
 //! 從參數到落地。兩個指令共用同一條路：收回插入行的判定（`retract`）、一次問完（`prompt`）、
 //! 收回的落地順序（`txn` 的 [`txn::Txn::retract_repo_files`] 起），差別只在收回範圍。
 //!
-//! 呼叫端（入口 `vendor_kit`）已解析好參數、判過安裝目錄（VK0028），並接好執行紀錄。兩個指令都不碰
-//! docker，所以不用 `plan` 往返。
+//! 呼叫端（入口 `vendor_kit`）已解析好參數、判過安裝目錄（VK0028），並接好執行紀錄與 `plan` 往返。兩個指令
+//! 都不碰 docker；`plan` 往返只用在 `remove` 讀安裝目錄外的本機開發來源（`stage-dir`，見「本機覆寫」）。
 //!
 //! # `remove <repo>`
 //!
@@ -11,23 +11,37 @@
 //! 2. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束。
 //! 3. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）。
 //! 4. 辨識殘留的進度檔（見「恢復」），再判對象：版本鎖定行沒有 `<repo>`、殘留的 `remove` 也沒有它，
-//!    回 VK0046（訊息表：先辨識未完成進度，再判斷對象不存在）。
+//!    回 VK0046（訊息表：先辨識未完成進度，再判斷對象不存在）。對象以外的工具開著覆寫時讀它的本機開發
+//!    來源，讀不到回 VK0052（見「本機覆寫」），在詢問之前停下。
 //! 5. 這次的對象是 `<repo>` 加上殘留 `remove` 記的工具。每個對象的逐檔紀錄（`baseline/<repo>.toml`，
 //!    沒有就是沒有初始檔）交給 `retract`，收齊這次全部的詢問。
 //! 6. `prompt` 一次問完（04 共同選項：全部同意才寫入，含恢復舊操作）：答否是正常取消（stdout 說明未變更，
 //!    以 0 結束）；不能互動回 VK0002，除執行紀錄外不寫任何檔。
 //! 7. 經 `txn` 的收回順序落地：收回插入行後的 repo 檔 → 重產 `gen/tools.just`（拿掉對象的 `<ns>`，
-//!    其他工具的 `<ns>` 讀 `cache/<repo>/`）→ 仍保留的紀錄檔（其他工具與 `baseline/.vendor_kit.toml`
+//!    其他工具的 `<ns>` 讀 `cache/<repo>/`，開著覆寫的讀本機開發來源）→ 仍保留的紀錄檔（其他工具與 `baseline/.vendor_kit.toml`
 //!    裡同一個檔的紀錄跟著換成寫入後的 hash，ADR-0003；對象開著本機覆寫時，拿掉 `version.local.toml`
 //!    裡對象那一行）→ 刪 `cache/<repo>/`、印記、基準版副本、`baseline/<repo>.toml` → 拿掉版本鎖定行 →
 //!    刪進度檔；之後才刪殘留的進度檔。
-//! 8. stdout 列出改了什麼與保留清單（04：初始檔保留，保留清單印到 stdout）；解除了哪個覆寫、保留的本機
-//!    開發來源也列出來（04 本機覆寫：報告用了哪個覆寫，不加診斷前綴）；只列不刪的每一行在落地後
+//! 8. stdout 列出改了什麼與保留清單（04：初始檔保留，保留清單印到 stdout）；用了哪個覆寫、解除了哪個覆寫、
+//!    保留的本機開發來源也列出來（04 本機覆寫：報告用了哪個覆寫，不加診斷前綴）；只列不刪的每一行在落地後
 //!    印一則 VK0061（warn，結束碼 1）。
+//!
+//! # 本機覆寫
 //!
 //! 對象開著本機覆寫時比照 `uninstall`：先解除覆寫紀錄再收回，不要求先 `undev`（04：`test` 以外的一般
 //! recipe 照常執行；02：覆寫只能覆蓋已存在的版本鎖定行，鎖定行收回後覆寫只能一起解除）。只拿掉那一行，
 //! 不讀覆寫來源，所以來源失效也不擋；本機開發來源不動，其他工具與引擎的覆寫照留。
+//!
+//! 對象以外的工具開著覆寫時，重產 `gen/tools.just` 的做法跟 engine/sync、engine/upgrade 一致：
+//!
+//! - 它的 `<ns>` 從本機開發來源讀（`fetch::local`，值照 engine/dev 以安裝目錄為準正規化），不讀它的
+//!   `cache/<repo>/`；入口檔裡它那幾行指向本機開發來源（`tools_just::render_with`）。安裝目錄外的（`dev` 收的
+//!   絕對路徑，或開頭是 `..` 的相對路徑）引擎看不到，照 engine/dev 請啟動器 `stage-dir` 複製進 session 目錄的
+//!   `in/<slot>`，再讀那份複本。
+//! - 讀不到回 VK0052（04 本機覆寫：覆寫來源失效只擋需讀它的動作；重產入口檔要讀它），列出每個讀不到的覆寫，
+//!   在詢問與任何寫入之前停下。
+//! - 以 0 結束時（收回完成、答否取消）在 stdout 報告用了哪個覆寫，排在那條路徑的字句前面；停下時只印診斷。
+//! - `uninstall` 刪掉 `gen/tools.just` 與 `version.local.toml`、不重產入口檔，不讀任何覆寫來源。
 //!
 //! # `uninstall`
 //!
@@ -65,17 +79,22 @@
 //! - `uninstall` 把 `cache/`、`baseline/`、`gen/` 整個目錄當成 VK 的工作狀態刪掉（含未鎖定工具的
 //!   `cache/` 目錄與沒有對應版本鎖定行的紀錄），不逐項比對。
 //! - `uninstall` 刪掉整份 `version.toml`；執行紀錄的鎖定行事件記成引擎的（`target = engine`）。
-//! - stdout 的字句與詢問文字（英文）見 [`text`]。
+//! - stdout 的字句與詢問文字（英文）見 [`text`]；用了哪個覆寫的報告字句跟 engine/sync 相同
+//!   （[`text::local_override`]）。
+//! - 本機開發來源的正規化與檢查跟 engine/dev、engine/sync、engine/upgrade 共用 `fetch::local`；`stage-dir` 的
+//!   slot 名是 `fetch::local::STAGE_SLOT_PREFIX` 加這次執行裡的序號（`dev1`、`dev2`…）。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
 //! - 版本鎖定行沒有 `<repo>`、也沒有殘留的 `remove` 記它，`version.local.toml` 卻還有它的覆寫（孤兒覆寫）：
-//!   照 VK0046 停下；孤兒覆寫訊息表還沒有代碼（`version_file::OrphanOverrides`）。
+//!   照 VK0046 停下；孤兒覆寫訊息表還沒有代碼（`version_file::OrphanOverrides`）。對象以外的孤兒覆寫同樣
+//!   沒有代碼，停下。
+//! - 對象以外開著覆寫的工具交付保留名 `vendor_kit`：沒有代碼（同 engine/upgrade）。
 //! - `-y`：兩個指令都還不收（#47，`args` 照 #489）；VK0002 的下一步指令照訊息表插入 `-y`。
 //! - 殘留的進度檔不是可以併入的 verb（`add`、`install` 等），或殘留的操作要寫 repo 檔：那次寫了哪些
 //!   repo 檔沒有記錄，重新判定會把 VK 自己剛收回的結果當成使用者改過（假的 VK0061）。
 //! - `retract` 判成契約沒寫到的紀錄組合（非 `appended` 卻有 `lines` 等）。
-//! - 其他已裝工具的 `cache/<repo>/` 讀不到（例如全新 checkout 還沒 `sync`）：重產入口檔要它。
+//! - 其他已裝、沒開覆寫的工具的 `cache/<repo>/` 讀不到（例如全新 checkout 還沒 `sync`）：重產入口檔要它。
 //! - 工具名不是 just 名稱。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）。
 //! - `uninstall` 收回根 `justfile` 的 `import` 與薄殼之後 `just vendor_kit` 就跑不起來；在那之後中斷，
@@ -87,16 +106,19 @@ pub mod text;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use config::{Config, ConfigError};
 use diagnostics::{Diagnostic, Diagnostics, Message, Sink};
 use filelock::{Lock, Mode};
 use layout::InstallDir;
 use metadata::{Metadata, State};
+use plan::{Channel, Field, Op, Outcome, Slot};
 use progress::Progress;
 use prompt::{Consent, PromptError, TtyState};
 use retract::{Owner, Plan, Source, Verdict};
@@ -121,6 +143,11 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
     pub host_root: &'a str,
     /// 主機上的執行紀錄路徑，填 VK0056 的 `<path>`。
     pub run_log: &'a str,
+    /// 容器內的收件目錄（`plan::mount::IN`）。
+    pub inbox: &'a Path,
+    pub channel: &'a mut Channel,
+    /// 等 result 時多久看一次。
+    pub poll: Duration,
     /// stdin、stderr 是不是終端（啟動器傳進來的值）。
     pub tty: TtyState,
     /// `just vendor_kit` 之後的參數原樣（第一個是指令名）。
@@ -140,14 +167,14 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
 
 /// 跑一次 `remove <repo>`，回傳結束碼。
 pub fn remove<W: Write, S: Sink, L: Write>(repo: &str, env: &mut Env<'_, W, S, L>) -> u8 {
-    let mut run = Run { env, code: 0 };
+    let mut run = Run::new(env);
     let _ = run.remove(repo);
     run.code
 }
 
 /// 跑一次 `uninstall`，回傳結束碼。
 pub fn uninstall<W: Write, S: Sink, L: Write>(env: &mut Env<'_, W, S, L>) -> u8 {
-    let mut run = Run { env, code: 0 };
+    let mut run = Run::new(env);
     let _ = run.uninstall();
     run.code
 }
@@ -179,9 +206,30 @@ struct Record {
     metadata: Metadata,
 }
 
+/// 開著本機覆寫的一個工具（對象以外）：正規化後的本機開發來源與它交付的 `<ns>`。
+struct Local {
+    dir: String,
+    namespaces: Vec<String>,
+}
+
 struct Run<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
     code: u8,
+    /// 這次執行已用掉的 `stage-dir` slot 數。
+    stages: u32,
+    /// 對象以外開著覆寫的工具（模組說明「本機覆寫」）。
+    local: BTreeMap<String, Local>,
+}
+
+impl<'r, 'a, W: Write, S: Sink, L: Write> Run<'r, 'a, W, S, L> {
+    fn new(env: &'r mut Env<'a, W, S, L>) -> Self {
+        Run {
+            env,
+            code: 0,
+            stages: 0,
+            local: BTreeMap::new(),
+        }
+    }
 }
 
 impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
@@ -260,6 +308,18 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
 
     fn say(&mut self, line: &str) {
         let _ = writeln!(self.env.stdout, "{line}");
+    }
+
+    /// 每次報告用了哪個覆寫（04 本機覆寫）。
+    fn report_overrides(&mut self) {
+        let lines: Vec<String> = self
+            .local
+            .iter()
+            .map(|(repo, l)| text::local_override(repo, &l.dir))
+            .collect();
+        for line in lines {
+            self.say(&line);
+        }
     }
 
     // ---- 共同的前段 ----
@@ -446,6 +506,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         match answers {
             Ok(a) if a.all_yes() => Ok(true),
             Ok(_) => {
+                self.report_overrides();
                 self.say(text::NO_CHANGES);
                 Ok(false)
             }
@@ -541,6 +602,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                 return Err(self.gap(format_args!("tool name {t:?} (not a just name)")));
             }
         }
+        self.local = self.others_local(local.as_ref(), &targets, &lockfile)?;
 
         let mut records = Vec::new();
         for t in &targets {
@@ -596,6 +658,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         self.land(progress, &plan, entry, &writes, &removes, lock)?;
         self.delete_residuals(&residual)?;
 
+        self.report_overrides();
         for (t, image) in &removed {
             let shown = image.to_string();
             self.say(&text::removed(t, &image.tag().to_string(), &shown));
@@ -684,10 +747,15 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         Ok(out)
     }
 
-    /// 剩下的工具的入口檔：`<ns>` 讀各自的 `cache/<repo>/`。
+    /// 剩下的工具的入口檔：`<ns>` 讀各自的 `cache/<repo>/`；開著覆寫的用本機開發來源的 `<ns>`，那幾行
+    /// 指向本機開發來源。
     fn render_entry(&mut self, lockfile: &LockFile) -> Step<String> {
         let mut all: Vec<(String, Vec<String>)> = Vec::new();
         for other in lockfile.tools().keys() {
+            if let Some(l) = self.local.get(other) {
+                all.push((other.clone(), l.namespaces.clone()));
+                continue;
+            }
             let cache = self.env.dir.tool_cache(other);
             let cache = cache.map_err(|e| self.internal(e.to_string()))?;
             match fetch::namespaces(&cache) {
@@ -704,7 +772,128 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             .iter()
             .map(|(repo, namespaces)| tools_just::Tool { repo, namespaces })
             .collect();
-        tools_just::render(&tools).map_err(|e| self.internal(e.to_string()))
+        let dirs: BTreeMap<String, String> = self
+            .local
+            .iter()
+            .map(|(r, l)| (r.clone(), l.dir.clone()))
+            .collect();
+        tools_just::render_with(&tools, &dirs).map_err(|e| self.internal(e.to_string()))
+    }
+
+    /// 對象以外的覆寫讀本機開發來源（模組說明「本機覆寫」）：讀不到的每一個都印 VK0052 再停下。對象的覆寫
+    /// 只解除、不讀；對象以外的覆寫指到不在版本鎖定行的工具是缺口。
+    fn others_local(
+        &mut self,
+        file: Option<&LocalFile>,
+        targets: &BTreeSet<String>,
+        lockfile: &LockFile,
+    ) -> Step<BTreeMap<String, Local>> {
+        let mut local = BTreeMap::new();
+        let Some(file) = file else {
+            return Ok(local);
+        };
+        let others: Vec<(String, String)> = file
+            .tools()
+            .iter()
+            .filter(|(repo, _)| !targets.contains(*repo))
+            .map(|(repo, source)| (repo.clone(), source.clone()))
+            .collect();
+        let orphans: Vec<&str> = others
+            .iter()
+            .filter(|(repo, _)| lockfile.tool(repo).is_none())
+            .map(|(repo, _)| repo.as_str())
+            .collect();
+        if !orphans.is_empty() {
+            return Err(self.gap(format_args!(
+                "local overrides of {} without a lock version line (no reason code)",
+                orphans.join(", ")
+            )));
+        }
+        let mut blocked: Vec<Diagnostic> = Vec::new();
+        for (repo, source) in &others {
+            match self.local_source(repo, source)? {
+                Ok(l) => {
+                    local.insert(repo.clone(), l);
+                }
+                Err(d) => blocked.push(d),
+            }
+        }
+        if blocked.is_empty() {
+            Ok(local)
+        } else {
+            for d in blocked {
+                self.emit(d);
+            }
+            Err(Stop)
+        }
+    }
+
+    /// 一個工具的本機開發來源：讀不到回 `Ok(Err(VK0052))`；交付保留名是缺口（模組說明）。
+    fn local_source(&mut self, repo: &str, source: &str) -> Step<Result<Local, Diagnostic>> {
+        let unreadable = |reason: String| {
+            Diagnostic::new(&messages::VK0052)
+                .arg("target", repo)
+                .arg("source", source)
+                .arg("reason", reason)
+                .arg("undev_command", format!("just vendor_kit undev {repo}"))
+        };
+        let dir = match fetch::local::normalize(OsStr::new(source), self.env.host_root) {
+            Ok(d) => d,
+            Err(p) => return Ok(Err(unreadable(p.reason()))),
+        };
+        let namespaces = match self.read_source(&dir, repo)? {
+            Ok(ns) => ns,
+            Err(p) => return Ok(Err(unreadable(p.reason()))),
+        };
+        if namespaces.iter().any(|n| n == fetch::RESERVED) {
+            return Err(self.gap(format_args!(
+                "remove while the local source of {repo} delivers the reserved namespace {} \
+                 (no reason code)",
+                fetch::RESERVED
+            )));
+        }
+        Ok(Ok(Local {
+            dir: dir.as_str().to_owned(),
+            namespaces,
+        }))
+    }
+
+    /// 讀本機開發來源交付的 `<ns>`（`fetch::local::check_dir`）：安裝目錄裡的直接讀；安裝目錄外的先請
+    /// 啟動器 `stage-dir` 複製進 `in/<slot>`（session 目錄），再讀那份複本。往返本身失敗是 VK 的錯，停下。
+    fn read_source(
+        &mut self,
+        source: &fetch::local::Source,
+        repo: &str,
+    ) -> Step<Result<Vec<String>, fetch::local::PathProblem>> {
+        let Some(host) = source.host_path(self.env.host_root) else {
+            return Ok(fetch::local::check_dir(
+                self.env.dir.root(),
+                source.as_str(),
+                repo,
+            ));
+        };
+        self.stages += 1;
+        let name = format!("{}{}", fetch::local::STAGE_SLOT_PREFIX, self.stages);
+        let Some(slot) = Slot::parse(&name) else {
+            return Err(self.internal(format!("stage-dir slot {name} is not a valid slot")));
+        };
+        let field = match Field::new(host.into_bytes()) {
+            Ok(f) => f,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        let sent = self.env.channel.send(&Op::StageDir(field, slot));
+        sent.map_err(|e| self.internal(e.to_string()))?;
+        let reply = self.env.channel.receive(self.env.poll);
+        let reply = reply.map_err(|e| self.internal(e.to_string()))?;
+        match reply.outcome {
+            Outcome::Ok => Ok(fetch::local::check_dir(
+                &self.env.inbox.join(&name),
+                ".",
+                repo,
+            )),
+            Outcome::Failed(rc) => Ok(Err(fetch::local::copy_failed(rc))),
+            Outcome::Runner(_) => Err(self.internal("stage-dir got a runner result")),
+        }
     }
 
     /// 依收回順序落地。

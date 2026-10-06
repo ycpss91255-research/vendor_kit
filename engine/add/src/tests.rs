@@ -940,3 +940,116 @@ fn image_tar_of_another_tag_points_to_upgrade() {
     );
     assert_eq!(fx.lock_text(), before);
 }
+
+// ---- 其他工具開著本機覆寫 ----
+
+const OTHER: &str = "ghcr.io/acme/other:v1.0.0@sha256:3333333333333333333333333333333333333333333333333333333333333333";
+
+/// `other` 已導入、開著覆寫指到安裝目錄裡的 `work/other`（交付 `other` 與 `other-extra`）；`cache/other/`
+/// 不在：開著覆寫的工具不讀它。
+fn fx_with_other_override(source: &str) -> Fx {
+    let fx = Fx::new(&format!("other = \"{OTHER}\"\n"));
+    let just = fx.root().join("work/other/just");
+    fs::create_dir_all(&just).unwrap();
+    fs::write(just.join("other.just"), "y:\n").unwrap();
+    fs::write(just.join("other-extra.just"), "z:\n").unwrap();
+    let mut local = LocalFile::new();
+    local.set_tool("other", source).unwrap();
+    local.save_to(&fx.dir, WRITTEN_BY).unwrap();
+    fx
+}
+
+#[test]
+fn another_tool_override_is_applied_to_the_entry_and_reported() {
+    let fx = fx_with_other_override("work/other");
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(&fx, &ADD, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish(), ["inspect", "extract"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "other uses the local source work/other (local override).\n\
+             Added tool v1.2.0 ({}).\n",
+            locked()
+        )
+    );
+    assert_eq!(
+        fs::read_to_string(fx.dir.gen_dir().join("tools.just")).unwrap(),
+        "mod? other '../../work/other/just/other.just'\n\
+         mod? other-extra '../../work/other/just/other-extra.just'\n\
+         mod? tool '../cache/tool/just/tool.just'\n"
+    );
+
+    // 已導入同一版：未變更，照樣報告覆寫。
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(&fx, &ADD, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish(), ["inspect"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "other uses the local source work/other (local override).\n\
+         tool v1.2.0 is already added; no changes were made.\n"
+    );
+}
+
+#[test]
+fn collisions_are_judged_against_the_local_source_of_an_override() {
+    let fx = fx_with_other_override("work/other");
+    let lock_before = fx.lock_text();
+    let peer = Peer::start(&fx, &["tool", "other-extra"], None);
+    let out = run_add(&fx, &ADD, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish(), ["inspect", "extract"]);
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("error[VK0030]"), "{}", out.stderr);
+    assert!(out.stderr.contains("other-extra"), "{}", out.stderr);
+    assert_eq!(out.stdout, "");
+    assert!(untouched(&fx, &lock_before));
+}
+
+#[test]
+fn an_unreadable_override_of_another_tool_is_vk0052_before_any_request() {
+    let fx = fx_with_other_override("work/gone");
+    let lock_before = fx.lock_text();
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(&fx, &ADD, Vec::new(), tty(false), "");
+    assert!(peer.finish().is_empty());
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0052]: Cannot read the local override source work/gone for other: \
+         the directory does not exist. Run: just vendor_kit undev other\n"
+    );
+    assert!(untouched(&fx, &lock_before));
+}
+
+#[test]
+fn recovering_a_leftover_add_applies_the_override_too() {
+    let fx = fx_with_other_override("work/other");
+    let mut p = Progress::new(VERB, "old", &["add", "tool", "-i", IMAGE]).unwrap();
+    let doc = p.document_mut();
+    doc.set(&[PROGRESS_TABLE, "repo"], "tool").unwrap();
+    doc.set(&[PROGRESS_TABLE, "image"], locked()).unwrap();
+    doc.set(&[PROGRESS_TABLE, "repo_files"], false).unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    // 恢復寫好的入口檔，跟著這次的 add（已導入、不重產）留下來。
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(&fx, &ADD, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish(), ["inspect", "extract", "inspect"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Completed the interrupted add of tool v1.2.0 ({0}).\n\
+             other uses the local source work/other (local override).\n\
+             tool v1.2.0 is already added; no changes were made.\n",
+            locked()
+        )
+    );
+    assert!(
+        fs::read_to_string(fx.dir.gen_dir().join("tools.just"))
+            .unwrap()
+            .starts_with("mod? other '../../work/other/just/other.just'\n")
+    );
+}

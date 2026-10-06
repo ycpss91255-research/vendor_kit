@@ -671,6 +671,7 @@ where
             inv,
             mounts,
             host_log,
+            channel,
             stdin,
             stdout,
             stderr,
@@ -678,7 +679,7 @@ where
             log,
         ),
         args::Command::Uninstall => run_remove(
-            None, inv, mounts, host_log, stdin, stdout, stderr, diags, log,
+            None, inv, mounts, host_log, channel, stdin, stdout, stderr, diags, log,
         ),
         args::Command::UpgradeEngine { tag, yes } => {
             let registry = match registry_client(host_log, diags) {
@@ -982,6 +983,7 @@ fn run_remove<O, E>(
     inv: &plan::Invocation,
     mounts: &Mounts,
     host_log: &str,
+    channel: &mut plan::Channel,
     stdin: &mut dyn BufRead,
     stdout: O,
     stderr: &E,
@@ -1005,6 +1007,9 @@ where
         dir: &dir,
         host_root: &host_root,
         run_log: host_log,
+        inbox: &mounts.inbox,
+        channel,
+        poll: POLL,
         tty: prompt::TtyState {
             stdin: inv.tty.stdin,
             stderr: inv.tty.stderr,

@@ -3,6 +3,12 @@
 
 use retract::{Owner, Question};
 
+/// 這次 `<repo>` 用的是本機開發來源 `<dir>`（正規化後、存進 `version.local.toml` 的值）；字句跟 engine/sync
+/// 相同。
+pub fn local_override(repo: &str, dir: &str) -> String {
+    format!("{repo} uses the local source {dir} (local override).")
+}
+
 /// 答否的正常取消（03 輸出：不做變更，在 stdout 說明未變更）。
 pub const NO_CHANGES: &str = "No changes were made.";
 
