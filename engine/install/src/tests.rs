@@ -24,6 +24,8 @@ const BODIES: [&str; 4] = [
     "cache/\ngen/\nlog/\nversion.local.toml\n.tmp.*\n",
 ];
 const DOCKERIGNORE_LINES: [&str; 2] = [".vendor_kit/cache/", ".vendor_kit/log/"];
+/// 判定邏輯用的 `config.toml` 模板，跟出貨的常數無關（常數另驗）。
+const CONFIG: &str = "# lock_timeout_seconds = 60\n";
 
 /// 判定邏輯用的出貨輸入：`.dockerignore` 故意只給兩行，跟出貨的常數無關（常數另驗）。
 fn release() -> Release {
@@ -32,6 +34,7 @@ fn release() -> Release {
         justfile_import: IMPORT.to_owned(),
         justfile_default: DEFAULT.to_owned(),
         dockerignore: DOCKERIGNORE_LINES.map(str::to_owned).to_vec(),
+        config: CONFIG.to_owned(),
     }
 }
 
@@ -248,7 +251,7 @@ fn fresh_install_writes_the_skeleton_without_asking() {
             "Locked the engine to v0.0.0 ({ENGINE}).\n\
              Wrote .vendor_kit/entry.just\nWrote .vendor_kit/vendor.just\n\
              Wrote .vendor_kit/log.sh\nWrote .vendor_kit/.gitignore\n\
-             Created justfile\nCreated .dockerignore\n\
+             Created justfile\nCreated .dockerignore\nCreated .vendor_kit/config.toml\n\
              Installed vendor_kit {WRITTEN_BY} in /h/proj.\n"
         )
     );
@@ -258,7 +261,10 @@ fn fresh_install_writes_the_skeleton_without_asking() {
         [
             ".gitignore",
             "baseline",
+            "baseline/.vendor_kit",
             "baseline/.vendor_kit.toml",
+            "baseline/.vendor_kit/config.toml",
+            "config.toml",
             "entry.just",
             "gen",
             "gen/.stamp",
@@ -290,7 +296,82 @@ fn fresh_install_writes_the_skeleton_without_asking() {
     assert_eq!(r.hash, Some(FileHash::of(justfile.as_bytes())));
     let r = vk_record(&fx, DOCKERIGNORE);
     assert_eq!(r.lines, DOCKERIGNORE_LINES);
+    assert_config_managed(&fx);
     assert!(fx.progress_left().is_empty());
+}
+
+/// `config.toml` 是模板原樣，`baseline/.vendor_kit.toml` 記 `managed` 與它的 hash，基準版副本也是模板。
+fn assert_config_managed(fx: &Fx) {
+    assert_eq!(fx.read(CONFIG_TOML), CONFIG);
+    let r = vk_record(fx, CONFIG_TOML);
+    assert_eq!(r.state, State::Managed);
+    assert!(r.lines.is_empty());
+    assert_eq!(r.hash, Some(FileHash::of(CONFIG.as_bytes())));
+    assert_eq!(
+        fs::read_to_string(fx.dir.config_baseline()).unwrap(),
+        CONFIG
+    );
+}
+
+// ---- config.toml ----
+
+/// 使用者已有自己的 `config.toml`、VK 沒有它的紀錄：不碰、不記、不存副本（04：目標不存在才新建）。
+#[test]
+fn existing_config_toml_without_a_record_is_left_alone() {
+    let fx = Fx::new();
+    fx.write(CONFIG_TOML, "lock_timeout_seconds = 5\n");
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert!(!out.stdout.contains("config.toml"), "{}", out.stdout);
+    assert_eq!(fx.read(CONFIG_TOML), "lock_timeout_seconds = 5\n");
+    let vk = Metadata::load(&metadata::vk_path(&fx.dir)).unwrap();
+    assert!(vk.get(CONFIG_TOML).is_none());
+    assert!(!fx.dir.config_baseline().exists());
+}
+
+/// 已納管的 `config.toml` 被使用者刪了：不重建（換版與合併歸 `upgrade`），什麼都不改。
+#[test]
+fn deleted_managed_config_toml_is_not_recreated() {
+    let fx = Fx::new();
+    assert_eq!(run_install(&fx, false, "").code, 0);
+    fs::remove_file(fx.dir.config_toml()).unwrap();
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "vendor_kit is already installed in /h/proj; no changes were made.\n"
+    );
+    assert!(!fx.exists(CONFIG_TOML));
+}
+
+/// 使用者改過已納管的 `config.toml`：`install` 不動它，也不動紀錄。
+#[test]
+fn edited_managed_config_toml_is_kept() {
+    let fx = Fx::new();
+    assert_eq!(run_install(&fx, false, "").code, 0);
+    fx.write(CONFIG_TOML, "lock_enabled = true\n");
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.events().is_empty());
+    assert_eq!(fx.read(CONFIG_TOML), "lock_enabled = true\n");
+    assert_eq!(
+        vk_record(&fx, CONFIG_TOML).hash,
+        Some(FileHash::of(CONFIG.as_bytes()))
+    );
+}
+
+/// `config.toml` 是 symlink 時也算已有東西：不寫穿過去。
+#[cfg(unix)]
+#[test]
+fn config_toml_symlink_is_left_alone() {
+    let fx = Fx::new();
+    std::os::unix::fs::symlink("elsewhere.toml", fx.dir.config_toml()).unwrap();
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(!fx.exists("elsewhere.toml"));
+    assert!(!fx.exists(".vendor_kit/elsewhere.toml"));
+    assert!(!fx.dir.config_baseline().exists());
 }
 
 #[test]
@@ -701,6 +782,80 @@ fn interrupted_first_install_after_writing_root_files_is_completed() {
     );
 }
 
+/// 寫一份殘留的 `install` 進度檔，記它要寫的每個 repo 檔：路徑、行、寫入後的內容。
+fn residual_with_files(fx: &Fx, files: &[(&str, &[&str], &str)]) {
+    let mut p = Progress::new(INSTALL_VERB, "r0", &["install"]).unwrap();
+    let files: toml_edit::Array = files
+        .iter()
+        .map(|(path, lines, after)| {
+            let mut t = toml_edit::InlineTable::new();
+            t.insert(PATH_KEY, (*path).into());
+            let lines: toml_edit::Array = lines.iter().copied().collect();
+            t.insert(LINES_KEY, lines.into());
+            t.insert(HASH_KEY, FileHash::of(after.as_bytes()).as_str().into());
+            toml_edit::Value::from(t)
+        })
+        .collect();
+    p.document_mut()
+        .set(&[INSTALL_VERB, REPO_FILES_KEY], true)
+        .unwrap();
+    p.document_mut()
+        .set(&[INSTALL_VERB, FILES_KEY], files)
+        .unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+}
+
+#[test]
+fn interrupted_first_install_after_writing_config_toml_is_completed() {
+    let fx = Fx::new();
+    // 上一次首次導入寫完 repo 檔（含 config.toml）就斷了：紀錄、基準版副本、薄殼、版本鎖定行都沒寫。
+    let justfile = format!("{IMPORT}\n\n{DEFAULT}");
+    let ignore = ".vendor_kit/cache/\n.vendor_kit/log/\n";
+    fx.write(JUSTFILE, &justfile);
+    fx.write(DOCKERIGNORE, ignore);
+    fx.write(CONFIG_TOML, CONFIG);
+    residual_with_files(
+        &fx,
+        &[
+            (JUSTFILE, &[IMPORT], &justfile),
+            (DOCKERIGNORE, &DOCKERIGNORE_LINES, ignore),
+            (CONFIG_TOML, &[], CONFIG),
+        ],
+    );
+
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(out.events(), LANDED);
+    assert!(out.stdout.contains("Completed the interrupted install.\n"));
+    assert!(!out.stdout.contains("Created"), "{}", out.stdout);
+    assert_config_managed(&fx);
+    assert!(fx.progress_left().is_empty());
+
+    let out = run_install(&fx, false, "");
+    assert!(
+        out.stdout.contains("no changes were made"),
+        "{}",
+        out.stdout
+    );
+}
+
+/// 斷掉之後使用者又改了 `config.toml`：那次寫的已認不出來，照「已有、沒有紀錄」不碰、不記。
+#[test]
+fn interrupted_install_whose_config_toml_changed_afterwards_leaves_it_alone() {
+    let fx = Fx::new();
+    fx.write(CONFIG_TOML, "lock_timeout_seconds = 5\n");
+    residual_with_files(&fx, &[(CONFIG_TOML, &[], CONFIG)]);
+
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(fx.read(CONFIG_TOML), "lock_timeout_seconds = 5\n");
+    let vk = Metadata::load(&metadata::vk_path(&fx.dir)).unwrap();
+    assert!(vk.get(CONFIG_TOML).is_none());
+    assert!(!fx.dir.config_baseline().exists());
+    assert!(fx.progress_left().is_empty());
+}
+
 #[test]
 fn interrupted_install_whose_file_changed_afterwards_stops() {
     let fx = Fx::new();
@@ -734,13 +889,22 @@ fn interrupted_install_before_writing_root_files_plans_them_again() {
 #[test]
 fn progress_records_each_root_file_written() {
     let fx = Fx::new();
-    let edits = [RootEdit {
-        path: JUSTFILE,
-        before: None,
-        after: b"x\n".to_vec(),
-        ask: false,
-        lines: vec![IMPORT.to_owned()],
-    }];
+    let edits = [
+        RootEdit {
+            path: JUSTFILE,
+            before: None,
+            after: b"x\n".to_vec(),
+            ask: false,
+            lines: vec![IMPORT.to_owned()],
+        },
+        RootEdit {
+            path: CONFIG_TOML,
+            before: None,
+            after: b"y\n".to_vec(),
+            ask: false,
+            lines: Vec::new(),
+        },
+    ];
     let argv = vec!["install".to_owned()];
     let mut stdin = Cursor::new(Vec::new());
     let (mut stdout, mut prompt) = (Vec::new(), Vec::new());
@@ -783,11 +947,18 @@ fn progress_records_each_root_file_written() {
     let got: Vec<Written> = files.iter().map(|v| written(v).unwrap()).collect();
     assert_eq!(
         got,
-        [Written {
-            path: JUSTFILE.to_owned(),
-            lines: vec![IMPORT.to_owned()],
-            hash: FileHash::of(b"x\n"),
-        }]
+        [
+            Written {
+                path: JUSTFILE.to_owned(),
+                lines: vec![IMPORT.to_owned()],
+                hash: FileHash::of(b"x\n"),
+            },
+            Written {
+                path: CONFIG_TOML.to_owned(),
+                lines: Vec::new(),
+                hash: FileHash::of(b"y\n"),
+            },
+        ]
     );
 }
 
@@ -834,4 +1005,44 @@ fn shipped_root_file_contents_are_pinned() {
         release::ENGINE_REPO,
         "ghcr.io/ycpss91255-research/vendor_kit"
     );
+    assert_eq!(r.config, release::CONFIG_TEMPLATE);
+}
+
+/// 出貨的 `config.toml` 模板：讀起來就是預設值（每個欄位都註解掉），而且每個 04 設定的欄位都寫出來了。
+#[test]
+fn shipped_config_template_reads_as_the_defaults() {
+    let t = release::CONFIG_TEMPLATE;
+    assert_eq!(Config::parse(t).unwrap(), Config::default());
+    assert!(t.ends_with('\n') && !t.contains('\r'));
+    for line in t.lines() {
+        assert!(line.is_empty() || line.starts_with('#'), "{line}");
+    }
+    for want in [
+        "# lock_timeout_seconds = 60\n",
+        "# lock_enabled = true\n",
+        "# [test]\n",
+        "# image = ",
+        "# command = [",
+    ] {
+        assert!(t.contains(want), "{want}");
+    }
+    // 拿掉註解記號後是合法的設定：欄位名與型別都對得上 `config`。
+    let uncommented: String = t
+        .lines()
+        .filter_map(|l| l.strip_prefix("# "))
+        .filter(|l| {
+            [
+                "lock_timeout_seconds = ",
+                "lock_enabled = ",
+                "[test]",
+                "image = ",
+                "command = ",
+            ]
+            .iter()
+            .any(|k| l.starts_with(k))
+        })
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let c = Config::parse(&uncommented).unwrap();
+    assert!(c.runner().is_ok());
 }

@@ -26,15 +26,21 @@
 //!    - 根 `justfile` 的 `import` 行與根 `.dockerignore` 的行：`baseline/.vendor_kit.toml` 已有那個檔的
 //!      紀錄就不動；沒有紀錄時以 `initfiles` 的 append 規則判（`add` 用的同一套）：檔在就先問再 append，
 //!      檔不在就新建（根 `justfile` 附 `default`）。
-//!    - `baseline/.vendor_kit.toml`：上面兩個檔的 `appended` 紀錄（插入的行、寫入後的整檔 hash）；
-//!      其他工具的紀錄檔有同一個檔、寫入前相符的紀錄，跟著換成寫入後的 hash（ADR-0003）。
+//!    - `.vendor_kit/config.toml`：`baseline/.vendor_kit.toml` 已有它的紀錄就不動（換版與合併歸 `upgrade`，
+//!      04 使用者的檔與 VK 的檔）；沒有紀錄、檔也不在時，照隨引擎出貨的模板（[`release::CONFIG_TEMPLATE`]）
+//!      新建，不問（04 寫入既有檔的例外：目標不存在就新建），並記基準版。路徑上已有東西（含 symlink）就不碰。
+//!    - `baseline/.vendor_kit.toml`：根目錄兩個檔的 `appended` 紀錄（插入的行、寫入後的整檔 hash）與
+//!      `config.toml` 的 `managed` 紀錄（寫入後的整檔 hash）；其他工具的紀錄檔有同一個檔、寫入前相符的
+//!      紀錄，跟著換成寫入後的 hash（ADR-0003）。
+//!    - `config.toml` 的基準版副本 `baseline/.vendor_kit/config.toml`（[`layout::InstallDir::config_baseline`]）。
 //!    - `gen/.stamp`：產生薄殼的引擎 ref（見「這次自訂的內部細節」），跟現有內容不同才寫。
 //! 7. 什麼都不用寫、也沒有殘留的進度檔：stdout 說明未變更，不建進度檔（04 成對與無害）。
 //! 8. `prompt` 一次問完（04 共同選項：全部同意才寫入，含恢復舊操作）：只有 append 進使用者既有檔才問；
 //!    `-y` 全部同意。答否是正常取消（stdout 說明未變更，以 0 結束）；不能互動回 VK0002，除執行紀錄外
 //!    不寫任何檔。
-//! 9. 經 `txn` 落地：建進度檔 → repo 檔（根 `justfile`、`.dockerignore`）→ `.vendor_kit/` 下的檔
-//!    （薄殼、`baseline/` 的紀錄、`gen/.stamp`）→ 寫引擎版本鎖定行（只有首次導入）→ 刪進度檔；之後才刪殘留的進度檔。
+//! 9. 經 `txn` 落地：建進度檔 → repo 檔（根 `justfile`、`.dockerignore`、`.vendor_kit/config.toml`）→
+//!    `.vendor_kit/` 下的檔（薄殼、`config.toml` 的基準版副本、`baseline/` 的紀錄、`gen/.stamp`）→
+//!    寫引擎版本鎖定行（只有首次導入）→ 刪進度檔；之後才刪殘留的進度檔。
 //!    `cache/` 與 `gen/tools.just` 不動。
 //! 10. stdout 列出改了什麼。
 //!
@@ -42,18 +48,25 @@
 //!
 //! 殘留的 `install` 進度檔表示上一次中途停了。`install` 只把安裝目錄對齊這一版，判定時看的是目前的檔，
 //! 所以恢復就是照常再做一次：寫到一半的薄殼會被判成不一致而重寫，沒寫的版本鎖定行照樣補上。
-//! 根目錄檔另看殘留的進度檔記的寫入後整檔 hash：目前的檔與它相同，表示那次已經寫進去、只差紀錄，
-//! 直接補上 `appended` 紀錄（ADR-0003 以整檔 hash 認定是 VK 寫的）；還沒寫的照常判定。
+//! 根目錄檔與 `config.toml` 另看殘留的進度檔記的寫入後整檔 hash：目前的檔與它相同，表示那次已經寫進去、
+//! 只差紀錄，直接補上紀錄（根目錄檔記 `appended`，`config.toml` 記 `managed` 並補存基準版副本；ADR-0003 以
+//! 整檔 hash 認定是 VK 寫的）；還沒寫的照常判定，寫了之後又被改過的 `config.toml` 當成已有、沒有紀錄的檔。
+//! 基準版副本排在紀錄之前寫，斷在兩者之間時沒有紀錄，下次照上面補上。
 //! 殘留的詢問與這次的一起問完、全部同意才寫，答否時殘留的進度檔照留。這次落地完成之後才刪殘留的那幾份。
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
 //! - 進度檔 `.tmp.install.<run-id>.toml` 另記 `[install]` 表的 `repo_files`（這次有沒有要寫 repo 檔）
-//!   與 `files`（每個要寫的根目錄檔：`path`、`lines`、寫入後的 `hash`）。
+//!   與 `files`（每個要寫的 repo 檔：`path`、`lines`、寫入後的 `hash`；`config.toml` 的 `lines` 是空的）。
 //! - 根目錄檔的紀錄都記成 `appended`，`lines` 是 VK 寫進去的行：新建的根 `justfile` 只記 `import` 那一行
 //!   （`default` 建立後按 repo 檔處理，04），新建的 `.dockerignore` 記全部的行。`uninstall` 照 04 收回
 //!   這些行，檔本身不刪。
 //! - 薄殼標頭的引擎版寫本引擎的版本（`v<X.Y.Z>`，與 `written_by` 相同）。
+//! - `config.toml` 的紀錄 `path` 是 repo 相對路徑 `.vendor_kit/config.toml`，跟其他 `[[file]]` 紀錄同一個格式
+//!   （`managed`、`hash`，跟 `initfiles` 新建整份初始檔的紀錄相同）；基準版副本照工具的
+//!   `baseline/<repo>/<路徑>` 擺法放在 `baseline/` 下同一個相對路徑（N97）。模板的逐字內容 04 的草稿之後照
+//!   [`release::CONFIG_TEMPLATE`] 寫。stdout 的「新建」那一行同根目錄檔。`uninstall` 保留 `config.toml`、
+//!   連同 `baseline/` 刪掉副本。
 //! - `gen/.stamp`（ADR-0007：只記產生薄殼的引擎 ref，供快路徑比對）：一行、LF 結尾，值是這次的引擎版本
 //!   鎖定行的值（首次導入是啟動器給的引擎引用，既有安裝目錄沿用 `version.toml` 的那一行）。`gen/` 不進 git，
 //!   新 checkout 沒有它，`install` 照常補上；stdout 不另列這一檔。`uninstall` 連同 `gen/` 一起刪。
@@ -67,7 +80,9 @@
 //! - 根目錄檔沒有紀錄、卻已含有要插入的行（`initfiles` 的 `LinesAlreadyPresent`，04 只說未收回的內容
 //!   不得無條件再 append），以及 `initfiles` 判出的其他缺口。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）。
-//! - `config.toml` 不建：04 只定欄位與未設定時的值，沒說 `install` 要不要建。
+//! - `config.toml` 已在、卻沒有紀錄（使用者在 `install` 之前自己建的，或寫了之後改過才補跑）：04 沒說要不要
+//!   記成未納管。這一條不停下（檔是使用者的，不寫也不違反 04）：不碰、不記，之後的換版與合併（`upgrade`）
+//!   照沒有紀錄處理。
 //! - 巢狀安裝（VK0029）與「在 git repo 內」要看安裝目錄以外的路徑，引擎只看得到掛進來的安裝目錄，
 //!   由啟動器在起引擎前判（flow-bootstrap），不在這裡。
 
@@ -114,6 +129,8 @@ pub const HASH_KEY: &str = "hash";
 pub const JUSTFILE: &str = "justfile";
 /// 根 `.dockerignore`。
 pub const DOCKERIGNORE: &str = ".dockerignore";
+/// `.vendor_kit/config.toml` 的 repo 相對路徑（`baseline/.vendor_kit.toml` 裡紀錄的 `path`）。
+pub const CONFIG_TOML: &str = ".vendor_kit/config.toml";
 
 /// 這次執行的環境：容器內的路徑、終端狀態與輸出。
 pub struct Env<'a, W: Write, S: Sink, L: Write> {
@@ -161,7 +178,7 @@ struct Stop;
 
 type Step<T> = Result<T, Stop>;
 
-/// 這次要寫的一個根目錄檔。
+/// 這次要寫的一個 repo 檔：根目錄檔，或新建的 `.vendor_kit/config.toml`。
 struct RootEdit {
     path: &'static str,
     /// 寫入前的內容；新建時是 `None`。
@@ -169,7 +186,7 @@ struct RootEdit {
     after: Vec<u8>,
     /// 要先問（append 進既有檔）。
     ask: bool,
-    /// VK 寫進去的行。
+    /// VK 寫進去的行；`config.toml` 是整份新建的，沒有行。
     lines: Vec<String>,
 }
 
@@ -195,6 +212,7 @@ struct Inputs<'r> {
     import: &'r str,
     default: &'r str,
     dockerignore: &'r [String],
+    config: &'r str,
 }
 
 struct Run<'r, 'a, W: Write, S: Sink, L: Write> {
@@ -421,6 +439,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             import: &release.justfile_import,
             default: &release.justfile_default,
             dockerignore: &release.dockerignore,
+            config: &release.config,
         })
     }
 
@@ -513,6 +532,25 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             edits.push(edit);
         }
 
+        // `.vendor_kit/config.toml`：沒有紀錄才考慮；殘留的進度檔記過、而且內容還是那次寫的，補上紀錄；
+        // 檔不在就照模板新建。兩種都記 `managed` 並存基準版副本。
+        let mut config_baseline = false;
+        if vk_md.get(CONFIG_TOML).is_none() {
+            if let Some(record) = self.adopt(CONFIG_TOML, &residual)? {
+                vk_md
+                    .put(record)
+                    .map_err(|e| self.internal(e.to_string()))?;
+                adopted.push(CONFIG_TOML);
+                config_baseline = true;
+            } else if let Some((edit, record)) = self.config_file(inputs.config)? {
+                vk_md
+                    .put(record)
+                    .map_err(|e| self.internal(e.to_string()))?;
+                edits.push(edit);
+                config_baseline = true;
+            }
+        }
+
         if shell_names.is_empty()
             && !stamp_changed
             && edits.is_empty()
@@ -539,6 +577,12 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             .filter_map(|n| shell.file(n).map(|c| (PathBuf::from(n), c.to_vec())))
             .collect();
         if !edits.is_empty() || !adopted.is_empty() {
+            // 基準版副本排在紀錄之前：中途斷在兩者之間時沒有紀錄，下次照殘留的進度檔重寫副本。
+            if config_baseline {
+                let copy = self.env.dir.config_baseline();
+                let path = self.vk_rel(&copy)?;
+                records.push((path, inputs.config.as_bytes().to_vec()));
+            }
             let text = vk_md.render(self.env.written_by);
             let text = text.map_err(|e| self.internal(e.to_string()))?;
             records.push((self.vk_rel(&vk_path)?, text.into_bytes()));
@@ -657,6 +701,29 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         }
     }
 
+    /// 沒有紀錄的 `.vendor_kit/config.toml`：不在就照模板新建（04 寫入既有檔的例外：目標不存在就新建），
+    /// 記 `managed` 與寫入後的 hash（同 `initfiles` 新建整份初始檔的紀錄）。路徑上已有東西（含 symlink）
+    /// 就不碰、不記，回 `None`。
+    fn config_file(&mut self, template: &str) -> Step<Option<(RootEdit, FileRecord)>> {
+        let path = self.env.dir.config_toml();
+        match fs::symlink_metadata(&path) {
+            Ok(_) => return Ok(None),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(self.internal(format!("{CONFIG_TOML}: {e}"))),
+        }
+        let after = template.as_bytes().to_vec();
+        let mut record = FileRecord::new(CONFIG_TOML, State::Managed);
+        record.hash = Some(FileHash::of(&after));
+        let edit = RootEdit {
+            path: CONFIG_TOML,
+            before: None,
+            after,
+            ask: false,
+            lines: Vec::new(),
+        };
+        Ok(Some((edit, record)))
+    }
+
     /// 其他工具的紀錄檔裡同一個路徑的紀錄（ADR-0003）：寫入前內容相符的紀錄跟著換成寫入後的 hash。
     fn other_records(
         &mut self,
@@ -746,7 +813,8 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
     }
 
     /// 殘留的 `install` 記過這個檔、而且目前整檔 hash 等於那次寫入後的 hash：那次已經寫進去了
-    /// （ADR-0003 以整檔 hash 認定是 VK 寫的），直接補上紀錄，不再問、不再插入。
+    /// （ADR-0003 以整檔 hash 認定是 VK 寫的），直接補上紀錄，不再問、不再插入。根目錄檔記 `appended`
+    /// 與那次的行；`config.toml` 記 `managed`、沒有行。
     fn adopt(&mut self, path: &str, residual: &[Residual]) -> Step<Option<FileRecord>> {
         let Some(w) = residual
             .iter()
@@ -760,8 +828,13 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         if current.is_none_or(|c| FileHash::of(&c) != w.hash) {
             return Ok(None);
         }
-        let mut record = FileRecord::new(path, State::Appended);
-        record.lines = w.lines.clone();
+        let mut record = if path == CONFIG_TOML {
+            FileRecord::new(path, State::Managed)
+        } else {
+            let mut r = FileRecord::new(path, State::Appended);
+            r.lines = w.lines.clone();
+            r
+        };
         record.hash = Some(w.hash.clone());
         Ok(Some(record))
     }

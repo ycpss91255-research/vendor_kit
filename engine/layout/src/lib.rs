@@ -106,6 +106,14 @@ impl InstallDir {
         self.baseline_dir().join(".vendor_kit.toml")
     }
 
+    /// `.vendor_kit/baseline/.vendor_kit/config.toml`：`config.toml` 的基準版副本（ADR-0003）。
+    ///
+    /// 紀錄在 [`InstallDir::baseline_vk`]；副本放在 `baseline/` 下照 `config.toml` 的 repo 相對路徑
+    /// （`.vendor_kit/config.toml`）擺，跟工具的 `baseline/<repo>/<路徑>` 同一個擺法，只是不分工具。
+    pub fn config_baseline(&self) -> PathBuf {
+        self.baseline_dir().join(VK_DIR).join("config.toml")
+    }
+
     /// `.vendor_kit/.gitignore`：薄殼四檔之一，也是自動化可以自己寫的界線（ADR-0002）。
     pub fn gitignore(&self) -> PathBuf {
         self.vk_dir().join(".gitignore")
@@ -377,6 +385,10 @@ mod tests {
         assert_eq!(
             d.baseline_vk(),
             Path::new("/r/app/.vendor_kit/baseline/.vendor_kit.toml")
+        );
+        assert_eq!(
+            d.config_baseline(),
+            Path::new("/r/app/.vendor_kit/baseline/.vendor_kit/config.toml")
         );
         assert_eq!(d.gitignore(), Path::new("/r/app/.vendor_kit/.gitignore"));
         assert_eq!(
