@@ -430,6 +430,95 @@ finish 2
     [ -d "$sess" ]
 }
 
+# ---- prune 之後清殘留的現場（N58） ----
+
+# kept_sites：主機上有這幾個容器與 session 目錄；prune 列出並刪掉 K（本安裝目錄）與 M（別的安裝目錄）。
+#   oldrun    K 本安裝目錄、已停止，這次被 prune 刪掉
+#   liverun   L 本安裝目錄、這次沒刪
+#   otherrun  M 別的安裝目錄，這次也被刪掉
+#   stale     沒有容器
+#   Bad_Run   N 本安裝目錄、label 不合 run-id 文法，這次被刪掉
+#   linkrun   P 本安裝目錄、這次被刪掉，但 session 目錄是 symlink
+kept_sites() {
+    K=1111111111111111111111111111111111111111111111111111111111111111
+    L=2222222222222222222222222222222222222222222222222222222222222222
+    M=3333333333333333333333333333333333333333333333333333333333333333
+    N=4444444444444444444444444444444444444444444444444444444444444444
+    P=5555555555555555555555555555555555555555555555555555555555555555
+    printf '%s\n' "$K $work oldrun" "$L $work liverun" "$M /elsewhere otherrun" \
+        "$N $work Bad_Run" "$P $work linkrun" >"$fake/containers"
+    printf '%s\n' "$K" "$M" "$N" "$P" >"$fake/ps"
+    local d
+    for d in oldrun liverun otherrun stale Bad_Run; do
+        mkdir -p "$tmpd/vendor_kit.$d/ctl"
+    done
+    mkdir -p "$BATS_TEST_TMPDIR/target"
+    ln -sfn "$BATS_TEST_TMPDIR/target" "$tmpd/vendor_kit.linkrun"
+    engine_does "
+send ps
+send 'rm-container $K'
+send 'rm-container $M'
+send 'rm-container $N'
+send 'rm-container $P'
+finish \${PRUNE_EXIT:-0}
+"
+}
+
+# 這幾個 session 目錄都還在。
+assert_sites() {
+    local d
+    for d in "$@"; do
+        [ -d "$tmpd/vendor_kit.$d" ] || {
+            echo "removed: vendor_kit.$d" >&2
+            return 1
+        }
+    done
+}
+
+@test "a successful prune removes the session left by a container it removed, and nothing else" {
+    kept_sites
+    launch 1 prune
+    [ "$status" -eq 0 ] || {
+        echo "$stderr" >&2
+        return 1
+    }
+    [ "$output" = "" ]
+    [ "$stderr" = "" ]
+    [ ! -e "$tmpd/vendor_kit.oldrun" ]
+    assert_sites liverun otherrun stale Bad_Run linkrun
+    [ -d "$BATS_TEST_TMPDIR/target" ]
+    [ ! -e "$sess" ]
+    # 起引擎之前查一次、prune 成功之後再查一次，都只看本安裝目錄的 label
+    [ "$(grep -c "^ps -a --no-trunc --filter label=vendor_kit.root=$(printf '%q' "$work") --format" "$fake/calls")" -eq 2 ]
+}
+
+@test "a failed prune or another recipe leaves every session in place" {
+    kept_sites
+    vk_env+=(PRUNE_EXIT=1)
+    launch 1 prune
+    [ "$status" -eq 1 ]
+    assert_sites oldrun liverun otherrun stale Bad_Run
+    # 起引擎之前查過一次，失敗之後不再查
+    [ "$(grep -cF '.Label\ ' "$fake/calls")" -eq 1 ]
+
+    rm -rf "$work/.vendor_kit" "$fake/calls"
+    kept_sites
+    vk_env=(VK_FAKE="$fake" TMPDIR="$tmpd")
+    launch 1 sync
+    [ "$status" -eq 0 ]
+    assert_sites oldrun liverun otherrun stale Bad_Run
+    ! grep -qF '.Label\ ' "$fake/calls"
+}
+
+@test "a prune whose container list cannot be read leaves every session in place" {
+    kept_sites
+    printf '1' >"$fake/rc.ps-runs"
+    launch 1 prune
+    [ "$status" -eq 0 ]
+    [ "$stderr" = "" ]
+    assert_sites oldrun liverun otherrun stale Bad_Run
+}
+
 # ---- 中斷（N49） ----
 
 @test "an interrupt reaches the engine through --init; the launcher waits for it and finishes the run" {

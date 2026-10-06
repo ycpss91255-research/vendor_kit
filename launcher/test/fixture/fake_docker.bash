@@ -9,6 +9,9 @@
 #                      create-runner、start-runner）；不存在是 0
 #   info               docker info 的 SecurityOptions 輸出
 #   ps                 docker ps 的輸出
+#   containers         主機上 VK 建的容器，一行一個 `<id> <vendor_kit.root> <vendor_kit.run>`：
+#                      以 `{{.Label "vendor_kit.run"}}` 為格式的 ps 照 root 的 label 篩選、印 run；rm 刪掉那一行。
+#                      不存在表示沒有容器
 #   engine             引擎的行為（bash，以 source 執行；可用下面的 send、raw、await、hang、interrupt、finish）
 #   engine.init        引擎容器帶 --init 建立時才有：tini 會把轉來的訊號交給引擎
 #   engine.ignores     有這個檔時引擎收到轉來的訊號也不停（等的 docker wait 被再次中斷），kill 才停
@@ -242,9 +245,31 @@ cp)
     ;;
 rm)
     rc_of rm || exit
+    if [[ -f $fake/containers ]]; then
+        kept=()
+        while read -r c_id c_root c_run; do
+            if [[ $c_id != "$2" ]]; then
+                kept+=("$c_id $c_root $c_run")
+            fi
+        done <"$fake/containers"
+        printf '%s\n' "${kept[@]}" >"$fake/containers"
+    fi
     printf '%s\n' "$2"
     ;;
 ps)
+    if [[ ${*: -1} == '{{.Label "vendor_kit.run"}}' ]]; then
+        # ps -a --no-trunc --filter label=vendor_kit.root=<root> --format '{{.Label "vendor_kit.run"}}'
+        rc_of ps-runs || exit
+        want=${5#label=vendor_kit.root=}
+        if [[ -f $fake/containers ]]; then
+            while read -r c_id c_root c_run; do
+                if [[ -n $c_id && $c_root == "$want" ]]; then
+                    printf '%s\n' "$c_run"
+                fi
+            done <"$fake/containers"
+        fi
+        exit 0
+    fi
     rc_of ps || exit
     if [[ -f $fake/ps ]]; then
         printf '%s\n' "$(<"$fake/ps")"
