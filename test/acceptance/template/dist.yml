@@ -1,0 +1,30 @@
+# 工具端多架構建置範本（草稿）：工具 repo 複製到 .github/workflows/，連同 publish_dist.sh 一起用。
+# 正式文件位置（工具端契約文件）還沒定。範本由工具 repo 自己跑、image 也由工具 repo 自己推（#108）。
+name: dist
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要發布的 tag（已存在就停下，不覆蓋）
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Dockerfile.dist 只有 COPY，不需要 qemu；多平台建置要 docker-container builder。
+      - uses: docker/setup-buildx-action@v3
+      - name: login
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: publish
+        env:
+          # image 路徑怎麼對應 <repo> 還沒定（#372 的 N2）；先用跟 repo 同名的 package。
+          IMAGE: ghcr.io/${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: bash publish_dist.sh "${IMAGE,,}" "$TAG" .
