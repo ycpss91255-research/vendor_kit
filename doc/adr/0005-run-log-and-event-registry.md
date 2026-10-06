@@ -23,6 +23,8 @@
 - 別的 ADR 要精確引用事件名或紀錄欄位時，引本檔與真本，不各自複述清單。
 - 驗收：release CI 的「內嵌清單 ⊆ 真本」檢查與原始碼的靜態檢查；執行期對表由引擎與啟動器各自的測試涵蓋。
 - 內部機制（之後搬到實作 issue）：
+  - 引擎的 `diagnostic_emitted` 紀錄在診斷本文以下一步指令結尾時，將指令寫入 `attributes."vendor_kit.next_step.command"`，讓讀取端直接取得指令，不必解析給人看的診斷。擷取時看訊息表本文最後一行最後一個「: 」之後的片段，確認它是結尾指令後再代入占位符；沒有結尾指令就不寫這個鍵。啟動器端尚未鏡射這個欄位，留待後續實作。
+  - 只有啟動器自己呼叫的 docker（pull、load、inspect、ps、create、cp、rm）的 stderr 不繼承；照舊繼承 stderr 的只有引擎的 `docker start -ai`（引擎自己的 VK 輸出）與 test runner 的 `docker start -a`（依 [03 輸出](../contract/03_output.md#輸出)原樣轉出測試輸出）。攔下的 docker 原文不寫進執行紀錄，失敗時印 VK 自己的診斷，避免讀取端依賴 docker 的原文；摘錄是否寫入執行紀錄仍是待確認（N20b），尚未定案。`docker.err` 的落點、建立、清除與 session 目錄建立前的處理見 [ADR-0007](0007-host-thin-layer-and-shell-integrity.md)。
   - 事件註冊表 `log-events.txt` 是事件名的有限集合，真本在引擎 image。引擎寫紀錄前對真本查表，啟動器寫紀錄前對 `log.sh` 內嵌的子集查表，未註冊的事件名視為 VK 內部錯誤，立即停下，以[訊息表](../contract/reason_codes.csv)的原因代碼 `VK0056` 報出，並以 error 對應的[結束碼](../contract/03_output.md#結束碼) `2` 結束；CI 另以靜態檢查擋原始碼裡未註冊的事件名。執行期對表擋動態組出的名字，靜態檢查擋寫死的，兩層都要。
   - 啟動器的 `log.sh` 內嵌一份啟動器事件的子集，因為它在容器起來之前就開始寫紀錄、讀不到真本；子集只准少不准多，由 release CI 驗。
   - 執行紀錄不提供關掉的選項；建不出執行紀錄的那次執行以[結束碼](../contract/03_output.md#結束碼) `2` 結束、不動任何檔。
