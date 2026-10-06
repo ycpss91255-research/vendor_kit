@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # 啟動流程（launch.sh）：判定順序、起唯一的引擎、代辦每種 op 的 req→res 位元組、非法 req（VK0056）、
-# 救援呼叫辨識、介面版不合（VK0009）、done 與容器結束碼的核對、收尾。
+# 救援呼叫辨識、介面版不合（VK0009）、done 與容器結束碼的核對、中斷（N49）、收尾。
 # docker 是假的（fixture/fake_docker.bash）：`start -ai` 當引擎，照 $fake/engine 寫 req、等 res。
 
 load helper
@@ -86,7 +86,7 @@ last_finished() {
     log_file
     local rel=${REPLY#"$work/"}
     local -a want=(
-        -i --user "$(id -u):$(id -g)" --label "vendor_kit.root=$work" --label vendor_kit.run=r1
+        -i --init --user "$(id -u):$(id -g)" --label "vendor_kit.root=$work" --label vendor_kit.run=r1
         --mount "type=bind,\"source=$work\",target=/vk/root"
         --mount "type=bind,\"source=$sess/ctl\",target=/vk/ctl"
         --mount "type=bind,\"source=$sess/in\",target=/vk/in,readonly"
@@ -125,7 +125,8 @@ last_finished() {
     launch 1 sync
     [ "$status" -eq 0 ]
     mapfile -t got <"$fake/engine.argv"
-    [ "${got[1]}" = --label ]
+    [ "${got[1]}" = --init ]
+    [ "${got[2]}" = --label ]
 }
 
 @test "the engine exit code (done = container) is the run's exit code" {
@@ -380,6 +381,61 @@ finish 2
     assert_called "kill $E"
     assert_not_called "^rm $E"
     [ -d "$sess" ]
+}
+
+# ---- 中斷（N49） ----
+
+@test "an interrupt reaches the engine through --init; the launcher waits for it and finishes the run" {
+    local sig code
+    for sig in INT TERM; do
+        code=130
+        if [[ $sig == TERM ]]; then
+            code=143
+        fi
+        rm -rf "$work/.vendor_kit" "$fake/calls" "$fake/engine.running" "$fake/engine.init"
+        # 詢問中被中斷：引擎沒寫任何東西就停下，沒有 done
+        engine_does "interrupt $sig"
+        launch 1 add foo
+        [ "$status" -eq "$code" ] || {
+            echo "$sig: status $status $stderr" >&2
+            return 1
+        }
+        # 不是 VK 的 bug，不印診斷
+        [ "$stderr" = "" ]
+        # docker start -ai 先返回；等引擎容器停下才收尾，不 kill
+        assert_called "wait $E"
+        assert_not_called "^kill"
+        assert_called "rm $E"
+        [ ! -e "$sess" ]
+        last_finished
+        [[ $REPLY == *"\"vendor_kit.exit_code\":$code,\"vendor_kit.engine.exit_code\":$code,\"vendor_kit.stop_reason_code\":\"none\"}}" ]] || {
+            echo "$sig: $REPLY" >&2
+            return 1
+        }
+    done
+}
+
+@test "an engine that keeps running after the interrupt is killed when the wait is interrupted again" {
+    : >"$fake/engine.ignores"
+    engine_does 'interrupt INT'
+    launch 1 sync
+    [ "$status" -eq 130 ]
+    [ "$stderr" = "" ]
+    assert_called "wait $E"
+    assert_called "kill $E"
+    assert_called "rm $E"
+    [ ! -e "$sess" ]
+    last_finished
+    [[ $REPLY == *'"vendor_kit.exit_code":130,"vendor_kit.engine.exit_code":137,"vendor_kit.stop_reason_code":"none"}}' ]]
+}
+
+@test "an engine that writes done before stopping is checked as usual after an interrupt" {
+    engine_does 'kill -s INT "$PPID"; finish 1'
+    launch 1 sync
+    [ "$status" -eq 1 ]
+    [ "$stderr" = "" ]
+    last_finished
+    [[ $REPLY == *'"vendor_kit.exit_code":1,"vendor_kit.engine.exit_code":1,"vendor_kit.stop_reason_code":"none"}}' ]]
 }
 
 # ---- 救援呼叫 ----

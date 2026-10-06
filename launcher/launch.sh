@@ -14,8 +14,15 @@
 #   底下 ctl/ 可寫掛在 /vk/ctl、in/ 唯讀掛在 /vk/in，安裝目錄掛在 /vk/root。
 # - 起引擎之前先把這次用的 pinned 引用寫成 in/engine（wire.sh 的 vk_wire_in_engine；先 .tmp 再 mv），
 #   救援呼叫也寫。之後 stage、extract 到同名 slot 都會被拒，整次只寫這一次。
-# - `docker create -i` 先拿到容器 ID，再以前景 `docker start -ai` 起引擎（stdin 接通、不帶 -t，
+# - `docker create -i --init` 先拿到容器 ID，再以前景 `docker start -ai` 起引擎（stdin 接通、不帶 -t，
 #   stdout 與 stderr 分開）；代辦迴圈（vk_launch_serve）在背景跑，結果寫 res.<seq>（先 .tmp 再 mv）。
+# - 中斷（N49）：引擎不當 PID 1，由 --init 的 tini 把 docker CLI 轉來的 SIGINT、SIGTERM 交給引擎
+#   （PID 1 沒裝處理時兩者都被忽略）。docker start -ai 轉完訊號就返回、不等容器停（docker 29 實測），
+#   所以收到中斷後先 docker wait 等引擎停下，再停代辦迴圈；等的時候再中斷一次就照下面停不下來的路徑 kill。
+#   代辦迴圈忽略 SIGINT、SIGTERM，只在 done、stop 或協定不合時結束。
+#   中斷不是 VK 的 bug：沒有 done 時不印診斷，run_finished 記引擎容器的結束碼，
+#   整次以 128＋訊號編號結束（SIGINT 130、SIGTERM 143；04 說外層中斷的碼不承諾是 VK 結束碼）。
+#   引擎被訊號停下時不寫 engine_finished，run_finished 由啟動器補。
 # - 協定不合（VK0056）時迴圈停掉引擎容器，原因寫在 session 目錄的 fault（不在 ctl/，引擎寫不到）。
 # - 引擎結束後核對 done 與容器結束碼，寫 run_finished，刪容器（不加 -f）與 session 目錄。
 #   容器停不下來時保留 session 目錄與容器，不刪現場。
@@ -222,7 +229,7 @@ vk_launch_engine() {
     m_in="type=bind,$REPLY,target=$vk_wire_mount_in,readonly"
 
     local cid rc
-    cid=$(docker create -i "${vk_user_args[@]}" \
+    cid=$(docker create -i --init "${vk_user_args[@]}" \
         --label "$vk_label_root=$root" --label "$vk_label_run=$run_id" \
         --mount "$m_root" --mount "$m_ctl" --mount "$m_in" -w "$vk_wire_mount_root" \
         "$engine" \
@@ -237,12 +244,19 @@ vk_launch_engine() {
         return "$REPLY"
     fi
 
-    trap ': >"$sess/interrupted"' INT TERM
+    trap 'vk_launch_interrupted "$sess" INT' INT
+    trap 'vk_launch_interrupted "$sess" TERM' TERM
     vk_launch_serve "$sess" "$cid" "$root" "$proto" "$run_id" &
     local loop=$!
     docker start -ai "$cid"
+    if [[ -e $sess/interrupted ]]; then
+        docker wait "$cid" >/dev/null 2>&1
+    fi
     : >"$sess/stop"
-    wait "$loop"
+    # 等代辦迴圈的 wait 會被收到的訊號打斷，迴圈真的結束才往下。
+    while kill -0 "$loop" 2>/dev/null; do
+        wait "$loop"
+    done
     trap - INT TERM
 
     # 引擎容器真的停了才收尾；停不下來就保留現場。
@@ -260,10 +274,21 @@ vk_launch_engine() {
         return "$REPLY"
     fi
 
-    local reason=
+    local reason='' sig=''
     if [[ -e $sess/fault ]]; then
         IFS= read -r reason <"$sess/fault"
         vk_launch_internal "${reason:-the request loop failed}"
+    elif [[ -e $sess/interrupted && ! -e $sess/ctl/done ]]; then
+        IFS= read -r sig <"$sess/interrupted"
+        docker rm "$cid" >/dev/null
+        rm -rf -- "$sess"
+        local code=130
+        if [[ $sig == TERM ]]; then
+            code=143
+        fi
+        vk_log_finish "$code" "$exit" none
+        REPLY=$code
+        return "$REPLY"
     elif ! vk_wire_parse_done "$sess/ctl/done" "$proto" "$run_id"; then
         vk_launch_internal "$REPLY (engine exit code $exit)"
     elif [[ $REPLY != "$exit" ]]; then
@@ -275,11 +300,20 @@ vk_launch_engine() {
     return "$REPLY"
 }
 
+# vk_launch_interrupted <sess> <INT|TERM>：收到中斷時記下第一個訊號（runner 的結果與收尾都看這個檔）。
+vk_launch_interrupted() {
+    if [[ ! -e $1/interrupted ]]; then
+        { printf '%s\n' "$2" >"$1/interrupted"; } 2>/dev/null
+    fi
+}
+
 # vk_launch_serve <sess> <engine_cid> <root> <P> <run-id>：代辦迴圈（在背景跑）。
 # 依序等 req.<seq>，驗文法、做 op、寫 res.<seq>；看到 done 或 stop 就結束。
 # 協定不合時把原因寫進 <sess>/fault、停掉引擎容器，以 1 結束。
+# 忽略 SIGINT、SIGTERM：中斷後引擎還在收尾時照樣代辦，由 vk_launch_engine 決定什麼時候停。
 vk_launch_serve() {
     local sess=$1 engine_cid=$2 root=$3 proto=$4 run_id=$5
+    trap '' INT TERM
     local ctl=$sess/ctl seq=1 f name
     vk_serve_ps=()
     while :; do
