@@ -273,11 +273,15 @@ finish 0
     assert_res 6 ok
     assert_res 7 ok
     assert_res 8 'runner exited 3'
+    # load -q 的 stdout 交給引擎（N43）；pull 的 stdout 不交
+    [ "$(<"$fake/got/res.2.out")" = "Loaded image ID: sha256:$B" ]
+    [ ! -e "$fake/got/res.1.out" ]
     [ "$(<"$fake/got/res.3.out")" = '[{"Id":"sha256:'"$B"'"}]' ]
     [ "$(<"$fake/got/res.6.out")" = "$B" ]
     [ -e "$fake/extract_seen" ]
     [ "$(<"$fake/staged")" = token ]
     [ "$output" = "runner output" ]
+    [ "$stderr" = "" ]
     assert_called "pull -q $engine"
     assert_called 'load -q -i /srv/u/my\ proj/my\ tools.tar'
     assert_called "image inspect $engine"
@@ -343,10 +347,13 @@ finish 0
     [ ! -e "$sess" ]
 }
 
-@test "failed docker actions are reported as failed <rc> or runner notstarted" {
+@test "failed docker actions are reported as failed <rc> or runner notstarted, and their own text is kept off stderr" {
     printf '1' >"$fake/rc.pull"
     printf '2' >"$fake/rc.cp"
     printf '125' >"$fake/rc.create-runner"
+    printf '1' >"$fake/rc.load"
+    printf '1' >"$fake/rc.inspect"
+    printf '1' >"$fake/rc.ps"
     printf '/srv/x' >"$BATS_TEST_TMPDIR/tok"
     engine_does "
 send 'pull $engine'
@@ -357,19 +364,47 @@ rm -f \"\$VK_FAKE/rc.create-runner\"
 : >\"\$VK_FAKE/runner.notstarted\"
 send 'runner ghcr.io/u/test:1 e:pytest'
 send 'runner ghcr.io/u/test:1 e:'
+send 'load e:/srv/x.tar'
+send 'inspect $engine'
+send ps
+printf 1 >\"\$VK_FAKE/rc.create-extract\"
+send 'extract sha256:$B x2'
+rm -f \"\$VK_FAKE/rc.create-extract\" \"\$VK_FAKE/rc.cp\"
+printf 1 >\"\$VK_FAKE/rc.rm\"
+send 'extract sha256:$B x3'
 finish 2
 "
     launch 1 sync
     [ "$status" -eq 2 ]
-    [ "$stderr" != "" ] # cp 的錯誤訊息原樣
+    # docker 與 cp 的原文都攔下（N20）：結果只看結束碼，stderr 沒有它們的原文
+    [ "$stderr" = "" ] || {
+        echo "stderr: $stderr" >&2
+        return 1
+    }
     assert_res 1 'failed 1'
     assert_res 2 'failed 2'
     assert_res 3 'failed 1'
     assert_res 4 'runner notstarted'
     assert_res 5 'runner notstarted'
     assert_res 6 'runner notstarted'
+    assert_res 7 'failed 1'
+    assert_res 8 'failed 1'
+    assert_res 9 'failed 1'
+    assert_res 10 'failed 1'
+    assert_res 11 'failed 1'
     # cp 失敗也刪 extract 的容器
     assert_called "rm cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    [ ! -e "$sess" ]
+}
+
+@test "a failed docker create for the engine prints only the VK diagnostic" {
+    printf '125' >"$fake/rc.create-engine"
+    launch 1 sync
+    [ "$status" -eq 2 ]
+    internal "docker create for the engine exited with 125"
+    [ "$stderr" = "$REPLY" ]
+    assert_not_called '^start'
+    [ ! -e "$sess" ]
 }
 
 # ---- 非法 req ----

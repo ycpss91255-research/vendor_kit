@@ -6,7 +6,8 @@
 #   labels             引擎 image 的 LABEL 查詢輸出；不存在表示本機沒有 image
 #   labels_after_pull  pull 之後才有的 LABEL 輸出
 #   rc.<名>            該動作的結束碼（pull、load、cp、rm、inspect、ps、info、create-engine、create-extract、
-#                      create-runner、start-runner）；不存在是 0
+#                      create-runner、start-runner）；不存在是 0。非 0 時跟真的 docker 一樣在 stderr 印一行原文
+#                      （`fake docker: <名> failed`），用來驗啟動器有沒有把 docker 的原文攔下（N20）
 #   info               docker info 的 SecurityOptions 輸出
 #   ps                 docker ps 的輸出
 #   containers         主機上 VK 建的容器，一行一個 `<id> <vendor_kit.root> <vendor_kit.run>`：
@@ -36,10 +37,14 @@ runner_cid=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 } >>"$fake/calls"
 
 rc_of() {
+    local rc=0
     if [[ -f $fake/rc.$1 ]]; then
-        return "$(<"$fake/rc.$1")"
+        rc=$(<"$fake/rc.$1")
     fi
-    return 0
+    if ((rc != 0)); then
+        printf 'fake docker: %s failed\n' "$1" >&2
+    fi
+    return "$rc"
 }
 
 # --mount 的 source（CSV：整欄雙引號、欄內雙引號兩個）。
@@ -156,12 +161,15 @@ image)
     ;;
 pull)
     rc_of pull || exit
+    printf '%s\n' "${*: -1}"
     if [[ -f $fake/labels_after_pull ]]; then
         cp "$fake/labels_after_pull" "$fake/labels"
     fi
     ;;
 load)
     rc_of load || exit
+    # load -q 的 stdout：image ID（N43）
+    printf 'Loaded image ID: sha256:%s\n' 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     ;;
 create)
     args=("${@:2}")
