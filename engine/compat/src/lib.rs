@@ -97,7 +97,8 @@ impl Compat {
 
 /// 呼叫方的 P 不在引擎接受的區間內。
 ///
-/// 訊息表還沒有對應的代碼（計畫缺口 G6），所以這裡沒有 `message()`；補上代碼後再接。
+/// 低於 floor 是 VK0009（舊薄殼）；高於上限還沒有對應的代碼（計畫缺口 G6），所以這裡沒有 `message()`，
+/// 由呼叫端依方向選診斷（engine/vendor_kit 的 cli）；補上代碼後再接。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProtocolError {
     pub given: u32,

@@ -67,6 +67,8 @@
 //! 範圍是：入口 argv（[`argv`]）、掛載點（[`mount`]）、控制檔名（[`files`]）、`hdr`、`done`、`fld`、
 //! `result` 的 `ok`／`failed`，以及 [`RESCUE_OPS`] 的五個 op。這些都集中成常數並由測試釘住；
 //! 改了就破壞救援，P+1 也不能改。其餘 op 依 ADR-0008:25 隨 P 演進。
+//! 呼叫方的 P 不在引擎接受的區間內時，引擎仍照救援路徑回應那個 P，往返限定只送這五個 op
+//! （[`Channel::restrict_to_rescue`]）。
 //!
 //! 協定不合（文法、seq、header、op 與 result 不配對）一律是 VK 的 bug，對應 VK0056（[`ProtocolError::message`]）。
 

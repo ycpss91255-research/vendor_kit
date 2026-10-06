@@ -16,7 +16,6 @@ use e2e::{MOUNT_PREFIX_ENV, vendor_kit_bin};
 use snapbox::assert_data_eq;
 
 const RUN_ID: &str = "r1";
-const HEADER: &str = "vk-resolve/1 r1";
 const HOST_ROOT: &str = "/srv/proj";
 const RUN_LOG: &str = ".vendor_kit/log/r1.jsonl";
 const ENGINE: &str = "ghcr.io/ycpss91255-research/vendor_kit:v1.0.0@sha256:1111111111111111111111111111111111111111111111111111111111111111";
@@ -65,9 +64,14 @@ fn tool_content(dir: &Path, namespaces: &[&str]) {
 
 /// 假啟動器：`local` 是本機已有的 image（pinned 引用）；inspect 本機沒有的回 failed，pull 之後才有。
 /// image ID 就是 digest。
-fn launcher(m: &Mounts, local: Arc<Mutex<BTreeSet<String>>>) -> std::thread::JoinHandle<Seen> {
+/// `header` 是 `vk-resolve/<P> r1`。
+fn launcher(
+    m: &Mounts,
+    header: &str,
+    local: Arc<Mutex<BTreeSet<String>>>,
+) -> std::thread::JoinHandle<Seen> {
     let (ctl, inbox) = (m.ctl.clone(), m.inbox.clone());
-    launcher::serve(&m.ctl, HEADER, move |req: &Request| match req.op.as_str() {
+    launcher::serve(&m.ctl, header, move |req: &Request| match req.op.as_str() {
         "inspect" if !local.lock().unwrap().contains(&req.args[0]) => Reply::Failed(1),
         "inspect" => {
             let reference = &req.args[0];
@@ -99,15 +103,29 @@ fn launcher(m: &Mounts, local: Arc<Mutex<BTreeSet<String>>>) -> std::thread::Joi
 
 /// 跑一次 `sync`。每次執行的 session 目錄與執行紀錄都是新的（啟動器建好空的執行紀錄）。
 fn run(m: &Mounts, local: &Arc<Mutex<BTreeSet<String>>>) -> (i32, String, String, Seen) {
+    run_at(m, 1, local)
+}
+
+/// [`run`]，薄殼的介面版是 `protocol`。
+fn run_at(
+    m: &Mounts,
+    protocol: u32,
+    local: &Arc<Mutex<BTreeSet<String>>>,
+) -> (i32, String, String, Seen) {
     for d in [&m.ctl, &m.inbox] {
         fs::remove_dir_all(d).unwrap();
         fs::create_dir_all(d).unwrap();
     }
     fs::write(m.root.join(RUN_LOG), "").unwrap();
-    let peer = launcher(m, Arc::clone(local));
+    let peer = launcher(
+        m,
+        &format!("vk-resolve/{protocol} {RUN_ID}"),
+        Arc::clone(local),
+    );
+    let protocol = protocol.to_string();
     let args = [
         "--protocol",
-        "1",
+        protocol.as_str(),
         "--run-id",
         RUN_ID,
         "--host-root",
@@ -276,6 +294,34 @@ mod? tool-extra '../cache/tool/just/tool-extra.just'
     assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
     assert_eq!(vk_contents(&m), before);
     assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+}
+
+/// 救援路徑跨介面版可用（ADR-0008:26、#372 N61）：薄殼的 P 超出引擎的區間（這一版引擎只收 P=1），
+/// `sync` 照常跑完，往返與 `done` 都以薄殼的 P 回應。
+#[test]
+fn sync_still_works_when_the_shell_protocol_is_outside_the_engine_range() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    checkout(&m);
+    let local = Arc::new(Mutex::new(BTreeSet::from([other_pinned()])));
+
+    let (code, _, stderr, seen) = run_at(&m, 2, &local);
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(stderr, "");
+    assert_eq!(
+        seen.requests,
+        [
+            format!("inspect {}", other_pinned()),
+            format!("extract {OTHER_DIGEST} tool1"),
+            format!("inspect {}", tool_pinned()),
+            format!("pull {}", tool_pinned()),
+            format!("inspect {}", tool_pinned()),
+            format!("extract {TOOL_DIGEST} tool2"),
+        ]
+    );
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/2 r1 done 0\n"));
+    assert_eq!(vk_tree(&m), SYNCED_TREE);
 }
 
 #[test]
