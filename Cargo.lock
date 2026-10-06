@@ -574,8 +574,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "message_types"
+version = "0.0.0"
+
+[[package]]
 name = "messages"
 version = "0.0.0"
+dependencies = [
+ "message_types",
+]
 
 [[package]]
 name = "metadata"
@@ -594,6 +601,7 @@ name = "msggen"
 version = "0.0.0"
 dependencies = [
  "csv",
+ "message_types",
 ]
 
 [[package]]

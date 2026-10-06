@@ -1,0 +1,9 @@
+[package]
+name = "message_types"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "訊息表各欄的型別（嚴重度、處置、發出來源），msggen 與 messages 共用"
+
+[lints]
+workspace = true

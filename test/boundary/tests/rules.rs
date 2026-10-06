@@ -184,6 +184,7 @@ fn expected_members_exist() {
         "vendor_kit",
         "diagnostics",
         "output",
+        "message_types",
         "messages",
         "files",
         "imageref",
@@ -241,6 +242,7 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
     for name in [
         "diagnostics",
         "output",
+        "message_types",
         "messages",
         "files",
         "imageref",
