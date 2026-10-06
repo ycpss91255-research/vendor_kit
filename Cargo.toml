@@ -5,6 +5,7 @@ members = [
     "engine/vendor_kit",
     "engine/diagnostics",
     "engine/output",
+    "engine/message_types",
     "engine/messages",
     "engine/files",
     "engine/imageref",
@@ -53,6 +54,7 @@ publish = false
 [workspace.dependencies]
 diagnostics = { path = "engine/diagnostics" }
 output = { path = "engine/output" }
+message_types = { path = "engine/message_types" }
 messages = { path = "engine/messages" }
 files = { path = "engine/files" }
 imageref = { path = "engine/imageref" }

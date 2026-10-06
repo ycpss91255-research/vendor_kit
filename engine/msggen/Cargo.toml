@@ -7,6 +7,7 @@ description = "讀 reason_codes.csv，產出 messages crate 的 Rust 原始碼�
 
 [dependencies]
 csv.workspace = true
+message_types.workspace = true
 
 [lints]
 workspace = true

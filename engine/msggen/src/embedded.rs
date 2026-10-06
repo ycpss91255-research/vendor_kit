@@ -15,7 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::render;
-use crate::table::{Row, Source};
+use crate::table::Row;
+use message_types::Source;
 
 /// bootstrap.sh 的入口函式（`launcher/bootstrap_main.sh`）。
 pub const ENTRY: &str = "vk_bootstrap_main";
@@ -154,7 +155,7 @@ fn codes_in(line: &str) -> Vec<String> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::table::Level;
+    use message_types::Level;
 
     fn row(code: &str, sources: Vec<Source>) -> Row {
         Row {

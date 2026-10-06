@@ -2,36 +2,7 @@
 
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Level {
-    Warn,
-    Error,
-    Fatal,
-}
-
-impl Level {
-    pub fn exit_code(self) -> u8 {
-        match self {
-            Level::Warn => 1,
-            Level::Error => 2,
-            Level::Fatal => 3,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Disposition {
-    Pending,
-    Failed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Source {
-    Bootstrap,
-    Engine,
-    Launcher,
-    Test,
-}
+use message_types::{Disposition, Level, Source};
 
 /// 一列使用中的代碼；停用的列只參與代碼排序檢查，不產生輸出。
 #[derive(Debug, Clone, PartialEq, Eq)]
