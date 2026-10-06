@@ -117,6 +117,13 @@ class ScopeTest(unittest.TestCase):
         s, p = self.scopes(["test/e2e/tests/smoke.rs"])
         self.assertEqual((s, p), (["test"], []))
 
+    def test_reason_codes_csv_with_generated_is_one_scope(self):
+        csv, gen = "doc/contract/reason_codes.csv", "engine/messages/src/generated.rs"
+        for files in ([csv], [csv, gen], [gen]):
+            with self.subTest(files=files):
+                s, p = self.scopes(files)
+                self.assertEqual((s, p), (["contract:reason_codes"], []))
+
     def test_unlisted_file_is_violation(self):
         s, p = self.scopes(["discussion.drawio"])
         self.assertIn("沒有列到", p[0])

@@ -36,6 +36,7 @@
     {"pattern": "^doc/diagram/[^/]+\\.drawio$", "scope": "diagram:doc", "_why": "同一套圖、共用 script/diagram/STYLE.md 的圖例與樣式；拆檔或跨檔調整是同一個邏輯目的（#277）"},
     {"pattern": "^(Cargo\\.toml|Cargo\\.lock|rust-toolchain\\.toml)$", "scope": "engine", "_why": "根目錄的 cargo workspace 設定與鎖檔、Rust 工具鏈版本；VK 在 Docker 內的程式都在這個 workspace，算引擎範圍（#372）"},
     {"pattern": "^\\.cargo/", "scope": "engine", "_why": "cargo workspace 的建置設定，算引擎範圍（#372）"},
+    {"pattern": "^engine/messages/src/generated\\.rs$", "scope": "contract:reason_codes", "attach": "same", "_why": "msggen --check 要求跟訊息表同步重產；只有訊息表一起改時才附屬，單獨改仍算自己一個範圍（#551）"},
     {"pattern": "^engine/", "scope": "engine", "_why": "Rust 引擎與訊息產生器 crate，含 crate 內的單元測試；整個目錄算一個範圍（#372）"},
     {"pattern": "^launcher/", "scope": "launcher", "_why": "主機端 bash：bootstrap.sh、log.sh 與其 bats 測試；整個目錄算一個範圍（#372）"},
     {"pattern": "^image/", "scope": "image", "_why": "建引擎 image 的 Dockerfile 等（#372）"},
