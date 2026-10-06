@@ -1,7 +1,7 @@
 //! 各指令 `-h`／`--help` 的用法文字。
 //!
 //! 實際的 help 輸出就是唯一來源（04 共同選項），04 不另寫一份。文字只列這一版 `args` 收的選項；
-//! 之後加的選項（`--dry-run`）由加它的 PR 在這裡補上自己的那一行。
+//! `--dry-run` 只列在已經收它的指令（這一版是 `add`、`install`），其他指令接上時再補上自己的那一行。
 //! `add --image-path` 的名稱是暫定（#372 N2b）。
 
 /// 印哪一份用法：一個指令一份；`upgrade`、`dev`、`undev` 帶 `--engine` 時各另一份。
@@ -75,6 +75,7 @@ Options:
       --image-path <registry>/<path>
                                     Registry path of a tool not yet in the lock file
   -y, --yes                         Answer yes to the questions add asks
+      --dry-run                     Print the changes without making them
       --registry-token-file <path>  Read a registry token from <path> to list versions
   -h, --help                        Print this help
 ";
@@ -173,6 +174,7 @@ Finish or redo the VK install in this directory.
 
 Options:
   -y, --yes                         Answer yes to the questions install asks
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 ";
 

@@ -32,6 +32,23 @@
 //!     紀錄檔（metadata、基準版副本）、`gen/tools.just`、版本鎖定行，最後刪進度檔。
 //! 12. stdout 列出改了什麼；初始檔的警告（VK0018 等）照印。
 //!
+//! # 預演（`--dry-run`，#372 N11）
+//!
+//! 語意是這一版自訂的（契約沒寫，列給維護者確認）：照上面的順序算出完整計畫，到第 10 步為止都一樣，
+//! 差別只在：
+//!
+//! - 取安裝目錄的共享鎖，不取排他鎖（只讀）。
+//! - 不問（第 10 步整段跳過，不能互動也不報 VK0002），不重驗暫存內容，不落地（第 11 步），不建進度檔；
+//!   除執行紀錄外不寫安裝目錄裡的任何檔。
+//! - 恢復殘留的 `add` 只印會完成哪一份（[`text::would_recover`]），殘留的進度檔照留。
+//! - stdout 照實際執行的順序印會改的內容（覆寫報告、[`text::would_add`]、每個初始檔的
+//!   [`text::would_file_line`]；未變更時照樣印未變更），最後一行是 `prompt::DRY_RUN_DONE`，以 0 結束。
+//!   初始檔的警告（VK0018 等）照印。
+//! - 跟 `-y` 並用時 `-y` 沒有作用（反正不問）。
+//! - 算計畫要用的 docker 動作照送：`inspect`、`pull`、`load`、`stage`、`stage-dir`、`extract`。它們動到的是
+//!   主機的 image store 與 session 目錄，不是安裝目錄。
+//! - 算計畫時遇到的停下（VK0045、VK0030、VK0057、缺口等）照樣以各自的結束碼停下。
+//!
 //! # 本機覆寫
 //!
 //! `version.local.toml` 有其他工具的覆寫（`dev <repo> -p <dir>`）時照常導入（04 本機覆寫：除 `test` 外的一般
@@ -229,6 +246,8 @@ pub struct Request<'a> {
     pub image: Option<&'a OsStr>,
     /// 有沒有帶 `-y`：全部詢問都同意（模組說明第 10 步）。
     pub yes: bool,
+    /// 有沒有帶 `--dry-run`：算出完整計畫後只印、不問、不寫（模組說明「預演」）。
+    pub dry_run: bool,
     /// `--image-path` 的值（`args` 已驗過是 `ghcr.io/<路徑>`）；只在線上、沒有版本鎖定行時用。
     pub image_path: Option<&'a str>,
     /// `--registry-token-file` 的值，原樣；只在線上、不帶 tag、要列 tag 時才讀（模組說明「registry token 檔」）。
@@ -312,6 +331,7 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
         env,
         init,
         yes: req.yes,
+        dry_run: req.dry_run,
         code: 0,
         extracts: 0,
         stages: 0,
@@ -358,6 +378,8 @@ struct Add<'r, 'a, W: Write, S: Sink, L: Write> {
     init: InitSource<'r>,
     /// 有沒有帶 `-y`（[`Request::yes`]）。
     yes: bool,
+    /// 預演（[`Request::dry_run`]）。
+    dry_run: bool,
     code: u8,
     /// 這次執行已用掉的 slot 數。
     extracts: u32,
@@ -436,6 +458,13 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
 
     fn say(&mut self, line: &str) {
         let _ = writeln!(self.env.stdout, "{line}");
+    }
+
+    /// 預演時印收尾的那一行（模組說明「預演」）；不是預演就不印。
+    fn dry_run_done(&mut self) {
+        if self.dry_run {
+            self.say(prompt::DRY_RUN_DONE);
+        }
     }
 
     /// 每次報告用了哪個覆寫（04 本機覆寫）。
@@ -521,6 +550,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
                 self.land_recoveries()?;
                 self.report_overrides();
                 self.say(&text::unchanged(repo, &locked));
+                self.dry_run_done();
                 return Ok(());
             }
             return Err(self.gap(format_args!(
@@ -659,6 +689,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
                     self.land_recoveries()?;
                     self.report_overrides();
                     self.say(&text::unchanged(req.repo, &current));
+                    self.dry_run_done();
                     Ok(())
                 }
             };
@@ -892,7 +923,13 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
     }
 
     fn lock(&mut self, config: &Config) -> Step<Lock> {
-        match Lock::acquire(self.env.dir, Mode::Exclusive, config) {
+        // 預演只讀，持共享鎖（模組說明「預演」）。
+        let mode = if self.dry_run {
+            Mode::Shared
+        } else {
+            Mode::Exclusive
+        };
+        match Lock::acquire(self.env.dir, mode, config) {
             Ok(lock) => {
                 if let Some(m) = lock.warning() {
                     let d = Diagnostic::new(m).arg("install_dir", self.env.host_root);
@@ -1231,55 +1268,14 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
             return Err(self.gap(format_args!("init file {path} ({gap:?})")));
         }
 
-        // 帶 `-y` 時其他詢問都同意，只有 append 進既有檔的那幾題照樣要問（04 寫入既有檔的例外：已存在但
-        // 尚未納管的檔，`-y` 不能改成 append 納管）。
-        let yes = self.yes;
-        let asked: Vec<_> = planned
-            .questions
-            .iter()
-            .filter(|q| !yes || q.ask == Ask::Append)
-            .collect();
-        let questions: Vec<String> = asked
-            .iter()
-            .map(|q| text::question(repo, &q.path, q.ask))
-            .collect();
-        let tty = TtyState {
-            stdin: self.env.tty.stdin,
-            stderr: self.env.tty.stderr,
-        };
-        let answers = prompt::ask_all(
-            &questions,
-            Consent::Ask,
-            &tty,
-            &mut *self.env.stdin,
-            &mut *self.env.prompt,
-        );
-        match answers {
-            Ok(a) if a.all_yes() => {}
-            Ok(_) => {
-                self.report_overrides();
-                self.say(text::NO_CHANGES);
+        // 預演不問、不重驗暫存內容：之後不落地（模組說明「預演」）。
+        if !self.dry_run {
+            if !self.consent(repo, &planned.questions)? {
                 return Ok(());
             }
-            Err(PromptError::NotInteractive(_)) if self.yes => {
-                // 已帶 `-y`：VK0002 的下一步會是同一個指令，照著跑還是停在這裡（03 待處理的下一步必須可
-                // 直接執行），草稿碼登錄前以 VK0056 停下。
-                let files: Vec<&str> = asked.iter().map(|q| q.path.as_str()).collect();
-                let reason = format!("{}; {DRAFT_YES_APPEND}", text::yes_append(&files));
-                return Err(self.internal(reason));
+            if let Err(e) = candidate.recheck() {
+                return Err(self.internal(format!("staged content of {repo} changed: {e}")));
             }
-            Err(PromptError::NotInteractive(_)) => {
-                let mut words = vec!["just".to_owned(), "vendor_kit".to_owned()];
-                words.extend(self.env.argv.iter().cloned());
-                let d = Diagnostic::new(&messages::VK0002)
-                    .arg("command_with_y", prompt::command_with_y(&words));
-                return Err(self.stop(d));
-            }
-            Err(e) => return Err(self.internal(e.to_string())),
-        }
-
-        if let Err(e) = candidate.recheck() {
-            return Err(self.internal(format!("staged content of {repo} changed: {e}")));
         }
 
         // 紀錄檔：這個工具的 metadata 與基準版副本。
@@ -1323,21 +1319,33 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let entry = self.entry(&all_ns)?;
 
         let progress = self.progress(repo, locked, &written)?;
-        // 恢復排在這次第一個寫入之前、所有可能停下的判定之後（停下時恢復也不寫）。
+        // 恢復排在這次第一個寫入之前、所有可能停下的判定之後（停下時恢復也不寫）。預演只印、不落地。
         self.land_recoveries()?;
-        self.land(
-            &candidate,
-            progress,
-            &repo_writes,
-            &records,
-            &entry,
-            &mut lockfile,
-        )?;
+        if !self.dry_run {
+            self.land(
+                &candidate,
+                progress,
+                &repo_writes,
+                &records,
+                &entry,
+                &mut lockfile,
+            )?;
+        }
 
         self.report_overrides();
-        self.say(&text::added(repo, locked));
+        let dry_run = self.dry_run;
+        if dry_run {
+            self.say(&text::would_add(repo, locked));
+        } else {
+            self.say(&text::added(repo, locked));
+        }
         for f in &planned.files {
-            if let Some(line) = text::file_line(f) {
+            let line = if dry_run {
+                text::would_file_line(f)
+            } else {
+                text::file_line(f)
+            };
+            if let Some(line) = line {
                 self.say(&line);
             }
         }
@@ -1347,7 +1355,57 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
                 self.emit(d);
             }
         }
+        self.dry_run_done();
         Ok(())
+    }
+
+    /// 一次問完初始檔的詢問：全部同意回 `true`；答否印未變更回 `false`；不能互動停下（模組說明第 10 步）。
+    fn consent(&mut self, repo: &str, questions: &[initfiles::Question]) -> Step<bool> {
+        // 帶 `-y` 時其他詢問都同意，只有 append 進既有檔的那幾題照樣要問（04 寫入既有檔的例外：已存在但
+        // 尚未納管的檔，`-y` 不能改成 append 納管）。
+        let yes = self.yes;
+        let asked: Vec<_> = questions
+            .iter()
+            .filter(|q| !yes || q.ask == Ask::Append)
+            .collect();
+        let questions: Vec<String> = asked
+            .iter()
+            .map(|q| text::question(repo, &q.path, q.ask))
+            .collect();
+        let tty = TtyState {
+            stdin: self.env.tty.stdin,
+            stderr: self.env.tty.stderr,
+        };
+        let answers = prompt::ask_all(
+            &questions,
+            Consent::Ask,
+            &tty,
+            &mut *self.env.stdin,
+            &mut *self.env.prompt,
+        );
+        match answers {
+            Ok(a) if a.all_yes() => Ok(true),
+            Ok(_) => {
+                self.report_overrides();
+                self.say(text::NO_CHANGES);
+                Ok(false)
+            }
+            Err(PromptError::NotInteractive(_)) if self.yes => {
+                // 已帶 `-y`：VK0002 的下一步會是同一個指令，照著跑還是停在這裡（03 待處理的下一步必須可
+                // 直接執行），草稿碼登錄前以 VK0056 停下。
+                let files: Vec<&str> = asked.iter().map(|q| q.path.as_str()).collect();
+                let reason = format!("{}; {DRAFT_YES_APPEND}", text::yes_append(&files));
+                Err(self.internal(reason))
+            }
+            Err(PromptError::NotInteractive(_)) => {
+                let mut words = vec!["just".to_owned(), "vendor_kit".to_owned()];
+                words.extend(self.env.argv.iter().cloned());
+                let d = Diagnostic::new(&messages::VK0002)
+                    .arg("command_with_y", prompt::command_with_y(&words));
+                Err(self.stop(d))
+            }
+            Err(e) => Err(self.internal(e.to_string())),
+        }
     }
 
     /// 其他紀錄檔裡同一個路徑的紀錄（ADR-0003）：寫入前內容相符的紀錄跟著換成寫入後的 hash。
@@ -1558,6 +1616,18 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
     /// 依序落地備好的恢復（04 共同選項：全部同意才寫入，含恢復舊操作），排在這次自己的落地與輸出之前：
     /// 每一份重驗暫存內容、走一次同樣的落地順序，新的進度檔完成之後才刪舊的那一份，中途再斷也還認得出來。
     fn land_recoveries(&mut self) -> Step<()> {
+        if self.dry_run {
+            // 預演：只印會完成哪幾份，殘留的進度檔照留（模組說明「預演」）。
+            let lines: Vec<String> = self
+                .pending
+                .iter()
+                .map(|r| text::would_recover(&r.repo, &r.locked))
+                .collect();
+            for line in lines {
+                self.say(&line);
+            }
+            return Ok(());
+        }
         for mut r in std::mem::take(&mut self.pending) {
             if let Err(e) = r.candidate.recheck() {
                 return Err(self.internal(format!("staged content of {} changed: {e}", r.repo)));

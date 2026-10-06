@@ -296,6 +296,7 @@ fn run_add(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &str) 
         tag,
         image: value("-i").map(OsStr::new),
         yes: argv.iter().any(|a| matches!(*a, "-y" | "--yes")),
+        dry_run: argv.contains(&"--dry-run"),
         image_path: value("--image-path"),
         registry_token_file: None,
     };
@@ -1010,6 +1011,7 @@ fn progress_records_the_repo_files_to_write() {
         },
         init: &|_: &Path| Ok(Vec::new()),
         yes: false,
+        dry_run: false,
         code: 0,
         extracts: 0,
         stages: 0,
@@ -1334,4 +1336,97 @@ fn recovering_a_leftover_add_applies_the_override_too() {
             .unwrap()
             .starts_with("mod? other '../../work/other/just/other.just'\n")
     );
+}
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+#[test]
+fn dry_run_prints_the_plan_without_asking_or_writing() {
+    let fx = Fx::new("");
+    fs::write(fx.root().join(".gitignore"), "target/\n").unwrap();
+    let before = fx.lock_text();
+    let init = || {
+        vec![
+            append(".gitignore", "/.tool/\n"),
+            whole("tool.toml", "[tool]\n"),
+        ]
+    };
+    let expected = format!(
+        "Would add tool v1.2.0 ({}).\nWould append to .gitignore\nWould create tool.toml\n\
+         Dry run: no changes were made.\n",
+        locked()
+    );
+    // 不能互動也不問、不報 VK0002；-y 並用沒有作用。
+    for argv in [
+        &["add", "tool", "-i", IMAGE, "--dry-run"][..],
+        &["add", "tool", "-i", IMAGE, "--dry-run", "-y"],
+    ] {
+        fx.new_session();
+        fs::remove_dir_all(&fx.inbox).unwrap();
+        fs::create_dir_all(&fx.inbox).unwrap();
+        let peer = Peer::start(&fx, &["tool"], None);
+        let out = run_add(&fx, argv, init(), tty(false), "");
+        assert_eq!(peer.finish(), ["inspect", "extract"]);
+        assert_eq!(out.code, 0, "{}", out.stderr);
+        assert_eq!(out.stderr, "");
+        assert_eq!(out.stdout, expected);
+        assert_eq!(out.log, "");
+        assert!(untouched(&fx, &before));
+        assert!(!metadata::tool_path(&fx.dir, "tool").unwrap().exists());
+        assert_eq!(
+            fs::read_to_string(fx.root().join(".gitignore")).unwrap(),
+            "target/\n"
+        );
+        assert!(!fx.root().join("tool.toml").exists());
+    }
+}
+
+#[test]
+fn dry_run_reports_a_leftover_add_without_landing_it() {
+    let fx = Fx::new("");
+    let before = fx.lock_text();
+    leftover(&fx, "other");
+    let peer = Peer::start_each(&fx, vec![&["other"], &["tool"]], None);
+    let out = run_add(
+        &fx,
+        &["add", "tool", "-i", IMAGE, "--dry-run"],
+        Vec::new(),
+        tty(false),
+        "",
+    );
+    assert_eq!(peer.finish(), ["inspect", "extract", "inspect", "extract"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Would complete the interrupted add of other v1.2.0 ({0}).\n\
+             Would add tool v1.2.0 ({0}).\nDry run: no changes were made.\n",
+            locked()
+        )
+    );
+    assert_eq!(out.log, "");
+    assert_eq!(fx.lock_text(), before);
+    assert!(!fx.dir.cache_dir().exists() && !fx.dir.gen_dir().exists());
+    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
+}
+
+#[test]
+fn dry_run_of_an_added_tool_says_unchanged() {
+    let fx = Fx::new(&format!("tool = \"{}\"\n", locked()));
+    let before = fx.lock_text();
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(
+        &fx,
+        &["add", "tool", "--dry-run"],
+        Vec::new(),
+        tty(false),
+        "",
+    );
+    assert!(peer.finish().is_empty());
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "tool v1.2.0 is already added; no changes were made.\nDry run: no changes were made.\n"
+    );
+    assert_eq!(fx.lock_text(), before);
 }

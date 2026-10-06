@@ -866,3 +866,134 @@ fn an_unchanged_add_does_not_read_other_tools() {
     assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
     assert_eq!(vk_tree(&m), before);
 }
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+/// 安裝目錄裡全部的檔與內容（相對路徑、排序），不含 `.vendor_kit/log/`：比對預演前後一個位元組都沒變。
+fn snapshot(m: &Mounts) -> Vec<(String, Option<Vec<u8>>)> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Option<Vec<u8>>)>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let rel = path.strip_prefix(root).unwrap().display().to_string();
+            if rel == ".vendor_kit/log" {
+                continue;
+            }
+            if path.is_dir() {
+                out.push((rel, None));
+                walk(root, &path, out);
+            } else {
+                out.push((rel, Some(fs::read(&path).unwrap())));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&m.root, &m.root, &mut out);
+    out.sort();
+    out
+}
+
+/// 每次執行的 session 目錄與執行紀錄是新的。
+fn new_session(m: &Mounts) {
+    for d in [&m.ctl, &m.inbox] {
+        fs::remove_dir_all(d).unwrap();
+        fs::create_dir_all(d).unwrap();
+    }
+    fs::write(m.root.join(RUN_LOG), "").unwrap();
+}
+
+const DRY_RUN_ADDED: &str = "Would add tool v1.2.0 (ghcr.io/acme/tool:v1.2.0@sha256:2222222222222222222222222222222222222222222222222222222222222222).
+Dry run: no changes were made.
+";
+
+#[test]
+fn add_dry_run_from_a_local_image_writes_only_the_run_log() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m, "");
+    let before = snapshot(&m);
+    // 沒有終端也不報 VK0002；-y 並用沒有作用。
+    for rest in [
+        &["add", "tool", "-i", IMAGE, "--dry-run"][..],
+        &["add", "--dry-run", "-y", "tool", "-i", IMAGE],
+    ] {
+        new_session(&m);
+        let peer = launcher(&m, &["tool"]);
+        let (code, stdout, stderr) = run(&m, HOST_ROOT, "000", rest);
+        let seen = peer.join().unwrap();
+        assert_eq!(code, 0, "stderr: {stderr}");
+        assert_eq!(stdout, DRY_RUN_ADDED);
+        assert_eq!(stderr, "");
+        assert_eq!(
+            seen.requests,
+            [
+                format!("inspect {IMAGE}"),
+                format!("extract {IMAGE_ID} tool1")
+            ]
+        );
+        assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+        assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+        assert_eq!(snapshot(&m), before);
+    }
+}
+
+#[test]
+fn online_add_dry_run_still_pulls_to_plan_but_writes_only_the_run_log() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m, "");
+    let before = snapshot(&m);
+    let reg = registry(&["v1.0.0", "v1.2.0"], &[("v1.2.0", DIGEST)]);
+    let peer = launcher_with(
+        &m,
+        &["tool"],
+        false,
+        vec![format!("{ONLINE_PATH}@{DIGEST}")],
+    );
+
+    let (code, stdout, stderr) = run_with(
+        &m,
+        HOST_ROOT,
+        "000",
+        &["add", "tool", "--image-path", ONLINE_PATH, "--dry-run"],
+        reg.base(),
+    );
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stdout, DRY_RUN_ADDED);
+    assert_eq!(stderr, "");
+    assert_eq!(seen.requests, pulled());
+    assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+    assert_eq!(snapshot(&m), before);
+}
+
+#[test]
+fn dry_run_of_another_command_or_with_help_is_a_usage_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(
+        &m,
+        "tool = \"ghcr.io/acme/tool:v1.2.0@sha256:2222222222222222222222222222222222222222222222222222222222222222\"\n",
+    );
+    let before = snapshot(&m);
+    for (rest, value) in [
+        (&["remove", "tool", "--dry-run"][..], "--dry-run"),
+        (&["upgrade", "tool", "--dry-run"], "--dry-run"),
+        (&["add", "--dry-run", "-h"], "--dry-run"),
+    ] {
+        new_session(&m);
+        let peer = launcher(&m, &["tool"]);
+        let (code, stdout, stderr) = run(&m, HOST_ROOT, "000", rest);
+        let seen = peer.join().unwrap();
+        assert_eq!(code, 2, "{rest:?}: {stderr}");
+        assert_eq!(stdout, "");
+        assert!(
+            stderr.starts_with(&format!(
+                "vendor_kit: error[VK0026]: Unknown, extra, or disallowed argument: {value}.\n"
+            )),
+            "{rest:?}: {stderr}"
+        );
+        assert!(seen.requests.is_empty());
+        assert_eq!(snapshot(&m), before);
+    }
+}

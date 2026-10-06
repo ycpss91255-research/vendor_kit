@@ -87,6 +87,7 @@ Options:
       --image-path <registry>/<path>
                                     Registry path of a tool not yet in the lock file
   -y, --yes                         Answer yes to the questions add asks
+      --dry-run                     Print the changes without making them
       --registry-token-file <path>  Read a registry token from <path> to list versions
   -h, --help                        Print this help
 
@@ -265,6 +266,7 @@ Finish or redo the VK install in this directory.
 
 Options:
   -y, --yes                         Answer yes to the questions install asks
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 "#]],

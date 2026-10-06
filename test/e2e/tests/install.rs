@@ -597,3 +597,94 @@ fn engine_ref_with_another_path_is_vk0056_without_writes() {
 fn missing_engine_ref_is_vk0056_without_writes() {
     bad_engine_ref(None, "is missing");
 }
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+/// 安裝目錄裡全部的檔與內容（相對路徑、排序），不含 `.vendor_kit/log/`：比對預演前後一個位元組都沒變。
+fn snapshot(m: &Mounts) -> Vec<(String, Option<Vec<u8>>)> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Option<Vec<u8>>)>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let rel = path.strip_prefix(root).unwrap().display().to_string();
+            if rel == ".vendor_kit/log" {
+                continue;
+            }
+            if path.is_dir() {
+                out.push((rel, None));
+                walk(root, &path, out);
+            } else {
+                out.push((rel, Some(fs::read(&path).unwrap())));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&m.root, &m.root, &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn install_dry_run_prints_the_plan_and_writes_only_the_run_log() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(&tmp.path().join("m"));
+    let rel = tmp.path().join("release");
+    release(&rel);
+    fresh(&m);
+    fs::write(m.root.join("justfile"), USER_JUSTFILE).unwrap();
+    let before = snapshot(&m);
+    let engine = engine();
+    let expected = format!(
+        "Would lock the engine to {VERSION} ({engine}).\n\
+         Would write .vendor_kit/entry.just\nWould write .vendor_kit/vendor.just\n\
+         Would write .vendor_kit/log.sh\nWould write .vendor_kit/.gitignore\n\
+         Would append to justfile\nWould create .dockerignore\n\
+         Would create .vendor_kit/config.toml\n\
+         Would install vendor_kit {VERSION} in {HOST_ROOT}.\n\
+         Dry run: no changes were made.\n"
+    );
+    // 沒有終端也不問、不報 VK0002；-y 並用沒有作用。
+    for rest in [
+        &["install", "--dry-run"][..],
+        &["install", "-y", "--dry-run"],
+    ] {
+        new_session(&m);
+        let peer = idle_launcher(&m);
+        let (code, stdout, stderr) = run(&m, Some(&rel), "000", "", rest);
+        let seen = peer.join().unwrap();
+        assert_eq!(code, 0, "stderr: {stderr}");
+        assert_eq!(stderr, "");
+        assert_eq!(stdout, expected);
+        assert!(seen.requests.is_empty());
+        assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+        assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+        assert_eq!(snapshot(&m), before);
+    }
+}
+
+#[test]
+fn dry_run_is_not_accepted_by_other_commands_yet() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(&tmp.path().join("m"));
+    let rel = tmp.path().join("release");
+    release(&rel);
+    fresh(&m);
+    for rest in [
+        &["uninstall", "--dry-run"][..],
+        &["upgrade", "--engine", "--dry-run"],
+        &["install", "--dry-run", "-h"],
+    ] {
+        new_session(&m);
+        let peer = idle_launcher(&m);
+        let (code, stdout, stderr) = run(&m, Some(&rel), "000", "", rest);
+        peer.join().unwrap();
+        assert_eq!(code, 2, "{rest:?}: {stderr}");
+        assert_eq!(stdout, "");
+        assert!(
+            stderr.starts_with(
+                "vendor_kit: error[VK0026]: Unknown, extra, or disallowed argument: --dry-run.\n"
+            ),
+            "{rest:?}: {stderr}"
+        );
+        assert!(vk_tree(&m).is_empty());
+    }
+}

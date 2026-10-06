@@ -46,6 +46,31 @@ pub fn file_line(f: &FilePlan) -> Option<String> {
     Some(format!("{word} {}", f.path))
 }
 
+/// 預演：會導入的版本（`--dry-run`，見 crate 文件「預演」）。
+pub fn would_add(repo: &str, locked: &ImageRef) -> String {
+    format!("Would add {repo} {} ({locked}).", locked.tag())
+}
+
+/// 預演：會一併完成的殘留 `add`。
+pub fn would_recover(repo: &str, locked: &ImageRef) -> String {
+    format!(
+        "Would complete the interrupted add of {repo} {} ({locked}).",
+        locked.tag()
+    )
+}
+
+/// 預演：一個初始檔會寫什麼；沒有寫入的判定回 `None`。
+pub fn would_file_line(f: &FilePlan) -> Option<String> {
+    let word = match f.verdict {
+        Verdict::Create => "create",
+        Verdict::Append => "append to",
+        Verdict::Replace => "update",
+        Verdict::Merge { .. } => "merge",
+        _ => return None,
+    };
+    Some(format!("Would {word} {}", f.path))
+}
+
 /// 一題詢問（`prompt` 會在後面接 ` [y/N] `）。
 pub fn question(repo: &str, path: &str, ask: Ask) -> String {
     match ask {

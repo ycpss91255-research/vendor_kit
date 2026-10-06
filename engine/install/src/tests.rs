@@ -161,11 +161,24 @@ impl Out {
 }
 
 fn run_with(fx: &Fx, release: &Release, yes: bool, interactive: bool, input: &str) -> Out {
-    let argv: Vec<String> = if yes {
-        vec!["install".to_owned(), "-y".to_owned()]
-    } else {
-        vec!["install".to_owned()]
-    };
+    run_opts(fx, release, yes, false, interactive, input)
+}
+
+fn run_opts(
+    fx: &Fx,
+    release: &Release,
+    yes: bool,
+    dry_run: bool,
+    interactive: bool,
+    input: &str,
+) -> Out {
+    let mut argv = vec!["install".to_owned()];
+    if yes {
+        argv.push("-y".to_owned());
+    }
+    if dry_run {
+        argv.push("--dry-run".to_owned());
+    }
     let mut stdin = Cursor::new(input.as_bytes().to_vec());
     let mut stdout = Vec::new();
     let shared = Shared::default();
@@ -198,7 +211,14 @@ fn run_with(fx: &Fx, release: &Release, yes: bool, interactive: bool, input: &st
             diags: &mut diags,
             log: &mut log,
         };
-        run(&Request { yes, release }, &mut env)
+        run(
+            &Request {
+                yes,
+                dry_run,
+                release,
+            },
+            &mut env,
+        )
     };
     Out {
         code,
@@ -963,6 +983,7 @@ fn progress_records_each_root_file_written() {
     };
     let mut run = Run {
         env: &mut env,
+        dry_run: false,
         code: 0,
     };
     let Ok(p) = run.progress(&edits) else {
@@ -1074,4 +1095,87 @@ fn shipped_config_template_reads_as_the_defaults() {
         .collect();
     let c = Config::parse(&uncommented).unwrap();
     assert!(c.runner().is_ok());
+}
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+fn run_dry(fx: &Fx, yes: bool) -> Out {
+    run_opts(fx, &release(), yes, true, false, "")
+}
+
+#[test]
+fn dry_run_fresh_install_prints_the_plan_and_writes_nothing() {
+    let fx = Fx::new();
+    let out = run_dry(&fx, false);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Would lock the engine to v0.0.0 ({ENGINE}).\n\
+             Would write .vendor_kit/entry.just\nWould write .vendor_kit/vendor.just\n\
+             Would write .vendor_kit/log.sh\nWould write .vendor_kit/.gitignore\n\
+             Would create justfile\nWould create .dockerignore\n\
+             Would create .vendor_kit/config.toml\n\
+             Would install vendor_kit {WRITTEN_BY} in /h/proj.\n\
+             Dry run: no changes were made.\n"
+        )
+    );
+    assert!(out.events().is_empty());
+    assert!(fx.tree().is_empty());
+    assert!(!fx.exists(JUSTFILE));
+    assert!(!fx.exists(DOCKERIGNORE));
+    // -y 並用沒有作用。
+    assert_eq!(run_dry(&fx, true).stdout, out.stdout);
+}
+
+#[test]
+fn dry_run_does_not_ask_even_without_a_terminal() {
+    let fx = Fx::new();
+    fx.write(JUSTFILE, USER_JUSTFILE);
+    let out = run_dry(&fx, false);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert!(
+        out.stdout
+            .contains("Would append to justfile\nWould create .dockerignore\n"),
+        "{}",
+        out.stdout
+    );
+    assert!(out.stdout.ends_with("Dry run: no changes were made.\n"));
+    assert!(out.events().is_empty());
+    assert_eq!(fx.read(JUSTFILE), USER_JUSTFILE);
+    assert!(fx.tree().is_empty());
+}
+
+#[test]
+fn dry_run_keeps_the_residual_progress_file() {
+    let fx = Fx::new();
+    fx.residual(INSTALL_VERB, "r0", false);
+    let out = run_dry(&fx, false);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stdout
+            .contains("Would complete the interrupted install.\n"),
+        "{}",
+        out.stdout
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.progress_left(), [INSTALL_VERB]);
+}
+
+#[test]
+fn dry_run_of_an_aligned_install_says_unchanged() {
+    let fx = Fx::new();
+    assert_eq!(run_install(&fx, false, "").code, 0);
+    let before = fx.tree();
+    let out = run_dry(&fx, false);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "vendor_kit is already installed in /h/proj; no changes were made.\n\
+         Dry run: no changes were made.\n"
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.tree(), before);
 }
