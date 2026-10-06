@@ -218,7 +218,7 @@ just vendor_kit <cmd> [arguments] [options]
 
 ### 說明與用法錯誤
 
-判定順序：用法 → 主機前置檢查 → 辨識救援呼叫 → 版本組合（判定順序待 [判定順序討論](https://github.com/ycpss91255-research/vendor_kit/issues/497)定案）。版本組合判定依 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)。
+判定順序：用法 → 主機前置檢查 → 辨識走救援路徑的呼叫 → 版本組合（判定順序待 [判定順序討論](https://github.com/ycpss91255-research/vendor_kit/issues/497)定案）。版本組合判定依 [02 不變量第 10 條](02_invariants.md#10-相容性與演進同一個-x-內不破壞x-變動才可能不相容且先公告)。
 
 以下現行實作行為跟 [判定順序討論](https://github.com/ycpss91255-research/vendor_kit/issues/497)一起送審，尚未定案：版本組合不合又有用法錯誤時，先報版本組合不合，以 `3` 結束；救援候選解析失敗 (如 `upgrade --engine --bogus`) 也如此，不因此擴充救援清單。合文法的救援照舊可用；`install -h`、`upgrade --engine -h`、`sync -h` 在[介面版](../../GLOSSARY.md#介面版與契約)不合時照印用法。
 
@@ -300,7 +300,7 @@ just vendor_kit <cmd> [arguments] [options]
 - 工具來源可以在安裝目錄外：`-p` 接受以 `..` 開頭的相對路徑或其他絕對路徑；啟動器複製進 session 後再驗，保存的值保留使用者寫法。值不是 UTF-8、含單引號、雙引號、反斜線或控制字元，或正規化後為 `/`，就停下
 - `sync`、`upgrade`、`add`、`remove` 重產入口檔時也讀安裝目錄外的覆寫；`add`、`remove` 套用其他工具的覆寫並在 stdout 報告，答否也報
 - `dev --engine -i <image>` 只用本機 image，不 pull；先讀 LABEL，確認引擎支援的介面版範圍（[最低介面版](../../GLOSSARY.md#介面版與契約)到目前介面版）包含薄殼的[介面版](../../GLOSSARY.md#介面版與契約)才寫覆寫，不含時回 VK0085。範圍包含薄殼介面版的較舊引擎也接受；同一 image 回未變更，不同 image 回 VK0050，入口檔不動
-- 待確認 (D18)：啟動器套用引擎覆寫時，本機必須已有 image，不 pull、不讀版本鎖定行旁記載的引擎支援介面版；LABEL 所載引擎支援的介面版範圍（最低介面版到目前介面版）不含薄殼的介面版時回 VK0086。救援呼叫也用覆寫 image，不判介面版；`undev --engine` 用鎖定引擎，bootstrap.sh 不套用覆寫
+- 待確認 (D18)：啟動器套用引擎覆寫時，本機必須已有 image，不 pull、不讀[介面版列表](../../GLOSSARY.md#介面版與契約)；LABEL 所載引擎支援的介面版範圍（最低介面版到目前介面版）不含薄殼的介面版時回 VK0086。走救援路徑的呼叫也用覆寫 image，不判介面版；`undev --engine` 用鎖定引擎，bootstrap.sh 不套用覆寫
 - 用了引擎覆寫時，由引擎在輸出中報告
 - 待確認 (O1)：覆寫存在、版本鎖定行卻沒有對應工具時，`add`、`remove`、`sync`、`upgrade` 目前都先以 VK0056 停下，`test` 報 VK0071；是否允許修復未定
 - 待確認 (O2)：`add` 先讀全部覆寫，任一來源失效時，即使該工具已加入且未變更，也報 VK0052
@@ -330,7 +330,7 @@ just vendor_kit <cmd> [arguments] [options]
 第二次呼叫答否，不撤回第一次已完成的換引擎，第一段的鎖定行與進度檔不動。
 
 - 鎖定行已是目標版、沒有進度檔，但薄殼或 VK 檔仍是舊版時，直接做第二段；全部已是這一版才回未變更
-- 第二段重產不一致的薄殼；`gen/.stamp` 不同才寫；VK 檔升到本引擎的[檔案版](../../GLOSSARY.md#介面版與契約)上限，版本鎖定行旁記載的引擎支援介面版改為本引擎支援的介面版範圍（最低介面版到目前介面版）
+- 第二段重產不一致的薄殼；`gen/.stamp` 不同才寫；VK 檔升到本引擎的[檔案版](../../GLOSSARY.md#介面版與契約)上限，[介面版列表](../../GLOSSARY.md#介面版與契約)改為本引擎支援的介面版範圍（最低介面版到目前介面版）
 - `config.toml` 換版在第二段：新版等於基準版就不動、不問；使用者沒改過先問換版，雙方都改過先問合併；使用者刪了就不重建、記 `deleted`。題目併入第二段的一次問完；解析失敗的例外見[寫入既有檔的例外](#寫入既有檔的例外)
 - 第一段在進度檔已建、鎖定行未換時中斷，重跑原指令照進度檔的目標重做第一段，再報 VK0023；不帶 tag 也不列 registry
 - 引擎升版不讀 token 檔
@@ -433,7 +433,7 @@ vendor_kit current: v1.4.0 latest: v1.4.0
 VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 寫出的版本鎖定行必須能由它辨識與修改。
 
 - `customType: "regex"`；`managerFilePatterns` 只比對 `.vendor_kit/version.toml`，不含 `version.local.toml`
-- `matchStrings` 一條抓行首裸鍵及 `"ghcr.io/<路徑>:vX.Y.Z@sha256:<64 hex>"`，群組為 `depName`、`currentValue`、`currentDigest`；不抓 `vendor_kit_protocols` 那一行
+- `matchStrings` 一條抓行首裸鍵及 `"ghcr.io/<路徑>:vX.Y.Z@sha256:<64 hex>"`，群組為 `depName`、`currentValue`、`currentDigest`；不抓[介面版列表](../../GLOSSARY.md#介面版與契約)（`vendor_kit_protocols` 那一行）
 - `datasourceTemplate: "docker"`；versioning 只收沒有前導零的 `vX.Y.Z`
 - preset 目前放在 [Renovate preset](../../test/renovate/preset.json)，正式發布位置未定
 - 引擎 PR 在 PR 分支跑 `just vendor_kit upgrade --engine=<鎖定行 tag> -y`，commit 後 CI 通過才 merge
