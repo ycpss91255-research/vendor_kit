@@ -491,12 +491,12 @@ fn unmodified_init_file_is_replaced_and_its_hash_follows() {
 #[test]
 fn merge_conflict_leaves_markers_and_warns_vk0021() {
     let fx = Fx::new();
-    fx.managed("tool.toml", "v = 1\n", "v = mine\n");
+    fx.managed("tool.conf", "v = 1\n", "v = mine\n");
     let peer = Peer::start(&fx, NEW);
     let out = run_upgrade(
         &fx,
         &UPGRADE_Y,
-        vec![whole("tool.toml", "v = 2\n")],
+        vec![whole("tool.conf", "v = 2\n")],
         tty(false),
         "",
     );
@@ -504,14 +504,75 @@ fn merge_conflict_leaves_markers_and_warns_vk0021() {
     assert_eq!(out.code, 1, "{}", out.stderr);
     assert_eq!(
         out.stderr,
-        "vendor_kit: warn[VK0021]: tool.toml contains merge conflicts. Review and resolve them: git status\n"
+        "vendor_kit: warn[VK0021]: tool.conf contains merge conflicts. Review and resolve them: git status\n"
     );
-    let merged = fx.read("tool.toml");
+    let merged = fx.read("tool.conf");
     assert!(merged.contains("<<<<<<<"), "{merged}");
     assert!(merged.contains("v = mine"), "{merged}");
     assert!(merged.contains("v = 2"), "{merged}");
     // 合併留下衝突時基準版照樣推到新版。
-    assert_eq!(fx.baseline("tool.toml"), "v = 2\n");
+    assert_eq!(fx.baseline("tool.conf"), "v = 2\n");
+    let meta = Metadata::load(&metadata::tool_path(&fx.dir, "tool").unwrap()).unwrap();
+    assert!(meta.conflicts().is_empty(), "{:?}", meta.conflicts());
+    assert_landed(&fx);
+}
+
+#[test]
+fn unparsable_toml_merge_keeps_the_file_and_records_conflicts() {
+    let fx = Fx::new();
+    fx.managed("config.toml", "v = 1\n", "v = \"mine\"\n");
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(
+        &fx,
+        &UPGRADE_Y,
+        vec![whole("config.toml", "v = 2\n")],
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        format!(
+            "{}Kept config.toml: the merged version is not valid TOML; recorded in conflicts\n",
+            upgraded_line()
+        )
+    );
+    // 留原檔、該檔基準版不推、記入 metadata `conflicts`（scope_roadmap:32）。
+    assert_eq!(fx.read("config.toml"), "v = \"mine\"\n");
+    assert_eq!(fx.baseline("config.toml"), "v = 1\n");
+    let meta = Metadata::load(&metadata::tool_path(&fx.dir, "tool").unwrap()).unwrap();
+    assert_eq!(meta.conflicts(), ["config.toml"]);
+    assert_landed(&fx);
+}
+
+#[test]
+fn successful_merge_clears_a_recorded_conflict() {
+    let fx = Fx::new();
+    fx.managed(
+        "config.toml",
+        "a = 1\nb = 2\nc = 3\n",
+        "a = 1\nb = 2\nc = 3\nmine = 1\n",
+    );
+    let meta_path = metadata::tool_path(&fx.dir, "tool").unwrap();
+    let mut meta = Metadata::load(&meta_path).unwrap();
+    meta.set_conflict("config.toml", true).unwrap();
+    meta.save(&meta_path, WRITTEN_BY).unwrap();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(
+        &fx,
+        &UPGRADE_Y,
+        vec![whole("config.toml", "a = 10\nb = 2\nc = 3\n")],
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(fx.read("config.toml"), "a = 10\nb = 2\nc = 3\nmine = 1\n");
+    assert_eq!(fx.baseline("config.toml"), "a = 10\nb = 2\nc = 3\n");
+    let meta = Metadata::load(&meta_path).unwrap();
+    assert!(meta.conflicts().is_empty(), "{:?}", meta.conflicts());
     assert_landed(&fx);
 }
 

@@ -2,7 +2,7 @@
 //! 契約沒定字句，這裡是第一版的寫法。
 
 use imageref::{ImageRef, Tag};
-use initfiles::{Ask, FilePlan, Gap, Verdict};
+use initfiles::{Ask, FilePlan, Gap, Syntax, Verdict};
 
 /// 答否的正常取消（03 輸出：不做變更，在 stdout 說明未變更）。
 pub const NO_CHANGES: &str = "No changes were made.";
@@ -41,6 +41,16 @@ pub fn file_line(f: &FilePlan) -> Option<String> {
         Verdict::Append => "Appended to",
         Verdict::Replace => "Updated",
         Verdict::Merge { .. } => "Merged",
+        Verdict::Unparsable { syntax, .. } => {
+            let kind = match syntax {
+                Syntax::Toml => "TOML",
+                Syntax::Just => "just",
+            };
+            return Some(format!(
+                "Kept {}: the merged version is not valid {kind}; recorded in conflicts",
+                f.path
+            ));
+        }
         _ => return None,
     };
     Some(format!("{word} {}", f.path))

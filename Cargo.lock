@@ -401,6 +401,7 @@ dependencies = [
  "merge",
  "messages",
  "metadata",
+ "toml_edit",
 ]
 
 [[package]]

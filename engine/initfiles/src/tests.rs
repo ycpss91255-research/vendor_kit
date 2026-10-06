@@ -81,7 +81,7 @@ const NEW: &str = "a\nb\nc\nd\nE\n";
 #[test]
 fn absent_file_is_created_without_asking() {
     let plan = Repo::default()
-        .plan(Command::Add, &[whole("ci.toml", NEW)], &Metadata::new())
+        .plan(Command::Add, &[whole("ci.txt", NEW)], &Metadata::new())
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::Create);
@@ -110,24 +110,24 @@ fn upgrade_creates_new_init_file_that_is_absent() {
 
 #[test]
 fn add_existing_whole_file_is_left_unmanaged_with_vk0018() {
-    let repo = Repo::default().file("ci.toml", "mine\n");
+    let repo = Repo::default().file("ci.txt", "mine\n");
     let plan = repo
-        .plan(Command::Add, &[whole("ci.toml", NEW)], &Metadata::new())
+        .plan(Command::Add, &[whole("ci.txt", NEW)], &Metadata::new())
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::Existing);
     assert_eq!(p.write, None);
     assert_eq!(p.baseline, None);
     assert_eq!(p.ask, None);
-    assert_eq!(p.record, Some(record("ci.toml", State::Unmanaged)));
+    assert_eq!(p.record, Some(record("ci.txt", State::Unmanaged)));
     assert_eq!(p.message(), Some(&messages::VK0018));
 }
 
 #[test]
 fn upgrade_existing_whole_file_without_record_is_a_gap() {
-    let repo = Repo::default().file("ci.toml", "mine\n");
+    let repo = Repo::default().file("ci.txt", "mine\n");
     let plan = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &Metadata::new())
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &Metadata::new())
         .unwrap();
     assert_eq!(only(&plan).verdict, Verdict::Gap(Gap::ExistingOnUpgrade));
     assert_eq!(only(&plan).record, None);
@@ -241,9 +241,9 @@ fn append_of_non_utf8_is_an_error() {
 
 #[test]
 fn add_with_existing_record_is_a_gap() {
-    let md = metadata(vec![record("ci.toml", State::Managed)]);
+    let md = metadata(vec![record("ci.txt", State::Managed)]);
     let plan = Repo::default()
-        .plan(Command::Add, &[whole("ci.toml", NEW)], &md)
+        .plan(Command::Add, &[whole("ci.txt", NEW)], &md)
         .unwrap();
     assert_eq!(only(&plan).verdict, Verdict::Gap(Gap::RecordOnAdd));
 }
@@ -252,7 +252,7 @@ fn add_with_existing_record_is_a_gap() {
 // managed
 
 fn managed_md() -> Metadata {
-    let mut r = record("ci.toml", State::Managed);
+    let mut r = record("ci.txt", State::Managed);
     r.hash = Some(FileHash::of(BASE.as_bytes()));
     metadata(vec![r])
 }
@@ -260,12 +260,12 @@ fn managed_md() -> Metadata {
 #[test]
 fn managed_with_unchanged_upstream_is_left_alone() {
     let repo = Repo::default()
-        .file("ci.toml", "mine\n")
-        .base("ci.toml", BASE);
+        .file("ci.txt", "mine\n")
+        .base("ci.txt", BASE);
     let plan = repo
         .plan(
             Command::Upgrade,
-            &[whole("ci.toml", "a\r\nb\r\nc\r\nd\r\ne\r\n")],
+            &[whole("ci.txt", "a\r\nb\r\nc\r\nd\r\ne\r\n")],
             &managed_md(),
         )
         .unwrap();
@@ -279,9 +279,9 @@ fn managed_with_unchanged_upstream_is_left_alone() {
 
 #[test]
 fn managed_unchanged_by_user_asks_to_replace() {
-    let repo = Repo::default().file("ci.toml", BASE).base("ci.toml", BASE);
+    let repo = Repo::default().file("ci.txt", BASE).base("ci.txt", BASE);
     let plan = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &managed_md())
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &managed_md())
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::Replace);
@@ -300,10 +300,10 @@ fn managed_unchanged_by_user_asks_to_replace() {
 #[test]
 fn crlf_only_edit_counts_as_unchanged_and_keeps_line_endings() {
     let repo = Repo::default()
-        .file("ci.toml", "a\r\nb\r\nc\r\nd\r\ne\r\n")
-        .base("ci.toml", BASE);
+        .file("ci.txt", "a\r\nb\r\nc\r\nd\r\ne\r\n")
+        .base("ci.txt", BASE);
     let plan = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &managed_md())
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &managed_md())
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::Replace);
@@ -314,10 +314,10 @@ fn crlf_only_edit_counts_as_unchanged_and_keeps_line_endings() {
 #[test]
 fn managed_changed_on_both_sides_asks_to_merge() {
     let repo = Repo::default()
-        .file("ci.toml", "A\nb\nc\nd\ne\n")
-        .base("ci.toml", BASE);
+        .file("ci.txt", "A\nb\nc\nd\ne\n")
+        .base("ci.txt", BASE);
     let plan = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &managed_md())
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &managed_md())
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::Merge { conflicts: None });
@@ -331,10 +331,10 @@ fn managed_changed_on_both_sides_asks_to_merge() {
 #[test]
 fn merge_conflict_writes_markers_pushes_baseline_and_reports_vk0021() {
     let repo = Repo::default()
-        .file("ci.toml", "a\nb\nc\nd\nmine\n")
-        .base("ci.toml", BASE);
+        .file("ci.txt", "a\nb\nc\nd\nmine\n")
+        .base("ci.txt", BASE);
     let plan = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &managed_md())
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &managed_md())
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::Merge { conflicts: Some(1) });
@@ -344,11 +344,173 @@ fn merge_conflict_writes_markers_pushes_baseline_and_reports_vk0021() {
     assert_eq!(p.message(), Some(&messages::VK0021));
 }
 
+/// `path` 的 `managed` 紀錄（hash 是基準版的）。
+fn managed_at(path: &str, base: &str) -> Metadata {
+    let mut r = record(path, State::Managed);
+    r.hash = Some(FileHash::of(base.as_bytes()));
+    metadata(vec![r])
+}
+
+/// 只有 `path` 一個 `managed` 初始檔的 upgrade 判定。
+fn upgrade_one(path: &str, base: &str, now: &str, new: &str) -> FilePlan {
+    let repo = Repo::default().file(path, now).base(path, base);
+    let plan = repo
+        .plan(
+            Command::Upgrade,
+            &[whole(path, new)],
+            &managed_at(path, base),
+        )
+        .unwrap();
+    only(&plan).clone()
+}
+
+#[test]
+fn unparsable_toml_merge_keeps_the_file_and_records_conflicts() {
+    let p = upgrade_one("config.toml", "v = 1\n", "v = \"mine\"\n", "v = 2\n");
+    assert_eq!(
+        p.verdict,
+        Verdict::Unparsable {
+            syntax: Syntax::Toml,
+            conflicts: Some(1)
+        }
+    );
+    // 留原檔、不問、基準版不推、記入 `conflicts`（scope_roadmap:32）。
+    assert_eq!((p.ask, &p.write, &p.baseline), (None, &None, &None));
+    assert_eq!(p.record, None);
+    assert_eq!(p.conflict, Some(true));
+    assert_eq!(p.message(), None);
+}
+
+#[test]
+fn nested_toml_path_is_checked_too() {
+    let p = upgrade_one("etc/tool.toml", "v = 1\n", "v = 3\n", "v = 2\n");
+    assert!(matches!(p.verdict, Verdict::Unparsable { .. }), "{p:?}");
+}
+
+#[test]
+fn clean_toml_merge_that_does_not_parse_is_kept() {
+    // 兩邊各自加了同一個鍵：合併乾淨，但 TOML 不准重複的鍵。
+    let p = upgrade_one(
+        "config.toml",
+        "a = 1\nb = 2\nc = 3\nd = 4\n",
+        "x = 1\na = 1\nb = 2\nc = 3\nd = 4\n",
+        "a = 1\nb = 2\nc = 3\nd = 4\nx = 2\n",
+    );
+    assert_eq!(
+        p.verdict,
+        Verdict::Unparsable {
+            syntax: Syntax::Toml,
+            conflicts: None
+        }
+    );
+    assert_eq!(
+        (&p.write, &p.baseline, p.conflict),
+        (&None, &None, Some(true))
+    );
+}
+
+#[test]
+fn toml_that_parses_after_merge_is_written_and_clears_conflicts() {
+    let p = upgrade_one(
+        "config.toml",
+        "a = 1\nb = 2\nc = 3\n",
+        "a = 1\nb = 2\nc = 3\nmine = 1\n",
+        "a = 10\nb = 2\nc = 3\n",
+    );
+    assert_eq!(p.verdict, Verdict::Merge { conflicts: None });
+    assert_eq!(after(&p), "a = 10\nb = 2\nc = 3\nmine = 1\n");
+    assert_eq!(
+        p.baseline.as_deref(),
+        Some(b"a = 10\nb = 2\nc = 3\n".as_slice())
+    );
+    assert_eq!(p.conflict, Some(false));
+
+    let p = upgrade_one("config.toml", "v = 1\n", "v = 1\n", "v = 2\n");
+    assert_eq!(p.verdict, Verdict::Replace);
+    assert_eq!(p.conflict, Some(false));
+}
+
+#[test]
+fn non_utf8_toml_result_does_not_parse() {
+    let bad = merge::Outcome::Clean(b"a = \"\xff\"\n".to_vec());
+    assert!(!parses(Syntax::Toml, &bad));
+    assert!(parses(
+        Syntax::Toml,
+        &merge::Outcome::Clean(b"a = 1\n".to_vec())
+    ));
+}
+
+#[test]
+fn justfile_conflict_is_kept_and_clean_justfile_merge_is_written() {
+    for path in [
+        "justfile",
+        "Justfile",
+        ".justfile",
+        "sub/JUSTFILE",
+        "just/tool.just",
+    ] {
+        let p = upgrade_one(
+            path,
+            "a:\n    echo 1\n",
+            "a:\n    echo mine\n",
+            "a:\n    echo 2\n",
+        );
+        assert_eq!(
+            p.verdict,
+            Verdict::Unparsable {
+                syntax: Syntax::Just,
+                conflicts: Some(1)
+            },
+            "{path}"
+        );
+        assert_eq!(
+            (&p.write, &p.baseline, p.conflict),
+            (&None, &None, Some(true)),
+            "{path}"
+        );
+    }
+    // just 不在 image 裡，乾淨合併的 just 檔不驗語法，照常寫入。
+    let p = upgrade_one(
+        "justfile",
+        "a:\n    echo 1\n\nb:\n    echo b\n\nc:\n    echo 1\n",
+        "a:\n    echo mine\n\nb:\n    echo b\n\nc:\n    echo 1\n",
+        "a:\n    echo 1\n\nb:\n    echo b\n\nc:\n    echo 2\n",
+    );
+    assert_eq!(p.verdict, Verdict::Merge { conflicts: None });
+    assert_eq!(
+        after(&p),
+        "a:\n    echo mine\n\nb:\n    echo b\n\nc:\n    echo 2\n"
+    );
+    assert_eq!(p.conflict, Some(false));
+}
+
+#[test]
+fn other_files_with_conflicts_still_get_markers_and_push_the_baseline() {
+    let p = upgrade_one("README.md", "v 1\n", "v mine\n", "v 2\n");
+    assert_eq!(p.verdict, Verdict::Merge { conflicts: Some(1) });
+    assert!(after(&p).contains(merge::CONFLICT_MARKER), "{}", after(&p));
+    assert_eq!(p.baseline.as_deref(), Some(b"v 2\n".as_slice()));
+    assert_eq!(p.conflict, Some(false));
+    assert_eq!(p.message(), Some(&messages::VK0021));
+}
+
+#[test]
+fn syntax_is_chosen_by_path() {
+    assert_eq!(syntax("config.toml"), Some(Syntax::Toml));
+    assert_eq!(syntax("a/b.toml"), Some(Syntax::Toml));
+    assert_eq!(syntax("justfile"), Some(Syntax::Just));
+    assert_eq!(syntax("x/.JustFile"), Some(Syntax::Just));
+    assert_eq!(syntax("tool.just"), Some(Syntax::Just));
+    assert_eq!(syntax("toml"), None);
+    assert_eq!(syntax("justfile.md"), None);
+    assert_eq!(syntax("README.md"), None);
+}
+
 #[test]
 fn managed_already_equal_to_new_is_a_gap() {
-    let repo = Repo::default().file("ci.toml", NEW).base("ci.toml", BASE);
+    let repo = Repo::default().file("ci.txt", NEW).base("ci.txt", BASE);
     let plan = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &managed_md())
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &managed_md())
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::Gap(Gap::CurrentIsNew));
@@ -357,9 +519,9 @@ fn managed_already_equal_to_new_is_a_gap() {
 
 #[test]
 fn managed_deleted_by_user_is_not_recreated() {
-    let repo = Repo::default().base("ci.toml", BASE);
+    let repo = Repo::default().base("ci.txt", BASE);
     let plan = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &managed_md())
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &managed_md())
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::UserDeleted);
@@ -372,21 +534,21 @@ fn managed_deleted_by_user_is_not_recreated() {
 
 #[test]
 fn managed_without_baseline_copy_stops() {
-    let repo = Repo::default().file("ci.toml", BASE);
+    let repo = Repo::default().file("ci.txt", BASE);
     let err = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &managed_md())
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &managed_md())
         .unwrap_err();
-    assert!(matches!(err, Error::BaselineMissing { ref path } if path == "ci.toml"));
+    assert!(matches!(err, Error::BaselineMissing { ref path } if path == "ci.txt"));
     assert_eq!(err.message(), None);
 }
 
 #[test]
 fn managed_switched_to_append_is_a_gap() {
-    let repo = Repo::default().file("ci.toml", BASE).base("ci.toml", BASE);
+    let repo = Repo::default().file("ci.txt", BASE).base("ci.txt", BASE);
     let plan = repo
         .plan(
             Command::Upgrade,
-            &[appended("ci.toml", "x\n")],
+            &[appended("ci.txt", "x\n")],
             &managed_md(),
         )
         .unwrap();
@@ -449,10 +611,10 @@ fn appended_switched_to_whole_is_a_gap() {
 
 #[test]
 fn unmanaged_is_not_processed_with_vk0019() {
-    let md = metadata(vec![record("ci.toml", State::Unmanaged)]);
-    let repo = Repo::default().file("ci.toml", "mine\n");
+    let md = metadata(vec![record("ci.txt", State::Unmanaged)]);
+    let repo = Repo::default().file("ci.txt", "mine\n");
     let plan = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &md)
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &md)
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::Unmanaged);
@@ -465,13 +627,13 @@ fn unmanaged_is_not_processed_with_vk0019() {
 
 #[test]
 fn declined_same_version_is_not_asked_again_with_vk0020() {
-    let mut r = record("ci.toml", State::Declined);
+    let mut r = record("ci.txt", State::Declined);
     r.declined_hash = Some(FileHash::of(b"a\r\nb\r\nc\r\nd\r\nE\r\n"));
-    let repo = Repo::default().file("ci.toml", BASE).base("ci.toml", BASE);
+    let repo = Repo::default().file("ci.txt", BASE).base("ci.txt", BASE);
     let plan = repo
         .plan(
             Command::Upgrade,
-            &[whole("ci.toml", NEW)],
+            &[whole("ci.txt", NEW)],
             &metadata(vec![r]),
         )
         .unwrap();
@@ -509,9 +671,9 @@ fn declined_other_version_or_no_hash_is_a_gap() {
 
 #[test]
 fn deleted_stays_deleted() {
-    let md = metadata(vec![record("ci.toml", State::Deleted)]);
+    let md = metadata(vec![record("ci.txt", State::Deleted)]);
     let plan = Repo::default()
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &md)
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &md)
         .unwrap();
     let p = only(&plan);
     assert_eq!(p.verdict, Verdict::StillDeleted);
@@ -521,10 +683,10 @@ fn deleted_stays_deleted() {
 
 #[test]
 fn deleted_file_that_reappeared_is_a_gap() {
-    let md = metadata(vec![record("ci.toml", State::Deleted)]);
-    let repo = Repo::default().file("ci.toml", "again\n");
+    let md = metadata(vec![record("ci.txt", State::Deleted)]);
+    let repo = Repo::default().file("ci.txt", "again\n");
     let plan = repo
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &md)
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &md)
         .unwrap();
     assert_eq!(only(&plan).verdict, Verdict::Gap(Gap::DeletedReappeared));
 }
@@ -536,10 +698,10 @@ fn deleted_file_that_reappeared_is_a_gap() {
 fn file_no_longer_provided_is_a_gap_after_the_inputs() {
     let md = metadata(vec![
         record("gone", State::Managed),
-        record("ci.toml", State::Unmanaged),
+        record("ci.txt", State::Unmanaged),
     ]);
     let plan = Repo::default()
-        .plan(Command::Upgrade, &[whole("ci.toml", NEW)], &md)
+        .plan(Command::Upgrade, &[whole("ci.txt", NEW)], &md)
         .unwrap();
     let verdicts: Vec<_> = plan
         .files
@@ -549,7 +711,7 @@ fn file_no_longer_provided_is_a_gap_after_the_inputs() {
     assert_eq!(
         verdicts,
         vec![
-            ("ci.toml", Verdict::Unmanaged),
+            ("ci.txt", Verdict::Unmanaged),
             ("gone", Verdict::Gap(Gap::NoLongerProvided)),
         ]
     );
@@ -638,7 +800,7 @@ fn read_errors_propagate_with_side() {
 
     let err = plan(
         Command::Upgrade,
-        &[whole("ci.toml", NEW)],
+        &[whole("ci.txt", NEW)],
         &managed_md(),
         |_| Ok(Some(BASE.as_bytes().to_vec())),
         failing,
@@ -651,7 +813,7 @@ fn read_errors_propagate_with_side() {
             ..
         }
     ));
-    assert!(err.to_string().contains("ci.toml"), "{err}");
+    assert!(err.to_string().contains("ci.txt"), "{err}");
 }
 
 #[test]

@@ -25,7 +25,9 @@
 //!    （這個工具的 metadata、基準版副本、其他紀錄檔裡同一個路徑的 hash）、`gen/tools.just`（開著覆寫的工具
 //!    那幾行指向本機開發來源），最後才寫版本鎖定行（04 成對與無害第 3 點），再刪進度檔。
 //! 10. stdout 先報告用了哪個覆寫，再列出改了什麼，以及不刪、不重建的初始檔清單（04 寫入既有檔的例外）；
-//!     初始檔的警告（VK0019、VK0020、VK0021）照印。
+//!     初始檔的警告（VK0019、VK0020、VK0021）照印。合併結果是 TOML／just 而解析不過的檔
+//!     （`initfiles` 的 `Verdict::Unparsable`，scope_roadmap:32）留原檔、基準版不推、記進這個工具 metadata
+//!     的 `conflicts`，stdout 說明留了原檔；合併寫入成功的檔從 `conflicts` 拿掉。
 //!
 //! # 本機覆寫
 //!
@@ -78,6 +80,8 @@
 //! - 已知偏離：恢復殘留 `upgrade` 的寫入排在這次的詢問之前，04 共同選項要先問完再寫（含恢復）。能恢復
 //!   的只有沒寫初始檔的那種，恢復本身沒有要問的事；同 engine/add。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）；dist 格式不符（G2）、指紋不符（G1）沒有代碼。
+//! - 合併結果解析不過、留了原檔的初始檔沒有訊息表代碼，對外結束碼也沒定（VK0021 說檔裡含有衝突，
+//!   不能借用）：這一版只在 stdout 說明，照常以 0 結束（ADR-0003 的補寫待定）。
 //!
 //! 這裡不直接碰 docker：docker 動作一律是 `plan` 協定的 op，由啟動器代做。
 
@@ -731,6 +735,13 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                     return Err(self.internal(e.to_string()));
                 }
                 meta_changed = true;
+            }
+            // 合併結果解析不過的檔記入 `conflicts`，合併寫入成功的拿掉（scope_roadmap:32）。
+            if let Some(conflicted) = f.conflict {
+                match meta.set_conflict(&f.path, conflicted) {
+                    Ok(changed) => meta_changed |= changed,
+                    Err(e) => return Err(self.internal(e.to_string())),
+                }
             }
         }
         // 換版、合併不換紀錄（`FilePlan::record` 是 `None`）：每一份含這個路徑的紀錄檔都以同一份
