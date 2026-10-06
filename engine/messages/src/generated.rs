@@ -63,7 +63,7 @@ pub const VK0009: Message = Message {
     code: "VK0009",
     level: Level::Fatal,
     disposition: Some(Disposition::Pending),
-    sources: &[Source::Launcher],
+    sources: &[Source::Engine, Source::Launcher],
     text: "Shell interface version <P_shell> is older than required for general recipes in engine <vY>. Run first: just vendor_kit upgrade --engine",
 };
 
@@ -208,7 +208,7 @@ pub const VK0030: Message = Message {
     level: Level::Error,
     disposition: Some(Disposition::Failed),
     sources: &[Source::Engine],
-    text: "Cannot add <repo>: namespace <ns> is already used by <owner>.",
+    text: "Namespace <ns> for <repo> is already used by <owner>.",
 };
 
 pub const VK0031: Message = Message {
@@ -399,7 +399,7 @@ pub const VK0054: Message = Message {
     code: "VK0054",
     level: Level::Error,
     disposition: Some(Disposition::Pending),
-    sources: &[Source::Engine, Source::Test],
+    sources: &[Source::Bootstrap, Source::Engine, Source::Test],
     text: "Operation <operation> in <install_dir> is incomplete. Run again: <original_command>",
 };
 
@@ -507,6 +507,166 @@ pub const VK0067: Message = Message {
     text: "Tests failed for <path>. Review the runner output, fix the failing tests, and retry.\nRunner exit code: <runner_exit_code>.",
 };
 
+pub const VK0068: Message = Message {
+    code: "VK0068",
+    level: Level::Error,
+    disposition: Some(Disposition::Pending),
+    sources: &[Source::Engine],
+    text: "Installed tools are missing cache/ directories: <repos>. Run: just vendor_kit sync",
+};
+
+pub const VK0069: Message = Message {
+    code: "VK0069",
+    level: Level::Error,
+    disposition: Some(Disposition::Pending),
+    sources: &[Source::Engine],
+    text: "Writing <file> did not complete: <reason>. Run again: <original_command>",
+};
+
+pub const VK0070: Message = Message {
+    code: "VK0070",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Bootstrap, Source::Engine, Source::Launcher, Source::Test],
+    text: "Version file <file> is not canonical: <reason>. The requested operation did not complete.",
+};
+
+pub const VK0071: Message = Message {
+    code: "VK0071",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine, Source::Test],
+    text: "Local override for tool <repo> has no corresponding lock version line. The requested operation did not complete.",
+};
+
+pub const VK0072: Message = Message {
+    code: "VK0072",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine, Source::Test],
+    text: "Cannot parse .vendor_kit/config.toml: <reason>. Fix the syntax and retry.",
+};
+
+pub const VK0073: Message = Message {
+    code: "VK0073",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "Cannot read <file>: <reason>. The requested operation did not complete.",
+};
+
+pub const VK0074: Message = Message {
+    code: "VK0074",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "Content for <repo> at version <tag> differs from the existing stamp. The requested operation did not complete.",
+};
+
+pub const VK0075: Message = Message {
+    code: "VK0075",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine, Source::Test],
+    text: "Invalid tool delivery format for <repo>: <reason>. The requested operation did not complete.",
+};
+
+pub const VK0076: Message = Message {
+    code: "VK0076",
+    level: Level::Fatal,
+    disposition: Some(Disposition::Pending),
+    sources: &[Source::Engine, Source::Launcher],
+    text: "Shell interface version <P_shell> exceeds the maximum <P_current> accepted by engine <vY>. Run: just vendor_kit upgrade --engine",
+};
+
+pub const VK0077: Message = Message {
+    code: "VK0077",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Bootstrap, Source::Engine, Source::Launcher],
+    text: "<operation> failed: <reason>. The requested operation did not complete.",
+};
+
+pub const VK0078: Message = Message {
+    code: "VK0078",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "Tag <tag> for <repo> resolves to different digests: <digests>. The requested operation did not complete.",
+};
+
+pub const VK0079: Message = Message {
+    code: "VK0079",
+    level: Level::Error,
+    disposition: Some(Disposition::Pending),
+    sources: &[Source::Engine],
+    text: "Shell files match an older engine template. Run: <upgrade_command>",
+};
+
+pub const VK0080: Message = Message {
+    code: "VK0080",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Launcher],
+    text: "The interface version range of engine image <image> differs from the interface version list in version.toml. The engine was not started.",
+};
+
+pub const VK0081: Message = Message {
+    code: "VK0081",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Bootstrap, Source::Launcher],
+    text: "Docker daemon configuration <mode> is unsupported. Switch to supported rootful or rootless Docker and retry.",
+};
+
+pub const VK0082: Message = Message {
+    code: "VK0082",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Bootstrap, Source::Launcher],
+    text: "Docker capability check failed: <reason>. Fix the environment and retry.",
+};
+
+pub const VK0083: Message = Message {
+    code: "VK0083",
+    level: Level::Error,
+    disposition: Some(Disposition::Pending),
+    sources: &[Source::Bootstrap],
+    text: "Uninstall is incomplete. Run: <completion_command>",
+};
+
+pub const VK0084: Message = Message {
+    code: "VK0084",
+    level: Level::Error,
+    disposition: Some(Disposition::Pending),
+    sources: &[Source::Engine],
+    text: "Appending to existing unmanaged file <file> requires confirmation, but -y does not answer this prompt and interaction is unavailable. Run from a terminal: <original_command>",
+};
+
+pub const VK0085: Message = Message {
+    code: "VK0085",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "Local engine image <image> accepts interface versions <P_floor> through <P_current>, excluding shell version <P_shell>. The local override was not enabled. Use an image whose range includes <P_shell>.",
+};
+
+pub const VK0086: Message = Message {
+    code: "VK0086",
+    level: Level::Fatal,
+    disposition: Some(Disposition::Pending),
+    sources: &[Source::Launcher],
+    text: "Local override image <image> accepts interface versions <P_floor> through <P_current>, excluding shell version <P_shell>. Remove the override before selecting a compatible image: just vendor_kit undev --engine",
+};
+
+pub const VK0087: Message = Message {
+    code: "VK0087",
+    level: Level::Warn,
+    disposition: None,
+    sources: &[Source::Engine],
+    text: "The baseline merge result for <file> cannot be parsed. The original file and baseline were retained, and the path was recorded in conflicts. Handle it manually.",
+};
+
 /// Every active code, in ascending order.
 pub const ALL: &[Message] = &[
     VK0001,
@@ -572,4 +732,24 @@ pub const ALL: &[Message] = &[
     VK0065,
     VK0066,
     VK0067,
+    VK0068,
+    VK0069,
+    VK0070,
+    VK0071,
+    VK0072,
+    VK0073,
+    VK0074,
+    VK0075,
+    VK0076,
+    VK0077,
+    VK0078,
+    VK0079,
+    VK0080,
+    VK0081,
+    VK0082,
+    VK0083,
+    VK0084,
+    VK0085,
+    VK0086,
+    VK0087,
 ];
