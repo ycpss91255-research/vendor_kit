@@ -17,8 +17,10 @@
 //!    沒有就是沒有初始檔）交給 `retract`，收齊這次全部的詢問。紀錄自相矛盾（非 `appended` 卻有 `lines`、
 //!    `appended` 卻沒有 `lines`）時不收回：每份這樣的紀錄檔各回一則 VK0013（`<file>` 是那份紀錄檔；
 //!    #372 N86 擴的情境，契約文字待補），在詢問與任何寫入之前停下。`uninstall` 相同。
-//! 6. `prompt` 一次問完（04 共同選項：全部同意才寫入，含恢復舊操作）：答否是正常取消（stdout 說明未變更，
-//!    以 0 結束）；不能互動回 VK0002，除執行紀錄外不寫任何檔。
+//! 6. `prompt` 一次問完（04 共同選項：全部同意才寫入，含恢復舊操作）；帶 `-y` 全部同意、不問。答否是正常
+//!    取消（stdout 說明未變更，以 0 結束）；不能互動回 VK0002，除執行紀錄外不寫任何檔。`-y` 只回答
+//!    `retract` 收齊的詢問，不擴大收回範圍（04 收回插入的行）：hash 不符、原文不唯一或缺紀錄的行本來就不問，
+//!    帶 `-y` 也照樣只列不刪。
 //! 7. 經 `txn` 的收回順序落地：收回插入行後的 repo 檔 → 重產 `gen/tools.just`（拿掉對象的 `<ns>`，
 //!    其他工具的 `<ns>` 讀 `cache/<repo>/`，開著覆寫的讀本機開發來源）→ 仍保留的紀錄檔（其他工具與 `baseline/.vendor_kit.toml`
 //!    裡同一個檔的紀錄跟著換成寫入後的 hash，ADR-0003；對象開著本機覆寫時，拿掉 `version.local.toml`
@@ -100,7 +102,7 @@
 //!   照 VK0046 停下；孤兒覆寫訊息表還沒有代碼（`version_file::OrphanOverrides`）。對象以外的孤兒覆寫同樣
 //!   沒有代碼，停下。
 //! - 對象以外開著覆寫的工具交付保留名 `vendor_kit`：沒有代碼（同 engine/upgrade）。
-//! - `-y`：兩個指令都還不收（#47，`args` 照 #489）；VK0002 的下一步指令照訊息表插入 `-y`。
+//! - `-y`：兩個指令都收（#372 N14，照「可能詢問才接受」），04 的已定組合還沒列進來，待維護者確認。
 //! - 殘留的進度檔不是可以併入的 verb（`add`、`install` 等），或殘留的操作要寫 repo 檔、進度檔卻沒有
 //!   `[[repo_file]]`（舊版寫的）：照記錄補完不了，重新判定會報假的 VK0061。
 //! - 恢復中又中斷：殘留對象寫完的檔，這次又為別的對象改寫過，殘留那份記錄對不上目前內容，下次照常判定，
@@ -181,16 +183,20 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
     pub log: &'a mut runlog::Writer<L>,
 }
 
-/// 跑一次 `remove <repo>`，回傳結束碼。
-pub fn remove<W: Write, S: Sink, L: Write>(repo: &str, env: &mut Env<'_, W, S, L>) -> u8 {
-    let mut run = Run::new(env);
+/// 跑一次 `remove <repo>`，回傳結束碼；`yes` 是有沒有帶 `-y`。
+pub fn remove<W: Write, S: Sink, L: Write>(
+    repo: &str,
+    yes: bool,
+    env: &mut Env<'_, W, S, L>,
+) -> u8 {
+    let mut run = Run::new(env, yes);
     let _ = run.remove(repo);
     run.code
 }
 
-/// 跑一次 `uninstall`，回傳結束碼。
-pub fn uninstall<W: Write, S: Sink, L: Write>(env: &mut Env<'_, W, S, L>) -> u8 {
-    let mut run = Run::new(env);
+/// 跑一次 `uninstall`，回傳結束碼；`yes` 是有沒有帶 `-y`。
+pub fn uninstall<W: Write, S: Sink, L: Write>(yes: bool, env: &mut Env<'_, W, S, L>) -> u8 {
+    let mut run = Run::new(env, yes);
     let _ = run.uninstall();
     run.code
 }
@@ -268,6 +274,8 @@ struct Local {
 
 struct Run<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
+    /// 有沒有帶 `-y`。
+    yes: bool,
     code: u8,
     /// 這次執行已用掉的 `stage-dir` slot 數。
     stages: u32,
@@ -276,9 +284,10 @@ struct Run<'r, 'a, W: Write, S: Sink, L: Write> {
 }
 
 impl<'r, 'a, W: Write, S: Sink, L: Write> Run<'r, 'a, W, S, L> {
-    fn new(env: &'r mut Env<'a, W, S, L>) -> Self {
+    fn new(env: &'r mut Env<'a, W, S, L>, yes: bool) -> Self {
         Run {
             env,
+            yes,
             code: 0,
             stages: 0,
             local: BTreeMap::new(),
@@ -630,12 +639,17 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         Err(Stop)
     }
 
-    /// 一次問完；全部同意回 `true`，答否印未變更回 `false`，不能互動回 VK0002。
+    /// 一次問完（帶 `-y` 全部同意）；全部同意回 `true`，答否印未變更回 `false`，不能互動回 VK0002。
     fn ask(&mut self, plan: &Plan) -> Step<bool> {
         let questions: Vec<String> = plan.questions.iter().map(text::question).collect();
+        let consent = if self.yes {
+            Consent::AssumeYes
+        } else {
+            Consent::Ask
+        };
         let answers = prompt::ask_all(
             &questions,
-            Consent::Ask,
+            consent,
             &self.env.tty,
             &mut *self.env.stdin,
             &mut *self.env.prompt,

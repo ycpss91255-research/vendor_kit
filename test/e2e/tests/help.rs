@@ -86,6 +86,7 @@ Options:
   -i, --image <image>               Use a local image or image tar instead of the registry
       --image-path <registry>/<path>
                                     Registry path of a tool not yet in the lock file
+  -y, --yes                         Answer yes to the questions add asks
       --registry-token-file <path>  Read a registry token from <path> to list versions
   -h, --help                        Print this help
 
@@ -206,11 +207,12 @@ fn remove_help() {
     help(
         &["remove", "-h"],
         snapbox::str![[r#"
-Usage: just vendor_kit remove <repo>
+Usage: just vendor_kit remove <repo> [options]
 
 Remove a tool. Init files are kept.
 
 Options:
+  -y, --yes                         Answer yes to the questions remove asks
   -h, --help                        Print this help
 
 "#]],
@@ -274,11 +276,12 @@ fn uninstall_help() {
     help(
         &["uninstall", "-h"],
         snapbox::str![[r#"
-Usage: just vendor_kit uninstall
+Usage: just vendor_kit uninstall [options]
 
 Remove VK from this directory. Init files are kept.
 
 Options:
+  -y, --yes                         Answer yes to the questions uninstall asks
   -h, --help                        Print this help
 
 "#]],

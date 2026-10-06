@@ -432,6 +432,109 @@ vendor_kit: error[VK0002]: Confirmation is required, but no terminal is availabl
     assert_eq!(vk_tree(&m), before);
 }
 
+/// VK0002 印的下一步（`just vendor_kit ` 之後的參數）；這裡的參數都不需要加引號。
+fn next_step(stderr: &str) -> Vec<String> {
+    let (_, cmd) = stderr
+        .trim_end()
+        .split_once("rerun with -y: just vendor_kit ")
+        .unwrap();
+    assert!(!cmd.contains('\''), "{cmd}");
+    cmd.split(' ').map(str::to_owned).collect()
+}
+
+#[test]
+fn the_next_step_of_vk0002_retracts_without_a_terminal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    installed_with_insert(&m, GITIGNORE);
+    let peer = idle_launcher(&m);
+    let (code, _, stderr) = run(&m, "000", "", &["remove", "tool"]);
+    peer.join().unwrap();
+    assert_eq!(code, 2, "stderr: {stderr}");
+    let next = next_step(&stderr);
+    assert_eq!(next, ["remove", "tool", "-y"]);
+
+    // 照著跑：`-y` 回答詢問，不需要終端。
+    new_session(&m);
+    let peer = idle_launcher(&m);
+    let next: Vec<&str> = next.iter().map(String::as_str).collect();
+    let (code, stdout, stderr) = run(&m, "000", "", &next);
+    let seen = peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(stderr, "");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+Removed tool v1.2.0 (ghcr.io/acme/tool:v1.2.0@sha256:2222222222222222222222222222222222222222222222222222222222222222).
+Removed inserted lines from .gitignore
+Kept .gitignore
+
+"#]]
+    );
+    assert!(seen.requests.is_empty());
+    assert_eq!(
+        fs::read_to_string(m.root.join(".gitignore")).unwrap(),
+        "user-owned\n"
+    );
+    assert_eq!(
+        vk_tree(&m),
+        ["baseline", "cache", "gen", "gen/tools.just", "version.toml"]
+    );
+    assert_eq!(events(&m), REMOVED_EVENTS);
+}
+
+#[test]
+fn yes_does_not_retract_lines_of_a_user_edited_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    // hash 不符的只列不刪：`-y` 只省略詢問，不擴大收回範圍（04 收回插入的行）。
+    installed_with_insert(&m, GITIGNORE);
+    let edited = format!("{GITIGNORE}user-added\n");
+    fs::write(m.root.join(".gitignore"), &edited).unwrap();
+    let peer = idle_launcher(&m);
+
+    let (code, stdout, stderr) = run(&m, "000", "", &["remove", "tool", "--yes"]);
+    peer.join().unwrap();
+
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+Removed tool v1.2.0 (ghcr.io/acme/tool:v1.2.0@sha256:2222222222222222222222222222222222222222222222222222222222222222).
+Kept .gitignore
+
+"#]]
+    );
+    assert!(
+        stderr.starts_with("vendor_kit: warn[VK0061]: "),
+        "stderr: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(m.root.join(".gitignore")).unwrap(),
+        edited
+    );
+}
+
+#[test]
+fn yes_is_accepted_when_there_is_nothing_to_ask() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    installed_with_insert(&m, GITIGNORE);
+    fs::remove_file(m.root.join(".vendor_kit/baseline/tool.toml")).unwrap();
+    let peer = idle_launcher(&m);
+
+    let (code, stdout, stderr) = run(&m, "000", "", &["remove", "-y", "tool"]);
+    peer.join().unwrap();
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(stderr, "");
+    assert!(stdout.starts_with("Removed tool v1.2.0 ("), "{stdout}");
+    assert_eq!(
+        fs::read_to_string(m.root.join(".gitignore")).unwrap(),
+        GITIGNORE
+    );
+}
+
 #[test]
 fn a_local_override_of_the_target_is_lifted_even_when_its_source_is_gone() {
     let tmp = tempfile::tempdir().unwrap();

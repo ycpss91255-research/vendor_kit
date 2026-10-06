@@ -1,7 +1,7 @@
 //! 各指令 `-h`／`--help` 的用法文字。
 //!
 //! 實際的 help 輸出就是唯一來源（04 共同選項），04 不另寫一份。文字只列這一版 `args` 收的選項；
-//! 之後加的選項（`add`／`remove`／`uninstall` 的 `-y`、`--dry-run`）由加它的 PR 在這裡補上自己的那一行。
+//! 之後加的選項（`--dry-run`）由加它的 PR 在這裡補上自己的那一行。
 //! `add --image-path` 的名稱是暫定（#372 N2b）。
 
 /// 印哪一份用法：一個指令一份；`upgrade`、`dev`、`undev` 帶 `--engine` 時各另一份。
@@ -74,6 +74,7 @@ Options:
   -i, --image <image>               Use a local image or image tar instead of the registry
       --image-path <registry>/<path>
                                     Registry path of a tool not yet in the lock file
+  -y, --yes                         Answer yes to the questions add asks
       --registry-token-file <path>  Read a registry token from <path> to list versions
   -h, --help                        Print this help
 ";
@@ -138,11 +139,12 @@ Options:
   -h, --help                        Print this help
 ";
 
-const REMOVE: &str = r"Usage: just vendor_kit remove <repo>
+const REMOVE: &str = r"Usage: just vendor_kit remove <repo> [options]
 
 Remove a tool. Init files are kept.
 
 Options:
+  -y, --yes                         Answer yes to the questions remove asks
   -h, --help                        Print this help
 ";
 
@@ -174,11 +176,12 @@ Options:
   -h, --help                        Print this help
 ";
 
-const UNINSTALL: &str = r"Usage: just vendor_kit uninstall
+const UNINSTALL: &str = r"Usage: just vendor_kit uninstall [options]
 
 Remove VK from this directory. Init files are kept.
 
 Options:
+  -y, --yes                         Answer yes to the questions uninstall asks
   -h, --help                        Print this help
 ";
 

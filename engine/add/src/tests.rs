@@ -295,6 +295,7 @@ fn run_add(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &str) 
         repo,
         tag,
         image: value("-i").map(OsStr::new),
+        yes: argv.iter().any(|a| matches!(*a, "-y" | "--yes")),
         image_path: value("--image-path"),
         registry_token_file: None,
     };
@@ -547,6 +548,119 @@ fn no_terminal_is_vk0002_without_writes() {
         )
     );
     assert!(untouched(&fx, &before));
+}
+
+#[test]
+fn yes_does_not_append_to_an_existing_file_without_a_terminal() {
+    // -y 不能把已存在、尚未納管的檔改成 append 納管（04 寫入既有檔的例外）。VK0002 的下一步會是同一個
+    // 指令，所以草稿碼登錄前以 VK0056 停下，除執行紀錄外不寫。
+    let fx = Fx::new("");
+    fs::write(fx.root().join(".gitignore"), "target/\n").unwrap();
+    let before = fx.lock_text();
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(
+        &fx,
+        &["add", "tool", "-i", IMAGE, "-y"],
+        vec![
+            append(".gitignore", "/.tool/\n"),
+            whole("tool.toml", "[tool]\n"),
+        ],
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert_eq!(out.stdout, "");
+    assert!(
+        out.stderr.starts_with(&format!(
+            "vendor_kit: error[VK0056]: Internal vendor_kit error: -y does not append to existing files that are not yet managed (.gitignore); run from a terminal to answer; {DRAFT_YES_APPEND}."
+        )),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(
+        fs::read_to_string(fx.root().join(".gitignore")).unwrap(),
+        "target/\n"
+    );
+    assert!(!fx.root().join("tool.toml").exists());
+    assert!(untouched(&fx, &before));
+}
+
+#[test]
+fn yes_still_asks_before_appending_to_an_existing_file() {
+    let fx = Fx::new("");
+    fs::write(fx.root().join(".gitignore"), "target/\n").unwrap();
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(
+        &fx,
+        &["add", "tool", "-i", IMAGE, "--yes"],
+        vec![append(".gitignore", "/.tool/\n")],
+        tty(true),
+        "y\n",
+    );
+    peer.finish();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stderr,
+        "Append the lines from tool to the existing .gitignore? [y/N] "
+    );
+    assert_eq!(
+        fs::read_to_string(fx.root().join(".gitignore")).unwrap(),
+        "target/\n/.tool/\n"
+    );
+}
+
+#[test]
+fn yes_without_a_question_that_needs_a_terminal_lands() {
+    // 新建的初始檔不問；帶 `-y`、沒有終端也照常導入。
+    let fx = Fx::new("");
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(
+        &fx,
+        &["add", "tool", "-i", IMAGE, "-y"],
+        vec![whole("tool.toml", "[tool]\n")],
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        fs::read_to_string(fx.root().join("tool.toml")).unwrap(),
+        "[tool]\n"
+    );
+}
+
+#[test]
+fn yes_does_not_bring_an_existing_whole_file_under_management() {
+    // -y 只省略詢問，不擴大授權（04 寫入既有檔的例外）：不適用 append 的既有檔照樣 VK0018。
+    let fx = Fx::new("");
+    fs::write(fx.root().join("tool.toml"), "mine\n").unwrap();
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(
+        &fx,
+        &["add", "tool", "-i", IMAGE, "--yes"],
+        vec![whole("tool.toml", "[tool]\n")],
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 1);
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: warn[VK0018]: tool.toml already exists and is unmanaged; it was neither overwritten nor brought under management.\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fx.root().join("tool.toml")).unwrap(),
+        "mine\n"
+    );
+    let meta = Metadata::load(&metadata::tool_path(&fx.dir, "tool").unwrap()).unwrap();
+    let states: Vec<(&str, &str)> = meta
+        .files()
+        .iter()
+        .map(|r| (r.path.as_str(), r.state.as_str()))
+        .collect();
+    assert_eq!(states, [("tool.toml", "unmanaged")]);
 }
 
 #[test]
@@ -895,6 +1009,7 @@ fn progress_records_the_repo_files_to_write() {
             ),
         },
         init: &|_: &Path| Ok(Vec::new()),
+        yes: false,
         code: 0,
         extracts: 0,
         stages: 0,

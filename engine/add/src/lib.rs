@@ -22,7 +22,12 @@
 //! 9. `fetch::verify`：digest、dist 格式、逐檔指紋、`<ns>` 撞名（VK0030，對象是已裝工具、根
 //!    `justfile` 的 recipe 與 module、保留名 `vendor_kit`）。
 //! 10. `initfiles` 算出每個初始檔的動作與問題，`prompt` 一次問完：答否是正常取消（stdout 說明未變更，
-//!     以 0 結束）；不能互動回 VK0002，除執行紀錄外不寫任何檔。
+//!     以 0 結束）；不能互動回 VK0002，除執行紀錄外不寫任何檔。帶 `-y` 時其他詢問都同意、不問，但 `-y`
+//!     不擴大授權（04 寫入既有檔的例外）：
+//!     - append 進已存在、尚未納管的檔那幾題照樣要問（`-y` 不能把它改成 append 納管）；有終端就只問
+//!       這幾題，答否同樣是正常取消。不能互動時，VK0002 的下一步會是同一個指令，所以改以 VK0056 停下，
+//!       `<reason>` 列出這些檔、結尾是 [`DRAFT_YES_APPEND`]（見缺口）。
+//!     - 已存在、不適用 append 的檔照樣不納管、不覆蓋（VK0018），已記成未納管的檔照樣不處理（VK0019）。
 //! 11. 重驗暫存內容（ADR-0006 第三層），再經 `txn` 依序落地：`cache/<repo>/` 與印記、repo 檔、
 //!     紀錄檔（metadata、基準版副本）、`gen/tools.just`、版本鎖定行，最後刪進度檔。
 //! 12. stdout 列出改了什麼；初始檔的警告（VK0018 等）照印。
@@ -149,7 +154,9 @@
 //! - 殘留的進度檔不是 `add` 的（其他可寫 recipe 還沒實作），或殘留的 `add` 要寫 repo 檔：寫了哪些已記在
 //!   進度檔，但重新落地要讀 `init.toml`，格式沒定（見上）。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）；dist 格式不符（G2）、指紋不符（G1）沒有代碼。
-//! - `add` 不收 `-y`（#47），但 VK0002 的下一步指令照訊息表插入 `-y`。
+//! - `-y` 照「可能詢問才接受」收（#372 N14），04 的已定組合還沒列進 `add`，待維護者確認。帶 `-y` 又不能
+//!   互動、卻有 append 進既有檔的詢問：訊息表沒有代碼（草稿碼 VK0084），沒帶 `-y` 時 VK0002 的下一步
+//!   照著跑會停在這裡。
 //!
 //! 這裡不直接碰 docker：docker 動作與 `stage`、`stage-dir` 一律是 `plan` 協定的 op，由啟動器代做。
 
@@ -174,7 +181,7 @@ use diagnostics::{Diagnostic, Diagnostics, Message, Sink};
 use fetch::{Candidate, Staged, Taken};
 use filelock::{Lock, Mode};
 use imageref::{ImageRef, Tag};
-use initfiles::{FilePlan, InitFile, Strategy};
+use initfiles::{Ask, FilePlan, InitFile, Strategy};
 use layout::InstallDir;
 use metadata::Metadata;
 use plan::{Channel, Field, ImageId, Op, Outcome, Slot, Tty};
@@ -210,6 +217,9 @@ pub const VK0001_CMD: &str = "add";
 pub const IMAGE_PATH_ARGUMENT: &str = "--image-path";
 /// 同一個 tag 指向不同 digest：草稿碼 VK0078（N53）登錄前，以 VK0056 停下時 `<reason>` 的結尾。
 pub const DRAFT_TAG_DIGESTS: &str = "reason code pending (draft VK0078, N53)";
+/// 帶 `-y` 又不能互動、卻有要 append 進既有檔的詢問：草稿碼 VK0084（N14）登錄前，以 VK0056 停下時
+/// `<reason>` 的結尾。
+pub const DRAFT_YES_APPEND: &str = "reason code pending (draft VK0084, N14)";
 
 /// 一次 `add` 的參數（`args::Command::Add`）。
 #[derive(Debug, Clone, Copy)]
@@ -217,6 +227,8 @@ pub struct Request<'a> {
     pub repo: &'a str,
     pub tag: Option<Tag>,
     pub image: Option<&'a OsStr>,
+    /// 有沒有帶 `-y`：全部詢問都同意（模組說明第 10 步）。
+    pub yes: bool,
     /// `--image-path` 的值（`args` 已驗過是 `ghcr.io/<路徑>`）；只在線上、沒有版本鎖定行時用。
     pub image_path: Option<&'a str>,
     /// `--registry-token-file` 的值，原樣；只在線上、不帶 tag、要列 tag 時才讀（模組說明「registry token 檔」）。
@@ -299,6 +311,7 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
     let mut add = Add {
         env,
         init,
+        yes: req.yes,
         code: 0,
         extracts: 0,
         stages: 0,
@@ -343,6 +356,8 @@ struct Installed {
 struct Add<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
     init: InitSource<'r>,
+    /// 有沒有帶 `-y`（[`Request::yes`]）。
+    yes: bool,
     code: u8,
     /// 這次執行已用掉的 slot 數。
     extracts: u32,
@@ -1216,8 +1231,15 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
             return Err(self.gap(format_args!("init file {path} ({gap:?})")));
         }
 
-        let questions: Vec<String> = planned
+        // 帶 `-y` 時其他詢問都同意，只有 append 進既有檔的那幾題照樣要問（04 寫入既有檔的例外：已存在但
+        // 尚未納管的檔，`-y` 不能改成 append 納管）。
+        let yes = self.yes;
+        let asked: Vec<_> = planned
             .questions
+            .iter()
+            .filter(|q| !yes || q.ask == Ask::Append)
+            .collect();
+        let questions: Vec<String> = asked
             .iter()
             .map(|q| text::question(repo, &q.path, q.ask))
             .collect();
@@ -1238,6 +1260,13 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
                 self.report_overrides();
                 self.say(text::NO_CHANGES);
                 return Ok(());
+            }
+            Err(PromptError::NotInteractive(_)) if self.yes => {
+                // 已帶 `-y`：VK0002 的下一步會是同一個指令，照著跑還是停在這裡（03 待處理的下一步必須可
+                // 直接執行），草稿碼登錄前以 VK0056 停下。
+                let files: Vec<&str> = asked.iter().map(|q| q.path.as_str()).collect();
+                let reason = format!("{}; {DRAFT_YES_APPEND}", text::yes_append(&files));
+                return Err(self.internal(reason));
             }
             Err(PromptError::NotInteractive(_)) => {
                 let mut words = vec!["just".to_owned(), "vendor_kit".to_owned()];

@@ -147,13 +147,14 @@ impl Out {
     }
 }
 
-/// 跑一次；`argv` 的第一個是指令名，`remove` 時第二個是工具名。
+/// 跑一次；`argv` 的第一個是指令名，`remove` 時第二個是工具名；帶 `-y`／`--yes` 就是全部同意。
 fn run(fx: &Fx, argv: &[&str], interactive: bool, input: &str) -> Out {
+    let yes = argv.iter().any(|a| matches!(*a, "-y" | "--yes"));
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     with_env(fx, "r1", &argv, interactive, input, |env| {
         match argv[0].as_str() {
-            REMOVE_VERB => remove(&argv[1], env),
-            _ => uninstall(env),
+            REMOVE_VERB => remove(&argv[1], yes, env),
+            _ => uninstall(yes, env),
         }
     })
 }
@@ -259,6 +260,50 @@ fn remove_keeps_the_other_tool_and_regenerates_the_entry() {
     assert!(fx.vk().join("cache/other/just/other.just").is_file());
     assert!(fx.vk().join("cache/other.stamp.toml").is_file());
     assert!(fx.progress_left().is_empty());
+}
+
+#[test]
+fn remove_with_yes_retracts_without_asking() {
+    let fx = Fx::new();
+    let out = run(&fx, &["remove", "tool", "-y"], false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Removed tool v1.2.0 ({TOOL}).\nRemoved inserted lines from .gitignore\nKept .gitignore\n"
+        )
+    );
+    assert_eq!(out.stderr, "");
+    assert_eq!(out.events(), LANDED);
+    assert_eq!(fx.read(".gitignore"), "user-owned\n");
+    assert!(fx.lock().tool("tool").is_none());
+}
+
+#[test]
+fn remove_with_yes_still_only_lists_lines_whose_file_changed() {
+    let fx = Fx::new();
+    // 整檔 hash 對不上：本來就不問，帶 `-y` 也只列不刪（-y 不擴大授權，04 收回插入的行）。
+    let edited = "user-owned\n.tool-cache\nmore\n";
+    fs::write(fx.dir.root().join(".gitignore"), edited).unwrap();
+    let out = run(&fx, &["remove", "tool", "--yes"], false, "");
+    assert_eq!(out.code, 1, "{}", out.stderr);
+    assert!(
+        out.stderr.starts_with("vendor_kit: warn[VK0061]: "),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(fx.read(".gitignore"), edited);
+    assert!(fx.lock().tool("tool").is_none());
+}
+
+#[test]
+fn remove_with_yes_and_nothing_to_ask_is_accepted() {
+    let fx = Fx::new();
+    fs::remove_file(fx.vk().join("baseline/tool.toml")).unwrap();
+    let out = run(&fx, &["remove", "tool", "-y"], false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stdout, format!("Removed tool v1.2.0 ({TOOL}).\n"));
+    assert_eq!(out.stderr, "");
 }
 
 #[test]
@@ -753,6 +798,32 @@ fn uninstall_without_a_terminal_is_vk0002() {
 }
 
 #[test]
+fn uninstall_with_yes_retracts_without_asking() {
+    let fx = Fx::new();
+    let out = run(&fx, &["uninstall", "-y"], false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(fx.read(".gitignore"), "user-owned\n");
+    assert!(!fx.dir.version_toml().exists());
+}
+
+#[test]
+fn uninstall_with_yes_still_only_lists_lines_whose_file_changed() {
+    let fx = Fx::new();
+    let edited = "user-owned\n.tool-cache\nmore\n";
+    fs::write(fx.dir.root().join(".gitignore"), edited).unwrap();
+    let out = run(&fx, &["uninstall", "--yes"], false, "");
+    assert_eq!(out.code, 1, "{}", out.stderr);
+    assert!(
+        out.stderr.contains("Currently matching line numbers: 2."),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(fx.read(".gitignore"), edited);
+    assert!(!fx.dir.version_toml().exists());
+}
+
+#[test]
 fn uninstall_folds_in_residual_uninstall_and_remove() {
     let fx = Fx::new();
     fs::remove_file(fx.vk().join("baseline/tool.toml")).unwrap();
@@ -807,7 +878,7 @@ fn interrupted(fx: &Fx, argv: &[&str]) -> Vec<WrittenFile> {
         UNINSTALL_VERB
     };
     let out = with_env(fx, "r0", &argv, false, "", |env| {
-        let mut run = Run::new(env);
+        let mut run = Run::new(env, false);
         let (records, targets) = if verb == REMOVE_VERB {
             let Ok(path) = run.tool_metadata(&argv[1]) else {
                 panic!("metadata path")
