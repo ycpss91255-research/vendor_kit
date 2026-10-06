@@ -11,7 +11,8 @@
 #   5. 取得引擎 image（vk_launch_obtain，N40）：本機沒有才 pull 鎖定的 pinned 引用（有逾時，N59），
 #      取不到回 VK0036。救援呼叫也一樣。一般路徑接著讀 image 的 LABEL 跟列表核對，不一致就不起容器。
 #   6. 起引擎：用法、安裝目錄（VK0028）與檔案版（VK0008）都由引擎判。
-#   第 6 步（建 session 目錄、寫 in/engine、起引擎、收尾）是 vk_launch_session，bootstrap.sh 的首次導入也用它。
+#   第 6 步（建 session 目錄、寫 in/engine、起引擎、收尾）是 vk_launch_session，bootstrap.sh 的首次導入、只檢查
+#   與 --repair 也用它。
 #
 # 引擎與往返（文法見 wire.sh 與 engine/plan）：
 # - repo 外的 session 目錄 `${TMPDIR:-/tmp}/vendor_kit.<run-id>/`，以 mkdir -m 700 排他建立；
@@ -282,8 +283,8 @@ vk_launch() {
 }
 
 # vk_launch_session <host_root> <host_cwd> <image> <engine_ref> <P> <run-id> <run-log> [<recipe> <args>...]：
-# 執行紀錄已建好、引擎 image 已在本機之後的共同段（VK recipe 與 bootstrap.sh 首次導入共用）：建 session 目錄、
-# 把 engine_ref 寫成 in/engine、以 image 建引擎容器並起引擎，收尾。image 是 docker create 用的 image
+# 執行紀錄已建好、引擎 image 已在本機之後的共同段（VK recipe 與 bootstrap.sh 的首次導入、只檢查、--repair 共用）：
+# 建 session 目錄、把 engine_ref 寫成 in/engine、以 image 建引擎容器並起引擎，收尾。image 是 docker create 用的 image
 # （VK recipe 是 engine_ref 本身；bootstrap.sh 的 -i 是載入後的 image ID），engine_ref 是寫進 in/engine 的 pinned 引用。
 # 結束碼放進 REPLY 並回傳。
 vk_launch_session() {
