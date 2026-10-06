@@ -594,6 +594,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "prune"
+version = "0.0.0"
+dependencies = [
+ "config",
+ "diagnostics",
+ "fetch",
+ "filelock",
+ "layout",
+ "messages",
+ "plan",
+ "progress",
+ "runlog",
+ "schema",
+ "stamp",
+ "tempfile",
+ "txn",
+ "version_file",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1020,6 +1040,7 @@ dependencies = [
  "output",
  "plan",
  "prompt",
+ "prune",
  "remove",
  "runlog",
  "sync",

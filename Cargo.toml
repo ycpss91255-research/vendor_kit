@@ -36,6 +36,7 @@ members = [
     "engine/update",
     "engine/upgrade",
     "engine/dev",
+    "engine/prune",
     "test/e2e",
     "test/boundary",
     "test/reason_lint",
@@ -79,6 +80,7 @@ install = { path = "engine/install" }
 update = { path = "engine/update" }
 upgrade = { path = "engine/upgrade" }
 dev = { path = "engine/dev" }
+prune = { path = "engine/prune" }
 csv = "1"
 assert_cmd = "2"
 snapbox = "1"

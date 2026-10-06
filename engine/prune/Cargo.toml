@@ -1,0 +1,27 @@
+[package]
+name = "prune"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "prune 指令：讀設定、持排他鎖、先判殘留進度與入口檔引用、列出本安裝目錄不再使用的 cache 工具目錄與 VK 暫存、依收回順序刪除、請啟動器刪已停止的 VK 容器"
+
+[dependencies]
+config.workspace = true
+diagnostics.workspace = true
+fetch.workspace = true
+filelock.workspace = true
+layout.workspace = true
+messages.workspace = true
+plan.workspace = true
+progress.workspace = true
+runlog.workspace = true
+schema.workspace = true
+stamp.workspace = true
+txn.workspace = true
+version_file.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
