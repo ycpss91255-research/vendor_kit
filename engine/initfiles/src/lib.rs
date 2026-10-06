@@ -17,6 +17,7 @@
 //!   | `managed` | 新版與基準版相同 | [`Verdict::UpstreamUnchanged`]：不動 |
 //!   | `managed` | 目前檔與基準版相同（只差行尾也算） | [`Verdict::Replace`]：未改過也先問是否換版 |
 //!   | `managed` | 雙方都改過 | [`Verdict::Merge`]：先問是否合併；有衝突照樣寫入、留標記，VK0021 |
+//!   | `managed` | 換版或合併的結果是 TOML／just 而解析不過 | [`Verdict::Unparsable`]：不寫、不問、基準版不推，記入 `conflicts` |
 //!   | `managed` | 檔不在 | [`Verdict::UserDeleted`]：不重建，記 `deleted`，列進 stdout 清單 |
 //!   | `appended` | 新版的行與紀錄相同 | [`Verdict::UpstreamUnchanged`]：不動 |
 //!   | `unmanaged` | 不論 | [`Verdict::Unmanaged`]：不處理，VK0019 |
@@ -29,7 +30,16 @@
 //!   不看紀錄的 `hash`：上次合併過的檔 hash 相符，內容卻不是基準版。
 //! - 換版與合併都經 `merge` 算出寫入內容（基準版、目前檔、新版）；目前檔與基準版相同時結果就是新版，
 //!   行尾跟著目前檔，只改行尾的使用者不會被換掉行尾。合併留下衝突時基準版照樣推到新版
-//!   （scope_roadmap:32）。合併結果是 TOML／just 而解析不過的例外與 metadata `conflicts` 欄位這裡不做。
+//!   （scope_roadmap:32）。
+//! - 唯一例外（scope_roadmap:32）：合併結果是 TOML 或 just 而解析不過時，留原檔、該檔基準版不推、
+//!   記入 metadata 的 `conflicts`（[`Verdict::Unparsable`]，[`FilePlan::conflict`] 是 `Some(true)`）。
+//!   repo 檔不寫，所以也不問。換版、合併成功寫入的檔 [`FilePlan::conflict`] 是 `Some(false)`，呼叫端
+//!   把它從 `conflicts` 拿掉；其他判定是 `None`，不動清單。哪些檔算、怎麼判（[`syntax`]）：
+//!   - TOML：路徑以 `.toml` 結尾。換版與合併的結果都用 `toml_edit` 解析，不是 UTF-8 也算解析不過。
+//!   - just：檔名是 `justfile`、`.justfile`（不分大小寫，同 just 找檔的規則）或以 `.just` 結尾。引擎
+//!     image 沒有 just（ADR-0014），所以只做保守檢查：留下衝突標記就算解析不過（標記行從第一欄開始，
+//!     不是合法的 just 語法）。乾淨合併的 just 檔驗不了語法，照常寫入（見「缺口」）。
+//!   - 其他檔不解析，有衝突照常寫入、留標記。
 //! - 這裡不寫檔，寫入由呼叫端做：
 //!   - [`FilePlan::write`]：要寫的 repo 檔，帶判定用的寫入前內容（新建時沒有）與寫入後內容。
 //!   - [`FilePlan::baseline`]：要存的新基準版內容。
@@ -39,6 +49,12 @@
 //!     append 進別的工具也 append 過的檔時一樣，這裡只產這個工具的紀錄。
 //! - 這裡不印診斷：每個判定對應的訊息表條目在 [`FilePlan::message`]，`<file>` 以外的欄位（VK0020 的
 //!   `<repo>`、`<tag>`）由呼叫端填；要列進 stdout 清單的在 [`FilePlan::listed`]。
+//!
+//! # 缺口
+//!
+//! - 乾淨合併的 just 檔不驗語法：引擎 image 沒有 just，自己寫 just 的語法檢查會跟 just 的版本脫鉤。
+//! - [`Verdict::Unparsable`] 還沒有訊息表代碼，對外的結束碼也沒定：VK0021 的字句說檔裡含有衝突，
+//!   這個例外留的是原檔，不能借用。[`FilePlan::message`] 回 `None`，由呼叫端在 stdout 說明。
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -46,6 +62,7 @@ use std::io;
 
 use messages::Message;
 use metadata::{FileHash, FileRecord, Metadata, State};
+use toml_edit::DocumentMut;
 
 #[cfg(test)]
 mod tests;
@@ -154,6 +171,12 @@ pub enum Verdict {
     Replace,
     /// 雙方都改過：問過後合併；`conflicts` 是衝突段數（VK0021），乾淨合併是 `None`。
     Merge { conflicts: Option<u32> },
+    /// 換版或合併的結果是 TOML／just 而解析不過（scope_roadmap:32）：留原檔、不問、基準版不推，
+    /// 記入 metadata `conflicts`。`conflicts` 是合併留下的衝突段數，乾淨合併是 `None`。
+    Unparsable {
+        syntax: Syntax,
+        conflicts: Option<u32>,
+    },
     /// 未納管：不處理（VK0019）。
     Unmanaged,
     /// 這一版先前被拒絕：不問、不套用（VK0020）。
@@ -164,6 +187,37 @@ pub enum Verdict {
     StillDeleted,
     /// 契約沒寫到。
     Gap(Gap),
+}
+
+/// 要驗語法的初始檔種類（見模組說明）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Syntax {
+    Toml,
+    Just,
+}
+
+/// 依路徑判斷要驗哪種語法；不驗的檔回 `None`。
+pub fn syntax(path: &str) -> Option<Syntax> {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    if path.ends_with(".toml") {
+        Some(Syntax::Toml)
+    } else if name.eq_ignore_ascii_case("justfile")
+        || name.eq_ignore_ascii_case(".justfile")
+        || path.ends_with(".just")
+    {
+        Some(Syntax::Just)
+    } else {
+        None
+    }
+}
+
+/// 合併結果過不過得了語法檢查（見模組說明）。
+fn parses(syntax: Syntax, outcome: &merge::Outcome) -> bool {
+    match syntax {
+        Syntax::Toml => std::str::from_utf8(outcome.contents())
+            .is_ok_and(|text| text.parse::<DocumentMut>().is_ok()),
+        Syntax::Just => outcome.is_clean(),
+    }
 }
 
 /// 一個初始檔的動作。
@@ -179,6 +233,9 @@ pub struct FilePlan {
     pub baseline: Option<Vec<u8>>,
     /// 全部同意時要 [`Metadata::put`] 的紀錄；`None` 是不換紀錄。
     pub record: Option<FileRecord>,
+    /// 全部同意時對 metadata `conflicts` 做的事：`Some(true)` 加入、`Some(false)` 拿掉、`None` 不動
+    /// （[`Metadata::set_conflict`]）。
+    pub conflict: Option<bool>,
 }
 
 impl FilePlan {
@@ -190,6 +247,7 @@ impl FilePlan {
             write: None,
             baseline: None,
             record: None,
+            conflict: None,
         }
     }
 
@@ -493,6 +551,15 @@ where
         path: file.path.to_owned(),
         source,
     })?;
+    if let Some(syntax) = syntax(file.path).filter(|&s| !parses(s, &outcome)) {
+        let conflicts = match outcome {
+            merge::Outcome::Clean(_) => None,
+            merge::Outcome::Conflicts { count, .. } => Some(count),
+        };
+        let mut p = FilePlan::new(file.path, Verdict::Unparsable { syntax, conflicts });
+        p.conflict = Some(true);
+        return Ok(p);
+    }
     let (verdict, ask) = match (&outcome, user_unchanged) {
         (merge::Outcome::Clean(_), true) => (Verdict::Replace, Ask::Replace),
         (merge::Outcome::Clean(_), false) => (Verdict::Merge { conflicts: None }, Ask::Merge),
@@ -510,6 +577,7 @@ where
         after: outcome.into_contents(),
     });
     p.baseline = Some(file.contents.to_vec());
+    p.conflict = Some(false);
     Ok(p)
 }
 

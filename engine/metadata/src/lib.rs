@@ -7,6 +7,9 @@
 //!   `unmanaged`／`deleted`）、`lines`（實際插入的行原文，不記位置、不加標記）、`hash`（VK 最後一次
 //!   寫入後的整檔 hash）、`declined_hash`（使用者拒絕的那一版）。`state`、`declined_hash` 與 `hash`
 //!   是持久格式；hash 一律是 CRLF→LF 正規化後的 sha256（[`files::fingerprint_normalized`]）。
+//! - 根層的 `conflicts`（scope_roadmap:32）：基準版合併的結果是 TOML／just 而解析不過、所以留原檔、
+//!   該檔基準版不推的初始檔，以 repo 相對路徑的字串陣列記下，順序同加入的先後、不重複。之後那個檔
+//!   合併寫入成功就從清單拿掉；清單空了就刪掉這個鍵（[`Metadata::set_conflict`]）。
 //! - 寫入規則（[`Metadata::record_write`]）：VK 寫入某檔前，紀錄的 hash 與寫入前的內容相符，才更新成
 //!   寫入後的 hash；不相符或沒有 hash 的紀錄保留原值，不拿這次寫入後的 hash 補上。
 //! - 讀寫經 `schema`：檔案版過高回 VK0008；未知欄位（含 `[[file]]` 裡的）讀時忽略、寫時保留。
@@ -39,6 +42,8 @@ pub const LINES_KEY: &str = "lines";
 pub const HASH_KEY: &str = "hash";
 /// 使用者拒絕的版本的 hash。
 pub const DECLINED_HASH_KEY: &str = "declined_hash";
+/// 根層：合併結果解析不過、留原檔且基準版沒推的初始檔（scope_roadmap:32）。
+pub const CONFLICTS_KEY: &str = "conflicts";
 
 /// `baseline/<repo>.toml`：工具 `<repo>` 的逐檔紀錄。
 ///
@@ -191,6 +196,8 @@ pub struct Metadata {
     doc: Document,
     /// 與 `[[file]]` 同順序，`records[i]` 就是第 `i` 個表。
     records: Vec<FileRecord>,
+    /// 根層 `conflicts`，順序同檔裡。
+    conflicts: Vec<String>,
 }
 
 impl Metadata {
@@ -199,6 +206,7 @@ impl Metadata {
         Metadata {
             doc: Document::new(),
             records: Vec::new(),
+            conflicts: Vec::new(),
         }
     }
 
@@ -234,7 +242,12 @@ impl Metadata {
             other => ParseError::Invalid(Invalid::new(other.to_string())),
         })?;
         let records = read_records(&doc).map_err(ParseError::Invalid)?;
-        Ok(Metadata { doc, records })
+        let conflicts = read_conflicts(&doc).map_err(ParseError::Invalid)?;
+        Ok(Metadata {
+            doc,
+            records,
+            conflicts,
+        })
     }
 
     /// 全部紀錄，順序同檔裡的 `[[file]]`。
@@ -245,6 +258,35 @@ impl Metadata {
     /// `path` 的紀錄。
     pub fn get(&self, path: &str) -> Option<&FileRecord> {
         self.records.iter().find(|r| r.path == path)
+    }
+
+    /// 根層 `conflicts`：合併結果解析不過、留原檔且基準版沒推的初始檔，順序同檔裡。
+    pub fn conflicts(&self) -> &[String] {
+        &self.conflicts
+    }
+
+    /// 把 `path` 加進（`conflicted` 是 `true`）或移出（`false`）根層 `conflicts`；回傳清單有沒有變。
+    /// 加進時接在最後，已在清單裡就不動；移出後清單空了就刪掉這個鍵。
+    pub fn set_conflict(&mut self, path: &str, conflicted: bool) -> Result<bool, PutError> {
+        check_path(path).map_err(PutError::Invalid)?;
+        let present = self.conflicts.iter().any(|p| p == path);
+        if present == conflicted {
+            return Ok(false);
+        }
+        let mut next = self.conflicts.clone();
+        if conflicted {
+            next.push(path.to_owned());
+        } else {
+            next.retain(|p| p != path);
+        }
+        if next.is_empty() {
+            self.doc.remove(&[CONFLICTS_KEY])?;
+        } else {
+            let array: Array = next.iter().map(String::as_str).collect();
+            self.doc.set(&[CONFLICTS_KEY], array)?;
+        }
+        self.conflicts = next;
+        Ok(true)
     }
 
     /// 新增或換掉 `record.path` 的紀錄。只改有變的欄位，同一筆裡的未知欄位與其他筆都保留。
@@ -381,6 +423,26 @@ fn read_records(doc: &Document) -> Result<Vec<FileRecord>, Invalid> {
         records.push(record);
     }
     Ok(records)
+}
+
+fn read_conflicts(doc: &Document) -> Result<Vec<String>, Invalid> {
+    let Some(item) = present(doc.get(&[CONFLICTS_KEY])) else {
+        return Ok(Vec::new());
+    };
+    let bad = || Invalid::new(format!("`{CONFLICTS_KEY}` is not an array of strings"));
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for v in item.as_array().ok_or_else(bad)? {
+        let path = v.as_str().ok_or_else(bad)?;
+        check_path(path).map_err(|e| Invalid::new(format!("`{CONFLICTS_KEY}`: {e}")))?;
+        if !seen.insert(path) {
+            return Err(Invalid::new(format!(
+                "`{CONFLICTS_KEY}` lists {path:?} twice"
+            )));
+        }
+        out.push(path.to_owned());
+    }
+    Ok(out)
 }
 
 fn read_record(table: &Table) -> Result<FileRecord, Invalid> {
@@ -771,7 +833,7 @@ mod tests {
     #[test]
     fn put_keeps_unknown_fields_and_other_entries() {
         let text = format!(
-            "schema = 1\nwritten_by = \"v0.1.0\"\nconflicts = [\"x\"]\n\n[[file]]\npath = \"a\"\nstate = \"managed\" # keep\nhash = \"{}\"\nfuture = 1\n\n[[file]]\npath = \"b\"\nstate = \"unmanaged\"\nnote = \"later\"\n",
+            "schema = 1\nwritten_by = \"v0.1.0\"\nlater = [\"x\"]\n\n[[file]]\npath = \"a\"\nstate = \"managed\" # keep\nhash = \"{}\"\nfuture = 1\n\n[[file]]\npath = \"b\"\nstate = \"unmanaged\"\nnote = \"later\"\n",
             hash("a\n")
         );
         let mut md = Metadata::parse(&text).unwrap();
@@ -782,7 +844,7 @@ mod tests {
         let out = md.render("v0.2.0").unwrap();
         assert!(out.contains("future = 1"), "{out}");
         assert!(out.contains("note = \"later\""), "{out}");
-        assert!(out.contains("conflicts = [\"x\"]"), "{out}");
+        assert!(out.contains("later = [\"x\"]"), "{out}");
         assert!(out.contains("state = \"declined\" # keep"), "{out}");
         let again = Metadata::parse(&out).unwrap();
         assert_eq!(again.get("a"), Some(&a));
@@ -818,6 +880,43 @@ mod tests {
     }
 
     #[test]
+    fn conflicts_round_trip_and_key_goes_away_when_empty() {
+        let text = "schema = 1\nwritten_by = \"v0.1.0\"\nfuture = 1\n\n[[file]]\npath = \"a\"\nstate = \"managed\"\n";
+        let mut md = Metadata::parse(text).unwrap();
+        assert!(md.conflicts().is_empty());
+        assert!(md.set_conflict("config.toml", true).unwrap());
+        assert!(md.set_conflict("justfile", true).unwrap());
+        assert!(!md.set_conflict("config.toml", true).unwrap());
+        let out = md.render("v0.2.0").unwrap();
+        assert!(
+            out.contains("conflicts = [\"config.toml\", \"justfile\"]"),
+            "{out}"
+        );
+        assert!(out.contains("future = 1"), "{out}");
+        let mut again = Metadata::parse(&out).unwrap();
+        assert_eq!(again.conflicts(), ["config.toml", "justfile"]);
+        assert!(again.get("a").is_some());
+
+        assert!(again.set_conflict("config.toml", false).unwrap());
+        assert!(!again.set_conflict("config.toml", false).unwrap());
+        assert_eq!(again.conflicts(), ["justfile"]);
+        assert!(again.set_conflict("justfile", false).unwrap());
+        let out = again.render("v0.2.0").unwrap();
+        assert!(!out.contains("conflicts"), "{out}");
+        assert!(Metadata::parse(&out).unwrap().conflicts().is_empty());
+    }
+
+    #[test]
+    fn set_conflict_rejects_bad_path() {
+        let mut md = Metadata::new();
+        assert!(matches!(
+            md.set_conflict("../x", true),
+            Err(PutError::Invalid(_))
+        ));
+        assert!(md.conflicts().is_empty());
+    }
+
+    #[test]
     fn corrupt_records_are_vk0013() {
         let h = hash("x");
         let cases = [
@@ -840,6 +939,10 @@ mod tests {
             "not toml = = \n".to_owned(),
             "[[file]]\npath = \"a\"\nstate = \"managed\"\n".to_owned(),
             "schema = 0\n".to_owned(),
+            "schema = 1\nconflicts = \"a\"\n".to_owned(),
+            "schema = 1\nconflicts = [1]\n".to_owned(),
+            "schema = 1\nconflicts = [\"../a\"]\n".to_owned(),
+            "schema = 1\nconflicts = [\"a\", \"a\"]\n".to_owned(),
         ];
         for text in &cases {
             let err = Metadata::parse(text).unwrap_err();

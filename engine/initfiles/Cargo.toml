@@ -10,6 +10,7 @@ files.workspace = true
 merge.workspace = true
 messages.workspace = true
 metadata.workspace = true
+toml_edit.workspace = true
 
 [lints]
 workspace = true
