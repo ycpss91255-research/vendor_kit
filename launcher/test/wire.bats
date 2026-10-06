@@ -60,10 +60,12 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
 }
 
 @test "op names are the closed set of engine/plan" {
-    vk 'printf "%s\n" "${vk_wire_ops[*]}" "${vk_wire_argv[*]}" "$vk_wire_mount_root $vk_wire_mount_ctl $vk_wire_mount_in"'
+    vk 'printf "%s\n" "${vk_wire_ops[*]}" "${vk_wire_argv[*]}" "$vk_wire_mount_root $vk_wire_mount_ctl $vk_wire_mount_in" "$vk_wire_in_engine"'
     [ "${lines[0]}" = "pull load inspect extract stage ps rm-container runner" ]
     [ "${lines[1]}" = "--protocol --run-id --host-root --host-cwd --run-log --tty --no-color" ]
     [ "${lines[2]}" = "/vk/root /vk/ctl /vk/in" ]
+    # 救援協定的一部分，跟引擎端讀的檔名一致
+    [ "${lines[3]}" = engine ]
 }
 
 @test "free-text fields decode exactly like field_encoding_is_exact" {

@@ -11,8 +11,8 @@
 # 這裡的變數由 launch.sh 使用。
 # shellcheck disable=SC2034
 #
-# 救援路徑用到的部分（掛載點、控制檔名、hdr、done、fld、ok／failed 與 pull、load、inspect、extract、stage）
-# 跨介面版永久不變（#372 維護者 10/05 定救援路徑協定選 A）；改了就破壞救援，P+1 也不能改。
+# 救援路徑用到的部分（掛載點、控制檔名、in/ 的引擎引用檔名、hdr、done、fld、ok／failed 與 pull、load、
+# inspect、extract、stage）跨介面版永久不變（#372 維護者 10/05 定救援路徑協定選 A）；改了就破壞救援，P+1 也不能改。
 
 vk_wire_grammar=vk-resolve
 # op 的封閉集合，依文法的順序（engine/plan 的 OPS）。
@@ -23,6 +23,10 @@ vk_wire_argv=(--protocol --run-id --host-root --host-cwd --run-log --tty --no-co
 vk_wire_mount_root=/vk/root
 vk_wire_mount_ctl=/vk/ctl
 vk_wire_mount_in=/vk/in
+# in/ 裡啟動器放的引擎引用檔（容器內 /vk/in/engine）：這次起的引擎 image 的 pinned 引用，一行、LF 結尾。
+# 引擎 image 不可能含有自己的 index digest，救援 argv 又凍結，所以由這個檔交給引擎（N37）。
+# 不會跟 tool<N> 的 slot 撞名；stage、extract 遇到已存在的 slot 一律拒絕，也蓋不掉這個檔。
+vk_wire_in_engine=engine
 
 # 各欄的型別（engine/plan 的 ABNF）。fld 的 0x21–0x7E 不含反斜線 0x5C；八進位只收 001–377。
 vk_wire_re_proto='^[1-9][0-9]{0,9}$'

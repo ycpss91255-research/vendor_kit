@@ -136,6 +136,98 @@ last_finished() {
     [[ $REPLY == *'"vendor_kit.exit_code":3,"vendor_kit.engine.exit_code":3,"vendor_kit.stop_reason_code":"none"}}' ]]
 }
 
+# ---- in/engine：這次用的 pinned 引用 ----
+
+# 假引擎：起來時記下 in/ 的檔名與 in/engine，再試著 stage／extract 到 engine 這個 slot。
+engine_reads_ref() {
+    local src="$BATS_TEST_TMPDIR/other"
+    printf 'other\n' >"$src"
+    engine_does "
+in=\$engine_ctl/../in
+names=(\"\$in\"/*)
+printf '%s\n' \"\${names[@]##*/}\" >\"\$VK_FAKE/in.names\"
+cp \"\$in/engine\" \"\$VK_FAKE/ref\"
+send 'stage e:$src engine'
+send 'extract sha256:$B engine'
+cp \"\$in/engine\" \"\$VK_FAKE/ref.after\"
+finish 0
+"
+}
+
+# assert_ref <file>：內容剛好是 pinned 引用加一個 LF。
+assert_ref() {
+    local got
+    got=$(cat "$1" && printf x)
+    [ "$got" = "$engine"$'\n'x ] || {
+        echo "in/engine: got ${got%x}" >&2
+        return 1
+    }
+}
+
+@test "the pinned engine reference is written once to in/engine before the engine starts" {
+    engine_reads_ref
+    launch 1 add foo
+    [ "$status" -eq 0 ] || {
+        echo "$stderr" >&2
+        return 1
+    }
+    # 一行、LF 結尾；.tmp 不留
+    assert_ref "$fake/ref"
+    [ "$(<"$fake/in.names")" = engine ]
+    # 同名 slot 的 stage、extract 都被拒，內容不變
+    assert_res 1 'failed 1'
+    assert_res 2 'failed 1'
+    assert_ref "$fake/ref.after"
+    assert_not_called '^create --label'
+    [ ! -e "$sess" ]
+}
+
+@test "rescue calls also get in/engine" {
+    printf '2 3 v2.0.0' >"$fake/labels"
+    local c
+    for c in sync 'install' 'upgrade --engine' ''; do
+        rm -rf "$work/.vendor_kit" "$fake/ref"
+        engine_reads_ref
+        # shellcheck disable=SC2086
+        launch 1 $c
+        [ "$status" -eq 0 ] || {
+            echo "$c: $stderr" >&2
+            return 1
+        }
+        assert_ref "$fake/ref" || {
+            echo "$c" >&2
+            return 1
+        }
+    done
+}
+
+@test "a call that fails validation creates no in/engine" {
+    # 介面版不合（VK0009）與啟動器參數不合（VK0056）都停在建 session 之前
+    printf '2 3 v2.0.0' >"$fake/labels"
+    launch 1 add foo
+    [ "$status" -eq 3 ]
+    [ ! -e "$sess" ]
+    rm -rf "$work/.vendor_kit"
+    printf '1 1 v1.0.0' >"$fake/labels"
+    vk "vk_log_version=0.0.0; vk_log_invocation_id=r1; vk_launch \"\$PWD\" \"\$PWD/sub\" ghcr.io/acme/vendor_kit:v1 1 sync; exit \$?"
+    [ "$status" -eq 2 ]
+    [ ! -e "$sess" ]
+    assert_not_called '^create'
+}
+
+@test "an unwritable in/ stops with VK0056 before docker create and removes the session" {
+    # in/engine.tmp 先放成目錄，寫入失敗
+    engine_does 'finish 0'
+    vk "vk_log_version=0.0.0; vk_log_invocation_id=r1; mkdir() { command mkdir \"\$@\" && if [[ \$* == *'$sess/ctl'* ]]; then command mkdir '$sess/in/engine.tmp'; fi; }; vk_launch \"\$PWD\" \"\$PWD/sub\" '$engine' 1 sync; exit \$?"
+    [ "$status" -eq 2 ]
+    internal "cannot write the engine reference to the session directory $sess"
+    [ "$stderr" = "$REPLY" ]
+    assert_not_called '^create'
+    [ ! -e "$sess" ]
+    last_finished
+    [[ $REPLY == *'"vendor_kit.exit_code":2,"vendor_kit.engine.exit_code":null,"vendor_kit.stop_reason_code":"VK0056"}}' ]]
+}
+
 # ---- 每種 op 的 req→res ----
 
 @test "every op is done on the host and answered with the exact result bytes" {
