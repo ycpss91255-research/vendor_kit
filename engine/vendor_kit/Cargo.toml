@@ -24,6 +24,7 @@ prompt.workspace = true
 prune.workspace = true
 remove.workspace = true
 runlog.workspace = true
+shell_check.workspace = true
 sync.workspace = true
 update.workspace = true
 upgrade.workspace = true

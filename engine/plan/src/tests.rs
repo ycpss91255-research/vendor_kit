@@ -666,6 +666,11 @@ fn rescue_constants_are_pinned() {
     );
     // in/ 裡啟動器寫的引擎引用檔（launcher/wire.sh 的 vk_wire_in_engine）。
     assert_eq!(files::IN_ENGINE, "engine");
+    // `--` 之後只有 bootstrap.sh 會送的保留入口（只檢查、修復）。
+    assert_eq!(
+        [entry::SHELL_CHECK, entry::SHELL_REPAIR],
+        ["@shell-check", "@shell-repair"]
+    );
 }
 
 #[test]

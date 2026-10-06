@@ -797,6 +797,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "shell_check"
+version = "0.0.0"
+dependencies = [
+ "compat",
+ "config",
+ "diagnostics",
+ "filelock",
+ "layout",
+ "messages",
+ "progress",
+ "schema",
+ "shell",
+ "tempfile",
+]
+
+[[package]]
 name = "similar"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1049,6 +1065,7 @@ dependencies = [
  "prune",
  "remove",
  "runlog",
+ "shell_check",
  "sync",
  "update",
  "upgrade",
