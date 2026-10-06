@@ -19,3 +19,6 @@ id
 mv
 rm
 sleep
+
+# 介面版判定（launch.sh）：本機沒有引擎 image 時 pull 的逾時。
+timeout

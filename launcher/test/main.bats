@@ -161,7 +161,7 @@ install_shell() {
         printf '# vendor_kit-shell interface 1\n# vendor_kit-shell engine v9.9.9\n# vendor_kit-shell sha256 %s\n' "$A"
         cat "$BATS_TEST_TMPDIR/shell/log.sh"
     } >"$work/.vendor_kit/log.sh"
-    printf 'vendor_kit = "%s"\nschema = 1\n' "$engine" >"$work/.vendor_kit/version.toml"
+    printf 'vendor_kit = "%s"\nvendor_kit_protocols = "1"\nschema = 1\n' "$engine" >"$work/.vendor_kit/version.toml"
     vk_env=(VK_FAKE="$fake" TMPDIR="$tmpd" vk_log_invocation_id=r1)
 }
 

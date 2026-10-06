@@ -8,6 +8,8 @@
 # - 只呼叫 docker 與 just 本身；主機不呼叫 git，「在 git repo 裡」以往上找 `.git` 判斷。
 # - 讀版本鎖定行的引擎行（vk_lock_engine_ref）也在這裡：同樣沒有副作用、排在建紀錄之前，
 #   薄殼的 log.sh（main.sh）與 bootstrap.sh 共用，各自決定讀不出時報哪一條診斷。
+#   引擎行旁記的介面版列表（vk_lock_protocols）同樣只讀不寫，由 launch.sh 的介面版判定在建紀錄之後讀：
+#   救援呼叫不讀它，列表缺漏或格式錯時救援路徑仍可用（N13）。
 #
 # 模式名與 engine/runlog 的 Mode 相同：initial_import、check、repair、recipe。
 
@@ -158,6 +160,67 @@ vk_lock_engine_ref() {
         REPLY="the engine lock line in $file is not a pinned image reference"
         return 1
     fi
+    REPLY=$value
+    return 0
+}
+
+# vk_lock_protocols <version.toml>：引擎鎖定行旁記的介面版列表（`vendor_kit_protocols = "<列表>"`，N13）
+# 放進 REPLY，回 0。列表是鎖定的引擎接受的介面版，由小到大、以一個空白分隔（例如 `1`、`2 3 4`）。
+# 跟引擎（engine/version_file 的 parse_protocols）拒絕一樣的形狀：命中 `^vendor_kit_protocols[[:space:]]*=`
+# 的行數不是 1、值不是雙引號字串、項目是 0 或有前導零、超過 32 位元無號整數、不是一個空白分隔、
+# 不是連續遞增。行尾的 CR 先去掉（ADR-0012）。讀不出時不印診斷，把原因（英文、不含結尾句點）放進 REPLY、回 1。
+vk_lock_protocols() {
+    local LC_ALL=C file=$1 line hit='' n=0
+    if [[ ! -f $file || ! -r $file ]]; then
+        REPLY="cannot read $file"
+        return 1
+    fi
+    while IFS= read -r line || [[ -n $line ]]; do
+        line=${line%$'\r'}
+        if [[ $line =~ ^vendor_kit_protocols[[:space:]]*= ]]; then
+            n=$((n + 1))
+            hit=$line
+        fi
+    done <"$file"
+    if ((n == 0)); then
+        REPLY="$file has no vendor_kit_protocols line"
+        return 1
+    fi
+    if ((n != 1)); then
+        REPLY="$file has $n vendor_kit_protocols lines, exactly 1 is required"
+        return 1
+    fi
+    local value=${hit#*=}
+    value=${value#"${value%%[![:space:]]*}"}
+    if [[ $value != \"*\"* ]]; then
+        REPLY="the vendor_kit_protocols line in $file is not a double-quoted string"
+        return 1
+    fi
+    value=${value#\"}
+    value=${value%%\"*}
+    local -a items
+    local item prev=''
+    IFS=' ' read -r -a items <<<"$value"
+    local joined="${items[*]}"
+    if [[ -z $value ]]; then
+        REPLY="the vendor_kit_protocols list in $file is empty"
+        return 1
+    fi
+    if [[ $joined != "$value" ]]; then
+        REPLY="the vendor_kit_protocols list in $file is not single-space separated"
+        return 1
+    fi
+    for item in "${items[@]}"; do
+        if [[ ! $item =~ ^[1-9][0-9]{0,9}$ ]] || ((item > 4294967295)); then
+            REPLY="the vendor_kit_protocols list in $file has an invalid interface version"
+            return 1
+        fi
+        if [[ -n $prev ]] && ((item != prev + 1)); then
+            REPLY="the vendor_kit_protocols list in $file is not consecutive and ascending"
+            return 1
+        fi
+        prev=$item
+    done
     REPLY=$value
     return 0
 }
