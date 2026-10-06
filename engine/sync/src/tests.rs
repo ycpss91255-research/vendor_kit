@@ -1158,7 +1158,32 @@ fn residual_tool_upgrade_is_vk0041_with_the_original_command() {
 }
 
 #[test]
-fn residual_engine_upgrade_stops_as_a_gap_with_the_original_command() {
+fn residual_engine_upgrade_is_vk0023_with_the_target_version() {
+    let fx = Fx::new(&[&TOOL]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    let mut p = Progress::new(UPGRADE_VERB, "old1", &["upgrade", "--engine", "-y"]).unwrap();
+    let doc = p.document_mut();
+    doc.set(
+        &[progress::upgrade::TABLE, progress::upgrade::TARGET],
+        progress::upgrade::ENGINE_TARGET,
+    )
+    .unwrap();
+    doc.set(
+        &[progress::upgrade::TABLE, progress::upgrade::IMAGE],
+        "ghcr.io/ycpss91255-research/vendor_kit:v2.0.0@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    )
+    .unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    let out = run_sync(&fx, all_local());
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0023]: Engine v2.0.0 is now installed. Run again: just vendor_kit upgrade --engine -y\n"
+    );
+    stopped_by_residual(&fx, &lock, &out);
+}
+
+#[test]
+fn residual_engine_upgrade_without_its_image_stops_as_a_gap() {
     let fx = Fx::new(&[&TOOL]);
     let lock = fs::read(fx.dir.version_toml()).unwrap();
     residual(
@@ -1178,14 +1203,9 @@ fn residual_engine_upgrade_stops_as_a_gap_with_the_original_command() {
         out.stderr
     );
     assert!(
-        out.stderr
-            .contains("incomplete engine upgrade in .vendor_kit/.tmp.upgrade.old1.toml"),
-        "{}",
-        out.stderr
-    );
-    assert!(
-        out.stderr
-            .contains("run again: just vendor_kit upgrade --engine -y"),
+        out.stderr.contains(
+            "incomplete engine upgrade in .vendor_kit/.tmp.upgrade.old1.toml without its [upgrade] image field"
+        ),
         "{}",
         out.stderr
     );

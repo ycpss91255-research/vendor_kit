@@ -11,6 +11,7 @@ config.workspace = true
 diagnostics.workspace = true
 fetch.workspace = true
 filelock.workspace = true
+imageref.workspace = true
 layout.workspace = true
 messages.workspace = true
 metadata.workspace = true

@@ -405,12 +405,6 @@ fn each_kind_of_residual_progress_file() {
             "VK0041",
         ),
         (
-            "upgrade",
-            &["upgrade", "--engine"][..],
-            Some(("upgrade", "target", "vendor_kit")),
-            "VK0023",
-        ),
-        (
             "undev",
             &["undev", "tool"][..],
             Some(("undev", "target", "tool")),
@@ -426,6 +420,43 @@ fn each_kind_of_residual_progress_file() {
         let full = full_command(command);
         assert!(out.stderr.contains(&full), "{full}\n{}", out.stderr);
     }
+}
+
+#[test]
+fn a_residual_engine_upgrade_reports_its_target_version() {
+    let image = "ghcr.io/ycpss91255-research/vendor_kit:v2.0.0@sha256:2222222222222222222222222222222222222222222222222222222222222222";
+    let fx = Fx::synced(&[&TOOL, &OTHER]);
+    let mut p = Progress::new("upgrade", "old1", &["upgrade", "--engine", "-y"]).unwrap();
+    let doc = p.document_mut();
+    doc.set(&["upgrade", "target"], "vendor_kit").unwrap();
+    doc.set(&["upgrade", "image"], image).unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    let out = run_check(&fx);
+    assert_eq!(out.code, 2);
+    assert_eq!(codes(&out.stderr), ["VK0023"], "{}", out.stderr);
+    // `<vY>` 是進度檔記的目標版，不是本引擎版。
+    assert!(
+        out.stderr.contains(
+            "Engine v2.0.0 is now installed. Run again: just vendor_kit upgrade --engine -y"
+        ),
+        "{}",
+        out.stderr
+    );
+
+    // 沒有 `[upgrade] image`：說不出目標版，停下。
+    let fx = Fx::synced(&[&TOOL, &OTHER]);
+    fx.progress(
+        "upgrade",
+        &["upgrade", "--engine"],
+        Some(("upgrade", "target", "vendor_kit")),
+    );
+    let out = run_check(&fx);
+    assert_eq!(codes(&out.stderr), ["VK0056"], "{}", out.stderr);
+    assert!(
+        out.stderr.contains("without its [upgrade] image field"),
+        "{}",
+        out.stderr
+    );
 }
 
 #[test]

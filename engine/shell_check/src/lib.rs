@@ -24,15 +24,13 @@
 //!   的指令名撞。這是 D2 協定的新增項，跟救援路徑一起永久不變（`plan` 的測試釘住）。
 //! - VK0006 的 `<files>` 與修復時列的差異都寫成 `.vendor_kit/<檔名> (<哪一種>)`，順序同 `layout::SHELL_FILES`
 //!   （跟 engine/sync 的寫法一致）；stdout 的字句見 [`text`]。
-//! - VK0023 的 `<vY>` 填本引擎版：`bootstrap.sh` 用版本鎖定行那一版引擎檢查，`upgrade --engine` 換好鎖定行
-//!   之後留下的進度檔，由新引擎讀到（見「缺口」）。`<original_command>` 由進度檔的 `command` 重組
+//! - VK0023 的 `<vY>` 是進度檔 `[upgrade] image`（engine/upgrade 換上的引擎版本鎖定行值）的 tag（[`engine_target`]，
+//!   同 engine/update）：第一段建好進度檔、還沒換鎖定行就中斷時，`bootstrap.sh` 起的還是舊引擎，`<vY>` 照樣是目標版。
+//!   沒有這一欄或解析不了以 VK0056 停下。`<original_command>` 由進度檔的 `command` 重組
 //!   （[`original_command`]，從 engine/update 照抄；指令之間互不依賴）。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
-//! - `progress::upgrade` 還沒記引擎 upgrade 的目標版（`upgrade --engine` 還沒實作）。進度檔寫好、鎖定行還沒
-//!   換的那一段中斷時，鎖定行仍是舊引擎，VK0023 的 `<vY>` 會填舊引擎版；要重跑的原指令照樣正確。
-//!   進度檔記了目標版之後改從進度檔讀。
 //! - 未完成的 `uninstall`（鎖定行還在時）還不辨識，照常比對薄殼。
 //! - 重產到一半寫檔失敗沒有代碼（計畫 G4），已重產的檔不還原。
 
@@ -95,6 +93,14 @@ pub fn shell_quote(s: &str) -> String {
         return s.to_owned();
     }
     format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// 引擎升級進度檔記的目標版：`[upgrade] image`（engine/upgrade 換上的引擎版本鎖定行值）的 tag（同 engine/update）；
+/// 沒有這一欄或解析不了回 `None`。
+pub fn engine_target(loaded: &progress::Progress) -> Option<String> {
+    progress::upgrade::field(loaded, progress::upgrade::IMAGE)
+        .and_then(|i| imageref::ImageRef::parse(i).ok())
+        .map(|i| i.tag().to_string())
 }
 
 /// 由進度檔的 `command`（`just vendor_kit` 之後的參數）重組完整指令（engine/update 的 `original_command`）。
@@ -259,17 +265,26 @@ impl<W: Write, S: Sink> ShellCheck<'_, '_, W, S> {
                 Err(e) => return Err(self.internal(e.to_string())),
             };
             if progress::upgrade::field(&loaded, progress::upgrade::TARGET)
-                == Some(progress::upgrade::ENGINE_TARGET)
+                != Some(progress::upgrade::ENGINE_TARGET)
             {
-                found.push(original_command(loaded.command()));
+                continue;
             }
+            let Some(target) = engine_target(&loaded) else {
+                let file = self.rel(&entry.path);
+                return Err(self.internal(format!(
+                    "reporting the incomplete engine upgrade in {file} without its [upgrade] {} \
+                     field is not supported yet",
+                    progress::upgrade::IMAGE
+                )));
+            };
+            found.push((target, original_command(loaded.command())));
         }
         if found.is_empty() {
             return Ok(());
         }
-        for command in found {
+        for (target, command) in found {
             let d = Diagnostic::new(&messages::VK0023)
-                .arg("vY", self.env.written_by)
+                .arg("vY", target)
                 .arg("original_command", command);
             self.emit(d);
         }

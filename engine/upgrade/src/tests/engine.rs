@@ -973,12 +973,96 @@ fn residual_progress_files_that_are_not_this_engine_upgrade_stop() {
         "upgrade --engine while the incomplete upgrade operation",
     );
 
-    // 引擎升級記的目標不是版本鎖定行（鎖定行之後被手改過）。
+    // 兩份引擎升級記著不同的目標。
     let fx = Fx::new();
     residual(&fx, table::ENGINE_TARGET, &target_locked(), false);
+    let mut p = Progress::new(VERB, "r9", &["upgrade", "--engine"]).unwrap();
+    let doc = p.document_mut();
+    doc.set(&[table::TABLE, table::TARGET], table::ENGINE_TARGET)
+        .unwrap();
+    doc.set(&[table::TABLE, table::IMAGE], self_locked())
+        .unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
     let before = fx.snapshot();
     let out = run_engine(&fx, &argv, &unused_registry());
-    assert_gap(&out, "whose target is not the engine lock version line");
+    assert_gap(&out, "which name different targets");
+    assert_eq!(fx.snapshot(), before);
+}
+
+// ---- 第一段中斷 ----
+
+/// 第一段建好進度檔（`r0`，記著 `image`）、還沒換鎖定行就停下的樣子：鎖定行仍是 v1.0.0。
+fn interrupted_first_stage(fx: &Fx, image: &str) {
+    residual(fx, table::ENGINE_TARGET, image, false);
+}
+
+#[test]
+fn an_interrupted_first_stage_is_redone_by_the_rerun() {
+    for argv in [
+        ["upgrade", "--engine=v1.2.0", "-y"].as_slice(),
+        // 不帶 tag：續作進度檔記的目標，不問 registry 的最新版。
+        ["upgrade", "--engine"].as_slice(),
+    ] {
+        let fx = Fx::new();
+        interrupted_first_stage(&fx, &target_locked());
+        let peer = Peer::start(&fx, TARGET);
+        let out = run_engine(&fx, argv, &unused_registry());
+        let ops = peer.finish();
+        assert_eq!(ops, [format!("inspect {}", target_ref())]);
+        let again = engine::original_command(argv);
+        // 殘留的 `r0` 刪掉，只留這次的進度檔。
+        assert_switched(&fx, &out, argv, &again);
+    }
+}
+
+#[test]
+fn after_redoing_an_interrupted_first_stage_the_second_stage_completes() {
+    let fx = Fx::new();
+    interrupted_first_stage(&fx, &self_locked());
+    let argv = ["upgrade", "--engine=v0.0.0", "-y"];
+    first_stage(&fx, &argv);
+    let t = templates();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &second_opts("r2", &t));
+    assert_completed(
+        &fx,
+        &out,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+    );
+}
+
+#[test]
+fn redoing_an_interrupted_first_stage_stops_where_it_cannot_tell_what_to_do() {
+    // 帶的 tag 跟進度檔記的目標不同：不送 op、不寫檔。
+    let fx = Fx::new();
+    interrupted_first_stage(&fx, &target_locked());
+    let before = fx.snapshot();
+    let out = run_engine(&fx, &["upgrade", "--engine=v1.3.0"], &unused_registry());
+    assert_gap(
+        &out,
+        "upgrade --engine=v1.3.0 while the engine upgrade to v1.2.0 recorded in .vendor_kit/.tmp.upgrade.r0.toml is incomplete",
+    );
+    assert_eq!(fx.snapshot(), before);
+
+    // 同一個 tag 現在解析出別的 digest。
+    let fx = Fx::new();
+    let other = format!("{}@sha256:{}", target_ref(), "3".repeat(64));
+    interrupted_first_stage(&fx, &other);
+    let before = fx.snapshot();
+    let peer = Peer::start(&fx, TARGET);
+    let out = run_engine(&fx, &["upgrade", "--engine"], &unused_registry());
+    peer.finish();
+    assert_gap_or_internal(&out, crate::DRAFT_TAG_DIGESTS);
+    assert_eq!(fx.snapshot(), before);
+
+    // 進度檔記的不是引擎 image。
+    let fx = Fx::new();
+    interrupted_first_stage(&fx, &format!("ghcr.io/acme/tool:v1.2.0@{DIGEST}"));
+    let before = fx.snapshot();
+    let out = run_engine(&fx, &["upgrade", "--engine"], &unused_registry());
+    assert_gap_or_internal(
+        &out,
+        "which is not a ghcr.io/ycpss91255-research/vendor_kit image",
+    );
     assert_eq!(fx.snapshot(), before);
 }
 

@@ -92,7 +92,26 @@ impl Fx {
         }
         p.create(&self.dir, WRITTEN_BY).unwrap();
     }
+
+    /// 引擎升級的進度檔；`image` 是 `[upgrade] image`（engine/upgrade 換上的引擎版本鎖定行值）。
+    fn engine_progress(&self, command: &[&str], image: Option<&str>) {
+        let mut p = Progress::new(progress::upgrade::VERB, "old1", command).unwrap();
+        let doc = p.document_mut();
+        doc.set(
+            &[progress::upgrade::TABLE, progress::upgrade::TARGET],
+            progress::upgrade::ENGINE_TARGET,
+        )
+        .unwrap();
+        if let Some(i) = image {
+            doc.set(&[progress::upgrade::TABLE, progress::upgrade::IMAGE], i)
+                .unwrap();
+        }
+        p.create(&self.dir, WRITTEN_BY).unwrap();
+    }
 }
+
+/// 引擎 v2.0.0 的版本鎖定行值。
+const ENGINE_V2: &str = "ghcr.io/ycpss91255-research/vendor_kit:v2.0.0@sha256:2222222222222222222222222222222222222222222222222222222222222222";
 
 struct Out {
     code: u8,
@@ -201,26 +220,37 @@ fn engine_upgrade_progress_reports_vk0023_without_comparing() {
     for mode in [Mode::Check, Mode::Repair] {
         let fx = Fx::new();
         fs::remove_file(fx.shell_file("log.sh")).unwrap();
-        fx.progress(
-            progress::upgrade::VERB,
-            &["upgrade", "--engine=v2.0.0", "-y"],
-            Some(progress::upgrade::ENGINE_TARGET),
-        );
+        fx.engine_progress(&["upgrade", "--engine=v2.0.0", "-y"], Some(ENGINE_V2));
         let before = fx.snapshot();
         let out = run_mode(&fx, mode, Some(&templates()));
         assert_eq!(out.code, 2, "{mode:?}");
         assert_eq!(out.stdout, "", "{mode:?}");
+        // `<vY>` 是進度檔記的目標版，不是本引擎版（第一段還沒換鎖定行就中斷時，跑的仍是舊引擎）。
         assert_eq!(
             out.stderr,
-            format!(
-                "vendor_kit: error[VK0023]: Engine {WRITTEN_BY} is now installed. Run again: \
-                 just vendor_kit upgrade --engine=v2.0.0 -y\n"
-            ),
+            "vendor_kit: error[VK0023]: Engine v2.0.0 is now installed. Run again: \
+             just vendor_kit upgrade --engine=v2.0.0 -y\n",
             "{mode:?}"
         );
         // 不比對也不重產：缺的 log.sh 還是缺，進度檔留著。
         assert_eq!(fx.snapshot(), before, "{mode:?}");
     }
+}
+
+#[test]
+fn engine_upgrade_progress_without_its_image_is_vk0056() {
+    let fx = Fx::new();
+    fx.engine_progress(&["upgrade", "--engine"], None);
+    let before = fx.snapshot();
+    let out = run_mode(&fx, Mode::Repair, Some(&templates()));
+    assert_eq!(out.code, 2);
+    assert!(
+        out.stderr.starts_with("vendor_kit: error[VK0056]: ")
+            && out.stderr.contains("without its [upgrade] image field"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(fx.snapshot(), before);
 }
 
 #[test]

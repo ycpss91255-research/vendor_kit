@@ -18,8 +18,8 @@
 //!      在起引擎前判，不在引擎。
 //!    - 每個讀到的 VK 檔（`version.local.toml`、進度檔、每個工具的印記）檔案版過高：VK0008。
 //!    - 殘留的進度檔（04 成對與無害：唯讀 recipe 只偵測，不恢復、不刪；見「殘留的進度檔」）：`add` 的回
-//!      VK0004；工具 `upgrade` 的回 VK0041；`undev` 的回 VK0053（見「本機覆寫」）；其他可寫 recipe 的回
-//!      VK0054；引擎 `upgrade` 的見「缺口」。
+//!      VK0004；工具 `upgrade` 的回 VK0041；引擎 `upgrade` 的回 VK0023；`undev` 的回 VK0053（見「本機覆寫」）；
+//!      其他可寫 recipe 的回 VK0054。
 //!    - `version.local.toml` 的工具覆寫：讀本機開發來源（見「本機覆寫」），讀不到回 VK0052。
 //!    - 沒有覆寫的工具的印記：不在（首次取件，不算損壞）、損壞（VK0044）或讀得到。
 //! 5. 沒有覆寫的工具逐一判定要不要重取（04 sync 表）：
@@ -93,6 +93,9 @@
 //! - `add`：VK0004，`<repo>` 讀進度檔 `[add] repo`（`sync` 不代替完成導入）。
 //! - 工具 `upgrade`：VK0041，`<repo>` 讀進度檔 `[upgrade] target`（格式見 `progress::upgrade`），
 //!   `<original_command>` 由進度檔的 `command` 重組。
+//! - 引擎 `upgrade`（`[upgrade] target` 是 `progress::upgrade::ENGINE_TARGET`）：VK0023，`<vY>` 是進度檔
+//!   `[upgrade] image`（engine/upgrade 換上的引擎版本鎖定行值）的 tag，`<original_command>` 由進度檔的 `command`
+//!   重組；沒有 `image` 或解析不了見「缺口」。
 //! - `undev`：VK0053，見「本機覆寫」。
 //! - 其他可寫 recipe（`remove`、`install`、`uninstall`、`dev`、`prune` 等）：VK0054，`<operation>` 是進度檔的
 //!   `<verb>`，`<original_command>` 由進度檔的 `command` 重組。
@@ -112,8 +115,8 @@
 //!
 //! - 覆寫指到不在版本鎖定行的工具（例如開著覆寫時 `git pull` 拿掉了那一行）：ADR-0002 說覆寫只覆蓋已存在
 //!   的鎖定行，訊息表沒有代碼（`version_file::OrphanOverrides`），停下。
-//! - 殘留的引擎 `upgrade` 進度檔：VK0023 要填新引擎的 `<vY>`，`progress::upgrade` 還沒記引擎 upgrade 的
-//!   欄位（`upgrade --engine` 還沒實作），停下時說明裡帶進度檔與原指令（同 engine/update）。
+//! - 殘留的引擎 `upgrade` 進度檔沒有 `[upgrade] image` 或解析不了：說不出 VK0023 的 `<vY>`，停下時說明裡帶
+//!   進度檔（同 engine/update）。
 //! - 殘留的 `sync` 進度檔：`sync` 不寫進度檔，正常的引擎不會留下；報 VK0054 會叫使用者重跑 `sync`、
 //!   而 `sync` 又清不掉它，所以停下時寫明是哪一份。
 //! - 基準版落後（VK0014）：`metadata` 沒有記基準版是哪一版，判不出來；工具有 metadata 時停下。目前
@@ -753,11 +756,20 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
                 }
             }
             UPGRADE_VERB => match progress::upgrade::field(&loaded, progress::upgrade::TARGET) {
-                Some(progress::upgrade::ENGINE_TARGET) => self.gap_diag(format_args!(
-                    "reporting the incomplete engine upgrade in {} (run again: {})",
-                    self.rel(&entry.path),
-                    full_command(loaded.command())
-                )),
+                Some(progress::upgrade::ENGINE_TARGET) => {
+                    let image = progress::upgrade::field(&loaded, progress::upgrade::IMAGE)
+                        .and_then(|i| ImageRef::parse(i).ok());
+                    match image {
+                        Some(image) => Diagnostic::new(&messages::VK0023)
+                            .arg("vY", image.tag().to_string())
+                            .arg("original_command", full_command(loaded.command())),
+                        None => self.gap_diag(format_args!(
+                            "reporting the incomplete engine upgrade in {} without its [upgrade] \
+                             image field",
+                            self.rel(&entry.path)
+                        )),
+                    }
+                }
                 Some(repo) => Diagnostic::new(&messages::VK0041)
                     .arg("repo", repo)
                     .arg("original_command", full_command(loaded.command())),

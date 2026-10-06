@@ -42,7 +42,8 @@
 //!
 //! - `add`：VK0004，`<repo>` 讀進度檔 `[add] repo`。
 //! - 工具 `upgrade`：VK0041，`<repo>` 讀進度檔 `[upgrade] target`，`<original_command>` 由進度檔的 `command` 重組。
-//! - 引擎 `upgrade`：VK0023，`<vY>` 填本引擎版（同 engine/shell_check，見「缺口」）。
+//! - 引擎 `upgrade`：VK0023，`<vY>` 是進度檔 `[upgrade] image`（engine/upgrade 換上的引擎版本鎖定行值）的 tag，
+//!   `<original_command>` 由進度檔的 `command` 重組（同 engine/update）。
 //! - `undev`：VK0053，`<target>` 讀進度檔 `[undev] target`，`<undev_command>` 由進度檔的 `command` 重組。
 //! - 其他可寫 recipe（`remove`、`install`、`uninstall`、`dev`、`prune` 等）：VK0054，`<operation>` 是進度檔的
 //!   `<verb>`。
@@ -61,7 +62,6 @@
 //! - 本機覆寫指到不在版本鎖定行的工具：訊息表還沒有代碼（草稿 [`DRAFT_ORPHAN_OVERRIDE`]，N76）。
 //! - 基準版落後（VK0014）：`metadata` 沒有記基準版是哪一版（等 N3、N52），判不出來；工具有 metadata 時停下
 //!   （同 engine/sync）。目前 `add` 只在有初始檔時才寫 metadata，實際上碰不到。
-//! - 殘留的引擎 `upgrade` 進度檔：`progress::upgrade` 還沒記引擎 upgrade 的目標版，VK0023 的 `<vY>` 暫填本引擎版。
 //! - 殘留的 `sync` 進度檔：`sync` 不寫進度檔，正常的引擎不會留下（同 engine/sync）。
 //! - 工具名不是合法的 just 名稱、兩個工具交付同一個 `<ns>`：沒有代碼。
 //! - 訊息表 VK0047 的 situation 還寫著「全新 checkout 是否算缺件待確認」、只講缺件；04 檢查也還寫「待確認」。
@@ -142,6 +142,14 @@ pub fn shell_quote(s: &str) -> String {
         return s.to_owned();
     }
     format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// 引擎升級進度檔記的目標版：`[upgrade] image`（engine/upgrade 換上的引擎版本鎖定行值）的 tag（同 engine/update）；
+/// 沒有這一欄或解析不了回 `None`。
+pub fn engine_target(loaded: &progress::Progress) -> Option<String> {
+    progress::upgrade::field(loaded, progress::upgrade::IMAGE)
+        .and_then(|i| imageref::ImageRef::parse(i).ok())
+        .map(|i| i.tag().to_string())
 }
 
 /// 由進度檔的 `command`（`just vendor_kit` 之後的參數）重組完整指令。
@@ -421,9 +429,12 @@ impl<W: Write, S: Sink> Check<'_, '_, W, S> {
                 None => missing_field(UNDEV_VERB, UNDEV_VERB, UNDEV_TARGET_KEY),
             },
             UPGRADE_VERB => match progress::upgrade::field(&loaded, progress::upgrade::TARGET) {
-                Some(progress::upgrade::ENGINE_TARGET) => Diagnostic::new(&messages::VK0023)
-                    .arg("vY", self.env.written_by)
-                    .arg("original_command", full_command(loaded.command())),
+                Some(progress::upgrade::ENGINE_TARGET) => match engine_target(&loaded) {
+                    Some(tag) => Diagnostic::new(&messages::VK0023)
+                        .arg("vY", tag)
+                        .arg("original_command", full_command(loaded.command())),
+                    None => missing_field("engine upgrade", UPGRADE_VERB, progress::upgrade::IMAGE),
+                },
                 Some(repo) => Diagnostic::new(&messages::VK0041)
                     .arg("repo", repo)
                     .arg("original_command", full_command(loaded.command())),
