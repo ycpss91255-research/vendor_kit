@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 # VK 引擎 image。stage 串成一條鏈（ADR-0011）：本機 `just test` 停在 test，
-# `just build` 與 CI 走同一條鏈建到最後，測試沒過就建不出 image。
+# `just build` 與 CI 走同一條鏈建到最後，測試沒過就建不出 image。release 的 `just release-image` 以 buildx
+# 對每個支援平台（amd64、arm64）各走一次同一條鏈，產出一個多架構 image。
 
 # Rust 版本只寫在 rust-toolchain.toml；這裡用浮動的官方 image，由 rustup 依該檔裝指定版本與元件。
 FROM rust:1-slim AS toolchain
