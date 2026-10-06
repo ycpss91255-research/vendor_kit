@@ -48,7 +48,7 @@ pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";
 /// 起引擎容器時不帶任何環境變數）；e2e 在主機上直接跑執行檔，沒有 image 裡的模板，用它給 fixture 模板。
 pub const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
 
-/// 測試用：設了這個環境變數，`update` 與 `upgrade <repo>` 的 registry client 改連這個 base URL（`registry::Client::with_base_url`），
+/// 測試用：設了這個環境變數，`update`、`add` 與 `upgrade <repo>` 的 registry client 改連這個 base URL（`registry::Client::with_base_url`），
 /// 不連 `registry::BASE_URL`；image 名稱仍只收 ghcr.io。正式執行時一定不設（啟動器起引擎容器時不帶任何環境
 /// 變數）；e2e 用它接假 registry，不連外網。
 pub const REGISTRY_URL_ENV: &str = "VK_TEST_REGISTRY_URL";
@@ -444,8 +444,16 @@ where
 {
     match command {
         args::Command::Add {
-            repo, tag, image, ..
+            repo,
+            tag,
+            image,
+            image_path,
+            registry_token_file,
         } => {
+            let registry = match registry_client(host_log, diags) {
+                Ok(c) => c,
+                Err(code) => return code,
+            };
             let dir = layout::InstallDir::new(&mounts.root);
             let argv: Vec<String> = inv
                 .rest
@@ -462,6 +470,7 @@ where
                 inbox: &mounts.inbox,
                 channel,
                 poll: POLL,
+                registry: &registry,
                 tty: inv.tty,
                 argv: &argv,
                 run_id: inv.run_id.as_str(),
@@ -476,6 +485,8 @@ where
                 repo,
                 tag: *tag,
                 image: image.as_deref(),
+                image_path: image_path.as_deref(),
+                registry_token_file: registry_token_file.as_deref(),
             };
             let code = add::run(&req, &mut env);
             let _ = stdout.flush();
@@ -1372,7 +1383,12 @@ mod tests {
                     let mut argv: Vec<&str> = base.to_vec();
                     argv.push(opt);
                     if takes_value {
-                        argv.push("x");
+                        // `--image-path` 的值要是 `ghcr.io/<路徑>`，其他帶值選項收任何值。
+                        argv.push(if opt == "--image-path" {
+                            "ghcr.io/acme/lint"
+                        } else {
+                            "x"
+                        });
                     }
                     assert!(
                         matches!(args::parse(&argv), Ok(args::Invocation::Run(_))),
@@ -1383,8 +1399,8 @@ mod tests {
                 }
             }
         }
-        // -i／--image 兩處、-y／--yes 三處、--registry-token-file 三處、-p／--path 一處。
-        assert_eq!(checked, 4 + 6 + 3 + 2);
+        // -i／--image 兩處、-y／--yes 三處、--registry-token-file 三處、-p／--path 一處、--image-path 一處。
+        assert_eq!(checked, 4 + 6 + 3 + 2 + 1);
     }
 
     #[test]

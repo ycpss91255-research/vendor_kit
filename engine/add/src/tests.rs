@@ -174,15 +174,20 @@ fn tty(interactive: bool) -> Tty {
 }
 
 fn run_add(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &str) -> Out {
-    let image = argv
-        .iter()
-        .position(|a| *a == "-i")
-        .map(|i| OsStr::new(argv[i + 1]));
-    let req = Request {
-        repo: argv[1],
-        tag: None,
-        image,
+    let value = |opt: &str| argv.iter().position(|a| *a == opt).map(|i| argv[i + 1]);
+    let (repo, tag) = match argv[1].split_once('@') {
+        Some((r, t)) => (r, Some(Tag::parse(t).unwrap())),
+        None => (argv[1], None),
     };
+    let req = Request {
+        repo,
+        tag,
+        image: value("-i").map(OsStr::new),
+        image_path: value("--image-path"),
+        registry_token_file: None,
+    };
+    // 這裡的測試都不該連到 registry：給一個不會被用到的位址（線上解析的 e2e 接假 registry）。
+    let registry = Client::with_base_url("http://127.0.0.1:9").unwrap();
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     fx.assert_fresh_session();
     let mut channel = Channel::new(&fx.ctl, header());
@@ -208,6 +213,7 @@ fn run_add(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &str) 
             inbox: &fx.inbox,
             channel: &mut channel,
             poll: Duration::from_millis(1),
+            registry: &registry,
             tty,
             argv: &argv,
             run_id: "r1",
@@ -453,7 +459,7 @@ fn end_of_input_is_not_consent() {
 // ---- 停下點 ----
 
 #[test]
-fn reserved_name_and_online_add_stop_before_fetching() {
+fn reserved_name_and_online_add_without_image_path_stop_before_fetching() {
     let fx = Fx::new("");
     let before = fx.lock_text();
     let peer = Peer::start(&fx, &["tool"], None);
@@ -470,13 +476,12 @@ fn reserved_name_and_online_add_stop_before_fetching() {
         "{}",
         out.stderr
     );
+    // 線上 add：沒有版本鎖定行又沒給 --image-path，不知道去哪裡查（VK0025）。
     let out = run_add(&fx, &["add", "tool"], Vec::new(), tty(false), "");
     assert_eq!(out.code, 2);
-    assert!(
-        out.stderr
-            .starts_with("vendor_kit: error[VK0056]: Internal vendor_kit error: add without -i"),
-        "{}",
-        out.stderr
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0025]: Required argument is missing: --image-path.\n"
     );
     let out = run_add(
         &fx,
@@ -501,6 +506,54 @@ fn different_tag_already_added_points_to_upgrade() {
     assert_eq!(
         out.stderr,
         "vendor_kit: error[VK0045]: Cannot add tool at v1.2.0: it is already imported at v1.0.0. Run: just vendor_kit upgrade tool@v1.2.0\n"
+    );
+}
+
+#[test]
+fn online_add_of_an_added_tool_does_not_query() {
+    let fx = Fx::new(&format!("tool = \"{}\"\n", locked()));
+    let before = fx.lock_text();
+    let peer = Peer::start(&fx, &["tool"], None);
+    // 不帶 tag、或同一個 tag：已完整導入，未變更；--image-path 不看（一律讀鎖定行）。
+    for argv in [
+        &["add", "tool"][..],
+        &["add", "tool@v1.2.0", "--image-path", "ghcr.io/acme/other"],
+    ] {
+        let out = run_add(&fx, argv, Vec::new(), tty(false), "");
+        assert_eq!(out.code, 0, "{}", out.stderr);
+        assert_eq!(
+            out.stdout,
+            "tool v1.2.0 is already added; no changes were made.\n"
+        );
+    }
+    // 別的 tag：改用 upgrade（VK0045），不連 registry。
+    let out = run_add(&fx, &["add", "tool@v1.3.0"], Vec::new(), tty(false), "");
+    assert_eq!(out.code, 2);
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0045]: Cannot add tool at v1.3.0: it is already imported at v1.2.0. Run: just vendor_kit upgrade tool@v1.3.0\n"
+    );
+    assert!(peer.finish().is_empty());
+    assert_eq!(fx.lock_text(), before);
+}
+
+#[test]
+fn online_add_at_a_tag_in_the_local_store_does_not_query() {
+    let fx = Fx::new("");
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(
+        &fx,
+        &["add", "tool@v1.2.0", "--image-path", "ghcr.io/acme/tool"],
+        Vec::new(),
+        tty(false),
+        "",
+    );
+    assert_eq!(peer.finish(), ["inspect", "extract"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stdout, format!("Added tool v1.2.0 ({}).\n", locked()));
+    assert!(
+        fx.lock_text()
+            .ends_with(&format!("[tools]\ntool = \"{}\"\n", locked()))
     );
 }
 
