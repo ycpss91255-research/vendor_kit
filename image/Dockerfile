@@ -49,6 +49,11 @@ RUN set -eu; \
     launcher/lint/check_commands.sh; \
     VK_MESSAGES=/out/bootstrap_messages.sh bats launcher/test
 
+# 薄殼模板（ADR-0007：模板隨 image 出貨）：用 test stage 產生的訊息片段跑 launcher/shell/assemble.sh，
+# 組出薄殼四檔的模板本文（不含自描述標頭，標頭由引擎寫進安裝目錄時加）。
+FROM test AS shell
+RUN bash launcher/shell/assemble.sh /out/bootstrap_messages.sh /out/shell
+
 # LABEL 值的出口：`just build` 先建這個 stage 取出 image_labels.env，再把每行當 --build-arg 帶給最終 stage。
 FROM scratch AS labels
 COPY --from=test /out/image_labels.env /image_labels.env
@@ -60,6 +65,8 @@ RUN apk add --no-cache git
 # 容器內的語言與時區寫死（ADR-0012）。
 ENV LC_ALL=C.UTF-8 TZ=UTC
 COPY --from=test /out/vendor_kit /usr/local/bin/vendor_kit
+# install 與 sync 從這裡讀薄殼模板；路徑與 engine/install 的 release::SHIPPED_DIR 加 SHELL_DIR 一致。
+COPY --from=shell /out/shell/ /usr/share/vendor_kit/shell/
 # 啟動器讀這三個 LABEL 判介面版（ADR-0008:27），鍵與 launcher/launch.sh 的 vk_label_* 一致。
 # 值由 build-arg 帶入，來源只有 engine/compat 的 THIS 與 Cargo workspace version（compat::image_build_args）；
 # 這裡與 test stage 產出的 image_labels.env 逐位元組比對，沒帶或不一致就建不出 image。

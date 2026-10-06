@@ -260,6 +260,8 @@ fn fresh_install_writes_the_skeleton_without_asking() {
             "baseline",
             "baseline/.vendor_kit.toml",
             "entry.just",
+            "gen",
+            "gen/.stamp",
             "log.sh",
             "vendor.just",
             "version.toml",
@@ -267,6 +269,7 @@ fn fresh_install_writes_the_skeleton_without_asking() {
     );
     let lock = LockFile::load_from(&fx.dir).unwrap().unwrap();
     assert_eq!(lock.engine().to_string(), ENGINE);
+    assert_eq!(fx.read(".vendor_kit/gen/.stamp"), format!("{ENGINE}\n"));
     assert!(lock.tools().is_empty());
     for (i, name) in layout::SHELL_FILES.iter().enumerate() {
         assert_eq!(
@@ -306,6 +309,26 @@ fn second_install_changes_nothing() {
     assert!(out.events().is_empty());
     assert_eq!(fx.tree(), before);
     assert_eq!(fx.read(".vendor_kit/version.toml"), toml);
+}
+
+/// 新 checkout 沒有 `gen/`（不進 git）：只補 `gen/.stamp`，其他不動。
+#[test]
+fn checkout_without_gen_only_writes_the_stamp() {
+    let fx = Fx::new();
+    assert_eq!(run_install(&fx, false, "").code, 0);
+    let before = fx.tree();
+    let toml = fx.read(".vendor_kit/version.toml");
+    fs::remove_dir_all(fx.dir.gen_dir()).unwrap();
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!("Installed vendor_kit {WRITTEN_BY} in /h/proj.\n")
+    );
+    assert_eq!(out.stderr, "");
+    assert_eq!(fx.tree(), before);
+    assert_eq!(fx.read(".vendor_kit/version.toml"), toml);
+    assert_eq!(fx.read(".vendor_kit/gen/.stamp"), format!("{ENGINE}\n"));
 }
 
 #[test]
@@ -490,6 +513,11 @@ fn existing_lock_line_is_kept_and_shell_is_rewritten() {
     assert_eq!(out.events(), LANDED_NO_LOCK);
     let lock = LockFile::load_from(&fx.dir).unwrap().unwrap();
     assert_eq!(lock.engine().to_string(), OTHER_ENGINE);
+    // `gen/.stamp` 記沿用的鎖定行，不是本引擎的引用檔。
+    assert_eq!(
+        fx.read(".vendor_kit/gen/.stamp"),
+        format!("{OTHER_ENGINE}\n")
+    );
     assert_eq!(
         fs::read(fx.vk().join("vendor.just")).unwrap(),
         shell_file(1)
@@ -498,9 +526,9 @@ fn existing_lock_line_is_kept_and_shell_is_rewritten() {
 }
 
 #[test]
-fn shipped_release_stops_on_the_missing_shell_templates() {
+fn release_without_shell_templates_stops() {
     let fx = Fx::new();
-    let out = run_with(&fx, &Release::shipped(), false, false, "");
+    let out = run_with(&fx, &Release::without_shell(), false, false, "");
     assert_eq!(out.code, 2);
     assert_eq!(out.stdout, "");
     assert!(
@@ -769,7 +797,7 @@ fn progress_records_each_root_file_written() {
 fn release_reads_back_from_a_directory() {
     let tmp = tempfile::tempdir().unwrap();
     let d = tmp.path();
-    assert_eq!(Release::from_dir(d).unwrap(), Release::shipped());
+    assert_eq!(Release::from_dir(d).unwrap(), Release::without_shell());
     fs::create_dir(d.join(release::SHELL_DIR)).unwrap();
     for (name, body) in layout::SHELL_FILES.iter().zip(BODIES) {
         fs::write(d.join(release::SHELL_DIR).join(name), body).unwrap();
@@ -778,17 +806,17 @@ fn release_reads_back_from_a_directory() {
         Release::from_dir(d).unwrap(),
         Release {
             shell: Some(BODIES.map(|b| b.as_bytes().to_vec())),
-            ..Release::shipped()
+            ..Release::without_shell()
         }
     );
     fs::remove_file(d.join(release::SHELL_DIR).join(layout::SHELL_FILES[3])).unwrap();
-    assert_eq!(Release::from_dir(d).unwrap(), Release::shipped());
+    assert_eq!(Release::from_dir(d).unwrap(), Release::without_shell());
 }
 
 /// 根目錄檔的逐字內容（04 草稿照這裡寫；改了要同步改 04）。
 #[test]
 fn shipped_root_file_contents_are_pinned() {
-    let r = Release::shipped();
+    let r = Release::without_shell();
     assert_eq!(r.shell, None);
     assert_eq!(r.missing(), ["the shell templates"]);
     assert_eq!(r.justfile_import, "import '.vendor_kit/entry.just'");

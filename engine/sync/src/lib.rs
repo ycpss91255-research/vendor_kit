@@ -10,6 +10,11 @@
 //! 3. 讀 `version.toml`（檔案版過高回 VK0008）。
 //! 4. 逐工具處理前先判（04 sync 第 2 步；02 不變量 4：動到任何工具之前判定有工具不能做，就一個都不動，
 //!    並列出每個原因）。這一段只讀、不取件、不寫：
+//!    - 薄殼：以 `compat` 的介面版、本引擎版與隨 image 出貨的模板本文（呼叫端給，跟 `install` 寫薄殼用的
+//!      是同一份）產生這一版的薄殼，跑 `shell::Shell::check`；任一檔不符回 VK0006，`<files>` 逐檔標出是哪一種。
+//!      `sync` 不重產薄殼（ADR-0007：只有 `install`、`upgrade --engine`、`bootstrap.sh --repair` 重產）。
+//!      模板沒有（image 沒出貨）或薄殼檔是 symlink、不是一般檔：VK0056。版本組合的介面版（VK0009）由啟動器
+//!      在起引擎前判，不在引擎。
 //!    - 每個讀到的 VK 檔（`version.local.toml`、進度檔、每個工具的印記）檔案版過高：VK0008。
 //!    - 殘留的進度檔（04 成對與無害：唯讀 recipe 只偵測，不恢復、不刪；見「殘留的進度檔」）：`add` 的回
 //!      VK0004；工具 `upgrade` 的回 VK0041；`undev` 的回 VK0053（見「本機覆寫」）；其他可寫 recipe 的回
@@ -80,14 +85,12 @@
 //! - 覆寫的報告字句與排在最前面（[`text::local_override`]）；`sync` 停下時只印診斷，不報告覆寫。
 //! - 本機開發來源的正規化與檢查從 engine/dev 照抄（[`local`]；指令之間互不依賴）。`<undev_command>`、
 //!   `<original_command>` 的重組從 engine/update 照抄（[`full_command`]）。
+//! - VK0006 的 `<files>` 寫成 `.vendor_kit/<檔名> (<哪一種>)`，以 `, ` 分隔，順序同 `layout::SHELL_FILES`。
 //! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）。
 //! - docker `image inspect` 的輸出只讀 `Id` 與 `RepoDigests`（[`parse_inspect`]）。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
-//! - 已知偏離：04 sync 第 2 步要在逐工具處理前判薄殼（VK0006），但薄殼模板還沒隨 image 出貨、沒有任何
-//!   crate 產得出這一版的模板（`shell::Shell::render` 要呼叫端給模板本文），所以這裡還不判薄殼。版本組合的
-//!   介面版（VK0009）由啟動器在起引擎前判，不在引擎。
 //! - 覆寫指到不在版本鎖定行的工具（例如開著覆寫時 `git pull` 拿掉了那一行）：ADR-0002 說覆寫只覆蓋已存在
 //!   的鎖定行，訊息表沒有代碼（`version_file::OrphanOverrides`），停下。
 //! - 開著覆寫的工具交付保留名 `vendor_kit`，或跟其他工具撞名：沒有代碼，停下（同 engine/dev）。
@@ -126,6 +129,7 @@ use filelock::{Lock, Mode};
 use imageref::ImageRef;
 use layout::InstallDir;
 use plan::{Channel, ImageId, Op, Outcome, Slot};
+use shell::Shell;
 use stamp::Stamp;
 use txn::{Disk, ToolContent};
 use version_file::{LocalFile, LockFile, Versions};
@@ -157,8 +161,10 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
     pub channel: &'a mut Channel,
     /// 等 result 時多久看一次。
     pub poll: Duration,
-    /// 蓋在 VK 檔上的寫入者。
+    /// 蓋在 VK 檔上的寫入者，也是判薄殼時這一版薄殼標頭的引擎版。
     pub written_by: &'a str,
+    /// 隨 image 出貨的薄殼四檔模板本文，順序同 [`layout::SHELL_FILES`]；`None` 是這個引擎沒有。
+    pub shell_templates: Option<&'a [Vec<u8>; layout::SHELL_FILES.len()]>,
     pub stdout: &'a mut dyn Write,
     pub diags: &'a mut Diagnostics<W, S>,
     /// 執行紀錄（`txn` 寫里程碑事件）。
@@ -486,9 +492,38 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         }
     }
 
+    /// 判薄殼（模組說明第 4 步）：跟這一版的模板不符回 VK0006，判不了回 VK0056，一致回 `None`。
+    fn shell(&self) -> Option<Diagnostic> {
+        let Some(t) = self.env.shell_templates else {
+            return Some(self.gap_diag(
+                "sync without the shell templates, which this engine image does not ship",
+            ));
+        };
+        let bodies = [&t[0][..], &t[1][..], &t[2][..], &t[3][..]];
+        let shell = match Shell::render(compat::THIS.current_protocol, self.env.written_by, bodies)
+        {
+            Ok(s) => s,
+            Err(e) => return Some(self.internal_diag(e.to_string())),
+        };
+        let report = match shell.check(self.env.dir) {
+            Ok(r) => r,
+            Err(e) => return Some(self.internal_diag(e.to_string())),
+        };
+        let message = report.message()?;
+        let files: Vec<String> = report
+            .mismatches()
+            .map(|f| format!("{}/{} ({})", layout::VK_DIR, f.name, f.status))
+            .collect();
+        Some(Diagnostic::new(message).arg("files", files.join(", ")))
+    }
+
     /// 逐工具處理前的判定（模組說明第 4 步）：只讀。有任何一項不能做就把每一項都印出來再停下。
     fn judge(&mut self, lockfile: &LockFile) -> Step<Judged> {
         let mut blocked: Vec<Diagnostic> = Vec::new();
+
+        if let Some(d) = self.shell() {
+            blocked.push(d);
+        }
 
         let mut local = BTreeMap::new();
         match LocalFile::load_from(self.env.dir) {

@@ -6,9 +6,10 @@
 //! - 根 `justfile` 的那一行 `import`（[`JUSTFILE_IMPORT`]）、根 `justfile` 不存在時建檔附的 `default`
 //!   （[`JUSTFILE_DEFAULT`]，04 寫入既有檔的例外），與根 `.dockerignore` 的四行（[`DOCKERIGNORE_LINES`]）。
 //!   逐字內容是這裡定的，04 的草稿之後照這裡寫。
-//! - 薄殼四檔的模板本文（`shell::Shell::render` 要呼叫端給，ADR-0007 說模板隨 image 出貨）：這一版引擎
-//!   還沒出貨（[`Release::shipped`] 的 `shell` 是 `None`），`install` 以 VK0056 停下並列出缺的項目，不自己補。
-//!   端到端測試以 [`Release::from_dir`] 從測試目錄讀進模板，驗其餘的流程。
+//! - 薄殼四檔的模板本文（`shell::Shell::render` 要呼叫端給，ADR-0007 說模板隨 image 出貨）：image 建置時由
+//!   `launcher/shell/assemble.sh` 組好，放在 [`SHIPPED_DIR`] 的 [`SHELL_DIR`] 下（image/Dockerfile），
+//!   [`Release::shipped`] 從那裡讀。讀不到（四檔不齊）時 `shell` 是 `None`，`install` 與 `sync` 以 VK0056 停下
+//!   並列出缺的項目，不自己補。端到端測試以 [`Release::from_dir`] 從測試目錄讀進模板。
 
 use std::fs;
 use std::io;
@@ -30,6 +31,9 @@ pub const DOCKERIGNORE_LINES: [&str; 4] = [
     ".vendor_kit/log/",
     ".vendor_kit/version.local.toml",
 ];
+/// 引擎 image 裡隨 image 出貨的輸入所在的目錄（image/Dockerfile 的最終 stage 把薄殼模板 COPY 到這裡的
+/// [`SHELL_DIR`] 下）。
+pub const SHIPPED_DIR: &str = "/usr/share/vendor_kit";
 /// [`Release::from_dir`] 的目錄裡，薄殼模板本文所在的子目錄，檔名同 [`layout::SHELL_FILES`]。
 pub const SHELL_DIR: &str = "shell";
 
@@ -47,8 +51,13 @@ pub struct Release {
 }
 
 impl Release {
-    /// 這一版引擎隨 image 出貨的輸入：根目錄檔的內容；薄殼模板還沒有。
-    pub fn shipped() -> Release {
+    /// 這一版引擎隨 image 出貨的輸入：根目錄檔的內容，加上從 [`SHIPPED_DIR`] 讀進的薄殼模板。
+    pub fn shipped() -> io::Result<Release> {
+        Release::from_dir(Path::new(SHIPPED_DIR))
+    }
+
+    /// 只有根目錄檔的內容、沒有薄殼模板的出貨輸入。
+    pub fn without_shell() -> Release {
         Release {
             shell: None,
             justfile_import: JUSTFILE_IMPORT.to_owned(),
@@ -57,7 +66,7 @@ impl Release {
         }
     }
 
-    /// [`Release::shipped`] 加上從目錄的 [`SHELL_DIR`] 讀進的薄殼模板；四檔不齊就是 `None`。
+    /// [`Release::without_shell`] 加上從目錄的 [`SHELL_DIR`] 讀進的薄殼模板；四檔不齊就是 `None`。
     pub fn from_dir(dir: &Path) -> io::Result<Release> {
         let mut bodies: Vec<Vec<u8>> = Vec::new();
         for name in SHELL_FILES {
@@ -68,7 +77,7 @@ impl Release {
         }
         Ok(Release {
             shell: <[Vec<u8>; SHELL_FILES.len()]>::try_from(bodies).ok(),
-            ..Release::shipped()
+            ..Release::without_shell()
         })
     }
 

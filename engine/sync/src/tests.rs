@@ -16,6 +16,13 @@ use super::*;
 const WRITTEN_BY: &str = "v0.0.0";
 const ENGINE: &str = "ghcr.io/acme/vendor_kit:v1.0.0@sha256:1111111111111111111111111111111111111111111111111111111111111111";
 
+/// 薄殼四檔的模板本文（順序同 `layout::SHELL_FILES`）。
+const BODIES: [&str; 4] = ["# entry\n", "# vendor\n", "# log\n", "cache/\ngen/\n"];
+
+fn templates() -> [Vec<u8>; 4] {
+    BODIES.map(|b| b.as_bytes().to_vec())
+}
+
 /// 一個假工具：名字、digest 的 hex 字元與交付的 `<ns>`。
 struct Tool {
     name: &'static str,
@@ -85,6 +92,9 @@ impl Fx {
             format!("vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n{tools}"),
         )
         .unwrap();
+        let bodies = BODIES.map(str::as_bytes);
+        let shell = Shell::render(compat::THIS.current_protocol, WRITTEN_BY, bodies).unwrap();
+        shell.write(&dir).unwrap();
         Fx {
             _tmp: tmp,
             dir,
@@ -239,6 +249,10 @@ impl Out {
 }
 
 fn run_sync(fx: &Fx, behavior: Behavior) -> Out {
+    run_sync_with(fx, behavior, Some(&templates()))
+}
+
+fn run_sync_with(fx: &Fx, behavior: Behavior, shell_templates: Option<&[Vec<u8>; 4]>) -> Out {
     fx.new_session();
     let peer = Peer::start(fx, behavior);
     let mut channel = Channel::new(&fx.ctl, header());
@@ -262,6 +276,7 @@ fn run_sync(fx: &Fx, behavior: Behavior) -> Out {
             channel: &mut channel,
             poll: Duration::from_millis(1),
             written_by: WRITTEN_BY,
+            shell_templates,
             stdout: &mut stdout,
             diags: &mut diags,
             log: &mut log,
@@ -522,6 +537,121 @@ fn pull_failure_is_vk0055() {
             "vendor_kit: error[VK0055]: Cannot access {} for tool: docker pull exited with 1. The requested operation did not complete.\n",
             TOOL.locked()
         )
+    );
+    assert!(untouched(&fx, &lock));
+}
+
+const VK0006_FIX: &str = "No shell files were regenerated. Review the following differences; \
+                          download bootstrap.sh again from the Release, run chmod +x bootstrap.sh, \
+                          then run ./bootstrap.sh --repair in the install directory.";
+
+#[test]
+fn shell_mismatch_is_vk0006_before_any_fetch() {
+    let fx = Fx::new(&[&TOOL]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    let log_sh = fx.dir.vk_dir().join("log.sh");
+    let mut changed = fs::read(&log_sh).unwrap();
+    changed.extend_from_slice(b"echo extra\n");
+    fs::write(&log_sh, changed).unwrap();
+    fs::remove_file(fx.dir.vk_dir().join("vendor.just")).unwrap();
+    let shell_before: Vec<Option<Vec<u8>>> = fx
+        .dir
+        .shell_files()
+        .iter()
+        .map(|p| fs::read(p).ok())
+        .collect();
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 2);
+    assert!(out.ops.is_empty());
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        format!(
+            "vendor_kit: error[VK0006]: Shell files do not match this engine version's templates: \
+             .vendor_kit/vendor.just (missing), .vendor_kit/log.sh (modified). {VK0006_FIX}\n"
+        )
+    );
+    assert!(untouched(&fx, &lock));
+    let shell_after: Vec<Option<Vec<u8>>> = fx
+        .dir
+        .shell_files()
+        .iter()
+        .map(|p| fs::read(p).ok())
+        .collect();
+    assert_eq!(shell_after, shell_before);
+}
+
+#[test]
+fn shell_of_another_engine_version_is_vk0006() {
+    let fx = Fx::new(&[&TOOL]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    let bodies = BODIES.map(str::as_bytes);
+    let other = Shell::render(compat::THIS.current_protocol, "v9.9.9", bodies).unwrap();
+    other.write(&fx.dir).unwrap();
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 2);
+    assert!(out.ops.is_empty());
+    assert!(
+        out.stderr.starts_with(
+            "vendor_kit: error[VK0006]: Shell files do not match this engine version's templates: \
+             .vendor_kit/entry.just (not this engine version's template), "
+        ),
+        "{}",
+        out.stderr
+    );
+    assert!(untouched(&fx, &lock));
+}
+
+/// 薄殼不符跟其他逐工具處理前的停下原因一起列出（02 不變量 4）。
+#[test]
+fn shell_mismatch_is_listed_with_the_other_blockers() {
+    let fx = Fx::new(&[&TOOL]);
+    fs::write(fx.dir.vk_dir().join("entry.just"), "changed\n").unwrap();
+    let mut p = Progress::new(ADD_VERB, "old1", &["add", "other"]).unwrap();
+    p.document_mut().set(&[ADD_VERB, "repo"], "other").unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 2);
+    assert!(out.ops.is_empty());
+    assert_eq!(
+        out.stderr,
+        format!(
+            "vendor_kit: error[VK0006]: Shell files do not match this engine version's templates: \
+             .vendor_kit/entry.just (modified). {VK0006_FIX}\n\
+             vendor_kit: error[VK0004]: Import of other is incomplete. Run: just vendor_kit add other\n"
+        )
+    );
+}
+
+#[test]
+fn shell_matching_with_crlf_line_endings_syncs() {
+    let fx = Fx::new(&[&TOOL]);
+    for path in fx.dir.shell_files() {
+        let text = fs::read_to_string(&path).unwrap();
+        fs::write(&path, text.replace('\n', "\r\n")).unwrap();
+    }
+    let behavior = Behavior {
+        local: [TOOL.pinned()].into_iter().collect(),
+        ..Behavior::default()
+    };
+    let out = run_sync(&fx, behavior);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+}
+
+#[test]
+fn missing_shell_templates_is_vk0056_before_any_fetch() {
+    let fx = Fx::new(&[&TOOL]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    let out = run_sync_with(&fx, all_local(), None);
+    assert_eq!(out.code, 2);
+    assert!(out.ops.is_empty());
+    assert!(
+        out.stderr.starts_with(
+            "vendor_kit: error[VK0056]: Internal vendor_kit error: \
+             sync without the shell templates, which this engine image does not ship"
+        ),
+        "{}",
+        out.stderr
     );
     assert!(untouched(&fx, &lock));
 }

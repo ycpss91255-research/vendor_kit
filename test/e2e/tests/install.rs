@@ -2,9 +2,9 @@
 //! 經假的啟動器跑。
 //!
 //! `install` 不碰 docker，假啟動器只收 `done`；`add` 那一段照 tests/add.rs 回 inspect 與 extract。
-//! 這一版引擎還沒出貨薄殼模板（engine/install 的缺口），所以除了驗缺口的那一則，都以測試用的
-//! `VK_TEST_RELEASE_DIR`（engine/vendor_kit 的 `RELEASE_DIR_ENV`）從 fixture 目錄讀進模板；根 `justfile` 與
-//! `.dockerignore` 的內容是引擎出貨的常數。啟動器在起引擎前已建好 `.vendor_kit/log/` 與這次的執行紀錄，
+//! 薄殼模板隨 image 出貨（放在 image 裡的固定目錄），e2e 在主機上直接跑執行檔讀不到，所以除了驗沒有模板的
+//! 那一則，都以測試用的 `VK_TEST_RELEASE_DIR`（engine/vendor_kit 的 `RELEASE_DIR_ENV`）從 fixture 目錄讀進模板；
+//! 根 `justfile` 與 `.dockerignore` 的內容是引擎出貨的常數。啟動器在起引擎前已建好 `.vendor_kit/log/` 與這次的執行紀錄，
 //! 並把這次的引擎引用寫成 `in/engine`，fixture 每次執行都照做。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -199,11 +199,13 @@ fn read(m: &Mounts, rel: &str) -> String {
     fs::read_to_string(m.root.join(rel)).unwrap()
 }
 
-const INSTALLED_TREE: [&str; 7] = [
+const INSTALLED_TREE: [&str; 9] = [
     ".gitignore",
     "baseline",
     "baseline/.vendor_kit.toml",
     "entry.just",
+    "gen",
+    "gen/.stamp",
     "log.sh",
     "vendor.just",
     "version.toml",
@@ -251,6 +253,31 @@ fn install_in_an_empty_repo_writes_everything_without_asking() {
         entry.starts_with("# vendor_kit-shell interface 1\n") && entry.ends_with(SHELL[0].1),
         "{entry}"
     );
+    // `gen/.stamp`：產生薄殼的引擎 ref。
+    assert_eq!(read(&m, ".vendor_kit/gen/.stamp"), format!("{engine}\n"));
+}
+
+/// `install` 寫的薄殼就是 `sync` 判薄殼時用的同一份模板產生的：接著跑 `sync` 不報 VK0006。
+#[test]
+fn sync_after_install_accepts_the_shell() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(&tmp.path().join("m"));
+    let rel = tmp.path().join("release");
+    release(&rel);
+    fresh(&m);
+    let peer = idle_launcher(&m);
+    let (code, _, stderr) = run(&m, Some(&rel), "000", "", &["install"]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+
+    new_session(&m);
+    let peer = idle_launcher(&m);
+    let (code, stdout, stderr) = run(&m, Some(&rel), "000", "", &["sync"]);
+    let seen = peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stderr, "");
+    assert!(seen.requests.is_empty());
+    assert_eq!(stdout, "Updated .vendor_kit/gen/tools.just.\n");
 }
 
 #[test]

@@ -2,7 +2,8 @@
 //! 開著覆寫與解除之後的 `sync`（04 sync、本機覆寫），以及開著覆寫時的 `upgrade`（04 本機覆寫）也在這裡。
 //!
 //! `dev`、`undev` 不碰 docker，假啟動器只收 `done`；`add` 那一段照 tests/add.rs 回 inspect 與 extract。
-//! 本機開發來源放在安裝目錄裡：引擎只看得到安裝目錄（engine/dev 的缺口）。
+//! 本機開發來源放在安裝目錄裡：引擎只看得到安裝目錄（engine/dev 的缺口）。`sync` 要判薄殼，所以安裝目錄
+//! 放好跟這一版引擎一致的薄殼，模板從 fixture 目錄讀（[`e2e::shell`]）。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
@@ -10,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
 use e2e::launcher::{self, Mounts, Reply, Request, Seen};
-use e2e::{MOUNT_PREFIX_ENV, vendor_kit_bin};
+use e2e::{MOUNT_PREFIX_ENV, VERSION, shell, vendor_kit_bin};
 use snapbox::assert_data_eq;
 
 const RUN_ID: &str = "r1";
@@ -22,10 +23,17 @@ const IMAGE: &str = "ghcr.io/acme/tool:v1.2.0";
 const DIGEST: &str = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
 const IMAGE_ID: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-/// 只有引擎行的安裝目錄。
+/// 出貨輸入的 fixture 目錄。
+fn release_dir(m: &Mounts) -> PathBuf {
+    m.prefix.join("release")
+}
+
+/// 只有引擎行與薄殼的安裝目錄。
 fn install(m: &Mounts) {
     let vk = m.root.join(".vendor_kit");
     fs::create_dir_all(vk.join("log")).unwrap();
+    shell::install(&m.root, VERSION).unwrap();
+    shell::release(&release_dir(m)).unwrap();
     fs::write(
         vk.join("version.toml"),
         format!("vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n"),
@@ -99,6 +107,7 @@ fn run(m: &Mounts, rest: &[&str]) -> (i32, String, String) {
     let out = Command::new(vendor_kit_bin().unwrap())
         .args(&args)
         .env(MOUNT_PREFIX_ENV, &m.prefix)
+        .env(shell::RELEASE_DIR_ENV, release_dir(m))
         .output()
         .unwrap();
     (
