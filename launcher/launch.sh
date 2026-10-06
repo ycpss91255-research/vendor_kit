@@ -12,6 +12,8 @@
 # 引擎與往返（文法見 wire.sh 與 engine/plan）：
 # - repo 外的 session 目錄 `${TMPDIR:-/tmp}/vendor_kit.<run-id>/`，以 mkdir -m 700 排他建立；
 #   底下 ctl/ 可寫掛在 /vk/ctl、in/ 唯讀掛在 /vk/in，安裝目錄掛在 /vk/root。
+# - 起引擎之前先把這次用的 pinned 引用寫成 in/engine（wire.sh 的 vk_wire_in_engine；先 .tmp 再 mv），
+#   救援呼叫也寫。之後 stage、extract 到同名 slot 都會被拒，整次只寫這一次。
 # - `docker create -i` 先拿到容器 ID，再以前景 `docker start -ai` 起引擎（stdin 接通、不帶 -t，
 #   stdout 與 stderr 分開）；代辦迴圈（vk_launch_serve）在背景跑，結果寫 res.<seq>（先 .tmp 再 mv）。
 # - 協定不合（VK0056）時迴圈停掉引擎容器，原因寫在 session 目錄的 fault（不在 ctl/，引擎寫不到）。
@@ -179,6 +181,13 @@ vk_launch() {
     local sess="${tmp:-/tmp}/vendor_kit.$run_id"
     if ! mkdir -m 700 -- "$sess" 2>/dev/null || ! mkdir -- "$sess/ctl" "$sess/in" 2>/dev/null; then
         vk_launch_internal "cannot create the session directory $sess"
+        vk_launch_finish ""
+        return "$REPLY"
+    fi
+    local ref=$sess/in/$vk_wire_in_engine
+    if ! { printf '%s\n' "$engine" >"$ref.tmp" && mv -f -- "$ref.tmp" "$ref"; } 2>/dev/null; then
+        rm -rf -- "$sess"
+        vk_launch_internal "cannot write the engine reference to the session directory $sess"
         vk_launch_finish ""
         return "$REPLY"
     fi
