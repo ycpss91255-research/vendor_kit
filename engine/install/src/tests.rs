@@ -11,7 +11,8 @@ use diagnostics::NoSink;
 use super::*;
 
 const WRITTEN_BY: &str = "v0.0.0";
-const ENGINE: &str = "ghcr.io/acme/vendor_kit:v1.0.0@sha256:1111111111111111111111111111111111111111111111111111111111111111";
+/// 啟動器放在 `in/engine` 的引用：本 repo 的引擎、tag 是 [`WRITTEN_BY`]。
+const ENGINE: &str = "ghcr.io/ycpss91255-research/vendor_kit:v0.0.0@sha256:1111111111111111111111111111111111111111111111111111111111111111";
 const OTHER_ENGINE: &str = "ghcr.io/acme/vendor_kit:v0.9.0@sha256:9999999999999999999999999999999999999999999999999999999999999999";
 const TOOL: &str = "ghcr.io/acme/tool:v1.2.0@sha256:2222222222222222222222222222222222222222222222222222222222222222";
 const IMPORT: &str = "import '.vendor_kit/entry.just'";
@@ -24,20 +25,22 @@ const BODIES: [&str; 4] = [
 ];
 const DOCKERIGNORE_LINES: [&str; 2] = [".vendor_kit/cache/", ".vendor_kit/log/"];
 
+/// 判定邏輯用的出貨輸入：`.dockerignore` 故意只給兩行，跟出貨的常數無關（常數另驗）。
 fn release() -> Release {
     Release {
-        engine: Some(ImageRef::parse(ENGINE).unwrap()),
         shell: Some(BODIES.map(|b| b.as_bytes().to_vec())),
-        justfile_import: Some(IMPORT.to_owned()),
-        justfile_default: Some(DEFAULT.to_owned()),
-        dockerignore: Some(DOCKERIGNORE_LINES.map(str::to_owned).to_vec()),
+        justfile_import: IMPORT.to_owned(),
+        justfile_default: DEFAULT.to_owned(),
+        dockerignore: DOCKERIGNORE_LINES.map(str::to_owned).to_vec(),
     }
 }
 
-/// 啟動器起引擎前的樣子：只有 `.vendor_kit/log/`。
+/// 啟動器起引擎前的樣子：安裝目錄只有 `.vendor_kit/log/`；收件目錄有引擎引用檔。
 struct Fx {
     _tmp: tempfile::TempDir,
     dir: InstallDir,
+    _in: tempfile::TempDir,
+    inbox: PathBuf,
 }
 
 impl Fx {
@@ -45,7 +48,21 @@ impl Fx {
         let tmp = tempfile::tempdir().unwrap();
         let dir = InstallDir::new(tmp.path());
         fs::create_dir_all(dir.log_dir()).unwrap();
-        Fx { _tmp: tmp, dir }
+        let inn = tempfile::tempdir().unwrap();
+        let inbox = inn.path().to_owned();
+        let fx = Fx {
+            _tmp: tmp,
+            dir,
+            _in: inn,
+            inbox,
+        };
+        fx.engine_ref(&format!("{ENGINE}\n"));
+        fx
+    }
+
+    /// 改寫收件目錄的引擎引用檔。
+    fn engine_ref(&self, contents: &str) {
+        fs::write(self.inbox.join(plan::files::IN_ENGINE), contents).unwrap();
     }
 
     fn vk(&self) -> PathBuf {
@@ -162,6 +179,7 @@ fn run_with(fx: &Fx, release: &Release, yes: bool, interactive: bool, input: &st
     let code = {
         let mut env = Env {
             dir: &fx.dir,
+            inbox: &fx.inbox,
             host_root: "/h/proj",
             run_log: "/h/proj/.vendor_kit/log/r1.jsonl",
             tty: TtyState {
@@ -227,7 +245,7 @@ fn fresh_install_writes_the_skeleton_without_asking() {
     assert_eq!(
         out.stdout,
         format!(
-            "Locked the engine to v1.0.0 ({ENGINE}).\n\
+            "Locked the engine to v0.0.0 ({ENGINE}).\n\
              Wrote .vendor_kit/entry.just\nWrote .vendor_kit/vendor.just\n\
              Wrote .vendor_kit/log.sh\nWrote .vendor_kit/.gitignore\n\
              Created justfile\nCreated .dockerignore\n\
@@ -458,10 +476,9 @@ fn existing_lock_line_is_kept_and_shell_is_rewritten() {
     fx.write(".vendor_kit/vendor.just", "changed\n");
     fs::remove_file(fx.vk().join("log.sh")).unwrap();
 
-    // 出貨輸入沒有引擎行也不用：沿用既有的。
-    let mut r = release();
-    r.engine = None;
-    let out = run_with(&fx, &r, false, false, "");
+    // 既有安裝目錄不讀引擎引用檔：沿用既有的鎖定行。
+    fs::remove_file(fx.inbox.join(plan::files::IN_ENGINE)).unwrap();
+    let out = run_install(&fx, false, "");
     assert_eq!(out.code, 0, "{}", out.stderr);
     assert_eq!(
         out.stdout,
@@ -481,27 +498,77 @@ fn existing_lock_line_is_kept_and_shell_is_rewritten() {
 }
 
 #[test]
-fn shipped_release_stops_and_lists_every_missing_input() {
+fn shipped_release_stops_on_the_missing_shell_templates() {
     let fx = Fx::new();
     let out = run_with(&fx, &Release::shipped(), false, false, "");
     assert_eq!(out.code, 2);
     assert_eq!(out.stdout, "");
     assert!(
-        out.stderr.starts_with("vendor_kit: error[VK0056]: "),
+        out.stderr.starts_with(
+            "vendor_kit: error[VK0056]: Internal vendor_kit error: \
+             install without the shell templates, which this engine image does not ship"
+        ),
         "{}",
         out.stderr
     );
-    for item in [
-        "the engine lock line value",
-        "the shell templates",
-        "the root justfile import line",
-        "the default recipe of a new root justfile",
-        "the root .dockerignore lines",
-    ] {
-        assert!(out.stderr.contains(item), "{item}: {}", out.stderr);
-    }
     assert!(out.events().is_empty());
     assert!(fx.tree().is_empty());
+}
+
+/// 首次導入時引擎引用檔不合：VK0056 寫明哪裡不一致，什麼都不寫。
+fn bad_engine_ref(contents: Option<&str>, reason: &str) {
+    let fx = Fx::new();
+    match contents {
+        Some(c) => fx.engine_ref(c),
+        None => fs::remove_file(fx.inbox.join(plan::files::IN_ENGINE)).unwrap(),
+    }
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert_eq!(out.stdout, "");
+    assert!(
+        out.stderr.starts_with(
+            "vendor_kit: error[VK0056]: Internal vendor_kit error: \
+             the engine reference in/engine from the launcher"
+        ) && out.stderr.contains(reason),
+        "{reason}: {}",
+        out.stderr
+    );
+    assert!(out.events().is_empty());
+    assert!(fx.tree().is_empty());
+    assert!(!fx.exists(JUSTFILE));
+    assert!(!fx.exists(DOCKERIGNORE));
+}
+
+#[test]
+fn missing_engine_ref_is_vk0056_without_writes() {
+    bad_engine_ref(None, "is missing");
+}
+
+#[test]
+fn engine_ref_that_is_not_one_pinned_line_is_vk0056_without_writes() {
+    bad_engine_ref(Some(""), "engine must be exactly one line");
+    bad_engine_ref(Some(&format!("{ENGINE}\n{ENGINE}\n")), "exactly one line");
+    bad_engine_ref(
+        Some("ghcr.io/ycpss91255-research/vendor_kit:v0.0.0\n"),
+        "is not a pinned reference",
+    );
+}
+
+#[test]
+fn engine_ref_of_another_repo_is_vk0056_without_writes() {
+    bad_engine_ref(
+        Some(&format!("{OTHER_ENGINE}\n")),
+        "names ghcr.io/acme/vendor_kit, not this engine's ghcr.io/ycpss91255-research/vendor_kit",
+    );
+}
+
+#[test]
+fn engine_ref_of_another_version_is_vk0056_without_writes() {
+    let other = ENGINE.replace(":v0.0.0@", ":v1.0.0@");
+    bad_engine_ref(
+        Some(&format!("{other}\n")),
+        "has tag v1.0.0, not this engine's v0.0.0",
+    );
 }
 
 #[test]
@@ -660,6 +727,7 @@ fn progress_records_each_root_file_written() {
     );
     let mut env = Env {
         dir: &fx.dir,
+        inbox: &fx.inbox,
         host_root: "/h/proj",
         run_log: "log",
         tty: TtyState::default(),
@@ -702,20 +770,40 @@ fn release_reads_back_from_a_directory() {
     let tmp = tempfile::tempdir().unwrap();
     let d = tmp.path();
     assert_eq!(Release::from_dir(d).unwrap(), Release::shipped());
-    fs::write(d.join(release::ENGINE_FILE), format!("{ENGINE}\n")).unwrap();
     fs::create_dir(d.join(release::SHELL_DIR)).unwrap();
     for (name, body) in layout::SHELL_FILES.iter().zip(BODIES) {
         fs::write(d.join(release::SHELL_DIR).join(name), body).unwrap();
     }
-    fs::write(d.join(release::JUSTFILE_IMPORT_FILE), format!("{IMPORT}\n")).unwrap();
-    fs::write(d.join(release::JUSTFILE_DEFAULT_FILE), DEFAULT).unwrap();
-    fs::write(
-        d.join(release::DOCKERIGNORE_FILE),
-        DOCKERIGNORE_LINES.join("\n"),
-    )
-    .unwrap();
-    assert_eq!(Release::from_dir(d).unwrap(), release());
+    assert_eq!(
+        Release::from_dir(d).unwrap(),
+        Release {
+            shell: Some(BODIES.map(|b| b.as_bytes().to_vec())),
+            ..Release::shipped()
+        }
+    );
+    fs::remove_file(d.join(release::SHELL_DIR).join(layout::SHELL_FILES[3])).unwrap();
+    assert_eq!(Release::from_dir(d).unwrap(), Release::shipped());
+}
 
-    fs::write(d.join(release::ENGINE_FILE), "a\nb\n").unwrap();
-    assert!(Release::from_dir(d).is_err());
+/// 根目錄檔的逐字內容（04 草稿照這裡寫；改了要同步改 04）。
+#[test]
+fn shipped_root_file_contents_are_pinned() {
+    let r = Release::shipped();
+    assert_eq!(r.shell, None);
+    assert_eq!(r.missing(), ["the shell templates"]);
+    assert_eq!(r.justfile_import, "import '.vendor_kit/entry.just'");
+    assert_eq!(r.justfile_default, "default:\n    @just --list\n");
+    assert_eq!(
+        r.dockerignore,
+        [
+            ".vendor_kit/cache/",
+            ".vendor_kit/gen/",
+            ".vendor_kit/log/",
+            ".vendor_kit/version.local.toml",
+        ]
+    );
+    assert_eq!(
+        release::ENGINE_REPO,
+        "ghcr.io/ycpss91255-research/vendor_kit"
+    );
 }

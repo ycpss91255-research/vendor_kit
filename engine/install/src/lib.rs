@@ -15,7 +15,9 @@
 //! 3. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）；`version.toml` 不在就是首次導入，
 //!    在就沿用它的引擎版本鎖定行（不換引擎版，換版走 `upgrade --engine`）。
 //! 4. 辨識殘留的進度檔（見「恢復」）。
-//! 5. 出貨輸入（[`Release`]）缺哪一項就以 VK0056 停下，列出缺的項目。
+//! 5. 出貨輸入（[`Release`]）缺哪一項就以 VK0056 停下，列出缺的項目。首次導入時另讀啟動器放在 `in/` 的
+//!    引擎引用檔（[`release::engine_from`]）：不在、不是 pinned 引用、repo 不是 [`release::ENGINE_REPO`]、
+//!    tag 不是本引擎版，都以 VK0056 停下並寫明哪裡不一致；既有安裝目錄不讀它。
 //! 6. 算這次要寫的東西，只讀不寫：
 //!    - `version.toml`：首次導入時只有引擎版本鎖定行。
 //!    - 薄殼四檔（`shell`）：以 `compat` 的介面版、本引擎版與模板本文產生，跟現有的逐檔比對，只寫不一致的
@@ -54,8 +56,7 @@
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
-//! - 出貨輸入（[`release`]）：首次導入的引擎版本鎖定行的值、薄殼模板本文、根 `justfile` 的 `import` 行與
-//!   `default`、根 `.dockerignore` 的四行。這一版一項都沒有，所以經啟動器的 `install` 目前一定在這裡停下。
+//! - 出貨輸入（[`release`]）的薄殼模板本文：這一版還沒出貨，所以經啟動器的 `install` 目前一定在這裡停下。
 //! - 殘留的進度檔不是 `install` 的，或殘留的 `install` 要寫 repo 檔卻沒有 `files`。
 //! - 殘留的 `install` 記過的根目錄檔，目前的整檔 hash 跟那次寫入後的不同、卻已含要插入的行（寫入後
 //!   使用者又改過，分不出是誰插的）：照下一條停下。
@@ -115,6 +116,8 @@ pub const DOCKERIGNORE: &str = ".dockerignore";
 pub struct Env<'a, W: Write, S: Sink, L: Write> {
     /// 容器內的安裝目錄（`plan::mount::ROOT`）。
     pub dir: &'a InstallDir,
+    /// 容器內的收件目錄（`plan::mount::IN`）：首次導入時讀其中的引擎引用檔。
+    pub inbox: &'a Path,
     /// 主機上的安裝目錄，填 `<install_dir>`。
     pub host_root: &'a str,
     /// 主機上的執行紀錄路徑，填 VK0056 的 `<path>`。
@@ -183,7 +186,8 @@ struct Residual {
 
 /// 出貨輸入都齊了之後的借用。
 struct Inputs<'r> {
-    engine: Option<&'r ImageRef>,
+    /// 首次導入時寫的引擎版本鎖定行；既有安裝目錄是 `None`。
+    engine: Option<ImageRef>,
     shell: [&'r [u8]; layout::SHELL_FILES.len()],
     import: &'r str,
     default: &'r str,
@@ -392,28 +396,28 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         }
     }
 
-    /// 出貨輸入都齊了才繼續；缺的項目一起列在一則 VK0056。
+    /// 出貨輸入都齊了才繼續，缺的項目一起列在一則 VK0056；`need_engine`（首次導入）時再讀引擎引用檔。
     fn inputs<'r>(&mut self, release: &'r Release, need_engine: bool) -> Step<Inputs<'r>> {
-        let missing = release.missing(need_engine);
-        let shell = release.shell.as_ref();
-        let (Some(shell), Some(import), Some(default), Some(dockerignore), true) = (
-            shell,
-            release.justfile_import.as_deref(),
-            release.justfile_default.as_deref(),
-            release.dockerignore.as_deref(),
-            missing.is_empty(),
-        ) else {
+        let Some(shell) = release.shell.as_ref() else {
             return Err(self.gap(format_args!(
                 "install without {}, which this engine image does not ship",
-                missing.join(", ")
+                release.missing().join(", ")
             )));
         };
+        let engine = if need_engine {
+            match release::engine_from(self.env.inbox, self.env.written_by) {
+                Ok(e) => Some(e),
+                Err(reason) => return Err(self.internal(reason)),
+            }
+        } else {
+            None
+        };
         Ok(Inputs {
-            engine: release.engine.as_ref(),
+            engine,
             shell: [&shell[0], &shell[1], &shell[2], &shell[3]],
-            import,
-            default,
-            dockerignore,
+            import: &release.justfile_import,
+            default: &release.justfile_default,
+            dockerignore: &release.dockerignore,
         })
     }
 
@@ -447,7 +451,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         let residual = self.residuals()?;
         let inputs = self.inputs(req.release, existing.is_none())?;
 
-        let mut new_lock = match (&existing, inputs.engine) {
+        let mut new_lock = match (&existing, &inputs.engine) {
             (Some(_), _) => None,
             (None, Some(engine)) => Some(LockFile::new(engine)),
             (None, None) => return Err(self.internal("no engine lock line value")),
@@ -533,7 +537,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             }
         }
 
-        if let Some(engine) = inputs.engine.filter(|_| new_lock.is_some()) {
+        if let Some(engine) = inputs.engine.as_ref().filter(|_| new_lock.is_some()) {
             self.say(&text::locked(engine));
         }
         for name in &shell_names {

@@ -416,6 +416,7 @@ dependencies = [
  "layout",
  "messages",
  "metadata",
+ "plan",
  "progress",
  "prompt",
  "runlog",
