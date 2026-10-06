@@ -5,7 +5,8 @@
 #   （VK0040 → VK0035 → VK0029 → VK0039 → VK0037）。被拒絕時都只印 stderr，不建執行紀錄、不寫檔、不呼叫 git。
 # - 未完成首次導入的判定（vk_bootstrap_assess）鏡射 engine/runlog 的 assess：紀錄行取自
 #   engine/runlog/src/tests.rs 的 golden，案例對照該檔「判定未完成首次導入」一節。
-# - 通過全部檢查時，這一版停在建紀錄之前，以 VK0056 停下（下一個 PR 接）。
+# - 通過全部檢查時：首次導入進到 vk_bootstrap_import（這裡的 bs 換成只印 $reached 的替身，本體的測試在
+#   bootstrap_import.bats）；只檢查與 --repair 還沒接，停在建紀錄之前，以 VK0056 停下（下一個 PR 接）。
 
 load helper
 
@@ -16,7 +17,8 @@ setup() {
     engine_v2="ghcr.io/acme/vendor_kit:v2.3.4@sha256:$A"
     embedded=$engine_v1
     usage_line='Usage: bootstrap.sh [-i <image>] [-y] | --repair [-i <image>] | -h'
-    pending='vendor_kit: error[VK0056]: Internal vendor_kit error: creating the run log and starting the engine are not implemented yet (next PR, #372). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log none.'
+    pending='vendor_kit: error[VK0056]: Internal vendor_kit error: checking and repairing the shell files are not implemented yet (next PR, #372). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log none.'
+    reached='vendor_kit: error[VK0056]: Internal vendor_kit error: initial import reached (test stand-in). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log none.'
     no_git='vendor_kit: error[VK0035]: Cannot find .git in the current directory or any parent directory. Run bootstrap.sh from within a Git repository.'
     bad_lock='vendor_kit: error[VK0037]: Cannot read exactly one valid engine lock version line from .vendor_kit/version.toml. Initial import was not attempted.'
     repair_outside='vendor_kit: error[VK0039]: Cannot repair shell files outside an install directory. Initial import was not attempted.'
@@ -45,7 +47,8 @@ ok_host() {
     ok_just
 }
 
-# bs <args>...：在 vk_cwd（預設 $work）跑 vk_bootstrap_main，內嵌引擎是 $embedded。
+# bs <args>...：在 vk_cwd（預設 $work）跑 vk_bootstrap_main，內嵌引擎是 $embedded、介面版 1。
+# 首次導入的 vk_bootstrap_import 換成替身：不建紀錄、不呼叫 docker，只印 $reached 那一行。
 bs() {
     local q='' a x
     for a in "$@"; do
@@ -53,7 +56,7 @@ bs() {
         q+=$x
     done
     printf -v x '%q' "$embedded"
-    vk "vk_bootstrap_engine=$x; vk_bootstrap_main$q"
+    vk "vk_bootstrap_engine=$x; vk_bootstrap_proto=1; vk_bootstrap_import() { vk_diag VK0056 reason 'initial import reached (test stand-in)' path none; return \"\$vk_diag_exit\"; }; vk_bootstrap_main$q"
 }
 
 repo() { mkdir -p "$work/.git"; }
@@ -188,7 +191,7 @@ usage_bad() {
     for args in '-y' '--yes' '-i img -y' '-y --image img' '--image -y' '-i -- -y' '-y --'; do
         # shellcheck disable=SC2086
         bs $args
-        assert_stopped 2 "$pending" "$before"
+        assert_stopped 2 "$reached" "$before"
     done
 }
 
@@ -345,7 +348,7 @@ each_mode() {
     local before
     before=$(snap)
     bs
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
 }
 
 @test "a lock line of another X stops check and repair with VK0040 (exit 3) before the git check" {
@@ -435,13 +438,13 @@ each_mode() {
     done
 }
 
-@test "every mode that passes stops before creating the run log with VK0056" {
+@test "initial import goes on to the import; check and repair stop before the run log with VK0056" {
     ok_host
     repo
     local before
     before=$(snap)
     bs
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
     installed
     before=$(snap)
     bs
@@ -477,9 +480,9 @@ nested() {
     local before
     before=$(snap)
     vk_cwd=$work/repo/app bs
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
     vk_cwd=$work/repo bs
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
 }
 
 @test "an install directory below, the first in byte-sorted preorder" {
@@ -508,7 +511,7 @@ nested() {
     local before
     before=$(snap)
     bs
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
 }
 
 @test "the own .vendor_kit/ of an incomplete initial import is not looked into" {
@@ -519,7 +522,7 @@ nested() {
     local before
     before=$(snap)
     bs -y
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
 }
 
 @test "check and repair do not look for nested install directories" {
@@ -705,9 +708,9 @@ assess_raw() {
     local before
     before=$(snap)
     bs -y
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
     bs -i img
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
 }
 
 @test "only the newest log counts, never an older one" {
@@ -736,7 +739,7 @@ assess_raw() {
     local before
     before=$(snap)
     bs -y
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
 }
 
 @test "two logs with the same newest ts cannot be told apart" {
@@ -793,5 +796,5 @@ run_logged() {
     local before
     before=$(snap)
     bs -y
-    assert_stopped 2 "$pending" "$before"
+    assert_stopped 2 "$reached" "$before"
 }

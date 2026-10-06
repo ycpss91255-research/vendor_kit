@@ -11,6 +11,7 @@
 #   5. 取得引擎 image（vk_launch_obtain，N40）：本機沒有才 pull 鎖定的 pinned 引用（有逾時，N59），
 #      取不到回 VK0036。救援呼叫也一樣。一般路徑接著讀 image 的 LABEL 跟列表核對，不一致就不起容器。
 #   6. 起引擎：用法、安裝目錄（VK0028）與檔案版（VK0008）都由引擎判。
+#   第 6 步（建 session 目錄、寫 in/engine、起引擎、收尾）是 vk_launch_session，bootstrap.sh 的首次導入也用它。
 #
 # 引擎與往返（文法見 wire.sh 與 engine/plan）：
 # - repo 外的 session 目錄 `${TMPDIR:-/tmp}/vendor_kit.<run-id>/`，以 mkdir -m 700 排他建立；
@@ -277,6 +278,17 @@ vk_launch() {
         return "$REPLY"
     fi
 
+    vk_launch_session "$root" "$cwd" "$engine" "$engine" "$proto" "$run_id" "$run_log" "$@"
+}
+
+# vk_launch_session <host_root> <host_cwd> <image> <engine_ref> <P> <run-id> <run-log> [<recipe> <args>...]：
+# 執行紀錄已建好、引擎 image 已在本機之後的共同段（VK recipe 與 bootstrap.sh 首次導入共用）：建 session 目錄、
+# 把 engine_ref 寫成 in/engine、以 image 建引擎容器並起引擎，收尾。image 是 docker create 用的 image
+# （VK recipe 是 engine_ref 本身；bootstrap.sh 的 -i 是載入後的 image ID），engine_ref 是寫進 in/engine 的 pinned 引用。
+# 結束碼放進 REPLY 並回傳。
+vk_launch_session() {
+    local root=$1 cwd=$2 image=$3 engine=$4 proto=$5 run_id=$6 run_log=$7
+    shift 7
     local tmp=${TMPDIR:-/tmp}
     tmp=${tmp%/}
     local sess="${tmp:-/tmp}/vendor_kit.$run_id"
@@ -301,7 +313,7 @@ vk_launch() {
         before=("${vk_runs[@]}")
     fi
 
-    vk_launch_engine "$sess" "$root" "$cwd" "$engine" "$proto" "$run_id" "$run_log" "$@"
+    vk_launch_engine "$sess" "$root" "$cwd" "$image" "$proto" "$run_id" "$run_log" "$@"
     local code=$REPLY
     if ((prune && code == 0)); then
         vk_launch_prune_sessions "${tmp:-/tmp}" "$root" "$run_id" "${before[@]}"
@@ -355,10 +367,10 @@ vk_launch_prune_sessions() {
     return 0
 }
 
-# vk_launch_engine <sess> <root> <cwd> <engine> <P> <run-id> <run-log> [<recipe> <args>...]：
-# 建、起引擎與代辦迴圈，收尾。結束碼放進 REPLY。
+# vk_launch_engine <sess> <root> <cwd> <image> <P> <run-id> <run-log> [<recipe> <args>...]：
+# 以 image 建、起引擎與代辦迴圈，收尾。結束碼放進 REPLY。
 vk_launch_engine() {
-    local sess=$1 root=$2 cwd=$3 engine=$4 proto=$5 run_id=$6 run_log=$7
+    local sess=$1 root=$2 cwd=$3 image=$4 proto=$5 run_id=$6 run_log=$7
     shift 7
     local tty='' nocolor=0 fd
     for fd in 0 1 2; do
@@ -386,7 +398,7 @@ vk_launch_engine() {
     cid=$(docker create -i --init "${vk_user_args[@]}" \
         --label "$vk_label_root=$root" --label "$vk_label_run=$run_id" \
         --mount "$m_root" --mount "$m_ctl" --mount "$m_in" -w "$vk_wire_mount_root" \
-        "$engine" \
+        "$image" \
         "${vk_wire_argv[0]}" "$proto" "${vk_wire_argv[1]}" "$run_id" "${vk_wire_argv[2]}" "$root" \
         "${vk_wire_argv[3]}" "$cwd" "${vk_wire_argv[4]}" "$run_log" "${vk_wire_argv[5]}" "$tty" \
         "${vk_wire_argv[6]}" "$nocolor" -- "$@" 2>>"$vk_launch_errlog")
