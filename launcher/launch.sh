@@ -5,9 +5,12 @@
 #   1. 主機前置檢查（host.sh）：沒有副作用，失敗不建執行紀錄。
 #   2. 辨識救援呼叫（vk_launch_is_rescue）：只看 recipe 名與 `--` 之前有沒有 `--engine`，純字串比對。
 #   3. 建執行紀錄（log.sh）。之後的診斷都寫進紀錄。
-#   4. 介面版判定（vk_launch_interface）：救援呼叫不判。讀引擎 image 的 LABEL，不起容器；
-#      薄殼的 P 低於引擎的 floor 回 VK0009（fatal 3），除執行紀錄外零寫入（ADR-0008）。
-#   5. 起引擎：用法、安裝目錄（VK0028）與檔案版（VK0008）都由引擎判。
+#   4. 介面版判定（vk_launch_interface，N13）：離線做，不上網、不起容器。讀 version.toml 引擎鎖定行旁記的
+#      介面版列表（host.sh 的 vk_lock_protocols），拿薄殼的 P 逐項做字串相等比對；P 低於列表最小值回
+#      VK0009（fatal 3），除執行紀錄外零寫入（ADR-0008）。救援呼叫不判、不讀列表。
+#   5. 取得引擎 image（vk_launch_obtain，N40）：本機沒有才 pull 鎖定的 pinned 引用（有逾時，N59），
+#      取不到回 VK0036。救援呼叫也一樣。一般路徑接著讀 image 的 LABEL 跟列表核對，不一致就不起容器。
+#   6. 起引擎：用法、安裝目錄（VK0028）與檔案版（VK0008）都由引擎判。
 #
 # 引擎與往返（文法見 wire.sh 與 engine/plan）：
 # - repo 外的 session 目錄 `${TMPDIR:-/tmp}/vendor_kit.<run-id>/`，以 mkdir -m 700 排他建立；
@@ -36,10 +39,9 @@
 # 那些檔定義的變數（vk_wire_*、vk_log_*、vk_diag_exit、vk_req_*）在這裡直接用。
 # shellcheck disable=SC2154
 
-# 引擎 image 公告介面版區間與版本的 LABEL（ADR-0008:27）。
+# 引擎 image 公告介面版區間的 LABEL（ADR-0008:27）。
 vk_label_floor=vendor_kit.protocol.floor
 vk_label_current=vendor_kit.protocol.current
-vk_label_version=org.opencontainers.image.version
 # 啟動器建的每個容器都帶這兩個 label：所屬安裝目錄與這次執行（ps 只列本安裝目錄的）。
 vk_label_root=vendor_kit.root
 vk_label_run=vendor_kit.run
@@ -47,6 +49,12 @@ vk_label_run=vendor_kit.run
 vk_never_run=/__vk_never_run__
 # 代辦迴圈看控制檔的間隔（秒）。
 vk_poll=0.05
+# 本機沒有引擎 image 時 pull 的逾時（秒，N59）；逾時跟 pull 失敗一樣回 VK0036。
+vk_pull_timeout=600
+# 還沒有專屬原因代碼的介面版情況，以 VK0056 停下時 reason 後面附的說明（過渡做法）。
+vk_pending_list='reason code pending (draft VK0070, N13)'
+vk_pending_newer='reason code pending (draft VK0076, N82)'
+vk_pending_label='reason code pending (draft VK0080, N13)'
 
 vk_launch_stop=none
 
@@ -87,29 +95,94 @@ vk_launch_internal() {
     vk_launch_fail VK0056 reason "$1" path "${vk_log_file:-none}"
 }
 
-# vk_launch_interface <engine_ref> <P_shell>：介面版判定。合回 0；不合印診斷回 1。
-# 只讀本機 image 的 LABEL，不起容器、不上網（ADR-0008:3、27）。本機沒有那個 image 時怎麼離線判定
-# 還沒定（#42）：暫時以 VK0056 停下，不先 pull、也不改成起容器之後才判。
-vk_launch_interface() {
-    local engine=$1 proto=$2 out
-    local fmt="{{index .Config.Labels \"$vk_label_floor\"}} {{index .Config.Labels \"$vk_label_current\"}} {{index .Config.Labels \"$vk_label_version\"}}"
-    if ! out=$(docker image inspect --format "$fmt" "$engine" 2>/dev/null); then
-        vk_launch_internal "engine image $engine is not available locally; the interface version cannot be checked offline (#42)"
+# vk_launch_engine_version <engine_ref>：引擎版本（pinned 引用的 tag）放進 REPLY；引用沒有 tag 時是 unknown。
+# 介面版判定是離線做的，VK0009 的 <vY> 不讀 image 的 LABEL。
+vk_launch_engine_version() {
+    local name=${1%%@*}
+    local last=${name##*/}
+    REPLY=unknown
+    if [[ $last == *:* ]]; then
+        REPLY=${last##*:}
+    fi
+}
+
+# vk_launch_labels <engine_ref>：讀本機 image 公告介面版區間的 LABEL，放進 vk_image_floor、vk_image_current。
+# 本機沒有那個 image 回 1。不上網。
+vk_launch_labels() {
+    local out _
+    local fmt="{{index .Config.Labels \"$vk_label_floor\"}} {{index .Config.Labels \"$vk_label_current\"}}"
+    vk_image_floor=
+    vk_image_current=
+    if ! out=$(docker image inspect --format "$fmt" "$1" 2>/dev/null); then
         return 1
     fi
-    local floor current version
-    read -r floor current version <<<"$out"
+    read -r vk_image_floor vk_image_current _ <<<"$out"
+    return 0
+}
+
+# vk_launch_obtain <engine_ref>：確保本機有引擎 image（N40）。有就不 pull；沒有才以 vk_pull_timeout 秒的逾時
+# pull 這個 pinned 引用，失敗或逾時回 VK0036，不改用其他版本。成功時 image 的 LABEL 已讀進 vk_image_*。
+vk_launch_obtain() {
+    local engine=$1 rc
+    if vk_launch_labels "$engine"; then
+        return 0
+    fi
+    timeout "$vk_pull_timeout" docker pull -q "$engine" >/dev/null
+    rc=$?
+    if ((rc == 124)); then
+        vk_launch_fail VK0036 image "$engine" reason "docker pull timed out after $vk_pull_timeout seconds"
+        return 1
+    fi
+    if ((rc != 0)); then
+        vk_launch_fail VK0036 image "$engine" reason "docker pull exited with $rc"
+        return 1
+    fi
+    if ! vk_launch_labels "$engine"; then
+        vk_launch_fail VK0036 image "$engine" reason "the image is not available locally after docker pull"
+        return 1
+    fi
+    return 0
+}
+
+# vk_launch_interface <host_root> <engine_ref> <P_shell>：一般路徑的介面版判定與取得引擎 image。合回 0；不合印診斷回 1。
+# 1. 離線判（N13，ADR-0008:3、27）：讀 <host_root>/.vendor_kit/version.toml 的介面版列表，P 跟列表逐項做字串
+#    相等比對（ADR-0007:31）。列表缺漏或格式錯、P 高於列表最大值都還沒有專屬代碼，以 VK0056 停下；
+#    P 低於列表最小值回 VK0009。這一步不上網、不碰 docker。
+# 2. 比對通過才取得 image（vk_launch_obtain）：本機沒有才 pull。
+# 3. 起容器之前讀 image 的 LABEL 跟列表核對：區間 [floor, current] 要剛好是列表的頭尾（列表已驗過是連續遞增），
+#    不一致以 VK0056 停下。
+vk_launch_interface() {
+    local root=$1 engine=$2 proto=$3
+    if ! vk_lock_protocols "$root/.vendor_kit/version.toml"; then
+        vk_launch_internal "$REPLY; $vk_pending_list"
+        return 1
+    fi
+    local list=$REPLY item found=0
+    local -a items
+    read -r -a items <<<"$list"
+    for item in "${items[@]}"; do
+        if [[ $item == "$proto" ]]; then
+            found=1
+        fi
+    done
+    local first=${items[0]} last=${items[${#items[@]} - 1]}
+    if ((!found)); then
+        if ((proto < first)); then
+            vk_launch_engine_version "$engine"
+            vk_launch_fail VK0009 P_shell "$proto" vY "$REPLY"
+        else
+            vk_launch_internal "shell interface version $proto is newer than the interface versions $list accepted by the locked engine; $vk_pending_newer"
+        fi
+        return 1
+    fi
+    vk_launch_obtain "$engine" || return 1
+    local floor=$vk_image_floor current=$vk_image_current
     if [[ ! $floor =~ $vk_wire_re_proto || ! $current =~ $vk_wire_re_proto ]] || ((floor > current)); then
         vk_launch_internal "the engine image $engine does not announce a valid interface version range"
         return 1
     fi
-    if ((proto < floor)); then
-        vk_launch_fail VK0009 P_shell "$proto" vY "${version:-unknown}"
-        return 1
-    fi
-    if ((proto > current)); then
-        # 薄殼比引擎新（計畫的 G6）還沒有專屬的原因代碼。
-        vk_launch_internal "shell interface version $proto is newer than the engine range $floor-$current"
+    if [[ $floor != "$first" || $current != "$last" ]]; then
+        vk_launch_internal "the engine image $engine announces interface versions $floor-$current, but version.toml records $list; $vk_pending_label"
         return 1
     fi
     return 0
@@ -183,7 +256,13 @@ vk_launch() {
         return "$REPLY"
     fi
 
-    if ((!rescue)) && ! vk_launch_interface "$engine" "$proto"; then
+    # 救援呼叫不判介面版、不讀列表，但本機沒有 image 時一樣要 pull（N40）。
+    if ((rescue)); then
+        if ! vk_launch_obtain "$engine"; then
+            vk_launch_finish ""
+            return "$REPLY"
+        fi
+    elif ! vk_launch_interface "$root" "$engine" "$proto"; then
         vk_launch_finish ""
         return "$REPLY"
     fi
