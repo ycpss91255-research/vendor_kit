@@ -2,13 +2,15 @@
 //!
 //! - 原子寫入：先寫同目錄的 `.tmp.*`，fsync、明確關檔後 rename 成目標檔，再 fsync 目錄；
 //!   關檔錯誤由呼叫回傳，不靠 `Drop`（ADR-0014）。任何一步失敗都刪掉暫存檔，目標檔不會變成半份。
-//! - 指紋：整檔 sha256，以及 CRLF→LF 正規化後的 sha256（ADR-0003、ADR-0012）。
+//! - 指紋：整檔 sha256，以及 CRLF→LF 正規化後的 sha256（ADR-0003、ADR-0012）；正規化後的內容本身由
+//!   [`normalize_crlf`] 給，兩者的正規化規則相同。
 //! - 走訪：回傳根目錄下所有一般檔的相對路徑，按整條相對路徑的位元組排序，不隨 locale（ADR-0012），
 //!   也不靠 `HashMap` 的順序（ADR-0014）。
 //! - symlink 第一版禁止（scope_roadmap）：寫入目標、走訪根目錄或走訪途中遇到 symlink 都回錯誤。
 //!
 //! 錯誤一律用 [`Error`] 回傳，這裡不印診斷；要印什麼由呼叫端經 `diagnostics` 決定。
 
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -284,6 +286,25 @@ pub fn fingerprint_normalized(contents: &[u8]) -> Fingerprint {
     Fingerprint(hasher.finalize().into())
 }
 
+/// 把 CRLF 正規化成 LF 之後的內容，規則同 [`fingerprint_normalized`]：只處理緊接 `\n` 的 `\r`，
+/// 單獨的 `\r` 照原樣保留。沒有 CRLF 時不複製。
+pub fn normalize_crlf(contents: &[u8]) -> Cow<'_, [u8]> {
+    if !contents.windows(2).any(|w| w == b"\r\n") {
+        return Cow::Borrowed(contents);
+    }
+    let mut out = Vec::with_capacity(contents.len());
+    let mut i = 0;
+    while i < contents.len() {
+        if contents[i] == b'\r' && contents.get(i + 1) == Some(&b'\n') {
+            i += 1;
+            continue;
+        }
+        out.push(contents[i]);
+        i += 1;
+    }
+    Cow::Owned(out)
+}
+
 // ---------------------------------------------------------------------------
 // 走訪
 
@@ -460,6 +481,25 @@ mod tests {
         assert_eq!(fingerprint_normalized(lf), fingerprint_normalized(crlf));
         assert_eq!(fingerprint_normalized(lf), fingerprint(lf));
         assert_ne!(fingerprint(lf), fingerprint(crlf));
+    }
+
+    #[test]
+    fn normalize_crlf_matches_normalized_fingerprint() {
+        for input in [
+            &b""[..],
+            b"a\nb\n",
+            b"a\r\nb\r\n\r\nc",
+            b"a\rb\r\r\nc\r",
+            b"\r\n",
+        ] {
+            assert_eq!(
+                fingerprint(&normalize_crlf(input)),
+                fingerprint_normalized(input),
+                "{input:?}"
+            );
+        }
+        assert_eq!(&*normalize_crlf(b"a\r\nb\rc\r\n"), b"a\nb\rc\n");
+        assert!(matches!(normalize_crlf(b"a\nb\r"), Cow::Borrowed(_)));
     }
 
     #[test]
