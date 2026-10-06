@@ -6,11 +6,11 @@
 #   這個檔），安裝時引擎再在檔頭加自描述標頭（engine/shell）。這裡只讀標頭的介面版與引擎版：
 #   介面版是傳給引擎的 P，引擎版是執行紀錄的 resource."service.version"（log.sh 的 vk_log_version）。
 # - 引擎引用取自 `.vendor_kit/version.toml` 裡唯一符合 `^vendor_kit[[:space:]]*=` 的行（ADR-0002），
-#   以 `while read` 加字串比對，不用 grep。命中數不是 1、值不是雙引號裡的 pinned 引用，都以 VK0056 停下
-#   （專屬的原因代碼還沒定：草稿 VK0070，N76）。只讀到雙引號為止，其餘的形狀由引擎檢查。
+#   讀法見 host.sh 的 vk_lock_engine_ref。命中數不是 1、值不是雙引號裡的 pinned 引用，都以 VK0056 停下
+#   （專屬的原因代碼還沒定：草稿 VK0070，N76）。
 # - 不套用 version.local.toml 的本機覆寫（之後另做）。
 # - 讀標頭與版本鎖定行都沒有副作用：失敗時只在 stderr 印診斷，不建執行紀錄（同 host.sh 的前置檢查）。
-# - 行尾的 CR 先去掉再比對（ADR-0012：CRLF 與 LF 等價）。
+# - 標頭行尾的 CR 先去掉再比對（ADR-0012：CRLF 與 LF 等價）。
 #
 # 這個檔只定義函式；直接以 bash 執行組好的 log.sh 時，最後才呼叫 vk_main。被 source 時不執行。
 # vk_wire_re_* 由 wire.sh 定義。
@@ -49,39 +49,12 @@ vk_main_header() {
 }
 
 # vk_main_recipe <version.toml>：版本鎖定行裡引擎那一行的值（pinned 引用）放進 REPLY。
-# 檔不存在算命中 0 行；命中數不是 1，或值不是雙引號裡的 pinned 引用，印 VK0056、回 1。
+# 讀法在 host.sh 的 vk_lock_engine_ref（bootstrap.sh 共用）；讀不出時印 VK0056、回 1。
 vk_main_recipe() {
-    local file=$1 line hit='' n=0
-    if [[ -e $file ]]; then
-        if [[ ! -f $file || ! -r $file ]]; then
-            vk_diag VK0056 reason "cannot read $file; $vk_main_reason_pending" path none
-            return 1
-        fi
-        while IFS= read -r line || [[ -n $line ]]; do
-            line=${line%$'\r'}
-            if [[ $line =~ ^vendor_kit[[:space:]]*= ]]; then
-                n=$((n + 1))
-                hit=$line
-            fi
-        done <"$file"
-    fi
-    if ((n != 1)); then
-        vk_diag VK0056 reason "$file has $n engine lock lines, exactly 1 is required; $vk_main_reason_pending" path none
+    if ! vk_lock_engine_ref "$1"; then
+        vk_diag VK0056 reason "$REPLY; $vk_main_reason_pending" path none
         return 1
     fi
-    local value=${hit#*=}
-    value=${value#"${value%%[![:space:]]*}"}
-    if [[ $value != \"*\"* ]]; then
-        vk_diag VK0056 reason "the engine lock line in $file is not a double-quoted string; $vk_main_reason_pending" path none
-        return 1
-    fi
-    value=${value#\"}
-    value=${value%%\"*}
-    if ! vk_wire_ref "$value" pinned; then
-        vk_diag VK0056 reason "the engine lock line in $file is not a pinned image reference; $vk_main_reason_pending" path none
-        return 1
-    fi
-    REPLY=$value
     return 0
 }
 

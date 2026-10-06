@@ -45,17 +45,17 @@ fake_version() {
     fake_cmd "$1" "printf '%s\\n' $quoted"
 }
 
-# vk <bash 片段>：在乾淨的 bash 裡載入片段與 launcher/*.sh（main.sh 被 source 時不執行 vk_main），
-# cwd 是 $work，PATH 只有 shim 目錄，跑完以 vk_diag_exit 結束（片段自己 exit 的話照它的）。stdout、stderr 分開收。
+# vk <bash 片段>：在乾淨的 bash 裡載入片段與 launcher/*.sh（main.sh、bootstrap_main.sh 被 source 時不執行入口），
+# cwd 是 $work（有設 vk_cwd 時改用它），PATH 只有 shim 目錄，跑完以 vk_diag_exit 結束（片段自己 exit 的話照它的）。stdout、stderr 分開收。
 # 陣列 vk_env 的 `名=值` 另外傳進環境（預設沒有）。
 vk() {
     local script f
     script="source '$VK_MESSAGES';"
-    for f in diag host log wire launch main; do
+    for f in diag host log wire launch main bootstrap_main; do
         script+=" source '$launcher_dir/$f.sh';"
     done
     script+=" $1"$'\n''exit "$vk_diag_exit"'
-    cd "$work" || return 1
+    cd "${vk_cwd:-$work}" || return 1
     run --separate-stderr env -i PATH="$shim" HOME="$work" "${vk_env[@]}" "$BASH" -c "$script"
     cd - >/dev/null || return 1
 }
