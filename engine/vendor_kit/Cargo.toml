@@ -22,6 +22,7 @@ output.workspace = true
 plan.workspace = true
 prompt.workspace = true
 prune.workspace = true
+registry.workspace = true
 remove.workspace = true
 runlog.workspace = true
 shell_check.workspace = true

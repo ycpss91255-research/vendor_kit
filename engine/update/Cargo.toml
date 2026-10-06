@@ -3,7 +3,7 @@ name = "update"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "update 指令：讀設定、持共享鎖、只偵測殘留進度、判查詢對象、提醒本機覆寫、依鎖定行查最新 tag 並印固定格式的結果行；不寫任何檔"
+description = "update 指令：讀設定、持共享鎖、只偵測殘留進度、判查詢對象、提醒本機覆寫、向 registry 列 tag 算最新版並印固定格式的結果行；不寫安裝目錄的任何檔"
 
 [dependencies]
 config.workspace = true
@@ -12,7 +12,9 @@ filelock.workspace = true
 imageref.workspace = true
 layout.workspace = true
 messages.workspace = true
+plan.workspace = true
 progress.workspace = true
+registry.workspace = true
 schema.workspace = true
 version_file.workspace = true
 

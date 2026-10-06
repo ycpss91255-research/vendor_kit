@@ -47,6 +47,11 @@ pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";
 /// 起引擎容器時不帶任何環境變數）；e2e 在主機上直接跑執行檔，沒有 image 裡的模板，用它給 fixture 模板。
 pub const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
 
+/// 測試用：設了這個環境變數，`update` 的 registry client 改連這個 base URL（`registry::Client::with_base_url`），
+/// 不連 `registry::BASE_URL`；image 名稱仍只收 ghcr.io。正式執行時一定不設（啟動器起引擎容器時不帶任何環境
+/// 變數）；e2e 用它接假 registry，不連外網。
+pub const REGISTRY_URL_ENV: &str = "VK_TEST_REGISTRY_URL";
+
 /// 引擎容器內的三個掛載點（`plan::mount`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mounts {
@@ -526,13 +531,24 @@ where
             let _ = stdout.flush();
             code
         }
-        args::Command::Update { repo, .. } => {
+        args::Command::Update {
+            repo,
+            registry_token_file,
+        } => {
+            let registry = match registry_client(host_log, diags) {
+                Ok(c) => c,
+                Err(code) => return code,
+            };
             let dir = layout::InstallDir::new(&mounts.root);
             let host_root = inv.host_root.display().to_string();
             let mut stdout = stdout;
             let mut plain = stderr.clone();
             let mut env = update::Env {
                 dir: &dir,
+                inbox: &mounts.inbox,
+                channel,
+                poll: POLL,
+                registry: &registry,
                 host_root: &host_root,
                 run_log: host_log,
                 stdout: &mut stdout,
@@ -541,6 +557,7 @@ where
             };
             let req = update::Request {
                 repo: repo.as_deref(),
+                registry_token_file: registry_token_file.as_deref(),
             };
             let code = update::run(&req, &mut env);
             let _ = stdout.flush();
@@ -726,6 +743,23 @@ fn release<E: Write>(
     })
 }
 
+/// registry client：設了 [`REGISTRY_URL_ENV`] 連那個 base URL，否則連 GHCR。值不合印 VK0056、回 `Err(2)`。
+fn registry_client<E: Write>(
+    host_log: &str,
+    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
+) -> Result<registry::Client, u8> {
+    let Some(base) = std::env::var_os(REGISTRY_URL_ENV) else {
+        return Ok(registry::Client::new());
+    };
+    registry::Client::with_base_url(&base.to_string_lossy()).map_err(|e| {
+        let d = Diagnostic::new(&messages::VK0056)
+            .arg("reason", format!("{REGISTRY_URL_ENV}: {e}"))
+            .arg("path", host_log);
+        let _ = diags.emit(&d);
+        2
+    })
+}
+
 /// `install [-y]`。
 #[allow(clippy::too_many_arguments)]
 fn run_install<O, E>(
@@ -860,6 +894,12 @@ mod tests {
         fn text(&self) -> String {
             String::from_utf8(self.0.borrow().clone()).unwrap()
         }
+    }
+
+    /// `update` 照抄的引擎路徑跟 `install` 核對引擎引用的是同一個（指令之間互不依賴，各自一份）。
+    #[test]
+    fn update_and_install_agree_on_the_engine_repo() {
+        assert_eq!(update::ENGINE_REPO, install::release::ENGINE_REPO);
     }
 
     fn call(args: &[&str]) -> (u8, String, String) {
