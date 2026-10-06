@@ -974,6 +974,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "upgrade"
+version = "0.0.0"
+dependencies = [
+ "config",
+ "diagnostics",
+ "fetch",
+ "filelock",
+ "imageref",
+ "initfiles",
+ "layout",
+ "messages",
+ "metadata",
+ "plan",
+ "progress",
+ "prompt",
+ "runlog",
+ "schema",
+ "serde_json",
+ "stamp",
+ "tempfile",
+ "tools_just",
+ "txn",
+ "version_file",
+]
+
+[[package]]
 name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -998,6 +1024,7 @@ dependencies = [
  "runlog",
  "sync",
  "update",
+ "upgrade",
 ]
 
 [[package]]

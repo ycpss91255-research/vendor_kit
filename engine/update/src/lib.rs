@@ -14,7 +14,9 @@
 //!    - `version.local.toml` 檔案版過高：VK0008。
 //!    - 殘留的進度檔（04 成對與無害：唯讀 recipe 只偵測，不恢復、不刪）：`add` 的回 VK0004；`undev` 的回
 //!      VK0053，`<target>` 讀進度檔 `[undev]` 表的 `target`（engine/dev 寫的），`<undev_command>` 由進度檔
-//!      的 `command` 重組；`upgrade` 的見「缺口」；其他可寫 recipe（`sync`、`remove`、`install`、
+//!      的 `command` 重組；工具 `upgrade` 的回 VK0041，`<repo>` 讀進度檔 `[upgrade]` 表的 `target`（格式見
+//!      `progress::upgrade`），`<original_command>` 由進度檔的 `command` 重組；引擎 `upgrade` 的見「缺口」；
+//!      其他可寫 recipe（`sync`、`remove`、`install`、
 //!      `uninstall`、`dev` 等）回 VK0054，`<original_command>` 由進度檔的 `command` 重組、各參數依 POSIX
 //!      shell 規則加引號。
 //! 5. 判查詢對象：不帶工具參數是版本鎖定行裡的全部工具與引擎；`update <repo>` 只查那個工具，不在版本
@@ -37,9 +39,10 @@
 //!   的 op。第 7 步一律以 VK0056 停下，stdout 不印結果行：`latest: none` 是查詢失敗的顯示值，不拿來表示
 //!   還沒實作。所以 `--registry-token-file`（04：只有真的要查版本清單時才讀）這一版不讀，VK0001、VK0055、
 //!   VK0058 也還碰不到。
-//! - 殘留的 `upgrade` 進度檔：要分工具（VK0041）或引擎（VK0023），VK0023 的 `<vY>` 也要從進度檔讀，
-//!   `upgrade` 還沒實作、進度檔格式沒定。
-//! - 殘留的 `add` 進度檔沒有 `[add]` 的 `repo` 欄位；殘留的 `undev` 進度檔沒有 `[undev]` 的 `target` 欄位。
+//! - 殘留的引擎 `upgrade` 進度檔（`[upgrade] target` 是引擎）：VK0023 的 `<vY>` 要從進度檔讀，
+//!   `upgrade --engine` 還沒實作、它的欄位沒定。
+//! - 殘留的 `add` 進度檔沒有 `[add]` 的 `repo` 欄位；殘留的 `undev` 進度檔沒有 `[undev]` 的 `target` 欄位；
+//!   殘留的 `upgrade` 進度檔沒有 `[upgrade]` 的 `target` 欄位。
 
 pub mod text;
 
@@ -58,8 +61,8 @@ use version_file::{LocalFile, LockFile};
 
 /// `add` 的進度檔 `<verb>` 與它記 `<repo>` 的表（engine/add 的 `VERB`、`PROGRESS_TABLE`）。
 pub const ADD_VERB: &str = "add";
-/// `upgrade` 的進度檔 `<verb>`（還沒實作，見模組說明的缺口）。
-pub const UPGRADE_VERB: &str = "upgrade";
+/// `upgrade` 的進度檔 `<verb>`（`progress::upgrade`）。
+pub const UPGRADE_VERB: &str = progress::upgrade::VERB;
 /// `undev` 的進度檔 `<verb>` 與它記 `<target>` 的鍵（engine/dev 的 `UNDEV_VERB`、`TARGET_KEY`；指令之間互不
 /// 依賴，照抄）。
 pub const UNDEV_VERB: &str = "undev";
@@ -359,11 +362,19 @@ impl<W: Write, S: Sink> Update<'_, '_, W, S> {
                     )),
                 }
             }
-            UPGRADE_VERB => self.gap_diag(format_args!(
-                "reporting the incomplete {} operation in {}",
-                entry.verb,
-                self.rel(&entry.path)
-            )),
+            UPGRADE_VERB => match progress::upgrade::field(&loaded, progress::upgrade::TARGET) {
+                Some(progress::upgrade::ENGINE_TARGET) => self.gap_diag(format_args!(
+                    "reporting the incomplete engine upgrade in {}",
+                    self.rel(&entry.path)
+                )),
+                Some(repo) => Diagnostic::new(&messages::VK0041)
+                    .arg("repo", repo)
+                    .arg("original_command", original_command(loaded.command())),
+                None => self.gap_diag(format_args!(
+                    "reporting the incomplete upgrade in {} without its [upgrade] target field",
+                    self.rel(&entry.path)
+                )),
+            },
             other => Diagnostic::new(&messages::VK0054)
                 .arg("install_dir", self.env.host_root)
                 .arg("operation", other)

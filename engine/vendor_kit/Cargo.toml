@@ -25,6 +25,7 @@ remove.workspace = true
 runlog.workspace = true
 sync.workspace = true
 update.workspace = true
+upgrade.workspace = true
 
 [lints]
 workspace = true

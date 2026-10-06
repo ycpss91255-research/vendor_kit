@@ -32,6 +32,47 @@ use toml_edit::{Array, Value};
 /// 原指令參數欄位的鍵。
 pub const COMMAND_KEY: &str = "command";
 
+/// `upgrade` 的進度檔（`.tmp.upgrade.<id>.toml`）另記的 `[upgrade]` 表。
+///
+/// 契約只要求唯讀 recipe 從進度檔辨識未完成的工具 upgrade（VK0041）或引擎 upgrade（VK0023），沒定格式；
+/// 寫的是 `engine/upgrade`，讀的還有 `update`、`sync` 等其他指令，而指令之間互不依賴，所以格式定在這裡：
+///
+/// | 鍵 | 值 |
+/// |---|---|
+/// | [`upgrade::TARGET`] | 對象：工具填 `<repo>`，引擎填 [`upgrade::ENGINE_TARGET`] |
+/// | [`upgrade::IMAGE`] | 工具：這次換上的版本鎖定行的值（`<registry>/<路徑>:<tag>@<digest>`） |
+/// | [`upgrade::INIT_FILES`] | 工具：這次有沒有寫初始檔相關的檔（repo 檔、逐檔紀錄、基準版副本） |
+///
+/// 引擎 upgrade 的其他欄位等 `upgrade --engine` 實作時再定。原指令仍在共同欄位 [`COMMAND_KEY`]。
+pub mod upgrade {
+    use super::Progress;
+
+    /// 進度檔名裡的 `<verb>`，也是表名。
+    pub const VERB: &str = "upgrade";
+    pub const TABLE: &str = "upgrade";
+    pub const TARGET: &str = "target";
+    /// 引擎的對象值；`vendor_kit` 是保留名，不會是工具名（04 命名空間）。
+    pub const ENGINE_TARGET: &str = "vendor_kit";
+    pub const IMAGE: &str = "image";
+    pub const INIT_FILES: &str = "init_files";
+
+    /// `[upgrade]` 表裡的字串欄位；不在或不是字串回 `None`。
+    pub fn field<'p>(progress: &'p Progress, key: &str) -> Option<&'p str> {
+        progress
+            .document()
+            .get(&[TABLE, key])
+            .and_then(|i| i.as_str())
+    }
+
+    /// `[upgrade]` 表裡的布林欄位；不在或不是布林回 `None`。
+    pub fn flag(progress: &Progress, key: &str) -> Option<bool> {
+        progress
+            .document()
+            .get(&[TABLE, key])
+            .and_then(|i| i.as_bool())
+    }
+}
+
 /// 進度檔名的前綴與副檔名（`layout::InstallDir::progress_file` 的格式）。
 const PREFIX: &str = ".tmp.";
 const SUFFIX: &str = ".toml";
@@ -500,6 +541,32 @@ mod tests {
             .collect();
         v.sort();
         v
+    }
+
+    #[test]
+    fn upgrade_table_round_trips() {
+        let (_t, dir) = install();
+        let mut p = Progress::new(upgrade::VERB, "42", &["upgrade", "tool@v1.2.0", "-y"]).unwrap();
+        let doc = p.document_mut();
+        doc.set(&[upgrade::TABLE, upgrade::TARGET], "tool").unwrap();
+        doc.set(
+            &[upgrade::TABLE, upgrade::IMAGE],
+            "ghcr.io/a/tool:v1.2.0@sha256:1",
+        )
+        .unwrap();
+        doc.set(&[upgrade::TABLE, upgrade::INIT_FILES], false)
+            .unwrap();
+        p.create(&dir, "v1").unwrap();
+        let back = load(&dir, upgrade::VERB, "42").unwrap().unwrap();
+        assert_eq!(upgrade::field(&back, upgrade::TARGET), Some("tool"));
+        assert_eq!(
+            upgrade::field(&back, upgrade::IMAGE),
+            Some("ghcr.io/a/tool:v1.2.0@sha256:1")
+        );
+        assert_eq!(upgrade::flag(&back, upgrade::INIT_FILES), Some(false));
+        assert_eq!(upgrade::field(&back, upgrade::INIT_FILES), None);
+        assert_eq!(upgrade::flag(&back, upgrade::TARGET), None);
+        assert_eq!(upgrade::field(&upgrade(), upgrade::TARGET), None);
     }
 
     #[test]
