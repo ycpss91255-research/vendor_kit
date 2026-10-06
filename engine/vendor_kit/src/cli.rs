@@ -14,6 +14,10 @@
 //! （例如 `upgrade --engine --bogus`）也先報版本。P 低於 floor 是 VK0009（fatal 3）；P 高於上限還沒有專屬
 //! 代碼（計畫缺口 G6），跟啟動器一樣暫以 VK0056 停下。兩者都停在任何寫入之前（執行紀錄除外）。
 //!
+//! `bootstrap.sh` 的只檢查與 `--repair` 經 `--` 之後的保留入口（`plan::entry`，[`reserved_entry`]）進來：`--` 之後
+//! 剛好只有那一個參數才算，在 `args` 之前認出來，交給 `shell_check`；其餘一律照 `args` 解析，所以保留入口帶了
+//! 其他參數就是 VK0026。保留入口屬救援路徑，介面版不在區間內也照常執行（[`gate`]），執行位置照樣檢查（VK0028）。
+//!
 //! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`dev`、`undev` 與 `prune`。
 //! 04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；還沒實作的 `upgrade --engine`、`test`、`test dist`
 //! 以 VK0056 停下（#372 N62）。`-h`／`--help` 把 [`output::Help`] 的用法印到 stdout、以 0 結束（03 輸出），
@@ -127,15 +131,27 @@ fn no_command<O: Write, E: Write, W: Write, S: Sink>(
     let _ = out.flush();
 }
 
-/// 介面版判定：P 在區間內回 `Ok(false)`；不在區間內而且是救援呼叫回 `Ok(true)`（照常回應那個 P，
-/// 往返只准救援 op）；其餘回 `Err`。解析失敗的呼叫（不帶指令的用法除外）都不算救援呼叫，所以先報版本。
+/// `--` 之後剛好只有 `bootstrap.sh` 的保留入口（`plan::entry`）時回它的模式；其餘回 `None`，照 `args` 解析。
+fn reserved_entry(rest: &[OsString]) -> Option<shell_check::Mode> {
+    match rest {
+        [only] if *only == *plan::entry::SHELL_CHECK => Some(shell_check::Mode::Check),
+        [only] if *only == *plan::entry::SHELL_REPAIR => Some(shell_check::Mode::Repair),
+        _ => None,
+    }
+}
+
+/// 介面版判定：P 在區間內回 `Ok(false)`；不在區間內而且是救援呼叫（含 `reserved`：`bootstrap.sh` 的保留入口）
+/// 回 `Ok(true)`（照常回應那個 P，往返只准救援 op）；其餘回 `Err`。解析失敗的呼叫（不帶指令的用法除外）
+/// 都不算救援呼叫，所以先報版本。
 fn gate(
     compat: &compat::Compat,
     protocol: u32,
     parsed: &Result<args::Invocation, args::UsageError>,
+    reserved: bool,
 ) -> Result<bool, compat::ProtocolError> {
     match compat.accept_protocol(protocol) {
         Ok(_) => Ok(false),
+        Err(_) if reserved => Ok(true),
         Err(e) => match parsed {
             Ok(inv) if inv.is_rescue() => Ok(true),
             Err(args::UsageError::NoCommand) => Ok(true),
@@ -253,8 +269,9 @@ where
         return bare.exit_code();
     }
 
+    let reserved = reserved_entry(&inv.rest);
     let parsed = args::parse(&inv.rest);
-    let rescue_only = match gate(compat, inv.protocol, &parsed) {
+    let rescue_only = match gate(compat, inv.protocol, &parsed, reserved.is_some()) {
         Ok(rescue_only) => rescue_only,
         Err(e) => {
             let _ = diags.emit(&protocol_mismatch(&e, host_log));
@@ -264,12 +281,19 @@ where
     if rescue_only {
         channel.restrict_to_rescue();
     }
-    let code = match parsed {
-        Err(args::UsageError::NoCommand) => {
+    let code = match (reserved, parsed) {
+        (Some(mode), _) => {
+            if at_install_root(inv, mounts, &mut diags) {
+                run_shell_check(mode, inv, mounts, host_log, stdout, &mut diags)
+            } else {
+                2
+            }
+        }
+        (None, Err(args::UsageError::NoCommand)) => {
             no_command(&mut out, &mut diags);
             2
         }
-        Err(e) => {
+        (None, Err(e)) => {
             let mut d = Diagnostic::new(e.message());
             if let Some((name, value)) = e.placeholder() {
                 d = d.arg(name, value);
@@ -278,28 +302,72 @@ where
             let _ = out.stderr_line(SHORT_USAGE);
             2
         }
-        Ok(args::Invocation::Help { name, engine }) => {
+        (None, Ok(args::Invocation::Help { name, engine })) => {
             let _ = out.help(help_for(name, engine));
             0
         }
-        Ok(args::Invocation::Run(command)) => {
-            let in_root = layout::is_install_dir(&mounts.root).unwrap_or(false);
-            if inv.host_cwd != inv.host_root || !in_root {
-                // 04 執行位置：檢查使用者打指令時所在的目錄（啟動器已解掉 symlink，這裡只比字串）。
-                let d = Diagnostic::new(&messages::VK0028)
-                    .arg("install_dir", inv.host_root.display().to_string());
-                let _ = diags.emit(&d);
-                2
-            } else {
+        (None, Ok(args::Invocation::Run(command))) => {
+            if at_install_root(inv, mounts, &mut diags) {
                 dispatch(
                     &command, inv, mounts, host_log, channel, stdin, stdout, &stderr, &mut diags,
                     &mut log,
                 )
+            } else {
+                2
             }
         }
     };
     let code = code.max(diags.exit_code());
     finish_log(&mut out, &mut log, host_log, stderr, code)
+}
+
+/// 04 執行位置：檢查使用者打指令時所在的目錄（啟動器已解掉 symlink，這裡只比字串）。不在安裝目錄印 VK0028、
+/// 回 `false`。
+fn at_install_root<W: Write, S: diagnostics::Sink>(
+    inv: &plan::Invocation,
+    mounts: &Mounts,
+    diags: &mut Diagnostics<W, S>,
+) -> bool {
+    let in_root = layout::is_install_dir(&mounts.root).unwrap_or(false);
+    if inv.host_cwd == inv.host_root && in_root {
+        return true;
+    }
+    let d =
+        Diagnostic::new(&messages::VK0028).arg("install_dir", inv.host_root.display().to_string());
+    let _ = diags.emit(&d);
+    false
+}
+
+/// `bootstrap.sh` 的只檢查與 `--repair`（`plan::entry` 的保留入口）。
+fn run_shell_check<O, E>(
+    mode: shell_check::Mode,
+    inv: &plan::Invocation,
+    mounts: &Mounts,
+    host_log: &str,
+    stdout: O,
+    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
+) -> u8
+where
+    O: Write,
+    E: Write,
+{
+    let release = match release(host_log, diags) {
+        Ok(r) => r,
+        Err(code) => return code,
+    };
+    let dir = layout::InstallDir::new(&mounts.root);
+    let host_root = inv.host_root.display().to_string();
+    let mut stdout = stdout;
+    let mut env = shell_check::Env {
+        dir: &dir,
+        host_root: &host_root,
+        run_log: host_log,
+        written_by: VERSION,
+        shell_templates: release.shell.as_ref(),
+        stdout: &mut stdout,
+        diags,
+    };
+    shell_check::run(mode, &mut env)
 }
 
 /// `-h`／`--help` 要印哪一份用法。`engine` 只有 `upgrade`、`dev`、`undev` 會是真（`args` 擋掉其餘）。
@@ -920,8 +988,8 @@ mod tests {
         let p = |a: &[&str]| args::parse(a);
         // 區間內：一律照常往下，不限定救援 op。
         for a in [&["prune"][..], &["upgrade", "--engine", "--bogus"], &[]] {
-            assert_eq!(gate(&NEWER, 2, &p(a)), Ok(false), "{a:?}");
-            assert_eq!(gate(&NEWER, 3, &p(a)), Ok(false), "{a:?}");
+            assert_eq!(gate(&NEWER, 2, &p(a), false), Ok(false), "{a:?}");
+            assert_eq!(gate(&NEWER, 3, &p(a), false), Ok(false), "{a:?}");
         }
         // 區間外（低於 floor 與高於上限）：救援呼叫照常、限定救援 op；其餘先報版本。
         for protocol in [1, 4] {
@@ -936,7 +1004,11 @@ mod tests {
                 &["sync", "--help"],
                 &["upgrade", "--engine", "-h"],
             ] {
-                assert_eq!(gate(&NEWER, protocol, &p(a)), Ok(true), "{protocol} {a:?}");
+                assert_eq!(
+                    gate(&NEWER, protocol, &p(a), false),
+                    Ok(true),
+                    "{protocol} {a:?}"
+                );
             }
             for a in [
                 &["prune"][..],
@@ -948,9 +1020,100 @@ mod tests {
                 &["sync", "extra"],
                 &["frobnicate"],
             ] {
-                assert!(gate(&NEWER, protocol, &p(a)).is_err(), "{protocol} {a:?}");
+                assert!(
+                    gate(&NEWER, protocol, &p(a), false).is_err(),
+                    "{protocol} {a:?}"
+                );
             }
         }
+    }
+
+    #[test]
+    fn reserved_entries_are_recognized_only_alone() {
+        let os = |a: &[&str]| a.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            reserved_entry(&os(&[plan::entry::SHELL_CHECK])),
+            Some(shell_check::Mode::Check)
+        );
+        assert_eq!(
+            reserved_entry(&os(&[plan::entry::SHELL_REPAIR])),
+            Some(shell_check::Mode::Repair)
+        );
+        for a in [
+            &[][..],
+            &["@shell-check", "-y"],
+            &["@shell-repair", "--"],
+            &["sync", "@shell-check"],
+            &["--", "@shell-check"],
+            &["@shell-Check"],
+        ] {
+            assert_eq!(reserved_entry(&os(a)), None, "{a:?}");
+        }
+        // 介面版不在區間內也照常執行（救援路徑）。
+        let parsed = args::parse(&[plan::entry::SHELL_CHECK]);
+        for protocol in [1, 4] {
+            assert_eq!(gate(&NEWER, protocol, &parsed, true), Ok(true));
+        }
+        assert_eq!(gate(&NEWER, 2, &parsed, true), Ok(false));
+    }
+
+    #[test]
+    fn reserved_entry_outside_the_range_answers_with_the_callers_protocol() {
+        // 單元測試沒有出貨的薄殼模板：照常往下到 shell_check，以 VK0056 停下，不先報版本。
+        for rest in [plan::entry::SHELL_CHECK, plan::entry::SHELL_REPAIR] {
+            let s = Scratch::new("old-shell-check");
+            let (code, stdout, stderr) = launch(&s, &NEWER, 1, &[rest]);
+            assert_eq!(code, 2, "{rest}");
+            assert_eq!(stdout, "");
+            assert!(
+                stderr.starts_with("vendor_kit: error[VK0056]: Internal vendor_kit error: checking the shell without the shell templates"),
+                "{stderr}"
+            );
+            assert!(s.written().is_empty(), "{:?}", s.written());
+            assert_eq!(s.done(), "vk-resolve/1 r1 done 2\n");
+        }
+    }
+
+    #[test]
+    fn reserved_entry_outside_the_install_dir_is_vk0028() {
+        let s = Scratch::new("shell-check-cwd");
+        let host_root = "/srv/proj";
+        let args: Vec<OsString> = [
+            "--protocol",
+            "1",
+            "--run-id",
+            "r1",
+            "--host-root",
+            host_root,
+            "--host-cwd",
+            "/srv/proj/sub",
+            "--run-log",
+            RUN_LOG,
+            "--tty",
+            "000",
+            "--no-color",
+            "1",
+            "--",
+            plan::entry::SHELL_REPAIR,
+        ]
+        .iter()
+        .map(OsString::from)
+        .collect();
+        let (out, err) = (Buf::default(), Buf::default());
+        let code = run(
+            &args,
+            &s.mounts(),
+            &mut io::empty(),
+            out.clone(),
+            err.clone(),
+        );
+        assert_eq!(code, 2);
+        assert!(
+            err.text().starts_with("vendor_kit: error[VK0028]: "),
+            "{}",
+            err.text()
+        );
+        assert!(s.written().is_empty(), "{:?}", s.written());
     }
 
     #[test]

@@ -216,6 +216,7 @@ fn expected_members_exist() {
         "upgrade",
         "dev",
         "prune",
+        "shell_check",
     ] {
         assert!(
             m.get(name).is_some_and(|(e, _)| *e),
@@ -270,6 +271,7 @@ fn lower_layers_do_not_depend_on_the_entry_crate() {
         "upgrade",
         "dev",
         "prune",
+        "shell_check",
     ] {
         let (_, pkg) = &m[name];
         assert!(

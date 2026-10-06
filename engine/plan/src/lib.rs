@@ -62,10 +62,10 @@
 //!
 //! # 救援路徑
 //!
-//! 救援路徑（install、upgrade --engine、sync 判定與四種用法呼叫）用到的協定動作與文法跨介面版永久不變
+//! 救援路徑（install、upgrade --engine、sync 判定、四種用法呼叫與 bootstrap.sh 的只檢查、修復）用到的協定動作與文法跨介面版永久不變
 //! （#372 維護者 10/05 定救援路徑協定選 A，issuecomment-5995675088；ADR-0007:37、ADR-0008）。
-//! 範圍是：入口 argv（[`argv`]）、掛載點（[`mount`]）、控制檔名（[`files`]）、`hdr`、`done`、`fld`、
-//! `result` 的 `ok`／`failed`，以及 [`RESCUE_OPS`] 的五個 op。這些都集中成常數並由測試釘住；
+//! 範圍是：入口 argv（[`argv`]）、`bootstrap.sh` 的保留入口（[`entry`]）、掛載點（[`mount`]）、控制檔名
+//! （[`files`]）、`hdr`、`done`、`fld`、`result` 的 `ok`／`failed`，以及 [`RESCUE_OPS`] 的五個 op。這些都集中成常數並由測試釘住；
 //! 改了就破壞救援，P+1 也不能改。其餘 op 依 ADR-0008:25 隨 P 演進。
 //! 呼叫方的 P 不在引擎接受的區間內時，引擎仍照救援路徑回應那個 P，往返限定只送這五個 op
 //! （[`Channel::restrict_to_rescue`]）。
@@ -146,6 +146,17 @@ pub mod files {
     /// 引擎 image 不可能含有自己的 index digest，救援 argv 又凍結，所以經這個檔交給引擎。
     /// 不會跟 `tool<N>` 的 slot 撞名（stage、extract 遇到已存在的 slot 一律拒絕）。
     pub const IN_ENGINE: &str = "engine";
+}
+
+/// `--` 之後只有 `bootstrap.sh` 會送的保留入口（04 bootstrap.sh 的只檢查與 `--repair`、ADR-0007）。
+/// `--` 之後剛好只有這一個參數才算；經 just 打不到（薄殼的每個 recipe 都把指令名寫死在第一個參數，
+/// just 的 recipe 名也不能以 `@` 起頭），`args` 的一般路徑不收。`bootstrap.sh` 用鎖定行那一版引擎，介面版
+/// 可能不在引擎接受的區間內，所以算救援路徑，永久不變。
+pub mod entry {
+    /// 只檢查薄殼，不寫檔。
+    pub const SHELL_CHECK: &str = "@shell-check";
+    /// 只重產不符的薄殼檔。
+    pub const SHELL_REPAIR: &str = "@shell-repair";
 }
 
 #[cfg(test)]

@@ -31,6 +31,8 @@
 //! 救援路徑（04 說明與用法錯誤的表）：`install`、`upgrade --engine`、`sync`，以及用法的 `just vendor_kit`、
 //! `install -h`、`upgrade --engine -h`、`sync -h`（長選項同）。這些呼叫的文法跨介面版永久不變
 //! （#372 維護者 10/05 定救援路徑協定選 A、ADR-0007），改這裡的規則時不能動到它們，測試釘住。
+//! `bootstrap.sh` 只檢查與 `--repair` 的保留入口（`plan::entry`）不經這裡：入口 `vendor_kit` 先認出來，
+//! 這裡一律當不認得的指令名（VK0026），測試釘住。
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -1346,6 +1348,15 @@ mod tests {
             assert_eq!(help_of(&["install", h]), (Name::Install, false));
             assert_eq!(help_of(&["upgrade", "--engine", h]), (Name::Upgrade, true));
             assert_eq!(help_of(&["sync", h]), (Name::Sync, false));
+        }
+    }
+
+    #[test]
+    fn reserved_bootstrap_entries_are_not_commands() {
+        // plan::entry 的保留入口只由入口 vendor_kit 認，一般路徑不收。
+        for name in ["@shell-check", "@shell-repair"] {
+            assert_eq!(err(&[name]), UsageError::Disallowed(name.into()));
+            assert_eq!(err(&[name, "-h"]), UsageError::Disallowed(name.into()));
         }
     }
 

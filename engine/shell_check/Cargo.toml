@@ -1,0 +1,23 @@
+[package]
+name = "shell_check"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "bootstrap.sh 只檢查與 --repair 的引擎端：讀設定、持鎖、先看引擎升級的進度檔，再比對薄殼；修復只重產不符的薄殼檔"
+
+[dependencies]
+compat.workspace = true
+config.workspace = true
+diagnostics.workspace = true
+filelock.workspace = true
+layout.workspace = true
+messages.workspace = true
+progress.workspace = true
+schema.workspace = true
+shell.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

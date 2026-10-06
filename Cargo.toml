@@ -37,6 +37,7 @@ members = [
     "engine/upgrade",
     "engine/dev",
     "engine/prune",
+    "engine/shell_check",
     "test/e2e",
     "test/boundary",
     "test/reason_lint",
@@ -81,6 +82,7 @@ update = { path = "engine/update" }
 upgrade = { path = "engine/upgrade" }
 dev = { path = "engine/dev" }
 prune = { path = "engine/prune" }
+shell_check = { path = "engine/shell_check" }
 
 # 第三方 crate 清單（#576）：只有登記在這裡的 crate 能用，各 crate 一律以 `workspace = true` 引用。
 # 篩選標準（依序，前面的優先）：
