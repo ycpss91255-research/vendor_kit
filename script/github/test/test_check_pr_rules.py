@@ -124,6 +124,14 @@ class ScopeTest(unittest.TestCase):
                 s, p = self.scopes(files)
                 self.assertEqual((s, p), (["contract:reason_codes"], []))
 
+    def test_contract_03_04_with_reason_codes_is_one_scope(self):
+        files = ["doc/contract/03_output.md", "doc/contract/04_interface.md",
+                 "doc/contract/reason_codes.csv", "engine/messages/src/generated.rs"]
+        for fs in (files, files[:2], files[:3], [files[0], files[2]]):
+            with self.subTest(files=fs):
+                s, p = self.scopes(fs)
+                self.assertEqual((s, p), (["contract:03-04-codes"], []))
+
     def test_unlisted_file_is_violation(self):
         s, p = self.scopes(["discussion.drawio"])
         self.assertIn("沒有列到", p[0])
