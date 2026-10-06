@@ -109,8 +109,6 @@ use version_file::LockFile;
 pub const VERB: &str = "prune";
 /// VK 暫存的檔名前綴（ADR-0002 `.gitignore` 的 `.tmp.*`）。
 pub const TEMP_PREFIX: &str = ".tmp.";
-/// 工具印記的檔名後綴（[`stamp::tool_file`]：`cache/<repo>.stamp.toml`）。
-pub const STAMP_SUFFIX: &str = ".stamp.toml";
 
 /// 這次執行的環境：容器內的路徑、往返通道與輸出。`prune` 不詢問，所以沒有 stdin 與終端狀態。
 pub struct Env<'a, W: Write, S: Sink, L: Write> {
@@ -434,7 +432,7 @@ impl<W: Write, S: Sink, L: Write> Prune<'_, '_, W, S, L> {
                             continue;
                         }
                         removes.insert(Path::new("cache").join(&name), true);
-                    } else if let Some(repo) = name.strip_suffix(STAMP_SUFFIX) {
+                    } else if let Some(repo) = name.strip_suffix(layout::STAMP_SUFFIX) {
                         let is_stamp = fetch::is_namespace(repo)
                             && stamp::tool_file(self.env.dir, repo)
                                 == self.env.dir.cache_dir().join(&name);

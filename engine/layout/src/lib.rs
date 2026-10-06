@@ -6,8 +6,14 @@
 //!   不在安裝目錄時回 [`LayoutError::NotInstallDir`]（VK0028）。
 //! - 安裝目錄彼此不互相包含（02 第 2 條）。首次導入前用 [`check_nested`] 找上層或下層已有的
 //!   安裝目錄，找到就回 [`LayoutError::Nested`]（VK0029）。
-//! - `.vendor_kit/` 下各檔的名字只寫在這裡（ADR-0002、ADR-0003、ADR-0004、ADR-0007）。
-//!   文件還沒定名的檔（metadata、執行紀錄檔）不在這裡。
+//! - `.vendor_kit/` 下各檔的名字只寫在這裡（ADR-0002、ADR-0003、ADR-0004、ADR-0007），契約沒定名、
+//!   由引擎自訂的檔也是：
+//!   - 工具的印記 `cache/<repo>.stamp.toml`（[`InstallDir::tool_stamp`]）：第一行是 schema，
+//!     印記第一行的語意變了要升介面版（ADR-0008）。
+//!   - 初始檔的逐檔紀錄（metadata）`baseline/<repo>.toml`（[`InstallDir::tool_metadata`]）與
+//!     `baseline/.vendor_kit.toml`（[`InstallDir::baseline_vk`]）。
+//!   - 執行紀錄檔 `log/<ts>-<verb>-<id>.jsonl`（[`InstallDir::log_dir`] 底下）：檔名由啟動器取
+//!     （`launcher/log.sh`），經入口 argv 把路徑傳進引擎，引擎只照傳進來的路徑寫，不自己組檔名。
 //!
 //! 這裡只做判定與組路徑，不寫檔、不印診斷；要不要印、怎麼印由呼叫端經 `diagnostics` 決定。
 
@@ -24,6 +30,12 @@ pub const VK_DIR: &str = ".vendor_kit";
 
 /// 薄殼四檔，都在 `.vendor_kit/` 下（ADR-0007）。
 pub const SHELL_FILES: [&str; 4] = ["entry.just", "vendor.just", "log.sh", ".gitignore"];
+
+/// 工具印記的檔名後綴：`cache/<repo>.stamp.toml`（[`InstallDir::tool_stamp`]）。
+pub const STAMP_SUFFIX: &str = ".stamp.toml";
+
+/// 逐檔紀錄（metadata）的檔名後綴：`baseline/<repo>.toml`（[`InstallDir::tool_metadata`]）。
+pub const METADATA_SUFFIX: &str = ".toml";
 
 /// 往下找巢狀安裝時不進去的目錄名：git 的內部目錄不是使用者的目錄樹。
 const SKIP_DIRS: [&str; 1] = [".git"];
@@ -81,6 +93,15 @@ impl InstallDir {
         Ok(self.cache_dir().join(repo))
     }
 
+    /// `.vendor_kit/cache/<repo>.stamp.toml`：工具 `<repo>` 的印記。
+    ///
+    /// 在 `cache/` 底下所以不進 git，又不在 `cache/<repo>/` 裡，換 `cache/<repo>/` 時不會被帶走。
+    /// 與 [`InstallDir::stamp`]（`gen/.stamp`，薄殼的引擎 ref）是不同的檔。`<repo>` 由呼叫端先驗過是
+    /// 單一路徑段，這裡不再檢查。
+    pub fn tool_stamp(&self, repo: &str) -> PathBuf {
+        self.cache_dir().join(format!("{repo}{STAMP_SUFFIX}"))
+    }
+
     /// `.vendor_kit/gen/`：供 just 載入的產生檔，不進 git。
     pub fn gen_dir(&self) -> PathBuf {
         self.vk_dir().join("gen")
@@ -104,6 +125,17 @@ impl InstallDir {
     /// `.vendor_kit/baseline/.vendor_kit.toml`：不屬於任何工具的根 `.dockerignore` 行（ADR-0003）。
     pub fn baseline_vk(&self) -> PathBuf {
         self.baseline_dir().join(".vendor_kit.toml")
+    }
+
+    /// `.vendor_kit/baseline/<repo>.toml`：工具 `<repo>` 的逐檔紀錄（metadata，ADR-0003）。
+    ///
+    /// `<repo>` 必須是單一路徑段，且不以 `.` 開頭，才不會跟 [`InstallDir::baseline_vk`] 撞名。
+    pub fn tool_metadata(&self, repo: &str) -> Result<PathBuf, InvalidName> {
+        check_segment(repo, NameKind::Repo)?;
+        if repo.starts_with('.') {
+            return Err(InvalidName::new(NameKind::Repo, repo));
+        }
+        Ok(self.baseline_dir().join(format!("{repo}{METADATA_SUFFIX}")))
     }
 
     /// `.vendor_kit/baseline/.vendor_kit/config.toml`：`config.toml` 的基準版副本（ADR-0003）。
@@ -378,6 +410,10 @@ mod tests {
             d.tool_cache("ros_kit").unwrap(),
             Path::new("/r/app/.vendor_kit/cache/ros_kit")
         );
+        assert_eq!(
+            d.tool_stamp("ros_kit"),
+            Path::new("/r/app/.vendor_kit/cache/ros_kit.stamp.toml")
+        );
         assert_eq!(d.gen_dir(), Path::new("/r/app/.vendor_kit/gen"));
         assert_eq!(d.stamp(), Path::new("/r/app/.vendor_kit/gen/.stamp"));
         assert_eq!(d.log_dir(), Path::new("/r/app/.vendor_kit/log"));
@@ -385,6 +421,10 @@ mod tests {
         assert_eq!(
             d.baseline_vk(),
             Path::new("/r/app/.vendor_kit/baseline/.vendor_kit.toml")
+        );
+        assert_eq!(
+            d.tool_metadata("docker").unwrap(),
+            Path::new("/r/app/.vendor_kit/baseline/docker.toml")
         );
         assert_eq!(
             d.config_baseline(),
@@ -418,6 +458,13 @@ mod tests {
         for bad in ["", ".", "..", "a/b", "../x", "a\0b"] {
             assert_eq!(
                 d.tool_cache(bad),
+                Err(InvalidName::new(NameKind::Repo, bad)),
+                "{bad:?}"
+            );
+        }
+        for bad in ["", ".", "..", ".vendor_kit", "a/b", "a\0b"] {
+            assert_eq!(
+                d.tool_metadata(bad),
                 Err(InvalidName::new(NameKind::Repo, bad)),
                 "{bad:?}"
             );

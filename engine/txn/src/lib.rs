@@ -131,8 +131,8 @@
 //! 這裡不印診斷；要怎麼印由呼叫端經 `diagnostics` 決定。
 //!
 //! 進度檔要放哪些恢復用的欄位、恢復怎麼做、殘留要報哪個代碼，都由 recipe 決定，不在這裡。
-//! 呼叫端要先持安裝目錄的排他鎖（`filelock`）。印記的檔名與位置文件還沒定，由呼叫端給路徑
-//! （[`ToolContent::stamp_file`]）。
+//! 呼叫端要先持安裝目錄的排他鎖（`filelock`）。印記的路徑由呼叫端給（[`ToolContent::stamp_file`]），
+//! 位置是 [`layout::InstallDir::tool_stamp`]。
 
 use std::fmt;
 use std::fs;
