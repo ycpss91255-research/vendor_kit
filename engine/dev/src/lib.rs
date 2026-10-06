@@ -8,8 +8,9 @@
 //! 2. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束：兩者都是可寫 recipe。
 //! 3. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）。
 //! 4. 辨識殘留的進度檔（見「恢復」）；不能併入的有任何一份就把每一份都印出來再停下。
-//! 5. 判對象：`undev <repo>` 的工具不在版本鎖定行回 VK0046（訊息表：先辨識未完成進度，再判斷對象不存在，
-//!    所以排在第 4 步之後）。
+//! 5. 判對象：`dev <repo>`、`undev <repo>` 的工具不在版本鎖定行回 VK0046（訊息表：先辨識未完成進度，再判斷
+//!    對象不存在，所以排在第 4 步之後；`dev` 是 #372 N80 擴的情境，契約文字待補）。工具名不是合法的 just
+//!    名稱已在 `args` 回 VK0026。
 //! 6. 判要做什麼：
 //!    - `dev <repo> -p <dir>`：已有同來源的覆寫、也沒有殘留，stdout 說明未變更；已有不同來源的覆寫回
 //!      VK0050，不取代。相對路徑以安裝目錄為準（見「本機目錄」），要存在、是目錄、符合交付格式（`dist/`
@@ -20,7 +21,9 @@
 //! 7. 算出新的 `gen/tools.just`（`tools_just::render_with`）：開著覆寫的工具指向本機目錄，其他工具指向
 //!    `cache/<repo>/`。`<ns>` 從各自的來源讀：其他開著覆寫的工具要讀它的本機目錄（安裝目錄外的同樣經
 //!    `stage-dir`），讀不到回 VK0052（04：
-//!    覆寫來源失效只擋需讀它的動作）。`undev <repo>` 的對象回到鎖定版本：`cache/<repo>/` 與印記、版本
+//!    覆寫來源失效只擋需讀它的動作）。`dev <repo>` 的本機開發來源交付的 `<ns>` 撞到保留名 `vendor_kit` 或其他
+//!    工具（開著覆寫的以本機開發來源為準）的，每個撞到的名字各回一則 VK0030（#372 N79 擴的情境，契約文字
+//!    待補），在任何寫入之前停下。`undev <repo>` 的對象回到鎖定版本：`cache/<repo>/` 與印記、版本
 //!    鎖定行一致就直接指回去；對不上就取件（見「取件」），入口檔照取到的內容算。`undev --engine` 不動入口檔。
 //! 8. 經 `txn` 的本機覆寫順序落地：建進度檔 → 寫 `version.local.toml`（記錄檔那一步）→ 換 `cache/<repo>/` 與
 //!    印記（`undev` 要取件時；其他情況是空的）→ 寫 `gen/tools.just` → 刪進度檔；不改版本鎖定行
@@ -74,7 +77,15 @@
 //! 殘留的 `dev`、`undev` 進度檔記了對象（`[<verb>] target`；`dev` 另記正規化後的 `path`）。對象跟這次相同
 //! 的併進這次：先照殘留的那次把覆寫在記憶體裡補成做完的樣子（`dev` 設成它的 `path`，`undev` 拿掉），再照
 //! 這次的參數判定，落地時一起寫，這次落地完成之後才刪殘留的那幾份，中途再斷也還認得出來。有殘留時即使沒有
-//! 要改的，也走一次 `txn`，讓刪除排在 `writes_started` 之後。殘留的對象不同、或是其他 verb 的，見「缺口」。
+//! 要改的，也走一次 `txn`，讓刪除排在 `writes_started` 之後。
+//!
+//! 不能併入的殘留不恢復、不刪，依訊息表報出下一步（#372 N81 擴的情境，契約文字待補）：
+//!
+//! - 對象不同的 `undev`：VK0053，`<target>` 讀進度檔 `[undev] target`，`<undev_command>` 由進度檔的
+//!   `command` 重組。
+//! - 對象不同的 `dev`，或其他可寫 recipe（`remove`、`install`、`uninstall`、`prune` 等）：VK0054，
+//!   `<operation>` 是進度檔的 `<verb>`，`<original_command>` 由進度檔的 `command` 重組。
+//! - `add`、`upgrade`、`sync`：見「缺口」。
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
@@ -88,11 +99,10 @@
 //!
 //! - `dev --engine -i <image>`：本機 image 怎麼驗、舊引擎不得重產薄殼的禁令（ADR-0010；計畫 G6）、
 //!   啟動器怎麼套用引擎覆寫都沒接上。
-//! - `dev <repo>` 的工具不在版本鎖定行：VK0046 只寫 remove、undev、update（計畫 G5）。
 //! - `-p` 指到安裝目錄裡、路徑上有 symlink；或路徑不是 UTF-8、含 `'`、`"`、反斜線、控制字元，或是根目錄
 //!   `/`：見「本機目錄」，停下。
-//! - `dev` 的 `<ns>` 撞名：VK0030 只寫 `add`。工具之間撞名、或交付保留名 `vendor_kit` 時停下；根
-//!   `justfile` 的 recipe 與 module 這一版不比對。
+//! - `dev` 的 `<ns>` 撞名不比對根 `justfile` 的 recipe 與 module。其他工具之間本來就撞名（跟這次開覆寫的
+//!   工具無關）沒有代碼，停下。
 //! - `undev <repo>` 取到的內容與同一版本的既有印記不符（計畫 G1）、交付格式不符（G2），或交付保留名
 //!   `vendor_kit`：重跑也補不好，VK0053 的「請再執行一次」不適用，在寫任何檔之前停下（同 engine/sync）。
 //! - 其他沒開覆寫的工具的 `cache/<repo>/` 讀不到（N4）：重產入口檔要用到它的 `<ns>`。
@@ -101,7 +111,8 @@
 //!   兩種的草稿碼登錄前以 VK0056 停下，`<reason>` 結尾寫明草稿碼（`fetch::DRAFT_CACHE_MISSING`、
 //!   `fetch::DRAFT_CACHE_UNREADABLE`）。
 //!   `undev` 不另加檢查；它要重產入口檔時讀不到同樣停下，訊息相同。
-//! - 殘留的進度檔是其他 verb 的，或 `dev`、`undev` 但對象不同：怎麼併入沒定。
+//! - 殘留的進度檔是 `add`、`upgrade`（工具或引擎）或 `sync` 的：VK0054 的情境排除未完成導入與 `upgrade`，
+//!   而 VK0004、VK0041、VK0023 只寫唯讀 recipe；`sync` 不寫進度檔。
 //! - 中途寫檔失敗沒有代碼（G4），`undev` 解除覆寫後的那一段（換 `cache/`、寫入口檔、刪進度檔）除外
 //!   （VK0053）。
 
@@ -143,6 +154,9 @@ pub const ENGINE_TARGET: &str = "vendor_kit";
 pub const COMMAND_PREFIX: [&str; 2] = ["just", "vendor_kit"];
 /// `undev` 取件 `extract` 進 `in/` 的 slot 名前綴，後接這次執行裡的序號（`tool1`…；同 engine/sync）。
 pub const FETCH_SLOT_PREFIX: &str = "tool";
+/// 殘留時不報 VK0054 的 `<verb>`（訊息表 VK0054 排除未完成導入與工具、引擎 `upgrade`；`sync` 不寫進度檔），
+/// 見模組說明的缺口。
+const NOT_VK0054: [&str; 3] = ["add", "upgrade", "sync"];
 /// `version.local.toml` 相對於 `.vendor_kit/` 的路徑（`txn` 記錄檔那一步收這種路徑）。
 const LOCAL_FILE: &str = "version.local.toml";
 
@@ -504,9 +518,8 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         recovering: bool,
     ) -> Step<Plan> {
         if lockfile.tool(repo).is_none() {
-            return Err(self.gap(format_args!(
-                "dev for {repo}, which is not in the lock version lines (no reason code)"
-            )));
+            let d = Diagnostic::new(&messages::VK0046).arg("repo", repo);
+            return Err(self.stop(d));
         }
         let shown = path.to_string_lossy().into_owned();
         let unusable = |reason: String| {
@@ -534,7 +547,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                         said: vec![text::dev_unchanged(repo, &dir)],
                     });
                 }
-                let entry = self.entry_if_changed(lockfile, local, None)?;
+                let entry = self.entry_if_changed(lockfile, local, None, None)?;
                 return Ok(Plan {
                     local: Some(local.clone()),
                     entry,
@@ -552,17 +565,12 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             Err(PathProblem::Unusable(reason)) => return Err(self.stop(unusable(reason))),
             Err(PathProblem::Gap(what)) => return Err(self.gap(what)),
         };
-        if ns.iter().any(|n| n == ENGINE_TARGET) {
-            return Err(self.gap(format_args!(
-                "dev for {repo} whose local source delivers the reserved namespace {ENGINE_TARGET} (no reason code)"
-            )));
-        }
         if let Err(e) = local.set_tool(repo, &dir) {
             return Err(self.internal(e.to_string()));
         }
         let mut known = BTreeMap::new();
         known.insert(repo.to_owned(), ns);
-        let entry = self.entry_if_changed(lockfile, local, Some(known))?;
+        let entry = self.entry_if_changed(lockfile, local, Some(known), Some(repo))?;
         Ok(Plan {
             local: Some(local.clone()),
             entry,
@@ -604,7 +612,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         }
         let mut known = BTreeMap::new();
         known.insert(repo.to_owned(), ns);
-        let entry = self.entry_if_changed(lockfile, local, Some(known))?;
+        let entry = self.entry_if_changed(lockfile, local, Some(known), None)?;
         Ok(Plan {
             local: Some(local.clone()),
             entry,
@@ -750,12 +758,14 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
     }
 
     /// 依覆寫算出新的 `gen/tools.just`（模組說明第 7 步），跟現有內容一樣回 `None`。`known` 是這次已經讀過
-    /// `<ns>` 的工具。
+    /// `<ns>` 的工具。`collide` 是這次開覆寫的工具：它的 `<ns>` 撞到保留名或其他工具的，每個各印一則 VK0030
+    /// 再停下。
     fn entry_if_changed(
         &mut self,
         lockfile: &LockFile,
         local: &LocalFile,
         known: Option<BTreeMap<String, Vec<String>>>,
+        collide: Option<&str>,
     ) -> Step<Option<String>> {
         let mut known = known.unwrap_or_default();
         let mut dirs: BTreeMap<String, Source> = BTreeMap::new();
@@ -810,6 +820,25 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 self.emit(d);
             }
             return Err(Stop);
+        }
+        if let Some(target) = collide
+            && let Some(wanted) = known.get(target)
+        {
+            let mut taken = Taken::new();
+            for (other, ns) in known.iter().filter(|(r, _)| r.as_str() != target) {
+                taken.tool(other, ns.iter().cloned());
+            }
+            let collisions = taken.collisions(target, wanted);
+            if !collisions.is_empty() {
+                for c in collisions {
+                    let d = Diagnostic::new(&messages::VK0030)
+                        .arg("repo", target)
+                        .arg("ns", c.ns)
+                        .arg("owner", c.owner.to_string());
+                    self.emit(d);
+                }
+                return Err(Stop);
+            }
         }
         let tools: Vec<tools_just::Tool> = known
             .iter()
@@ -993,11 +1022,14 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         };
         let shown = self.rel(&entry.path);
         let verb = entry.verb.as_str();
-        if verb != DEV_VERB && verb != UNDEV_VERB {
+        if NOT_VK0054.contains(&verb) {
             return Err(self.gap_diag(format_args!(
                 "{} while the incomplete {verb} operation in {shown} remains",
                 req.verb()
             )));
+        }
+        if verb != DEV_VERB && verb != UNDEV_VERB {
+            return Err(self.other_operation(verb, &loaded));
         }
         let field = |key: &str| {
             loaded
@@ -1012,11 +1044,12 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             )));
         };
         if target != req.target() {
-            return Err(self.gap_diag(format_args!(
-                "{} {} while the incomplete {verb} of {target} in {shown} remains",
-                req.verb(),
-                req.target()
-            )));
+            if verb == UNDEV_VERB {
+                return Err(Diagnostic::new(&messages::VK0053)
+                    .arg("target", target)
+                    .arg("undev_command", full_command(loaded.command())));
+            }
+            return Err(self.other_operation(verb, &loaded));
         }
         let path = if verb == DEV_VERB {
             match field(PATH_KEY) {
@@ -1031,6 +1064,14 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             None
         };
         Ok(Residual { entry, path })
+    }
+
+    /// VK0054：不能併進這次的殘留（其他可寫 recipe 的，或對象不同的 `dev`），下一步是重跑原指令。
+    fn other_operation(&self, verb: &str, loaded: &Progress) -> Diagnostic {
+        Diagnostic::new(&messages::VK0054)
+            .arg("install_dir", self.env.host_root)
+            .arg("operation", verb)
+            .arg("original_command", full_command(loaded.command()))
     }
 
     fn config(&mut self) -> Step<Config> {

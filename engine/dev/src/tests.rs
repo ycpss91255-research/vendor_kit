@@ -727,22 +727,76 @@ fn other_residual_progress_stops_before_the_target_check_without_writing() {
     assert_eq!(out.code, 2);
     assert_eq!(
         diag_codes(&out.stderr),
-        ["VK0056", "VK0056"],
+        ["VK0054", "VK0053"],
         "{}",
         out.stderr
     );
     assert!(
-        out.stderr.contains("incomplete install operation"),
+        out.stderr.contains(
+            "Operation install in /h/proj is incomplete. Run again: just vendor_kit install\n"
+        ),
         "{}",
         out.stderr
     );
     assert!(
-        out.stderr.contains("incomplete undev of other"),
+        out.stderr.contains(
+            "The undev operation for other is incomplete. Run again: just vendor_kit undev other\n"
+        ),
         "{}",
         out.stderr
     );
     assert!(out.events().is_empty());
     assert_eq!(fx.snapshot(), before);
+}
+
+/// `dev` 遇到對象不同的 `dev`、`undev` 殘留（#372 N81）：VK0054、VK0053，下一步是重跑原指令；不恢復、不刪。
+#[test]
+fn residual_of_another_target_is_vk0053_or_vk0054() {
+    let fx = Fx::new();
+    fx.residual(
+        DEV_VERB,
+        &["dev", "other", "-p", "dev/it's"],
+        &[(TARGET_KEY, "other"), (PATH_KEY, "dev/it's")],
+    );
+    fx.residual(
+        UNDEV_VERB,
+        &["undev", "--engine"],
+        &[(TARGET_KEY, ENGINE_TARGET)],
+    );
+    let before = fx.snapshot();
+    let out = dev(&fx, "tool", "dev/tool");
+    assert_eq!(out.code, 2);
+    let mut lines: Vec<&str> = out.stderr.lines().collect();
+    lines.sort_unstable();
+    assert_eq!(
+        lines,
+        [
+            "vendor_kit: error[VK0053]: The undev operation for vendor_kit is incomplete. Run again: just vendor_kit undev --engine",
+            "vendor_kit: error[VK0054]: Operation dev in /h/proj is incomplete. Run again: just vendor_kit dev other -p 'dev/it'\\''s'",
+        ]
+    );
+    assert!(out.events().is_empty());
+    assert!(out.ops.is_empty(), "{:?}", out.ops);
+    assert_eq!(fx.snapshot(), before);
+}
+
+/// `add`、`upgrade` 的殘留：VK0054 的情境排除它們，照舊以 VK0056 停下。
+#[test]
+fn residual_add_or_upgrade_is_still_a_gap() {
+    for verb in ["add", "upgrade"] {
+        let fx = Fx::new();
+        fx.residual(verb, &[verb, "other"], &[]);
+        let before = fx.snapshot();
+        let out = dev(&fx, "tool", "dev/tool");
+        assert_eq!(out.code, 2);
+        assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
+        assert!(
+            out.stderr.contains(&format!("incomplete {verb} operation")),
+            "{}",
+            out.stderr
+        );
+        assert_eq!(fx.snapshot(), before);
+    }
 }
 
 // ---- 拒絕與缺口 ----
@@ -757,6 +811,20 @@ fn undev_of_a_tool_not_in_the_lock_lines_is_vk0046() {
         out.stderr,
         "vendor_kit: error[VK0046]: Tool missing is not in the lock version lines. The requested operation did not complete.\n"
     );
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn dev_of_a_tool_not_in_the_lock_lines_is_vk0046() {
+    let fx = Fx::new();
+    let before = fx.snapshot();
+    let out = dev(&fx, "missing", "dev/tool");
+    assert_eq!(out.code, 2);
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0046]: Tool missing is not in the lock version lines. The requested operation did not complete.\n"
+    );
+    assert!(out.ops.is_empty(), "{:?}", out.ops);
     assert_eq!(fx.snapshot(), before);
 }
 
@@ -812,10 +880,6 @@ fn contract_gaps_stop_with_vk0056_without_writing() {
         (dev(&fx, "tool", "/.."), "the root directory"),
         (dev(&fx, "tool", "link/tool"), "through a symlink (link)"),
         (
-            dev(&fx, "missing", "dev/tool"),
-            "not in the lock version lines",
-        ),
-        (
             run_with(
                 &fx,
                 &Request::DevEngine {
@@ -837,20 +901,21 @@ fn contract_gaps_stop_with_vk0056_without_writing() {
     assert_eq!(fx.snapshot(), before);
 }
 
+/// `dev` 的本機開發來源撞到其他工具或保留名（#372 N79）：每個撞到的名字各一則 VK0030，不寫檔。
 #[test]
-fn dev_namespace_collision_is_a_gap() {
+fn dev_namespace_collision_is_vk0030() {
     let fx = Fx::new();
     fs::write(fx.root().join("dev/tool/just/other.just"), "").unwrap();
+    fs::write(fx.root().join("dev/tool/just/vendor_kit.just"), "").unwrap();
     let before = fx.snapshot();
     let out = dev(&fx, "tool", "dev/tool");
     assert_eq!(out.code, 2);
-    assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
-    assert!(
-        out.stderr
-            .contains("namespace other is delivered by both other and tool"),
-        "{}",
-        out.stderr
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0030]: Cannot add tool: namespace other is already used by other.\n\
+         vendor_kit: error[VK0030]: Cannot add tool: namespace vendor_kit is already used by vendor_kit.\n"
     );
+    assert!(out.events().is_empty());
     assert_eq!(fx.snapshot(), before);
 }
 

@@ -787,6 +787,21 @@ fn assert_gap(out: &Out, needle: &str) {
     assert_eq!(out.stdout, "");
 }
 
+/// VK0030：`tool` 的新版撞到 `(ns, owner)`，每個各一則（#372 N79）。
+fn assert_collision(out: &Out, pairs: &[(&str, &str)]) {
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    let want: String = pairs
+        .iter()
+        .map(|(ns, owner)| {
+            format!(
+                "vendor_kit: error[VK0030]: Cannot add tool: namespace {ns} is already used by {owner}.\n"
+            )
+        })
+        .collect();
+    assert_eq!(out.stderr, want);
+    assert_eq!(out.stdout, "");
+}
+
 #[test]
 fn stops_before_fetching() {
     let fx = Fx::new();
@@ -799,10 +814,12 @@ fn stops_before_fetching() {
         tty(false),
         "",
     );
-    assert_gap(
-        &out,
-        "upgrade of other, which is not in the lock version lines",
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0046]: Tool other is not in the lock version lines. The requested operation did not complete.\n"
     );
+    assert_eq!(out.stdout, "");
     assert!(peer.finish().is_empty());
     assert_eq!(fx.snapshot(), before);
 }
@@ -846,7 +863,7 @@ fn extract_failure_is_vk0055() {
 }
 
 #[test]
-fn namespace_collision_is_a_gap() {
+fn namespace_collision_is_vk0030() {
     let fx = Fx::new();
     fs::write(
         fx.dir.version_toml(),
@@ -869,7 +886,7 @@ fn namespace_collision_is_a_gap() {
     );
     let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
     peer.finish();
-    assert_gap(&out, "colliding namespaces: shared (used by other)");
+    assert_collision(&out, &[("shared", "other")]);
     assert_eq!(fx.snapshot(), before);
 }
 
@@ -980,7 +997,7 @@ fn local_override_of_another_tool_keeps_its_entry_lines_and_namespaces() {
     );
     let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
     peer.finish();
-    assert_gap(&out, "colliding namespaces: shared (used by other)");
+    assert_collision(&out, &[("shared", "other")]);
     assert_eq!(fx.snapshot(), before);
 
     // 每次執行的收件目錄是新的。
@@ -1133,6 +1150,21 @@ fn recovering_a_residual_upgrade_keeps_the_override_in_the_entry() {
         "mod? tool '../../work/tool/just/tool.just'\n"
     );
     assert!(progress::find(&fx.dir).unwrap().is_empty());
+}
+
+/// 開著覆寫的工具的本機開發來源交付保留名 `vendor_kit`：VK0030，`<repo>` 是那個工具（#372 N79），在任何
+/// docker 動作與寫入之前停下。
+#[test]
+fn local_source_delivering_the_reserved_name_is_vk0030() {
+    let fx = Fx::new();
+    local_source(&fx, "work/tool", &["tool", "vendor_kit"]);
+    overrides(&fx, &[("tool", "work/tool")]);
+    let before = fx.snapshot();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    assert!(peer.finish().is_empty());
+    assert_collision(&out, &[("vendor_kit", "vendor_kit")]);
+    assert_eq!(fx.snapshot(), before);
 }
 
 #[test]

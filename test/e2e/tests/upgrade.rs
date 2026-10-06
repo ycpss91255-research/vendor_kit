@@ -555,3 +555,89 @@ fn an_unchanged_upgrade_does_not_read_other_tools() {
     assert!(seen.requests.is_empty(), "{:?}", seen.requests);
     assert_eq!(snapshot(&m), before);
 }
+
+// ---- 沿用既有原因代碼（#372 N79、N80、N84） ----
+
+#[test]
+fn a_tool_name_that_is_not_a_just_name_is_a_usage_error() {
+    for arg in ["li.nt", "1tool@v1.2.0"] {
+        let tmp = tempfile::tempdir().unwrap();
+        let m = Mounts::create(tmp.path());
+        install(&m);
+        let before = snapshot(&m);
+        let peer = launcher(&m, false);
+        let (code, stdout, stderr) = run(&m, &["upgrade", arg]);
+        let seen = peer.join().unwrap();
+        assert_eq!(code, 2, "stderr: {stderr}");
+        assert_data_eq!(stdout, "");
+        assert!(
+            stderr.starts_with(&format!(
+                "vendor_kit: error[VK0026]: Unknown, extra, or disallowed argument: {arg}.\n"
+            )),
+            "{stderr}"
+        );
+        assert!(seen.requests.is_empty(), "{:?}", seen.requests);
+        assert_eq!(snapshot(&m), before);
+    }
+}
+
+#[test]
+fn a_tool_not_in_the_lock_lines_is_vk0046() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let before = snapshot(&m);
+    let peer = launcher(&m, false);
+
+    let (code, stdout, stderr) = run(&m, &["upgrade", "ghost@v1.2.0"]);
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0046]: Tool ghost is not in the lock version lines. The requested operation did not complete.
+
+"#]]
+    );
+    assert!(seen.requests.is_empty(), "{:?}", seen.requests);
+    assert_eq!(snapshot(&m), before);
+}
+
+#[test]
+fn a_new_version_colliding_with_another_tool_is_vk0030_before_any_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+    fs::write(
+        vk.join("version.toml"),
+        format!(
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nalpha = \"ghcr.io/acme/alpha:v1.0.0@{OTHER_DIGEST}\"\ntool = \"{OLD}\"\n"
+        ),
+    )
+    .unwrap();
+    // alpha 也交付 `tool`：新版的 `tool` 撞到它（舊版的 `tool` 是自己的，不算）。
+    fs::create_dir_all(vk.join("cache/alpha/just")).unwrap();
+    fs::write(vk.join("cache/alpha/just/alpha.just"), "a:\n").unwrap();
+    fs::write(vk.join("cache/alpha/just/tool.just"), "a:\n").unwrap();
+    let before = snapshot(&m);
+    let peer = launcher(&m, false);
+
+    let (code, stdout, stderr) = run(&m, &["upgrade", "tool@v1.2.0"]);
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0030]: Cannot add tool: namespace tool is already used by alpha.
+
+"#]]
+    );
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 2\n"));
+    assert_eq!(snapshot(&m), before);
+    assert!(!events(&m).iter().any(|e| e == "writes_started"));
+}

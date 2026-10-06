@@ -66,6 +66,16 @@
 //!   `<target>` 讀進度檔 `[undev] target`、`<undev_command>` 由進度檔的 `command` 重組（engine/dev 寫的格式），
 //!   在逐工具處理前停下，進度檔留著。照常同步會把入口檔指回 `cache/`，等於代替 `undev` 完成。
 //!
+//! # 撞名
+//!
+//! `<ns>` 撞名回 VK0030（#372 N79 擴的情境，契約文字待補），在任何寫入之前停下，每個撞到的名字各一則：
+//!
+//! - 開著覆寫的工具的本機開發來源交付保留名 `vendor_kit`：跟其他停下原因一起在第 4 步列出，`<repo>` 是那個
+//!   工具、`<owner>` 是 `vendor_kit`。
+//! - 取到的內容交付保留名 `vendor_kit`：取件後就報，其他工具照樣取完再一起停下。
+//! - 兩個工具交付同一個 `<ns>`（含沒重取、讀 `cache/` 的與開著覆寫的）：重產入口檔前判，依工具名排序，
+//!   `<repo>` 是排在後面的工具、`<owner>` 是排在前面的。根 `justfile` 的 recipe 與 module 不比對。
+//!
 //! # 中斷
 //!
 //! `sync` 不寫進度檔，中途停了也不留下要恢復的東西：`sync` 本身就是「把 `cache/`、`gen/` 對齊版本鎖定行」，
@@ -100,7 +110,6 @@
 //!
 //! - 覆寫指到不在版本鎖定行的工具（例如開著覆寫時 `git pull` 拿掉了那一行）：ADR-0002 說覆寫只覆蓋已存在
 //!   的鎖定行，訊息表沒有代碼（`version_file::OrphanOverrides`），停下。
-//! - 開著覆寫的工具交付保留名 `vendor_kit`，或跟其他工具撞名：沒有代碼，停下（同 engine/dev）。
 //! - 殘留的引擎 `upgrade` 進度檔：VK0023 要填新引擎的 `<vY>`，`progress::upgrade` 還沒記引擎 upgrade 的
 //!   欄位（`upgrade --engine` 還沒實作），停下時說明裡帶進度檔與原指令（同 engine/update）。
 //! - 殘留的 `sync` 進度檔：`sync` 不寫進度檔，正常的引擎不會留下；報 VK0054 會叫使用者重跑 `sync`、
@@ -108,7 +117,7 @@
 //! - 基準版落後（VK0014）：`metadata` 沒有記基準版是哪一版，判不出來；工具有 metadata 時停下。目前
 //!   `add` 只在有初始檔時才寫 metadata，而 `init.toml` 格式未定，所以實際上碰不到。
 //! - 取到的內容與同一版本的既有印記不符（計畫 G1：印記被改過，或同一 digest 取出不同內容），沒有代碼。
-//! - dist 格式不符（G2）、工具交付保留名 `vendor_kit`、兩個工具交付同一個 `<ns>`，`sync` 都沒有代碼。
+//! - dist 格式不符（G2），`sync` 沒有代碼。
 //! - 中途寫檔失敗沒有代碼（G4）。
 //! - 工具 recipe 前的自動 `sync`：引擎分不出這次是不是自動觸發，警告後本體跑不跑、整次回碼見 #120。
 //!
@@ -248,6 +257,14 @@ pub fn full_command<S: AsRef<str>>(command: &[S]) -> String {
         .chain(command.iter().map(|w| shell_quote(w.as_ref())))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// VK0030：`repo` 交付的 `<ns>` 撞到已被使用的名字（#372 N79 擴到 sync）。
+fn collision(repo: &str, c: &fetch::Collision) -> Diagnostic {
+    Diagnostic::new(&messages::VK0030)
+        .arg("repo", repo)
+        .arg("ns", c.ns.as_str())
+        .arg("owner", c.owner.to_string())
 }
 
 /// 診斷已印、這次執行停下。
@@ -628,10 +645,13 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             Err(p) => return Ok(Err(unreadable(p.reason()))),
         };
         if namespaces.iter().any(|n| n == fetch::RESERVED) {
-            return Ok(Err(self.gap_diag(format_args!(
-                "sync of {repo} whose local source delivers the reserved namespace {} (no reason code)",
-                fetch::RESERVED
-            ))));
+            return Ok(Err(collision(
+                repo,
+                &fetch::Collision {
+                    ns: fetch::RESERVED.to_owned(),
+                    owner: fetch::Owner::Reserved,
+                },
+            )));
         }
         Ok(Ok(Local {
             dir: dir.as_str().to_owned(),
@@ -912,10 +932,12 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
                     .arg("digest", locked.digest().to_string());
                 Err(self.stop(d))
             }
-            Err(fetch::Error::Collision { .. }) => Err(self.gap(format_args!(
-                "sync of {repo}, which delivers the reserved namespace {}",
-                fetch::RESERVED
-            ))),
+            Err(fetch::Error::Collision { collisions, .. }) => {
+                for c in &collisions {
+                    self.emit(collision(repo, c));
+                }
+                Err(Stop)
+            }
             Err(fetch::Error::Fingerprint(_)) => Err(self.gap(format_args!(
                 "sync of {repo} whose fetched content does not match its existing stamp \
                  for the same lock version line"
@@ -943,17 +965,26 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         for f in fetched {
             all.insert(f.candidate.repo(), f.candidate.namespaces());
         }
+        // 撞名（模組說明「撞名」）：依工具名排序，每個工具跟排在前面的工具與保留名比對，全部列出再停下。
+        let mut taken = Taken::new();
+        let mut found = Vec::new();
+        for (repo, namespaces) in &all {
+            for c in taken.collisions(repo, namespaces) {
+                found.push(collision(repo, &c));
+            }
+            taken.tool(repo, namespaces.iter().cloned());
+        }
+        if !found.is_empty() {
+            for d in found {
+                self.emit(d);
+            }
+            return Err(Stop);
+        }
         let tools: Vec<tools_just::Tool> = all
             .iter()
             .map(|(repo, namespaces)| tools_just::Tool { repo, namespaces })
             .collect();
-        match tools_just::render_with(&tools, &dirs) {
-            Ok(t) => Ok(t),
-            Err(e @ tools_just::Error::Duplicate { .. }) => {
-                Err(self.gap(format_args!("sync of tools whose namespaces collide ({e})")))
-            }
-            Err(e) => Err(self.internal(e.to_string())),
-        }
+        tools_just::render_with(&tools, &dirs).map_err(|e| self.internal(e.to_string()))
     }
 
     /// 依序落地（[`txn::refresh`]）：`cache/` 與印記、入口檔；不建進度檔、版本鎖定行不動。
