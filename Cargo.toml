@@ -38,6 +38,7 @@ members = [
     "engine/dev",
     "engine/prune",
     "engine/shell_check",
+    "engine/registry",
     "test/e2e",
     "test/boundary",
     "test/reason_lint",
@@ -83,6 +84,7 @@ upgrade = { path = "engine/upgrade" }
 dev = { path = "engine/dev" }
 prune = { path = "engine/prune" }
 shell_check = { path = "engine/shell_check" }
+registry = { path = "engine/registry" }
 
 # 第三方 crate 清單（#576）：只有登記在這裡的 crate 能用，各 crate 一律以 `workspace = true` 引用。
 # 篩選標準（依序，前面的優先）：
@@ -98,12 +100,18 @@ shell_check = { path = "engine/shell_check" }
 # - sha2：檔案的 sha256 指紋（files）。
 # - nix：std 沒包的 POSIX 呼叫（flock、檢查 close 的錯誤），只開各 crate 要的 feature。
 # - tempfile：merge 給 git merge-file 的暫存目錄；其他 crate 只在測試用它建暫存目錄。
+# - ureq（default-features = false, features = ["rustls"]）：registry 向 GHCR 發 HTTPS 請求。
+#   ureq 是同步 client，`rustls` feature 帶 rustls、ring 與 webpki-roots；CA 憑證用 webpki-roots
+#   編進執行檔，最終 image 不必裝 ca-certificates。ring 要編 C：vendor_kit 第一次依賴 registry 時，
+#   image/Dockerfile 的 test stage 要加 musl 的 C 編譯器（Debian 的 musl-tools），musl 靜態編譯才編得過。
+#   比較過的方案與結果見 #577。
 toml_edit = "0.25"
 serde_json = "1"
 serde = "1"
 sha2 = "0.10"
 nix = { version = "0.30", default-features = false }
 tempfile = "3"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 # 只在建置時用的：
 # - csv：msggen 與 test/reason_lint 讀訊息表 doc/contract/reason_codes.csv。
@@ -116,13 +124,6 @@ assert_cmd = "2"
 snapbox = "1"
 cargo_metadata = "0.23"
 roxmltree = "0.21"
-
-# 已選定、等 registry crate 第一次用到時才加進上面的清單：
-# - ureq（default-features = false, features = ["rustls"]）：向 registry 發 HTTPS 請求。
-#   ureq 是同步 client，`rustls` feature 帶 rustls、ring 與 webpki-roots；CA 憑證用 webpki-roots
-#   編進執行檔，最終 image 不必裝 ca-certificates。ring 要編 C，test stage 需要 musl 的 C 編譯器
-#   （Debian 的 musl-tools），跟這個 crate 一起加進 image/Dockerfile。
-#   比較過的方案與結果見 #577。
 
 # 測試例外：各 crate 在 #[cfg(test)] 與 test/ 的測試檔以 allow 屬性放行 unwrap／expect。
 [workspace.lints.rust]
