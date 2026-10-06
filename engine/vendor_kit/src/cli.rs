@@ -36,9 +36,9 @@ const POLL: Duration = Duration::from_millis(20);
 /// 啟動器起引擎容器時不帶任何環境變數，正式執行時一定不設；e2e 在主機上直接跑執行檔時用它。
 pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";
 
-/// 測試用：設了這個環境變數，`install` 的薄殼模板改從這個目錄讀（`install::Release::from_dir`）。
-/// 這一版引擎還沒出貨薄殼模板（`install::Release::shipped`），正式執行時一定不設（啟動器起引擎容器時
-/// 不帶任何環境變數）；e2e 用它驗 `install` 其餘的流程。模板隨 image 出貨之後就拿掉。
+/// 測試用：設了這個環境變數，`install` 與 `sync` 的薄殼模板改從這個目錄讀（`install::Release::from_dir`），
+/// 不讀 image 裡的 `install::release::SHIPPED_DIR`（`install::Release::shipped`）。正式執行時一定不設（啟動器
+/// 起引擎容器時不帶任何環境變數）；e2e 在主機上直接跑執行檔，沒有 image 裡的模板，用它給 fixture 模板。
 pub const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
 
 /// 引擎容器內的三個掛載點（`plan::mount`）。
@@ -389,6 +389,10 @@ where
             code
         }
         args::Command::Sync => {
+            let release = match release(host_log, diags) {
+                Ok(r) => r,
+                Err(code) => return code,
+            };
             let dir = layout::InstallDir::new(&mounts.root);
             let host_root = inv.host_root.display().to_string();
             let mut stdout = stdout;
@@ -400,6 +404,7 @@ where
                 channel,
                 poll: POLL,
                 written_by: VERSION,
+                shell_templates: release.shell.as_ref(),
                 stdout: &mut stdout,
                 diags,
                 log,
@@ -600,6 +605,31 @@ where
     code
 }
 
+/// 出貨輸入：設了 [`RELEASE_DIR_ENV`] 從那個目錄讀，否則讀 image 裡的。讀檔失敗印 VK0056、回 `Err(2)`；
+/// 四檔不齊不算失敗（`shell` 是 `None`），由各指令報缺的項目。
+fn release<E: Write>(
+    host_log: &str,
+    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
+) -> Result<install::Release, u8> {
+    let (read, what) = match std::env::var_os(RELEASE_DIR_ENV) {
+        Some(dir) => (
+            install::Release::from_dir(Path::new(&dir)),
+            RELEASE_DIR_ENV.to_owned(),
+        ),
+        None => (
+            install::Release::shipped(),
+            install::release::SHIPPED_DIR.to_owned(),
+        ),
+    };
+    read.map_err(|e| {
+        let d = Diagnostic::new(&messages::VK0056)
+            .arg("reason", format!("{what}: {e}"))
+            .arg("path", host_log);
+        let _ = diags.emit(&d);
+        2
+    })
+}
+
 /// `install [-y]`。
 #[allow(clippy::too_many_arguments)]
 fn run_install<O, E>(
@@ -617,18 +647,9 @@ where
     O: Write + Clone,
     E: Write + Clone,
 {
-    let release = match std::env::var_os(RELEASE_DIR_ENV) {
-        Some(dir) => match install::Release::from_dir(Path::new(&dir)) {
-            Ok(r) => r,
-            Err(e) => {
-                let d = Diagnostic::new(&messages::VK0056)
-                    .arg("reason", format!("{RELEASE_DIR_ENV}: {e}"))
-                    .arg("path", host_log);
-                let _ = diags.emit(&d);
-                return 2;
-            }
-        },
-        None => install::Release::shipped(),
+    let release = match release(host_log, diags) {
+        Ok(r) => r,
+        Err(code) => return code,
     };
     let dir = layout::InstallDir::new(&mounts.root);
     let argv: Vec<String> = inv

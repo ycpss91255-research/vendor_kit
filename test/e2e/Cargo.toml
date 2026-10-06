@@ -6,10 +6,13 @@ publish.workspace = true
 description = "端到端測試：只經編好的 vendor_kit 執行檔，比對 stdout、stderr、結束碼與檔案樹"
 
 # 不依賴任何 engine/ crate（test/boundary 檢查）；只經執行檔測。
+# sha2：共用輔助產生薄殼 fixture 的標頭（src/lib.rs 的 `shell`）。
+[dependencies]
+sha2.workspace = true
+
 [dev-dependencies]
 assert_cmd.workspace = true
 snapbox.workspace = true
-sha2.workspace = true
 tempfile.workspace = true
 
 [lints]

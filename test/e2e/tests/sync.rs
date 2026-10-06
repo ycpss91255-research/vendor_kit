@@ -3,6 +3,8 @@
 //! 每個測試在暫存目錄建好安裝目錄與 session 的 `ctl/`、`in/`，以 [`MOUNT_PREFIX_ENV`] 讓引擎把它們
 //! 當成 `/vk/root`、`/vk/ctl`、`/vk/in`；假啟動器在背景回 inspect、pull 與 extract。
 //! 工具有兩個（`tool` 交付兩個 `<ns>`、`other` 一個），`tool` 的 image 一開始不在本機，要先 pull。
+//! 安裝目錄裡放好跟這一版引擎一致的薄殼，引擎以測試用的 [`shell::RELEASE_DIR_ENV`] 從 fixture 目錄讀模板
+//! （[`e2e::shell`]）。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;
@@ -12,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use assert_cmd::Command;
 use e2e::launcher::{self, Mounts, Reply, Request, Seen};
-use e2e::{MOUNT_PREFIX_ENV, vendor_kit_bin};
+use e2e::{MOUNT_PREFIX_ENV, VERSION, shell, vendor_kit_bin};
 use snapbox::assert_data_eq;
 
 const RUN_ID: &str = "r1";
@@ -32,10 +34,17 @@ fn other_pinned() -> String {
     format!("ghcr.io/acme/other@{OTHER_DIGEST}")
 }
 
-/// 全新 checkout：`version.toml` 有兩個工具，沒有 `cache/`、`gen/`。
+/// 出貨輸入的 fixture 目錄。
+fn release_dir(m: &Mounts) -> std::path::PathBuf {
+    m.prefix.join("release")
+}
+
+/// 全新 checkout：`version.toml` 有兩個工具、跟這一版引擎一致的薄殼，沒有 `cache/`、`gen/`。
 fn checkout(m: &Mounts) {
     let vk = m.root.join(".vendor_kit");
     fs::create_dir_all(vk.join("log")).unwrap();
+    shell::install(&m.root, VERSION).unwrap();
+    shell::release(&release_dir(m)).unwrap();
     fs::write(
         vk.join("version.toml"),
         format!(
@@ -144,6 +153,7 @@ fn run_at(
     let out = Command::new(vendor_kit_bin().unwrap())
         .args(args)
         .env(MOUNT_PREFIX_ENV, &m.prefix)
+        .env(shell::RELEASE_DIR_ENV, release_dir(m))
         .write_stdin("")
         .output()
         .unwrap();
@@ -200,7 +210,8 @@ fn vk_contents(m: &Mounts) -> Vec<(String, Vec<u8>)> {
         .collect()
 }
 
-const SYNCED_TREE: [&str; 17] = [
+const SYNCED_TREE: [&str; 20] = [
+    ".gitignore",
     "cache",
     "cache/other",
     "cache/other.stamp.toml",
@@ -215,8 +226,10 @@ const SYNCED_TREE: [&str; 17] = [
     "cache/tool/just/tool.just",
     "cache/tool/share",
     "cache/tool/share/readme.txt",
+    "entry.just",
     "gen",
     "gen/tools.just",
+    "vendor.just",
     "version.toml",
 ];
 
@@ -322,6 +335,61 @@ fn sync_still_works_when_the_shell_protocol_is_outside_the_engine_range() {
     );
     assert_eq!(seen.done.as_deref(), Some("vk-resolve/2 r1 done 0\n"));
     assert_eq!(vk_tree(&m), SYNCED_TREE);
+}
+
+/// 薄殼被改過一個位元組（ADR-0007 驗收案例）：在逐工具處理前回 VK0006，不取件、不寫檔。
+#[test]
+fn a_modified_shell_is_vk0006_before_any_fetch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    checkout(&m);
+    let entry = m.root.join(".vendor_kit/entry.just");
+    let mut bytes = fs::read(&entry).unwrap();
+    let last = bytes.len() - 2;
+    bytes[last] ^= 0x01;
+    fs::write(&entry, bytes).unwrap();
+    let before = vk_contents(&m);
+    let local = Arc::new(Mutex::new(BTreeSet::from([other_pinned()])));
+
+    let (code, stdout, stderr, seen) = run(&m, &local);
+
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0006]: Shell files do not match this engine version's templates: .vendor_kit/entry.just (modified). No shell files were regenerated. Review the following differences; download bootstrap.sh again from the Release, run chmod +x bootstrap.sh, then run ./bootstrap.sh --repair in the install directory.
+
+"#]]
+    );
+    assert!(seen.requests.is_empty(), "{:?}", seen.requests);
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 2\n"));
+    assert_eq!(vk_contents(&m), before);
+}
+
+/// 引擎沒有薄殼模板可比（image 沒出貨）：VK0056，不取件、不寫檔。
+#[test]
+fn sync_without_shell_templates_is_vk0056() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    checkout(&m);
+    fs::remove_dir_all(release_dir(&m)).unwrap();
+    let before = vk_contents(&m);
+    let local = Arc::new(Mutex::new(BTreeSet::from([other_pinned()])));
+
+    let (code, stdout, stderr, seen) = run(&m, &local);
+
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_data_eq!(stdout, "");
+    assert!(
+        stderr.starts_with(
+            "vendor_kit: error[VK0056]: Internal vendor_kit error: \
+             sync without the shell templates, which this engine image does not ship"
+        ),
+        "{stderr}"
+    );
+    assert!(seen.requests.is_empty(), "{:?}", seen.requests);
+    assert_eq!(vk_contents(&m), before);
 }
 
 #[test]

@@ -3,9 +3,10 @@ name = "sync"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "sync 指令：讀設定、持排他鎖、先判版本組合與殘留進度、依鎖定版本取件與驗證、重產 gen/tools.just、依序落地"
+description = "sync 指令：讀設定、持排他鎖、先判薄殼、版本組合與殘留進度、依鎖定版本取件與驗證、重產 gen/tools.just、依序落地"
 
 [dependencies]
+compat.workspace = true
 config.workspace = true
 diagnostics.workspace = true
 fetch.workspace = true
@@ -19,6 +20,7 @@ progress.workspace = true
 runlog.workspace = true
 schema.workspace = true
 serde_json.workspace = true
+shell.workspace = true
 stamp.workspace = true
 tools_just.workspace = true
 txn.workspace = true

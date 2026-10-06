@@ -851,6 +851,7 @@ dependencies = [
 name = "sync"
 version = "0.0.0"
 dependencies = [
+ "compat",
  "config",
  "diagnostics",
  "fetch",
@@ -864,6 +865,7 @@ dependencies = [
  "runlog",
  "schema",
  "serde_json",
+ "shell",
  "stamp",
  "tempfile",
  "tools_just",

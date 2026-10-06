@@ -15,7 +15,8 @@
 //! 3. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）；`version.toml` 不在就是首次導入，
 //!    在就沿用它的引擎版本鎖定行（不換引擎版，換版走 `upgrade --engine`）。
 //! 4. 辨識殘留的進度檔（見「恢復」）。
-//! 5. 出貨輸入（[`Release`]）缺哪一項就以 VK0056 停下，列出缺的項目。首次導入時另讀啟動器放在 `in/` 的
+//! 5. 出貨輸入（[`Release`]，薄殼模板從 image 裡的 [`release::SHIPPED_DIR`] 讀）缺哪一項就以 VK0056 停下，
+//!    列出缺的項目。首次導入時另讀啟動器放在 `in/` 的
 //!    引擎引用檔（[`release::engine_from`]）：不在、不是 pinned 引用、repo 不是 [`release::ENGINE_REPO`]、
 //!    tag 不是本引擎版，都以 VK0056 停下並寫明哪裡不一致；既有安裝目錄不讀它。
 //! 6. 算這次要寫的東西，只讀不寫：
@@ -27,12 +28,13 @@
 //!      檔不在就新建（根 `justfile` 附 `default`）。
 //!    - `baseline/.vendor_kit.toml`：上面兩個檔的 `appended` 紀錄（插入的行、寫入後的整檔 hash）；
 //!      其他工具的紀錄檔有同一個檔、寫入前相符的紀錄，跟著換成寫入後的 hash（ADR-0003）。
+//!    - `gen/.stamp`：產生薄殼的引擎 ref（見「這次自訂的內部細節」），跟現有內容不同才寫。
 //! 7. 什麼都不用寫、也沒有殘留的進度檔：stdout 說明未變更，不建進度檔（04 成對與無害）。
 //! 8. `prompt` 一次問完（04 共同選項：全部同意才寫入，含恢復舊操作）：只有 append 進使用者既有檔才問；
 //!    `-y` 全部同意。答否是正常取消（stdout 說明未變更，以 0 結束）；不能互動回 VK0002，除執行紀錄外
 //!    不寫任何檔。
 //! 9. 經 `txn` 落地：建進度檔 → repo 檔（根 `justfile`、`.dockerignore`）→ `.vendor_kit/` 下的檔
-//!    （薄殼、`baseline/` 的紀錄）→ 寫引擎版本鎖定行（只有首次導入）→ 刪進度檔；之後才刪殘留的進度檔。
+//!    （薄殼、`baseline/` 的紀錄、`gen/.stamp`）→ 寫引擎版本鎖定行（只有首次導入）→ 刪進度檔；之後才刪殘留的進度檔。
 //!    `cache/` 與 `gen/tools.just` 不動。
 //! 10. stdout 列出改了什麼。
 //!
@@ -52,18 +54,19 @@
 //!   （`default` 建立後按 repo 檔處理，04），新建的 `.dockerignore` 記全部的行。`uninstall` 照 04 收回
 //!   這些行，檔本身不刪。
 //! - 薄殼標頭的引擎版寫本引擎的版本（`v<X.Y.Z>`，與 `written_by` 相同）。
+//! - `gen/.stamp`（ADR-0007：只記產生薄殼的引擎 ref，供快路徑比對）：一行、LF 結尾，值是這次的引擎版本
+//!   鎖定行的值（首次導入是啟動器給的引擎引用，既有安裝目錄沿用 `version.toml` 的那一行）。`gen/` 不進 git，
+//!   新 checkout 沒有它，`install` 照常補上；stdout 不另列這一檔。`uninstall` 連同 `gen/` 一起刪。
 //! - stdout 的字句與詢問文字（英文）見 [`text`]。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
-//! - 出貨輸入（[`release`]）的薄殼模板本文：這一版還沒出貨，所以經啟動器的 `install` 目前一定在這裡停下。
 //! - 殘留的進度檔不是 `install` 的，或殘留的 `install` 要寫 repo 檔卻沒有 `files`。
 //! - 殘留的 `install` 記過的根目錄檔，目前的整檔 hash 跟那次寫入後的不同、卻已含要插入的行（寫入後
 //!   使用者又改過，分不出是誰插的）：照下一條停下。
 //! - 根目錄檔沒有紀錄、卻已含有要插入的行（`initfiles` 的 `LinesAlreadyPresent`，04 只說未收回的內容
 //!   不得無條件再 append），以及 `initfiles` 判出的其他缺口。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）。
-//! - `gen/.stamp`（產生薄殼的引擎 ref）：格式與寫入時機沒定，這裡不寫。
 //! - `config.toml` 不建：04 只定欄位與未設定時的值，沒說 `install` 要不要建。
 //! - 巢狀安裝（VK0029）與「在 git repo 內」要看安裝目錄以外的路徑，引擎只看得到掛進來的安裝目錄，
 //!   由啟動器在起引擎前判（flow-bootstrap），不在這裡。
@@ -469,6 +472,19 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         // 順序同 `layout::SHELL_FILES`。
         let shell_names: Vec<&'static str> = report.mismatches().map(|f| f.name).collect();
 
+        // `gen/.stamp`：產生薄殼的引擎 ref（ADR-0007 內部機制），跟現有內容不同才寫。
+        let engine_ref = match (&existing, &inputs.engine) {
+            (Some(lock), _) => lock.engine().to_string(),
+            (None, Some(engine)) => engine.to_string(),
+            (None, None) => return Err(self.internal("no engine lock line value")),
+        };
+        let stamp = format!("{engine_ref}\n").into_bytes();
+        let stamp_path = self.env.dir.stamp();
+        let current = read_optional(&stamp_path);
+        let current =
+            current.map_err(|e| self.internal(format!("{}: {e}", self.rel(&stamp_path))))?;
+        let stamp_changed = current.as_deref() != Some(stamp.as_slice());
+
         // 根目錄檔與 `baseline/.vendor_kit.toml`。
         let vk_path = metadata::vk_path(self.env.dir);
         let mut vk_md = self.load_metadata(&vk_path)?.unwrap_or_default();
@@ -497,7 +513,12 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             edits.push(edit);
         }
 
-        if shell_names.is_empty() && edits.is_empty() && new_lock.is_none() && residual.is_empty() {
+        if shell_names.is_empty()
+            && !stamp_changed
+            && edits.is_empty()
+            && new_lock.is_none()
+            && residual.is_empty()
+        {
             let host_root = self.env.host_root;
             self.say(&text::unchanged(host_root));
             return Ok(());
@@ -512,7 +533,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             return Ok(());
         }
 
-        // `.vendor_kit/` 下要寫的檔：薄殼、這次的紀錄、其他工具跟著換 hash 的紀錄。
+        // `.vendor_kit/` 下要寫的檔：薄殼、這次的紀錄、其他工具跟著換 hash 的紀錄，最後是 `gen/.stamp`。
         let mut records: Vec<(PathBuf, Vec<u8>)> = shell_names
             .iter()
             .filter_map(|n| shell.file(n).map(|c| (PathBuf::from(n), c.to_vec())))
@@ -526,6 +547,9 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                 .map(|l| l.tools().keys().cloned().collect())
                 .unwrap_or_default();
             records.extend(self.other_records(&tools, &edits)?);
+        }
+        if stamp_changed {
+            records.push((self.vk_rel(&stamp_path)?, stamp));
         }
 
         let progress = self.progress(&edits)?;
