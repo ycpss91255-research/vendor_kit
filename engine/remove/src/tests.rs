@@ -80,6 +80,26 @@ impl Fx {
         self.dir.vk_dir()
     }
 
+    /// 安裝目錄裡全部的檔與內容（相對路徑、排序）：比對預演前後一個位元組都沒變。
+    fn snapshot(&self) -> Vec<(String, Option<Vec<u8>>)> {
+        fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Option<Vec<u8>>)>) {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                let rel = path.strip_prefix(root).unwrap().display().to_string();
+                if path.is_dir() {
+                    out.push((rel, None));
+                    walk(root, &path, out);
+                } else {
+                    out.push((rel, Some(fs::read(&path).unwrap())));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(self.dir.root(), self.dir.root(), &mut out);
+        out.sort();
+        out
+    }
+
     fn read(&self, rel: &str) -> String {
         fs::read_to_string(self.dir.root().join(rel)).unwrap()
     }
@@ -147,14 +167,18 @@ impl Out {
     }
 }
 
-/// 跑一次；`argv` 的第一個是指令名，`remove` 時第二個是工具名；帶 `-y`／`--yes` 就是全部同意。
+/// 跑一次；`argv` 的第一個是指令名，`remove` 時第二個是工具名；帶 `-y`／`--yes` 就是全部同意，帶
+/// `--dry-run` 就是預演。
 fn run(fx: &Fx, argv: &[&str], interactive: bool, input: &str) -> Out {
-    let yes = argv.iter().any(|a| matches!(*a, "-y" | "--yes"));
+    let opts = Opts {
+        yes: argv.iter().any(|a| matches!(*a, "-y" | "--yes")),
+        dry_run: argv.contains(&"--dry-run"),
+    };
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     with_env(fx, "r1", &argv, interactive, input, |env| {
         match argv[0].as_str() {
-            REMOVE_VERB => remove(&argv[1], yes, env),
-            _ => uninstall(yes, env),
+            REMOVE_VERB => remove(&argv[1], opts, env),
+            _ => uninstall(opts, env),
         }
     })
 }
@@ -878,7 +902,7 @@ fn interrupted(fx: &Fx, argv: &[&str]) -> Vec<WrittenFile> {
         UNINSTALL_VERB
     };
     let out = with_env(fx, "r0", &argv, false, "", |env| {
-        let mut run = Run::new(env, false);
+        let mut run = Run::new(env, Opts::default());
         let (records, targets) = if verb == REMOVE_VERB {
             let Ok(path) = run.tool_metadata(&argv[1]) else {
                 panic!("metadata path")
@@ -1025,4 +1049,105 @@ fn an_interrupted_uninstall_is_completed_from_its_recorded_repo_files() {
     assert_eq!(fx.read("justfile"), "\nbuild:\n    echo build\n");
     assert!(!fx.dir.version_toml().exists());
     assert!(fx.progress_left().is_empty());
+}
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+#[test]
+fn remove_dry_run_prints_the_plan_and_writes_nothing() {
+    let fx = Fx::new();
+    let before = fx.snapshot();
+    let out = run(&fx, &["remove", "tool", "--dry-run"], false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Would remove tool v1.2.0 ({TOOL}).\n\
+             Would remove inserted lines from .gitignore\n\
+             Would keep .gitignore\n\
+             Dry run: no changes were made.\n"
+        )
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.snapshot(), before);
+    // -y 並用沒有作用。
+    let yes = run(&fx, &["remove", "tool", "--dry-run", "-y"], false, "");
+    assert_eq!(yes.stdout, out.stdout);
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn remove_dry_run_keeps_the_residual_progress_file() {
+    let fx = Fx::new();
+    fx.residual(REMOVE_VERB, "r0", &["gone"], false);
+    let before = fx.snapshot();
+    let out = run(&fx, &["remove", "tool", "--dry-run"], false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stdout
+            .contains("Would complete the interrupted remove of gone.\n"),
+        "{}",
+        out.stdout
+    );
+    assert_eq!(fx.progress_left(), [REMOVE_VERB]);
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn remove_dry_run_still_reports_lines_it_would_not_retract() {
+    let fx = Fx::new();
+    let edited = "user-owned\n.tool-cache\nmore\n";
+    fs::write(fx.dir.root().join(".gitignore"), edited).unwrap();
+    let before = fx.snapshot();
+    let out = run(&fx, &["remove", "tool", "--dry-run"], false, "");
+    // 警告照印，結束碼照警告（同 add 的預演）。
+    assert_eq!(out.code, 1, "{}", out.stderr);
+    assert!(
+        out.stderr.starts_with("vendor_kit: warn[VK0061]: "),
+        "{}",
+        out.stderr
+    );
+    assert!(
+        out.stdout.ends_with("Dry run: no changes were made.\n"),
+        "{}",
+        out.stdout
+    );
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn uninstall_dry_run_lists_only_what_would_be_left() {
+    let fx = Fx::new();
+    fx.record("baseline/.vendor_kit.toml", "justfile", IMPORT, JUSTFILE);
+    for shell in layout::SHELL_FILES {
+        fs::write(fx.vk().join(shell), "shell\n").unwrap();
+    }
+    let mut local = LocalFile::new();
+    local.set_tool("other", "../other-src").unwrap();
+    local.save_to(&fx.dir, WRITTEN_BY).unwrap();
+    fs::write(fx.dir.config_toml(), "lock_timeout_seconds = 5\n").unwrap();
+    fs::write(fx.vk().join("notes.txt"), "mine\n").unwrap();
+    fx.residual(UNINSTALL_VERB, "r0", &["tool"], false);
+    let before = fx.snapshot();
+
+    let out = run(&fx, &["uninstall", "--dry-run"], false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        "Would uninstall vendor_kit from /h/proj.\n\
+         Would remove inserted lines from .gitignore\n\
+         Would remove inserted lines from justfile\n\
+         Would keep .gitignore\n\
+         Would keep justfile\n\
+         Would keep the local development source of other: ../other-src\n\
+         Would keep .vendor_kit/config.toml\n\
+         Would keep .vendor_kit/log/\n\
+         Would keep .vendor_kit/notes.txt\n\
+         Dry run: no changes were made.\n"
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.progress_left(), [UNINSTALL_VERB]);
+    assert_eq!(fx.snapshot(), before);
 }

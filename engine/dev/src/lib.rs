@@ -39,6 +39,20 @@
 //! 這裡不直接碰 docker：往返只有安裝目錄外的本機開發來源的 `stage-dir`（不在 `plan::RESCUE_OPS`
 //! 裡；`dev` 不是救援路徑）、`dev --engine` 的 `inspect`，與 `undev` 取件的 `inspect`、`pull`、`extract`。
 //!
+//! # 預演（`--dry-run`，#372 N11）
+//!
+//! 語意是這一版自訂的（契約沒寫，列給維護者確認），四種呼叫相同：照上面的順序算出完整計畫，到第 7 步為止都
+//! 一樣，差別只在：
+//!
+//! - 取安裝目錄的共享鎖，不取排他鎖（只讀）。
+//! - 不重驗暫存內容、不落地（第 8 步），不建進度檔、不刪殘留的進度檔；除執行紀錄外不寫安裝目錄裡的任何檔。
+//! - 算計畫要用的 docker 動作照送：`stage-dir`、`dev --engine` 的 `inspect`、`undev` 取件的 `inspect`、
+//!   `pull`、`extract`。它們動到的是主機的 image store 與 session 目錄，不是安裝目錄。
+//! - stdout 照實際執行的順序印會改的內容，改動的字句換成「Would …」的寫法（[`text`] 各函式的 `dry` 參數）；
+//!   未變更時照樣印未變更。最後一行是 `prompt::DRY_RUN_DONE`，以 0 結束。
+//! - `dev`、`undev` 不收 `-y`（不詢問），預演也一樣。
+//! - 算計畫時遇到的停下（VK0046、VK0050～VK0053、VK0030、缺口等）照樣以各自的結束碼停下。
+//!
 //! # 本機引擎
 //!
 //! `dev --engine -i <image>` 的 `<image>` 要是啟動器收的 image 引用（`plan::ImageRef`：小寫字母或數字開頭，
@@ -246,10 +260,15 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
     pub log: &'a mut runlog::Writer<L>,
 }
 
-/// 跑一次 `dev` 或 `undev`，回傳結束碼。
-pub fn run<W: Write, S: Sink, L: Write>(req: &Request<'_>, env: &mut Env<'_, W, S, L>) -> u8 {
+/// 跑一次 `dev` 或 `undev`，回傳結束碼；`dry_run` 是有沒有帶 `--dry-run`（模組說明「預演」）。
+pub fn run<W: Write, S: Sink, L: Write>(
+    req: &Request<'_>,
+    dry_run: bool,
+    env: &mut Env<'_, W, S, L>,
+) -> u8 {
     let mut dev = Dev {
         env,
+        dry_run,
         code: 0,
         slots: 0,
         extracts: 0,
@@ -413,6 +432,8 @@ struct Plan {
 
 struct Dev<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
+    /// 預演：算出完整計畫後只印、不寫（模組說明「預演」）。
+    dry_run: bool,
     code: u8,
     /// 這次執行已用掉的 `stage-dir` slot 數。
     slots: usize,
@@ -490,6 +511,13 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         let _ = writeln!(self.env.stdout, "{line}");
     }
 
+    /// 預演時印收尾的那一行（模組說明「預演」）；不是預演就不印。
+    fn dry_run_done(&mut self) {
+        if self.dry_run {
+            self.say(prompt::DRY_RUN_DONE);
+        }
+    }
+
     // ---- 流程 ----
 
     fn run(&mut self, req: &Request<'_>) -> Step<()> {
@@ -526,7 +554,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                     return Err(self.internal(e.to_string()));
                 }
                 let said = if had {
-                    vec![text::undev_engine(lockfile.engine())]
+                    vec![text::undev_engine(lockfile.engine(), self.dry_run)]
                 } else {
                     vec![text::UNDEV_ENGINE_UNCHANGED.to_owned()]
                 };
@@ -542,25 +570,30 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
 
         // 覆寫的實際內容跟檔上一樣就不寫（殘留併進來時，記憶體裡的可能已經跟檔上不同）。
         let local = plan.local.filter(|l| !same_overrides(l, disk.as_ref()));
+        let dry = self.dry_run;
         if local.is_none() && plan.entry.is_none() && plan.fetched.is_none() && residual.is_empty()
         {
             for line in &plan.said {
                 self.say(line);
             }
+            self.dry_run_done();
             return Ok(());
         }
 
-        if let Some(c) = &plan.fetched
-            && let Err(e) = c.recheck()
-        {
-            let repo = c.repo().to_owned();
-            return Err(self.internal(format!("staged content of {repo} changed: {e}")));
-        }
-        self.land(req, local, plan.entry.as_deref(), plan.fetched.as_ref())?;
-        for r in &residual {
-            if let Err(err) = progress::delete(self.env.dir, &r.entry.verb, &r.entry.id) {
-                let d = self.failed_diag(&r.entry.path, err.message(), err.to_string());
-                return Err(self.stop(d));
+        // 預演不重驗暫存內容、不落地，殘留的進度檔照留（模組說明「預演」）。
+        if !dry {
+            if let Some(c) = &plan.fetched
+                && let Err(e) = c.recheck()
+            {
+                let repo = c.repo().to_owned();
+                return Err(self.internal(format!("staged content of {repo} changed: {e}")));
+            }
+            self.land(req, local, plan.entry.as_deref(), plan.fetched.as_ref())?;
+            for r in &residual {
+                if let Err(err) = progress::delete(self.env.dir, &r.entry.verb, &r.entry.id) {
+                    let d = self.failed_diag(&r.entry.path, err.message(), err.to_string());
+                    return Err(self.stop(d));
+                }
             }
         }
 
@@ -568,15 +601,16 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             self.say(line);
         }
         if let Some(c) = &plan.fetched {
-            self.say(&text::fetched(c.repo(), c.locked()));
+            self.say(&text::fetched(c.repo(), c.locked(), dry));
         }
         if plan.entry.is_some() {
-            self.say(text::TOOLS_JUST_UPDATED);
+            self.say(text::tools_just_updated(dry));
         }
         for r in &residual {
             let shown = self.rel(&r.entry.path);
-            self.say(&text::recovered(&r.entry.verb, &shown));
+            self.say(&text::recovered(&r.entry.verb, &shown, dry));
         }
+        self.dry_run_done();
         Ok(())
     }
 
@@ -624,7 +658,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                     local: Some(local.clone()),
                     entry,
                     fetched: None,
-                    said: vec![text::dev_enabled(repo, &dir)],
+                    said: vec![text::dev_enabled(repo, &dir, self.dry_run)],
                 });
             }
             let d = Diagnostic::new(&messages::VK0050)
@@ -647,7 +681,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             local: Some(local.clone()),
             entry,
             fetched: None,
-            said: vec![text::dev_enabled(repo, &dir)],
+            said: vec![text::dev_enabled(repo, &dir, self.dry_run)],
         })
     }
 
@@ -674,7 +708,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                     local: Some(local.clone()),
                     entry: None,
                     fetched: None,
-                    said: vec![text::dev_engine_enabled(&image)],
+                    said: vec![text::dev_engine_enabled(&image, self.dry_run)],
                 });
             }
             let d = Diagnostic::new(&messages::VK0050)
@@ -714,7 +748,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             local: Some(local.clone()),
             entry: None,
             fetched: None,
-            said: vec![text::dev_engine_enabled(&image)],
+            said: vec![text::dev_engine_enabled(&image, self.dry_run)],
         })
     }
 
@@ -756,7 +790,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             local: Some(local.clone()),
             entry,
             fetched,
-            said: vec![text::undev_tool(repo, locked)],
+            said: vec![text::undev_tool(repo, locked, self.dry_run)],
         })
     }
 
@@ -1238,7 +1272,13 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
     }
 
     fn lock(&mut self, config: &Config) -> Step<Lock> {
-        match Lock::acquire(self.env.dir, Mode::Exclusive, config) {
+        // 預演只讀，持共享鎖（模組說明「預演」）。
+        let mode = if self.dry_run {
+            Mode::Shared
+        } else {
+            Mode::Exclusive
+        };
+        match Lock::acquire(self.env.dir, mode, config) {
             Ok(lock) => {
                 if let Some(m) = lock.warning() {
                     let d = Diagnostic::new(m).arg("install_dir", self.env.host_root);

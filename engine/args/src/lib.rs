@@ -13,9 +13,11 @@
 //!   加的，04 的組合清單待維護者確認）。判準看指令可不可能詢問，不看這次有沒有問到：這次沒問到也收。
 //!   不會詢問的指令（`dev`、`undev`、`update`、`sync`、`prune`、`test`）不收。`-y` 只省略詢問，不擴大授權範圍
 //!   （判定在各指令，這裡不管）。
-//! - `--dry-run`（預演，#372 N11；只有長選項）這一版只有 `add`、`install` 收，其他指令算不允許的參數（VK0026），
-//!   之後逐個接上。語意由各指令實作：算出完整計畫、stdout 印出會改的內容、不詢問、除執行紀錄外不寫檔；
-//!   跟 `-y` 可以並用，`-y` 沒有作用。`install --dry-run` 屬救援路徑（見下），`upgrade --engine` 這一版不收。
+//! - `--dry-run`（預演，#372 N11；只有長選項）可寫 recipe 都收：`add`、`upgrade`（含 `--engine`）、`remove`、
+//!   `install`、`uninstall`、`dev`、`undev`（含 `--engine`）、`prune`。唯讀的 `update`、`test`、`test dist` 與
+//!   `sync` 不收（VK0026；`sync` 是救援路徑，收了就進凍結文法，這一版不收）。語意由各指令實作：算出完整計畫、
+//!   stdout 印出會改的內容、不詢問、除執行紀錄外不寫檔；跟 `-y` 可以並用，`-y` 沒有作用（不收 `-y` 的指令照樣
+//!   不收）。`install --dry-run`、`upgrade --engine --dry-run` 屬救援路徑（見下）。
 //! - 引擎一律用 `--engine`，只有 `upgrade`、`dev`、`undev` 收；帶版本只收 `upgrade --engine=<tag>`，
 //!   `--engine <tag>` 的 `<tag>` 算多出的位置參數。工具用 `<repo>@<tag>`，只有 `add`、`upgrade` 收。
 //! - `--registry-token-file <path>` 只有 `update`、`add`、`upgrade <repo>` 收；值是單獨的 `-` 算用法錯誤。
@@ -40,9 +42,9 @@
 //! 錯誤的優先次序：先 VK0026（不認得、多出或不允許的參數，取最前面的那一個），再 VK0027（tag 格式不合），
 //! 最後 VK0025（缺必要參數）。不認得的指令名報 VK0026；經 just 時到不了引擎，只有直接呼叫引擎時會遇到（#372 N108）。
 //!
-//! 救援路徑（04 說明與用法錯誤的表）：`install`（含 `-y`、`--dry-run`）、`upgrade --engine`、`sync`，以及用法的
-//! `just vendor_kit`、`install -h`、`upgrade --engine -h`、`sync -h`（長選項同）。`install --dry-run` 是 #372 N11
-//! 加進來的（待維護者確認）。這些呼叫的文法跨介面版永久不變
+//! 救援路徑（04 說明與用法錯誤的表）：`install`（含 `-y`、`--dry-run`）、`upgrade --engine`（含 `=<tag>`、`-y`、
+//! `--dry-run`）、`sync`，以及用法的 `just vendor_kit`、`install -h`、`upgrade --engine -h`、`sync -h`（長選項同）。
+//! `install --dry-run`、`upgrade --engine --dry-run` 是 #372 N11 加進來的（待維護者確認）。這些呼叫的文法跨介面版永久不變
 //! （#372 維護者 10/05 定救援路徑協定選 A、ADR-0007），改這裡的規則時不能動到它們，測試釘住。
 //! `bootstrap.sh` 只檢查與 `--repair` 的保留入口（`plan::entry`）不經這裡：入口 `vendor_kit` 先認出來，
 //! 這裡一律當不認得的指令名（VK0026），測試釘住。
@@ -162,25 +164,38 @@ pub enum Command {
         image_path: Option<String>,
         registry_token_file: Option<OsString>,
     },
-    /// `upgrade <repo>[@<tag>] [-y] [--registry-token-file <path>]`
+    /// `upgrade <repo>[@<tag>] [-y] [--dry-run] [--registry-token-file <path>]`
     UpgradeTool {
         repo: String,
         tag: Option<Tag>,
         yes: bool,
+        dry_run: bool,
         registry_token_file: Option<OsString>,
     },
-    /// `upgrade --engine[=<tag>] [-y]`
-    UpgradeEngine { tag: Option<Tag>, yes: bool },
-    /// `dev <repo> -p <dir>`
-    DevTool { repo: String, path: OsString },
-    /// `dev --engine -i <image>`
-    DevEngine { image: OsString },
-    /// `undev <repo>`
-    UndevTool { repo: String },
-    /// `undev --engine`
-    UndevEngine,
-    /// `remove <repo> [-y]`
-    Remove { repo: String, yes: bool },
+    /// `upgrade --engine[=<tag>] [-y] [--dry-run]`
+    UpgradeEngine {
+        tag: Option<Tag>,
+        yes: bool,
+        dry_run: bool,
+    },
+    /// `dev <repo> -p <dir> [--dry-run]`
+    DevTool {
+        repo: String,
+        path: OsString,
+        dry_run: bool,
+    },
+    /// `dev --engine -i <image> [--dry-run]`
+    DevEngine { image: OsString, dry_run: bool },
+    /// `undev <repo> [--dry-run]`
+    UndevTool { repo: String, dry_run: bool },
+    /// `undev --engine [--dry-run]`
+    UndevEngine { dry_run: bool },
+    /// `remove <repo> [-y] [--dry-run]`
+    Remove {
+        repo: String,
+        yes: bool,
+        dry_run: bool,
+    },
     /// `update [<repo>] [--registry-token-file <path>]`
     Update {
         repo: Option<String>,
@@ -190,10 +205,10 @@ pub enum Command {
     Sync,
     /// `install [-y] [--dry-run]`
     Install { yes: bool, dry_run: bool },
-    /// `uninstall [-y]`
-    Uninstall { yes: bool },
-    /// `prune`
-    Prune,
+    /// `uninstall [-y] [--dry-run]`
+    Uninstall { yes: bool, dry_run: bool },
+    /// `prune [--dry-run]`
+    Prune { dry_run: bool },
     /// `test [<path>]`
     Test { path: Option<OsString> },
     /// `test dist`
@@ -399,7 +414,11 @@ fn accepts(name: Name, kind: &Kind<'_>) -> bool {
             name,
             Name::Add | Name::Upgrade | Name::Remove | Name::Install | Name::Uninstall
         ),
-        Kind::DryRun => matches!(name, Name::Add | Name::Install),
+        // 可寫 recipe 都收；唯讀的 `update`、`test` 與救援的 `sync` 不收（crate 文件的規則）。
+        Kind::DryRun => !matches!(
+            name,
+            Name::Update | Name::Sync | Name::Test | Name::TestDist
+        ),
         Kind::Engine(None) => name.takes_engine(),
         Kind::Engine(Some(_)) => name == Name::Upgrade,
         Kind::Value(Opt::Image, _) => matches!(name, Name::Add | Name::Dev),
@@ -635,6 +654,7 @@ pub fn is_image_path(value: &str) -> bool {
 
 fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
     let mut s = Seen::collect(name, &tokens);
+    let dry_run = s.dry_run.is_some();
     let cmd = match name {
         Name::Add | Name::Remove | Name::Update => {
             let (_, target) = s.target(false);
@@ -646,7 +666,6 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                 s.forbid(s.image_path, "--image-path");
             }
             let yes = s.yes.is_some();
-            let dry_run = s.dry_run.is_some();
             let need = (name != Name::Update && target.is_none()).then_some(REPO);
             s.finish(need)?;
             match (name, repo) {
@@ -663,7 +682,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                     image_path,
                     registry_token_file: token_file,
                 },
-                (_, Some((repo, _))) => Command::Remove { repo, yes },
+                (_, Some((repo, _))) => Command::Remove { repo, yes, dry_run },
                 (_, None) => return Err(UsageError::Missing(REPO.to_owned())),
             }
         }
@@ -674,7 +693,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                 s.forbid(s.token_file, "--registry-token-file");
                 let tag = s.engine_tag();
                 s.finish(None)?;
-                Command::UpgradeEngine { tag, yes }
+                Command::UpgradeEngine { tag, yes, dry_run }
             } else {
                 let repo = target.and_then(|r| s.repo(r, true, true));
                 let registry_token_file = s.token_file.map(|(_, v)| v.to_owned());
@@ -686,6 +705,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                     repo,
                     tag,
                     yes,
+                    dry_run,
                     registry_token_file,
                 }
             }
@@ -699,7 +719,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                 let Some(image) = image else {
                     return Err(UsageError::Missing("-i <image>".to_owned()));
                 };
-                Command::DevEngine { image }
+                Command::DevEngine { image, dry_run }
             } else {
                 s.forbid(s.image, &typed(&tokens, s.image, "-i"));
                 let repo = target.and_then(|r| s.repo(r, false, true));
@@ -713,7 +733,11 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                 };
                 s.finish(need)?;
                 match (repo, path) {
-                    (Some((repo, _)), Some(path)) => Command::DevTool { repo, path },
+                    (Some((repo, _)), Some(path)) => Command::DevTool {
+                        repo,
+                        path,
+                        dry_run,
+                    },
                     _ => return Err(UsageError::Missing(REPO.to_owned())),
                 }
             }
@@ -723,8 +747,8 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
             let repo = target.and_then(|r| s.repo(r, false, true));
             s.finish((!engine && target.is_none()).then_some(REPO))?;
             match repo {
-                _ if engine => Command::UndevEngine,
-                Some((repo, _)) => Command::UndevTool { repo },
+                _ if engine => Command::UndevEngine { dry_run },
+                Some((repo, _)) => Command::UndevTool { repo, dry_run },
                 None => return Err(UsageError::Missing(REPO.to_owned())),
             }
         }
@@ -732,16 +756,15 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
             s.finish(None)?;
             match name {
                 Name::Sync => Command::Sync,
-                _ => Command::Prune,
+                _ => Command::Prune { dry_run },
             }
         }
         Name::Install | Name::Uninstall => {
             let yes = s.yes.is_some();
-            let dry_run = s.dry_run.is_some();
             s.finish(None)?;
             match name {
                 Name::Install => Command::Install { yes, dry_run },
-                _ => Command::Uninstall { yes },
+                _ => Command::Uninstall { yes, dry_run },
             }
         }
         Name::Test | Name::TestDist => {
@@ -1054,7 +1077,8 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 yes: false,
-                registry_token_file: None
+                registry_token_file: None,
+                dry_run: false
             }
         );
         assert_eq!(
@@ -1063,7 +1087,8 @@ mod tests {
                 repo: "lint".into(),
                 tag: Some(tag("v0.9.0")),
                 yes: true,
-                registry_token_file: Some(os("t"))
+                registry_token_file: Some(os("t")),
+                dry_run: false
             }
         );
         assert_eq!(
@@ -1072,7 +1097,8 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 yes: true,
-                registry_token_file: None
+                registry_token_file: None,
+                dry_run: false
             }
         );
     }
@@ -1083,21 +1109,24 @@ mod tests {
             run(&["upgrade", "--engine"]),
             Command::UpgradeEngine {
                 tag: None,
-                yes: false
+                yes: false,
+                dry_run: false
             }
         );
         assert_eq!(
             run(&["upgrade", "--engine=v1.4.0", "-y"]),
             Command::UpgradeEngine {
                 tag: Some(tag("v1.4.0")),
-                yes: true
+                yes: true,
+                dry_run: false
             }
         );
         assert_eq!(
             run(&["upgrade", "-y", "--engine"]),
             Command::UpgradeEngine {
                 tag: None,
-                yes: true
+                yes: true,
+                dry_run: false
             }
         );
     }
@@ -1154,7 +1183,8 @@ mod tests {
             run(&["remove", "li.nt"]),
             Command::Remove {
                 repo: "li.nt".into(),
-                yes: false
+                yes: false,
+                dry_run: false
             }
         );
     }
@@ -1167,25 +1197,31 @@ mod tests {
             run(&["dev", "lint", "-p", "../lint"]),
             Command::DevTool {
                 repo: "lint".into(),
-                path: os("../lint")
+                path: os("../lint"),
+                dry_run: false
             }
         );
         assert_eq!(
             run(&["dev", "--path", "../lint", "lint"]),
             Command::DevTool {
                 repo: "lint".into(),
-                path: os("../lint")
+                path: os("../lint"),
+                dry_run: false
             }
         );
         assert_eq!(
             run(&["dev", "--engine", "-i", "vendor_kit:dev"]),
             Command::DevEngine {
-                image: os("vendor_kit:dev")
+                image: os("vendor_kit:dev"),
+                dry_run: false
             }
         );
         assert_eq!(
             run(&["dev", "--image", "e.tar", "--engine"]),
-            Command::DevEngine { image: os("e.tar") }
+            Command::DevEngine {
+                image: os("e.tar"),
+                dry_run: false
+            }
         );
     }
 
@@ -1219,10 +1255,14 @@ mod tests {
         assert_eq!(
             run(&["undev", "lint"]),
             Command::UndevTool {
-                repo: "lint".into()
+                repo: "lint".into(),
+                dry_run: false
             }
         );
-        assert_eq!(run(&["undev", "--engine"]), Command::UndevEngine);
+        assert_eq!(
+            run(&["undev", "--engine"]),
+            Command::UndevEngine { dry_run: false }
+        );
     }
 
     #[test]
@@ -1246,7 +1286,8 @@ mod tests {
             run(&["remove", "lint"]),
             Command::Remove {
                 repo: "lint".into(),
-                yes: false
+                yes: false,
+                dry_run: false
             }
         );
         for yes in ["-y", "--yes"] {
@@ -1254,7 +1295,8 @@ mod tests {
                 run(&["remove", yes, "lint"]),
                 Command::Remove {
                     repo: "lint".into(),
-                    yes: true
+                    yes: true,
+                    dry_run: false
                 }
             );
         }
@@ -1309,7 +1351,7 @@ mod tests {
     }
 
     #[test]
-    fn dry_run_is_add_and_install_only() {
+    fn dry_run_is_every_writing_command() {
         for args in [
             &["add", "lint", "--dry-run"][..],
             &["add", "--dry-run", "lint@v1.2.0", "-y"],
@@ -1334,21 +1376,80 @@ mod tests {
                 dry_run: true
             }
         );
-        // 其他指令這一版不收（#372 N11 先做 add 與 install）；`upgrade --engine` 屬救援路徑，收了就進凍結文法。
+        assert_eq!(
+            run(&["upgrade", "--dry-run", "lint@v1.2.0", "-y"]),
+            Command::UpgradeTool {
+                repo: "lint".into(),
+                tag: Some(tag("v1.2.0")),
+                yes: true,
+                dry_run: true,
+                registry_token_file: None
+            }
+        );
+        assert_eq!(
+            run(&["upgrade", "--engine=v2.0.0", "--dry-run"]),
+            Command::UpgradeEngine {
+                tag: Some(tag("v2.0.0")),
+                yes: false,
+                dry_run: true
+            }
+        );
+        assert_eq!(
+            run(&["remove", "lint", "--dry-run"]),
+            Command::Remove {
+                repo: "lint".into(),
+                yes: false,
+                dry_run: true
+            }
+        );
+        assert_eq!(
+            run(&["uninstall", "--dry-run", "-y"]),
+            Command::Uninstall {
+                yes: true,
+                dry_run: true
+            }
+        );
+        assert_eq!(
+            run(&["dev", "lint", "-p", "d", "--dry-run"]),
+            Command::DevTool {
+                repo: "lint".into(),
+                path: os("d"),
+                dry_run: true
+            }
+        );
+        assert_eq!(
+            run(&["dev", "--dry-run", "--engine", "-i", "e.tar"]),
+            Command::DevEngine {
+                image: os("e.tar"),
+                dry_run: true
+            }
+        );
+        assert_eq!(
+            run(&["undev", "lint", "--dry-run"]),
+            Command::UndevTool {
+                repo: "lint".into(),
+                dry_run: true
+            }
+        );
+        assert_eq!(
+            run(&["undev", "--engine", "--dry-run"]),
+            Command::UndevEngine { dry_run: true }
+        );
+        assert_eq!(
+            run(&["prune", "--dry-run"]),
+            Command::Prune { dry_run: true }
+        );
+        // 唯讀的 `update`、`test` 與救援的 `sync` 不收；不收 `-y` 的指令照樣不收 `-y`。
         for args in [
-            &["upgrade", "lint", "--dry-run"][..],
-            &["upgrade", "--engine", "--dry-run"],
-            &["remove", "lint", "--dry-run"],
-            &["uninstall", "--dry-run"],
-            &["dev", "lint", "-p", "d", "--dry-run"],
-            &["undev", "lint", "--dry-run"],
-            &["update", "--dry-run"],
+            &["update", "--dry-run"][..],
             &["sync", "--dry-run"],
-            &["prune", "--dry-run"],
             &["test", "--dry-run"],
+            &["test", "dist", "--dry-run"],
         ] {
             bad(args, "--dry-run");
         }
+        bad(&["prune", "--dry-run", "-y"], "-y");
+        bad(&["undev", "lint", "-y", "--dry-run"], "-y");
         // 只有長選項、只能給一次、不跟 -h 並用；`--` 之後是位置參數。
         bad(&["add", "lint", "--dry-run", "--dry-run"], "--dry-run");
         bad(&["install", "--dry-run=yes"], "--dry-run=yes");
@@ -1383,13 +1484,28 @@ mod tests {
                 dry_run: false
             }
         );
-        assert_eq!(run(&["uninstall"]), Command::Uninstall { yes: false });
-        assert_eq!(run(&["uninstall", "-y"]), Command::Uninstall { yes: true });
+        assert_eq!(
+            run(&["uninstall"]),
+            Command::Uninstall {
+                yes: false,
+                dry_run: false
+            }
+        );
+        assert_eq!(
+            run(&["uninstall", "-y"]),
+            Command::Uninstall {
+                yes: true,
+                dry_run: false
+            }
+        );
         assert_eq!(
             run(&["uninstall", "--yes"]),
-            Command::Uninstall { yes: true }
+            Command::Uninstall {
+                yes: true,
+                dry_run: false
+            }
         );
-        assert_eq!(run(&["prune"]), Command::Prune);
+        assert_eq!(run(&["prune"]), Command::Prune { dry_run: false });
         // 單獨的 `--` 後面沒東西，沒有影響。
         assert_eq!(run(&["sync", "--"]), Command::Sync);
     }
@@ -1456,7 +1572,8 @@ mod tests {
             run(&["remove", "--", "-lint"]),
             Command::Remove {
                 repo: "-lint".into(),
-                yes: false
+                yes: false,
+                dry_run: false
             }
         );
         assert_eq!(
@@ -1465,7 +1582,8 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 yes: true,
-                registry_token_file: None
+                registry_token_file: None,
+                dry_run: false
             }
         );
         // `--` 之後的 `-y`、`--engine` 是位置參數，所以是多出的參數。
@@ -1478,14 +1596,16 @@ mod tests {
             run(&["dev", "lint", "-p", "--"]),
             Command::DevTool {
                 repo: "lint".into(),
-                path: os("--")
+                path: os("--"),
+                dry_run: false
             }
         );
         assert_eq!(
             run(&["dev", "lint", "-p", "-x"]),
             Command::DevTool {
                 repo: "lint".into(),
-                path: os("-x")
+                path: os("-x"),
+                dry_run: false
             }
         );
     }
@@ -1552,7 +1672,8 @@ mod tests {
             run(&["remove", "--", "-h"]),
             Command::Remove {
                 repo: "-h".into(),
-                yes: false
+                yes: false,
+                dry_run: false
             }
         );
         // `--` 之前有 -h 時，`--` 本身也不准並用。
@@ -1603,7 +1724,8 @@ mod tests {
             parse(&args),
             Ok(Invocation::Run(Command::DevTool {
                 repo: "lint".into(),
-                path: dir.to_owned()
+                path: dir.to_owned(),
+                dry_run: false
             }))
         );
     }
@@ -1645,14 +1767,32 @@ mod tests {
             run(&["upgrade", "--engine"]),
             Command::UpgradeEngine {
                 tag: None,
-                yes: false
+                yes: false,
+                dry_run: false
             }
         );
         assert_eq!(
             run(&["upgrade", "--engine=v2.0.0", "-y"]),
             Command::UpgradeEngine {
                 tag: Some(tag("v2.0.0")),
-                yes: true
+                yes: true,
+                dry_run: false
+            }
+        );
+        assert_eq!(
+            run(&["upgrade", "--engine", "--dry-run"]),
+            Command::UpgradeEngine {
+                tag: None,
+                yes: false,
+                dry_run: true
+            }
+        );
+        assert_eq!(
+            run(&["upgrade", "--engine=v2.0.0", "--dry-run", "-y"]),
+            Command::UpgradeEngine {
+                tag: Some(tag("v2.0.0")),
+                yes: true,
+                dry_run: true
             }
         );
         assert_eq!(run(&["sync"]), Command::Sync);
@@ -1681,6 +1821,8 @@ mod tests {
             &["install", "--dry-run", "-y"],
             &["upgrade", "--engine"],
             &["upgrade", "--engine=v2.0.0", "-y"],
+            &["upgrade", "--engine", "--dry-run"],
+            &["upgrade", "--engine=v2.0.0", "--dry-run", "-y"],
             &["sync"],
             &["install", "-h"],
             &["upgrade", "--engine", "--help"],
@@ -1697,6 +1839,8 @@ mod tests {
             &["dev", "--engine", "-h"],
             &["undev", "--engine"],
             &["prune"],
+            &["upgrade", "lint", "--dry-run"],
+            &["dev", "--engine", "-i", "e.tar", "--dry-run"],
         ] {
             assert!(!parse(a).unwrap().is_rescue(), "{a:?}");
         }

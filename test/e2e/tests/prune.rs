@@ -75,13 +75,22 @@ fn launcher(m: &Mounts, stopped: Arc<Mutex<Vec<String>>>) -> std::thread::JoinHa
 
 /// 跑一次 `prune`。每次執行的 session 目錄與執行紀錄都是新的（啟動器建好空的執行紀錄）。
 fn run(m: &Mounts, stopped: &Arc<Mutex<Vec<String>>>) -> (i32, String, String, Seen) {
+    run_with(m, stopped, &[])
+}
+
+/// 跑一次 `prune`，後面接 `extra`（例如 `--dry-run`）。
+fn run_with(
+    m: &Mounts,
+    stopped: &Arc<Mutex<Vec<String>>>,
+    extra: &[&str],
+) -> (i32, String, String, Seen) {
     for d in [&m.ctl, &m.inbox] {
         fs::remove_dir_all(d).unwrap();
         fs::create_dir_all(d).unwrap();
     }
     fs::write(m.root.join(RUN_LOG), "").unwrap();
     let peer = launcher(m, Arc::clone(stopped));
-    let args = [
+    let mut args = vec![
         "--protocol",
         "1",
         "--run-id",
@@ -99,8 +108,9 @@ fn run(m: &Mounts, stopped: &Arc<Mutex<Vec<String>>>) -> (i32, String, String, S
         "--",
         "prune",
     ];
+    args.extend_from_slice(extra);
     let out = Command::new(vendor_kit_bin().unwrap())
-        .args(args)
+        .args(&args)
         .env(MOUNT_PREFIX_ENV, &m.prefix)
         .write_stdin("")
         .output()
@@ -303,4 +313,39 @@ fn an_incomplete_add_is_not_pruned() {
     );
     assert!(seen.requests.is_empty(), "{:?}", seen.requests);
     assert_eq!(tree(&m), before);
+}
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+#[test]
+fn dry_run_lists_the_residue_and_removes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    installed(&m);
+    tool_dir(&m, "old");
+    fs::write(m.root.join(".vendor_kit/.tmp.version.toml.7.0"), "half\n").unwrap();
+    let before = tree(&m);
+    let stopped = Arc::new(Mutex::new(vec![STOPPED.to_owned()]));
+
+    let (code, stdout, stderr, seen) = run_with(&m, &stopped, &["--dry-run"]);
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+Would remove .vendor_kit/.tmp.version.toml.7.0.
+Would remove .vendor_kit/cache/old/.
+Would remove .vendor_kit/cache/old.stamp.toml.
+Would remove stopped container aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
+Dry run: no changes were made.
+
+"#]]
+    );
+    assert_data_eq!(stderr, "");
+    // ps 照送（只讀），rm-container 不送。
+    assert_eq!(seen.requests, ["ps"]);
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+    assert_eq!(stopped.lock().unwrap().as_slice(), [STOPPED]);
+    assert_eq!(tree(&m), before);
+    assert_eq!(events(&m), ["engine_started", "engine_finished"]);
 }

@@ -40,6 +40,25 @@
 //!     （`initfiles` 的 `Verdict::Unparsable`，scope_roadmap:32）留原檔、基準版不推、記進這個工具 metadata
 //!     的 `conflicts`，stdout 說明留了原檔；合併寫入成功的檔從 `conflicts` 拿掉。
 //!
+//! # 預演（`--dry-run`，#372 N11）
+//!
+//! 語意是這一版自訂的（契約沒寫，列給維護者確認）：照上面的順序算出完整計畫，到第 8 步算出初始檔的動作為止都
+//! 一樣，差別只在：
+//!
+//! - 取安裝目錄的共享鎖，不取排他鎖（只讀）。
+//! - 不問（第 8 步的詢問跳過，不能互動也不報 VK0002），不重驗暫存內容，不落地（第 9 步），不建進度檔；
+//!   除執行紀錄外不寫安裝目錄裡的任何檔。
+//! - 恢復殘留的 `upgrade` 只印會完成哪一份（[`text::recovered`] 的預演寫法），殘留的進度檔照留。
+//! - stdout 照實際執行的順序印會改的內容（覆寫報告、[`text::upgraded`]、每個初始檔的 [`text::file_line`]
+//!   與 [`text::listed_line`]，都是「Would …」的寫法；未變更時照樣印未變更），最後一行是
+//!   `prompt::DRY_RUN_DONE`，除了警告以外以 0 結束。初始檔的警告（VK0019 等）照印。
+//! - 跟 `-y` 並用時 `-y` 沒有作用（反正不問）。
+//! - 算計畫要用的連線與 docker 動作照送：registry 查詢、token 檔的 `stage`、`inspect`、`pull`、`extract`、
+//!   `stage-dir`。它們動到的是主機的 image store 與 session 目錄，不是安裝目錄。
+//! - 算計畫時遇到的停下（VK0046、VK0030、VK0031、VK0055、缺口等）照樣以各自的結束碼停下。
+//!
+//! `upgrade --engine --dry-run` 見 [`engine`] 的「預演」。
+//!
 //! # 線上解析（N2、N53）
 //!
 //! registry 只經 `registry` crate（列 tag、HEAD manifest 取 `Docker-Content-Digest`），不用任何查詢快取：
@@ -212,6 +231,8 @@ pub struct Request<'a> {
     pub tag: Option<Tag>,
     /// `-y`：預先同意全部詢問。
     pub yes: bool,
+    /// `--dry-run`：算出完整計畫後只印、不問、不寫（模組說明「預演」）。
+    pub dry_run: bool,
     /// `--registry-token-file` 的值，原樣；只在不帶 tag、要列 tag 時才讀（模組說明「registry token 檔」）。
     pub registry_token_file: Option<&'a OsStr>,
 }
@@ -287,6 +308,7 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
     let mut upgrade = Upgrade {
         env,
         init,
+        dry_run: req.dry_run,
         code: 0,
         extracts: 0,
         stages: 0,
@@ -342,6 +364,8 @@ struct Resolved {
 struct Upgrade<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
     init: InitSource<'r>,
+    /// 預演：算出完整計畫後只印、不問、不寫（模組說明「預演」、[`engine`] 的「預演」）。
+    dry_run: bool,
     code: u8,
     /// 這次執行已用掉的取件 slot 數。
     extracts: u32,
@@ -424,6 +448,13 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         let _ = writeln!(self.env.stdout, "{line}");
     }
 
+    /// 預演時印收尾的那一行（模組說明「預演」）；不是預演就不印。
+    fn dry_run_done(&mut self) {
+        if self.dry_run {
+            self.say(prompt::DRY_RUN_DONE);
+        }
+    }
+
     /// 每次報告用了哪個覆寫（04 本機覆寫）。
     fn report_overrides(&mut self) {
         let lines: Vec<String> = self
@@ -503,6 +534,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             self.land_recoveries()?;
             self.report_overrides();
             self.say(&text::unchanged(req.repo, tag));
+            self.dry_run_done();
             return Ok(());
         }
 
@@ -527,7 +559,13 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
     }
 
     fn lock(&mut self, config: &Config) -> Step<Lock> {
-        match Lock::acquire(self.env.dir, Mode::Exclusive, config) {
+        // 預演只讀，持共享鎖（模組說明「預演」）。
+        let mode = if self.dry_run {
+            Mode::Shared
+        } else {
+            Mode::Exclusive
+        };
+        match Lock::acquire(self.env.dir, mode, config) {
             Ok(lock) => {
                 if let Some(m) = lock.warning() {
                     let d = Diagnostic::new(m).arg("install_dir", self.env.host_root);
@@ -1023,46 +1061,49 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             return Err(self.gap(format_args!("init file {path} on upgrade ({gap:?})")));
         }
 
-        let questions: Vec<String> = planned
-            .questions
-            .iter()
-            .map(|q| text::question(repo, &q.path, q.ask))
-            .collect();
-        let tty = TtyState {
-            stdin: self.env.tty.stdin,
-            stderr: self.env.tty.stderr,
-        };
-        let consent = if req.yes {
-            Consent::AssumeYes
-        } else {
-            Consent::Ask
-        };
-        let answers = prompt::ask_all(
-            &questions,
-            consent,
-            &tty,
-            &mut *self.env.stdin,
-            &mut *self.env.prompt,
-        );
-        match answers {
-            Ok(a) if a.all_yes() => {}
-            Ok(_) => {
-                self.report_overrides();
-                self.say(text::NO_CHANGES);
-                return Ok(());
+        // 預演不問、不重驗暫存內容：之後不落地（模組說明「預演」）。
+        if !self.dry_run {
+            let questions: Vec<String> = planned
+                .questions
+                .iter()
+                .map(|q| text::question(repo, &q.path, q.ask))
+                .collect();
+            let tty = TtyState {
+                stdin: self.env.tty.stdin,
+                stderr: self.env.tty.stderr,
+            };
+            let consent = if req.yes {
+                Consent::AssumeYes
+            } else {
+                Consent::Ask
+            };
+            let answers = prompt::ask_all(
+                &questions,
+                consent,
+                &tty,
+                &mut *self.env.stdin,
+                &mut *self.env.prompt,
+            );
+            match answers {
+                Ok(a) if a.all_yes() => {}
+                Ok(_) => {
+                    self.report_overrides();
+                    self.say(text::NO_CHANGES);
+                    return Ok(());
+                }
+                Err(PromptError::NotInteractive(_)) => {
+                    let mut words = vec!["just".to_owned(), "vendor_kit".to_owned()];
+                    words.extend(self.env.argv.iter().cloned());
+                    let d = Diagnostic::new(&messages::VK0002)
+                        .arg("command_with_y", prompt::command_with_y(&words));
+                    return Err(self.stop(d));
+                }
+                Err(e) => return Err(self.internal(e.to_string())),
             }
-            Err(PromptError::NotInteractive(_)) => {
-                let mut words = vec!["just".to_owned(), "vendor_kit".to_owned()];
-                words.extend(self.env.argv.iter().cloned());
-                let d = Diagnostic::new(&messages::VK0002)
-                    .arg("command_with_y", prompt::command_with_y(&words));
-                return Err(self.stop(d));
-            }
-            Err(e) => return Err(self.internal(e.to_string())),
-        }
 
-        if let Err(e) = candidate.recheck() {
-            return Err(self.internal(format!("staged content of {repo} changed: {e}")));
+            if let Err(e) = candidate.recheck() {
+                return Err(self.internal(format!("staged content of {repo} changed: {e}")));
+            }
         }
 
         let mut repo_writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
@@ -1130,26 +1171,29 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         let init_files = !repo_writes.is_empty() || !records.is_empty();
         let argv = self.env.argv;
         let progress = self.progress(argv, repo, locked, init_files, &written)?;
-        // 恢復排在這次第一個寫入之前、所有可能停下的判定之後（停下時恢復也不寫）。
+        // 恢復排在這次第一個寫入之前、所有可能停下的判定之後（停下時恢復也不寫）。預演只印、不落地。
         self.land_recoveries()?;
-        self.land(
-            &candidate,
-            progress,
-            &repo_writes,
-            &records,
-            &entry,
-            &mut lockfile,
-        )?;
+        let dry = self.dry_run;
+        if !dry {
+            self.land(
+                &candidate,
+                progress,
+                &repo_writes,
+                &records,
+                &entry,
+                &mut lockfile,
+            )?;
+        }
 
         self.report_overrides();
-        self.say(&text::upgraded(repo, current, locked));
+        self.say(&text::upgraded(repo, current, locked, dry));
         for f in &planned.files {
-            if let Some(line) = text::file_line(f) {
+            if let Some(line) = text::file_line(f, dry) {
                 self.say(&line);
             }
         }
         for f in &planned.files {
-            if let Some(line) = text::listed_line(repo, locked.tag(), f) {
+            if let Some(line) = text::listed_line(repo, locked.tag(), f, dry) {
                 self.say(&line);
             }
         }
@@ -1162,6 +1206,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                 self.emit(d);
             }
         }
+        self.dry_run_done();
         Ok(())
     }
 
@@ -1426,6 +1471,18 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
     /// 依序落地備好的恢復（04 共同選項：全部同意才寫入，含恢復舊操作），排在這次自己的落地與輸出之前：
     /// 每一份重驗暫存內容、走一次同樣的落地順序，新的進度檔完成之後才刪舊的那一份，中途再斷也還認得出來。
     fn land_recoveries(&mut self) -> Step<()> {
+        if self.dry_run {
+            // 預演：只印會完成哪幾份，殘留的進度檔照留（模組說明「預演」）。
+            let lines: Vec<String> = self
+                .pending
+                .iter()
+                .map(|r| text::recovered(&r.repo, &r.locked, true))
+                .collect();
+            for line in lines {
+                self.say(&line);
+            }
+            return Ok(());
+        }
         for mut r in std::mem::take(&mut self.pending) {
             if let Err(e) = r.candidate.recheck() {
                 return Err(self.internal(format!("staged content of {} changed: {e}", r.repo)));
@@ -1442,7 +1499,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             if let Err(e) = progress::delete(self.env.dir, &r.entry.verb, &r.entry.id) {
                 return Err(self.failed(&r.entry.path, e.message(), e.to_string()));
             }
-            self.say(&text::recovered(&r.repo, &r.locked));
+            self.say(&text::recovered(&r.repo, &r.locked, false));
         }
         Ok(())
     }

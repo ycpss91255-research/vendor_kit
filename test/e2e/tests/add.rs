@@ -977,8 +977,8 @@ fn dry_run_of_another_command_or_with_help_is_a_usage_error() {
     );
     let before = snapshot(&m);
     for (rest, value) in [
-        (&["remove", "tool", "--dry-run"][..], "--dry-run"),
-        (&["upgrade", "tool", "--dry-run"], "--dry-run"),
+        (&["update", "tool", "--dry-run"][..], "--dry-run"),
+        (&["test", "--dry-run"], "--dry-run"),
         (&["add", "--dry-run", "-h"], "--dry-run"),
     ] {
         new_session(&m);

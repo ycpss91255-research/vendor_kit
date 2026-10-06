@@ -1175,3 +1175,92 @@ vendor_kit: error[VK0030]: Cannot add tool: namespace vendor_kit is already used
     );
     assert_eq!(snapshot(&m), before);
 }
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+#[test]
+fn dev_and_undev_dry_run_print_the_plan_and_write_only_the_run_log() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+    let peer = add_launcher(&m);
+    let (code, _, stderr) = run(&m, &["add", "tool", "-i", IMAGE]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let src = m.root.join("work/tool/just");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo local\n").unwrap();
+
+    // dev 的預演：本機開發來源在安裝目錄裡，不送 request。
+    let before = snapshot(&m);
+    let (code, stdout, stderr) = run_idle(&m, &["dev", "tool", "-p", "work/tool", "--dry-run"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(stderr, "");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+tool would use the local source work/tool (local override).
+Would update .vendor_kit/gen/tools.just.
+Dry run: no changes were made.
+
+"#]]
+    );
+    assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+    assert_eq!(snapshot(&m), before);
+
+    // 真的開覆寫，再換掉版本鎖定行：undev 的預演照樣取件（docker 動作照送），但安裝目錄不動。
+    let (code, _, stderr) = run_idle(&m, &["dev", "tool", "-p", "work/tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let lock_path = vk.join("version.toml");
+    let lock = fs::read_to_string(&lock_path).unwrap();
+    let new_ref = format!("ghcr.io/acme/tool:v1.3.0@{NEW_DIGEST}");
+    let lock = lock.replace(
+        &format!("tool = \"{IMAGE}@{DIGEST}\"\n"),
+        &format!("tool = \"{new_ref}\"\n"),
+    );
+    fs::write(&lock_path, &lock).unwrap();
+    let before = snapshot(&m);
+    new_session(&m);
+    let peer = fetch_launcher(&m);
+    let (code, stdout, stderr) = run(&m, &["undev", "tool", "--dry-run"]);
+    let seen = peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(stderr, "");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+Would remove the local override of tool; tool would use v1.3.0 (ghcr.io/acme/tool:v1.3.0@sha256:5555555555555555555555555555555555555555555555555555555555555555).
+Would fetch tool v1.3.0 (ghcr.io/acme/tool:v1.3.0@sha256:5555555555555555555555555555555555555555555555555555555555555555).
+Would update .vendor_kit/gen/tools.just.
+Dry run: no changes were made.
+
+"#]]
+    );
+    let pinned = format!("ghcr.io/acme/tool@{NEW_DIGEST}");
+    assert_eq!(
+        seen.requests,
+        [
+            format!("inspect {pinned}"),
+            format!("pull {pinned}"),
+            format!("inspect {pinned}"),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+    assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+    assert_eq!(snapshot(&m), before);
+
+    // undev --engine 沒有覆寫：未變更照印，最後一行照樣是預演的。
+    let (code, stdout, stderr) = run_idle(&m, &["undev", "--engine", "--dry-run"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+The engine has no local override. No changes were made.
+Dry run: no changes were made.
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
+}

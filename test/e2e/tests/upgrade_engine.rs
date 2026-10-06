@@ -534,3 +534,82 @@ fn a_lock_line_already_at_this_engine_with_old_shell_files_does_the_second_stage
         &["entry.just", "vendor.just", "log.sh", ".gitignore"],
     );
 }
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+/// 第一段的預演：解析目標（inspect 照送），不換鎖定行、不建進度檔、不報 VK0023；介面版不在區間內也照常
+/// 執行（救援路徑）。
+#[test]
+fn dry_run_of_the_first_stage_switches_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let before = snapshot(&m);
+    for protocol in [1, 2] {
+        new_session(&m);
+        fs::write(m.root.join(RUN_LOG), "").unwrap();
+        let peer = launcher(&m, &header(protocol), true, 1);
+        let (code, stdout, stderr) = run(
+            &m,
+            protocol,
+            &["upgrade", "--engine=v1.2.0", "--dry-run", "-y"],
+            NO_REGISTRY,
+        );
+        let seen = peer.join().unwrap();
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(stderr, "");
+        assert_eq!(
+            stdout,
+            format!(
+                "Would lock the engine to v1.2.0 ({}).\n\
+                 The rest of the engine upgrade would run on v1.2.0 when the command is run again.\n\
+                 Dry run: no changes were made.\n",
+                target_locked()
+            )
+        );
+        assert_eq!(seen.requests, [format!("inspect {}", target())]);
+        assert_eq!(
+            seen.done.as_deref(),
+            Some(format!("vk-resolve/{protocol} r1 done 0\n").as_str())
+        );
+        assert_eq!(snapshot(&m), before);
+        assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+    }
+}
+
+/// 第二段的預演：列出會重產的薄殼與完成的那一行，不寫任何檔，第一段的進度檔照留。
+#[test]
+fn dry_run_of_the_second_stage_lists_the_writes_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    shell::install(&m.root, "v1.0.0").unwrap();
+    let release = tmp.path().join("release");
+    shell::release(&release).unwrap();
+    let rest = ["upgrade", &format!("--engine={VERSION}")].map(str::to_owned);
+    let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
+    first_stage(&m, &rest);
+    let mut dry = rest.clone();
+    dry.push("--dry-run");
+
+    fs::write(m.root.join(".vendor_kit/log/r2.jsonl"), "").unwrap();
+    let mut before = snapshot(&m);
+    before.retain(|(p, _)| !p.ends_with(".vendor_kit/log/r2.jsonl"));
+    let (code, stdout, stderr) = run_second(&m, "r2", &dry, &release);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(stderr, "");
+    assert_eq!(
+        stdout,
+        format!(
+            "Would write .vendor_kit/entry.just\nWould write .vendor_kit/vendor.just\n\
+             Would write .vendor_kit/log.sh\nWould write .vendor_kit/.gitignore\n\
+             Would complete the engine upgrade to {VERSION} ({}).\n\
+             Dry run: no changes were made.\n",
+            self_locked()
+        )
+    );
+    let mut after = snapshot(&m);
+    after.retain(|(p, _)| !p.ends_with(".vendor_kit/log/r2.jsonl"));
+    assert_eq!(after, before);
+    assert!(m.root.join(".vendor_kit/.tmp.upgrade.r1.toml").is_file());
+}

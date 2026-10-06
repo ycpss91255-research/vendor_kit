@@ -1,7 +1,8 @@
 //! 各指令 `-h`／`--help` 的用法文字。
 //!
 //! 實際的 help 輸出就是唯一來源（04 共同選項），04 不另寫一份。文字只列這一版 `args` 收的選項；
-//! `--dry-run` 只列在已經收它的指令（這一版是 `add`、`install`），其他指令接上時再補上自己的那一行。
+//! `--dry-run` 列在收它的可寫 recipe（`add`、`upgrade`、`dev`、`undev`、`remove`、`install`、`uninstall`、
+//! `prune`）。
 //! `add --image-path` 的名稱是暫定（#372 N2b）。
 
 /// 印哪一份用法：一個指令一份；`upgrade`、`dev`、`undev` 帶 `--engine` 時各另一份。
@@ -86,6 +87,7 @@ Move a tool to its latest version, or to <tag>, which may be older.
 
 Options:
   -y, --yes                         Answer yes to the questions upgrade asks
+      --dry-run                     Print the changes without making them
       --registry-token-file <path>  Read a registry token from <path> to list versions
   -h, --help                        Print this help
 
@@ -99,44 +101,49 @@ The first run switches the engine and stops; rerun the command it prints to fini
 
 Options:
   -y, --yes                         Answer yes to the questions upgrade asks
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 ";
 
-const DEV_TOOL: &str = r"Usage: just vendor_kit dev <repo> -p <dir>
+const DEV_TOOL: &str = r"Usage: just vendor_kit dev <repo> -p <dir> [options]
 
 Use a local directory as the source of a tool in this working directory.
 
 Options:
   -p, --path <dir>                  Local tool directory, relative to the install directory
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 For the engine: just vendor_kit dev --engine -h
 ";
 
-const DEV_ENGINE: &str = r"Usage: just vendor_kit dev --engine -i <image>
+const DEV_ENGINE: &str = r"Usage: just vendor_kit dev --engine -i <image> [options]
 
 Use a local engine image in this working directory.
 
 Options:
   -i, --image <image>               Local engine image
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 ";
 
-const UNDEV_TOOL: &str = r"Usage: just vendor_kit undev <repo>
+const UNDEV_TOOL: &str = r"Usage: just vendor_kit undev <repo> [options]
 
 Stop using the local source of a tool and sync it to its pinned version.
 
 Options:
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 For the engine: just vendor_kit undev --engine -h
 ";
 
-const UNDEV_ENGINE: &str = r"Usage: just vendor_kit undev --engine
+const UNDEV_ENGINE: &str = r"Usage: just vendor_kit undev --engine [options]
 
 Stop using the local engine image and return to the pinned engine.
 
 Options:
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 ";
 
@@ -146,6 +153,7 @@ Remove a tool. Init files are kept.
 
 Options:
   -y, --yes                         Answer yes to the questions remove asks
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 ";
 
@@ -184,15 +192,17 @@ Remove VK from this directory. Init files are kept.
 
 Options:
   -y, --yes                         Answer yes to the questions uninstall asks
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 ";
 
-const PRUNE: &str = r"Usage: just vendor_kit prune
+const PRUNE: &str = r"Usage: just vendor_kit prune [options]
 
 Remove local resources no longer in use: caches of unpinned tools,
 VK temporary files, and stopped containers VK created.
 
 Options:
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 ";
 

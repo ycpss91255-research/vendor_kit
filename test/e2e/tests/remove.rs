@@ -631,3 +631,62 @@ vendor_kit: error[VK0056]: Internal vendor_kit error: the cache of installed too
     assert_eq!(vk_tree(&m), before);
     assert!(!events(&m).iter().any(|e| e == "writes_started"));
 }
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+/// 安裝目錄裡全部的檔與內容（相對路徑、排序），不含 `.vendor_kit/log/`：比對預演前後一個位元組都沒變。
+fn snapshot(m: &Mounts) -> Vec<(String, Option<Vec<u8>>)> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Option<Vec<u8>>)>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let rel = path.strip_prefix(root).unwrap().display().to_string();
+            if rel == ".vendor_kit/log" {
+                continue;
+            }
+            if path.is_dir() {
+                out.push((rel, None));
+                walk(root, &path, out);
+            } else {
+                out.push((rel, Some(fs::read(&path).unwrap())));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&m.root, &m.root, &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn remove_dry_run_prints_the_plan_and_writes_only_the_run_log() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    installed_with_insert(&m, GITIGNORE);
+    let before = snapshot(&m);
+    // 沒有終端也不問、不報 VK0002；-y 並用沒有作用。
+    for rest in [
+        &["remove", "tool", "--dry-run"][..],
+        &["remove", "--dry-run", "tool", "-y"],
+    ] {
+        new_session(&m);
+        let peer = idle_launcher(&m);
+        let (code, stdout, stderr) = run(&m, "000", "", rest);
+        let seen = peer.join().unwrap();
+        assert_eq!(code, 0, "stderr: {stderr}");
+        assert_eq!(stderr, "");
+        assert_data_eq!(
+            stdout,
+            snapbox::str![[r#"
+Would remove tool v1.2.0 (ghcr.io/acme/tool:v1.2.0@sha256:2222222222222222222222222222222222222222222222222222222222222222).
+Would remove inserted lines from .gitignore
+Would keep .gitignore
+Dry run: no changes were made.
+
+"#]]
+        );
+        assert!(seen.requests.is_empty());
+        assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+        assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+        assert_eq!(snapshot(&m), before);
+    }
+}

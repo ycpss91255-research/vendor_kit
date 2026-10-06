@@ -61,6 +61,20 @@
 //! 5. stdout 列出改了什麼與留下的內容：初始檔、本機開發來源，與 `.vendor_kit/` 裡還在的每一項（`install`
 //!    建的 `config.toml` 記在 `baseline/.vendor_kit.toml`，已在初始檔那段列過的不重複列）。
 //!
+//! # 預演（`--dry-run`，#372 N11）
+//!
+//! 語意是這一版自訂的（契約沒寫，列給維護者確認），兩個指令相同：照上面的順序算出完整計畫，差別只在：
+//!
+//! - 取安裝目錄的共享鎖，不取排他鎖（只讀）。
+//! - 不問（不能互動也不報 VK0002），不建進度檔、不落地、不刪殘留的進度檔；除執行紀錄外不寫任何檔。
+//!   對象以外的覆寫要讀安裝目錄外的本機開發來源時，`stage-dir` 照送（動到的是 session 目錄，不是安裝目錄）。
+//! - stdout 照實際執行的順序印會改的內容，每一行換成「Would …」的寫法（[`text`] 各函式的 `dry` 參數）；
+//!   殘留的 `remove` 印會一併完成。`uninstall` 的留下清單扣掉落地時會刪的路徑、`version.toml` 與殘留的
+//!   進度檔。最後一行是 `prompt::DRY_RUN_DONE`。
+//! - 只列不刪的行照樣各印一則 VK0061（warn，結束碼 1；同 `add` 預演照印初始檔的警告），其他情況以 0 結束。
+//! - 跟 `-y` 並用時 `-y` 沒有作用（反正不問）。
+//! - 算計畫時遇到的停下（VK0046、VK0013、VK0052、缺口等）照樣以各自的結束碼停下。
+//!
 //! # 恢復
 //!
 //! 殘留的 `remove`（`uninstall` 時另含 `uninstall`）進度檔表示上一次中途停了。這次把它記的工具併進
@@ -183,20 +197,29 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
     pub log: &'a mut runlog::Writer<L>,
 }
 
-/// 跑一次 `remove <repo>`，回傳結束碼；`yes` 是有沒有帶 `-y`。
+/// 兩個指令共用的選項。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Opts {
+    /// 帶了 `-y`。
+    pub yes: bool,
+    /// 帶了 `--dry-run`：算出完整計畫後只印、不問、不寫（模組說明「預演」）。
+    pub dry_run: bool,
+}
+
+/// 跑一次 `remove <repo>`，回傳結束碼。
 pub fn remove<W: Write, S: Sink, L: Write>(
     repo: &str,
-    yes: bool,
+    opts: Opts,
     env: &mut Env<'_, W, S, L>,
 ) -> u8 {
-    let mut run = Run::new(env, yes);
+    let mut run = Run::new(env, opts);
     let _ = run.remove(repo);
     run.code
 }
 
-/// 跑一次 `uninstall`，回傳結束碼；`yes` 是有沒有帶 `-y`。
-pub fn uninstall<W: Write, S: Sink, L: Write>(yes: bool, env: &mut Env<'_, W, S, L>) -> u8 {
-    let mut run = Run::new(env, yes);
+/// 跑一次 `uninstall`，回傳結束碼。
+pub fn uninstall<W: Write, S: Sink, L: Write>(opts: Opts, env: &mut Env<'_, W, S, L>) -> u8 {
+    let mut run = Run::new(env, opts);
     let _ = run.uninstall();
     run.code
 }
@@ -276,6 +299,8 @@ struct Run<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
     /// 有沒有帶 `-y`。
     yes: bool,
+    /// 預演（[`Opts::dry_run`]）。
+    dry_run: bool,
     code: u8,
     /// 這次執行已用掉的 `stage-dir` slot 數。
     stages: u32,
@@ -284,10 +309,11 @@ struct Run<'r, 'a, W: Write, S: Sink, L: Write> {
 }
 
 impl<'r, 'a, W: Write, S: Sink, L: Write> Run<'r, 'a, W, S, L> {
-    fn new(env: &'r mut Env<'a, W, S, L>, yes: bool) -> Self {
+    fn new(env: &'r mut Env<'a, W, S, L>, opts: Opts) -> Self {
         Run {
             env,
-            yes,
+            yes: opts.yes,
+            dry_run: opts.dry_run,
             code: 0,
             stages: 0,
             local: BTreeMap::new(),
@@ -373,6 +399,13 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         let _ = writeln!(self.env.stdout, "{line}");
     }
 
+    /// 預演時印收尾的那一行（模組說明「預演」）；不是預演就不印。
+    fn dry_run_done(&mut self) {
+        if self.dry_run {
+            self.say(prompt::DRY_RUN_DONE);
+        }
+    }
+
     /// 每次報告用了哪個覆寫（04 本機覆寫）。
     fn report_overrides(&mut self) {
         let lines: Vec<String> = self
@@ -402,7 +435,13 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
     }
 
     fn lock(&mut self, config: &Config) -> Step<Lock> {
-        match Lock::acquire(self.env.dir, Mode::Exclusive, config) {
+        // 預演只讀，持共享鎖（模組說明「預演」）。
+        let mode = if self.dry_run {
+            Mode::Shared
+        } else {
+            Mode::Exclusive
+        };
+        match Lock::acquire(self.env.dir, mode, config) {
             Ok(lock) => {
                 if let Some(m) = lock.warning() {
                     let d = Diagnostic::new(m).arg("install_dir", self.env.host_root);
@@ -641,6 +680,10 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
 
     /// 一次問完（帶 `-y` 全部同意）；全部同意回 `true`，答否印未變更回 `false`，不能互動回 VK0002。
     fn ask(&mut self, plan: &Plan) -> Step<bool> {
+        // 預演不問（模組說明「預演」）。
+        if self.dry_run {
+            return Ok(true);
+        }
         let questions: Vec<String> = plan.questions.iter().map(text::question).collect();
         let consent = if self.yes {
             Consent::AssumeYes
@@ -708,8 +751,9 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
     /// 收回了哪些檔、保留哪些初始檔。
     /// 收回的檔與保留清單；回傳列過的保留路徑。
     fn report_files(&mut self, plan: &Plan) -> BTreeSet<String> {
+        let dry = self.dry_run;
         for e in &plan.edits {
-            self.say(&text::retracted(&e.path));
+            self.say(&text::retracted(&e.path, dry));
         }
         let kept: BTreeSet<String> = plan
             .records
@@ -718,7 +762,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             .map(|r| r.path.clone())
             .collect();
         for path in &kept {
-            self.say(&text::kept(path));
+            self.say(&text::kept(path, dry));
         }
         kept
     }
@@ -806,31 +850,36 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             removes.push(self.vk_rel(&meta)?);
         }
 
-        let progress = self.progress(REMOVE_VERB, &targets, &plan)?;
-        let lock = if removed.is_empty() {
-            LockAction::Keep
-        } else {
-            LockAction::Write(&mut lockfile)
-        };
-        self.land(progress, &plan, entry, &writes, &removes, lock)?;
-        self.delete_residuals(&residual)?;
+        // 預演不建進度檔、不落地，殘留的進度檔照留（模組說明「預演」）。
+        let dry = self.dry_run;
+        if !dry {
+            let progress = self.progress(REMOVE_VERB, &targets, &plan)?;
+            let lock = if removed.is_empty() {
+                LockAction::Keep
+            } else {
+                LockAction::Write(&mut lockfile)
+            };
+            self.land(progress, &plan, entry, &writes, &removes, lock)?;
+            self.delete_residuals(&residual)?;
+        }
 
         self.report_overrides();
         for (t, image) in &removed {
             let shown = image.to_string();
-            self.say(&text::removed(t, &image.tag().to_string(), &shown));
+            self.say(&text::removed(t, &image.tag().to_string(), &shown, dry));
         }
         for t in &targets {
             if !removed.iter().any(|(r, _)| r == t) {
-                self.say(&text::recovered(t));
+                self.say(&text::recovered(t, dry));
             }
         }
         for (t, dir) in &lifted {
-            self.say(&text::lifted_override(t, dir));
-            self.say(&text::kept_local_source(t, dir));
+            self.say(&text::lifted_override(t, dir, dry));
+            self.say(&text::kept_local_source(t, dir, dry));
         }
         self.report_files(&plan);
         self.report_unretracted(&plan);
+        self.dry_run_done();
         Ok(())
     }
 
@@ -1142,27 +1191,39 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         removes.push(self.vk_rel(&local_toml)?);
         removes.extend(layout::SHELL_FILES.iter().map(PathBuf::from));
 
-        let progress = self.progress(UNINSTALL_VERB, &targets, &plan)?;
-        self.land(
-            progress,
-            &plan,
-            Entry::Remove,
-            &[],
-            &removes,
-            LockAction::RemoveFile,
-        )?;
-        self.delete_residuals(&residual)?;
+        // 預演不建進度檔、不落地，殘留的進度檔照留（模組說明「預演」）。
+        let dry = self.dry_run;
+        let mut gone: BTreeSet<PathBuf> = BTreeSet::new();
+        if dry {
+            // 留下的內容要扣掉落地時會刪的：要刪的路徑、`version.toml`、殘留的進度檔。
+            let vk = self.env.dir.vk_dir();
+            gone.extend(removes.iter().map(|p| vk.join(p)));
+            gone.insert(self.env.dir.version_toml());
+            gone.extend(residual.iter().map(|r| r.entry.path.clone()));
+        } else {
+            let progress = self.progress(UNINSTALL_VERB, &targets, &plan)?;
+            self.land(
+                progress,
+                &plan,
+                Entry::Remove,
+                &[],
+                &removes,
+                LockAction::RemoveFile,
+            )?;
+            self.delete_residuals(&residual)?;
+        }
 
         let host_root = self.env.host_root;
-        self.say(&text::uninstalled(host_root));
+        self.say(&text::uninstalled(host_root, dry));
         let listed = self.report_files(&plan);
         if let Some(local) = &local {
             for (repo, dir) in local.tools() {
-                self.say(&text::kept_local_source(repo, dir));
+                self.say(&text::kept_local_source(repo, dir, dry));
             }
         }
-        self.report_left(&listed)?;
+        self.report_left(&listed, &gone)?;
         self.report_unretracted(&plan);
+        self.dry_run_done();
         Ok(())
     }
 
@@ -1219,14 +1280,18 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         Ok(records)
     }
 
-    /// `.vendor_kit/` 裡還留著的每一項；保留清單已列過的（例如納管的 `config.toml`）不重複列。
-    fn report_left(&mut self, listed: &BTreeSet<String>) -> Step<()> {
+    /// `.vendor_kit/` 裡還留著的每一項；保留清單已列過的（例如納管的 `config.toml`）不重複列。預演時
+    /// `gone` 是落地時會刪的路徑，不算留下的。
+    fn report_left(&mut self, listed: &BTreeSet<String>, gone: &BTreeSet<PathBuf>) -> Step<()> {
         let vk = self.env.dir.vk_dir();
         let entries =
             fs::read_dir(&vk).map_err(|e| self.internal(format!("{}: {e}", vk.display())))?;
         let mut left: Vec<String> = Vec::new();
         for entry in entries {
             let entry = entry.map_err(|e| self.internal(format!("{}: {e}", vk.display())))?;
+            if gone.contains(&entry.path()) {
+                continue;
+            }
             let mut shown = self.rel(&entry.path());
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 shown.push('/');
@@ -1236,8 +1301,9 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             }
         }
         left.sort();
+        let dry = self.dry_run;
         for path in left {
-            self.say(&text::kept(&path));
+            self.say(&text::kept(&path, dry));
         }
         Ok(())
     }

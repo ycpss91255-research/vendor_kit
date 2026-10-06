@@ -76,6 +76,21 @@
 //! 中途停下時這次與第一段的進度檔都還在，鎖定行已是新版；重跑原指令照上面再做一次（薄殼與 `gen/.stamp` 只寫
 //! 不一致的，升過的 VK 檔已是上限，`config.toml` 見下一節），落地後一起刪掉。
 //!
+//! # 預演（`--dry-run`，#372 N11）
+//!
+//! 語意是這一版自訂的（契約沒寫，列給維護者確認）。`upgrade --engine --dry-run`（含 `=<tag>`、`-y`）屬救援路徑，
+//! 文法跨介面版永久不變（`args` 的 crate 文件，待維護者確認）。兩段都照上面的順序算到落地之前，差別只在：
+//!
+//! - 取安裝目錄的共享鎖，不取排他鎖（只讀）。
+//! - 第一段：解析目標（`inspect`、`pull` 照送，動到的是主機的 image store）、判降版（VK0007 照樣停下），之後
+//!   不建進度檔、不換鎖定行、不刪殘留的進度檔，也不報 VK0023；stdout 印會換上的鎖定行
+//!   （[`crate::text::would_lock_engine`]）與一行說明第二段要等重跑時由新的引擎做
+//!   （[`crate::text::would_finish_on`]）：第二段的薄殼模板與 VK 檔格式由目標引擎決定，這一版算不出來。
+//! - 第二段：不問（`config.toml` 那一題也跳過，不能互動不報 VK0002）、不落地、不刪殘留的進度檔；stdout 照
+//!   第 10 步的順序印「Would …」的寫法，合併留下衝突時照樣印 VK0021。
+//! - 兩段的最後一行都是 `prompt::DRY_RUN_DONE`，除了警告以外以 0 結束；除執行紀錄外不寫任何檔。跟 `-y` 並用時
+//!   `-y` 沒有作用。算計畫時遇到的停下（VK0008、VK0031、VK0055、缺口等）照樣以各自的結束碼停下。
+//!
 //! # config.toml
 //!
 //! 04 使用者的檔與 VK 的檔：`config.toml` 是使用者維護的檔，不是初始檔，換版與合併沿用初始檔的保護規則
@@ -186,12 +201,14 @@ pub const COMMAND_PREFIX: [&str; 2] = ["just", "vendor_kit"];
 /// 隨 image 出貨的薄殼四檔模板本文，順序同 `layout::SHELL_FILES`。
 pub type ShellTemplates = [Vec<u8>; layout::SHELL_FILES.len()];
 
-/// 一次 `upgrade --engine[=<tag>] [-y]` 的參數（`args::Command::UpgradeEngine`）與第二段要的出貨輸入。
+/// 一次 `upgrade --engine[=<tag>] [-y] [--dry-run]` 的參數（`args::Command::UpgradeEngine`）與第二段要的出貨輸入。
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
     pub tag: Option<Tag>,
     /// `-y`：第一段不詢問，只留在原指令裡；第二段預先同意全部詢問。
     pub yes: bool,
+    /// `--dry-run`：算出這一段的計畫後只印、不問、不寫（模組說明「預演」）。
+    pub dry_run: bool,
     /// 薄殼模板（入口讀 image 裡的出貨輸入）；四檔不齊是 `None`，第二段遇到就停下（模組說明「缺口」）。
     pub shell_templates: Option<&'a ShellTemplates>,
     /// 隨本引擎出貨的 `config.toml` 模板（engine/install 的 `release::CONFIG_TEMPLATE`），第二段拿它當新版。
@@ -203,6 +220,7 @@ pub fn run<W: Write, S: Sink, L: Write>(req: &Request<'_>, env: &mut Env<'_, W, 
     let mut upgrade = Upgrade {
         env,
         init: &discover_init_files,
+        dry_run: req.dry_run,
         code: 0,
         extracts: 0,
         stages: 0,
@@ -401,6 +419,13 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             .set_engine(&resolved.locked)
             .and_then(|()| lockfile.set_protocols(&target));
         set.map_err(|e| self.internal(e.to_string()))?;
+        if self.dry_run {
+            // 預演：不換鎖定行、不建進度檔、殘留的照留，也不報 VK0023（模組說明「預演」）。
+            self.say(&text::would_lock_engine(&resolved.locked));
+            self.say(&text::would_finish_on(tag));
+            self.dry_run_done();
+            return Ok(());
+        }
         let progress = self.engine_progress(&resolved.locked)?;
         self.switch(progress, &mut lockfile)?;
         // 「第一段中斷」：這次的進度檔已記著同一個目標，殘留的那份不再需要。
@@ -598,9 +623,17 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         {
             self.config_lines(config.as_ref(), tag);
             self.say(&text::unchanged(ENGINE_NAME, tag));
+            self.dry_run_done();
             return Ok(());
         }
 
+        let dry = self.dry_run;
+        if dry {
+            // 預演不問、不落地，殘留的進度檔照留（模組說明「預演」）。
+            self.engine_report(&shell_names, &migrated, config.as_ref(), &engine);
+            self.dry_run_done();
+            return Ok(());
+        }
         if !self.engine_ask(&questions, req.yes)? {
             self.say(text::NO_CHANGES);
             return Ok(());
@@ -633,22 +666,35 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             }
         }
 
-        for name in &shell_names {
-            self.say(&text::wrote_shell(name));
+        self.engine_report(&shell_names, &migrated, config.as_ref(), &engine);
+        Ok(())
+    }
+
+    /// 第二段的 stdout 字句與 `config.toml` 的警告（模組說明「第二段」第 10 步）；預演時是「Would …」的寫法。
+    fn engine_report(
+        &mut self,
+        shell_names: &[&str],
+        migrated: &[(String, u32)],
+        config: Option<&ConfigChange>,
+        engine: &ImageRef,
+    ) {
+        let dry = self.dry_run;
+        let tag = engine.tag();
+        for name in shell_names {
+            self.say(&text::wrote_shell(name, dry));
         }
-        for (file, from) in &migrated {
-            self.say(&text::migrated(file, *from, compat::THIS.max_schema));
+        for (file, from) in migrated {
+            self.say(&text::migrated(file, *from, compat::THIS.max_schema, dry));
         }
-        self.config_lines(config.as_ref(), tag);
-        self.say(&text::engine_upgraded(&engine));
-        if let Some(m) = config.as_ref().and_then(|c| c.plan.message()) {
+        self.config_lines(config, tag);
+        self.say(&text::engine_upgraded(engine, dry));
+        if let Some(m) = config.and_then(|c| c.plan.message()) {
             let d = Diagnostic::new(m)
                 .arg("file", CONFIG_TOML)
                 .arg("repo", ENGINE_NAME)
                 .arg("tag", tag.to_string());
             self.emit(d);
         }
-        Ok(())
     }
 
     /// `config.toml` 的換版與合併（模組說明「config.toml」）：只讀不寫地算出判定、要問的那一題與寫入內容。
@@ -765,10 +811,11 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         let Some(c) = config.filter(|c| !c.adopted) else {
             return;
         };
-        if let Some(line) = text::file_line(&c.plan) {
+        let dry = self.dry_run;
+        if let Some(line) = text::file_line(&c.plan, dry) {
             self.say(&line);
         }
-        if let Some(line) = text::listed_line(ENGINE_NAME, tag, &c.plan) {
+        if let Some(line) = text::listed_line(ENGINE_NAME, tag, &c.plan, dry) {
             self.say(&line);
         }
     }

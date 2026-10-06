@@ -362,6 +362,7 @@ fn run_online(
         repo,
         tag,
         yes: argv.contains(&"-y"),
+        dry_run: argv.contains(&"--dry-run"),
         registry_token_file: online.token_file.map(OsStr::new),
     };
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
@@ -1384,6 +1385,7 @@ fn progress_records_the_upgrade_table_while_landing() {
             ),
         },
         init: &|_: &Path| Ok(Vec::new()),
+        dry_run: false,
         code: 0,
         extracts: 0,
         stages: 0,
@@ -1410,4 +1412,74 @@ fn progress_records_the_upgrade_table_while_landing() {
     assert_eq!(back.command(), ["upgrade", "tool@v1.2.0"]);
     // 這次要寫的 repo 檔、內容 hash 與動作（#372 N47、N95）。
     assert_eq!(repo_files::read(&back), Ok(Some(files.to_vec())));
+}
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+#[test]
+fn dry_run_fetches_to_plan_but_asks_and_writes_nothing() {
+    let fx = Fx::new();
+    fx.managed("tool.toml", "v = 1\n", "v = 1\n");
+    let before = fx.snapshot();
+    for argv in [
+        &["upgrade", "tool@v1.2.0", "--dry-run"][..],
+        &["upgrade", "tool@v1.2.0", "-y", "--dry-run"],
+    ] {
+        // 每次執行的 in/ 也是新的（取件的 slot 不能重複）。
+        fs::remove_dir_all(&fx.inbox).unwrap();
+        fs::create_dir_all(&fx.inbox).unwrap();
+        let peer = Peer::start(&fx, NEW);
+        // 沒有終端也不報 VK0002；-y 並用沒有作用。
+        let out = run_upgrade(
+            &fx,
+            argv,
+            vec![whole("tool.toml", "v = 2\n")],
+            tty(false),
+            "",
+        );
+        // 取件照送（動到的是 session 目錄）。
+        assert!(!peer.finish().is_empty());
+        assert_eq!(out.code, 0, "{}", out.stderr);
+        assert_eq!(out.stderr, "");
+        assert_eq!(
+            out.stdout,
+            format!(
+                "Would upgrade tool from v1.0.0 to v1.2.0 ({}).\n\
+                 Would update tool.toml\n\
+                 Dry run: no changes were made.\n",
+                new_locked()
+            )
+        );
+        assert_eq!(out.log, "");
+        assert_eq!(fx.snapshot(), before);
+    }
+}
+
+#[test]
+fn dry_run_keeps_the_residual_upgrade() {
+    let fx = Fx::new();
+    residual(&fx, "tool", &new_locked(), false);
+    let before = fx.snapshot();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(
+        &fx,
+        &["upgrade", "tool@v1.2.0", "--dry-run"],
+        Vec::new(),
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Would complete the interrupted upgrade of tool to v1.2.0 ({}).\n\
+             tool is already at v1.2.0; no changes were made.\n\
+             Dry run: no changes were made.\n",
+            new_locked()
+        )
+    );
+    assert_eq!(out.log, "");
+    assert_eq!(fx.snapshot(), before);
+    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
 }
