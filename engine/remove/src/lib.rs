@@ -94,7 +94,11 @@
 //! - 殘留的進度檔不是可以併入的 verb（`add`、`install` 等），或殘留的操作要寫 repo 檔：那次寫了哪些
 //!   repo 檔沒有記錄，重新判定會把 VK 自己剛收回的結果當成使用者改過（假的 VK0061）。
 //! - `retract` 判成契約沒寫到的紀錄組合（非 `appended` 卻有 `lines` 等）。
-//! - 其他已裝、沒開覆寫的工具的 `cache/<repo>/` 讀不到（例如全新 checkout 還沒 `sync`）：重產入口檔要它。
+//! - 其他已裝、沒開覆寫的工具的 `cache/<repo>/` 讀不到（N4）：重產入口檔要它的 `<ns>`。
+//!   在詢問與任何寫入之前讀，收齊全部讀不到的工具一起報（`fetch::CacheCheck`）：
+//!   不在的合成一則、下一步 `run just vendor_kit sync first`；讀不到或損壞的各一則、保留實際原因。
+//!   兩種的草稿碼登錄前以 VK0056 停下，`<reason>` 結尾寫明草稿碼（`fetch::DRAFT_CACHE_MISSING`、
+//!   `fetch::DRAFT_CACHE_UNREADABLE`）。
 //! - 工具名不是 just 名稱。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）。
 //! - `uninstall` 收回根 `justfile` 的 `import` 與薄殼之後 `just vendor_kit` 就跑不起來；在那之後中斷，
@@ -603,6 +607,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             }
         }
         self.local = self.others_local(local.as_ref(), &targets, &lockfile)?;
+        let remaining = self.remaining(&lockfile, &targets)?;
 
         let mut records = Vec::new();
         for t in &targets {
@@ -629,7 +634,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                 Err(e) => return Err(self.internal(e.to_string())),
             }
         }
-        let entry_text = self.render_entry(&lockfile)?;
+        let entry_text = self.render_entry(&remaining)?;
         let current = read_optional(&self.env.dir.gen_dir().join(txn::TOOLS_JUST));
         let current =
             current.map_err(|e| self.internal(format!("gen/{}: {e}", txn::TOOLS_JUST)))?;
@@ -747,27 +752,38 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         Ok(out)
     }
 
-    /// 剩下的工具的入口檔：`<ns>` 讀各自的 `cache/<repo>/`；開著覆寫的用本機開發來源的 `<ns>`，那幾行
-    /// 指向本機開發來源。
-    fn render_entry(&mut self, lockfile: &LockFile) -> Step<String> {
+    /// 對象以外、剩下的工具的 `<ns>`：讀各自的 `cache/<repo>/`；開著覆寫的用本機開發來源的 `<ns>`。在詢問
+    /// 之前讀，讀不到的收齊後一起報再停下（N4，見 `fetch::CacheCheck`）。
+    fn remaining(
+        &mut self,
+        lockfile: &LockFile,
+        targets: &BTreeSet<String>,
+    ) -> Step<Vec<(String, Vec<String>)>> {
         let mut all: Vec<(String, Vec<String>)> = Vec::new();
-        for other in lockfile.tools().keys() {
+        let mut check = fetch::CacheCheck::default();
+        for other in lockfile.tools().keys().filter(|r| !targets.contains(*r)) {
             if let Some(l) = self.local.get(other) {
                 all.push((other.clone(), l.namespaces.clone()));
                 continue;
             }
             let cache = self.env.dir.tool_cache(other);
             let cache = cache.map_err(|e| self.internal(e.to_string()))?;
-            match fetch::namespaces(&cache) {
+            match fetch::cached_namespaces(&cache) {
                 Ok(ns) => all.push((other.clone(), ns)),
-                Err(e) => {
-                    return Err(self.gap(format_args!(
-                        "remove while the cache of installed tool {other} is unreadable ({e}); \
-                         run just vendor_kit sync first"
-                    )));
-                }
+                Err(e) => check.push(other, e),
             }
         }
+        if !check.is_empty() {
+            for reason in check.reasons() {
+                let _ = self.internal(reason);
+            }
+            return Err(Stop);
+        }
+        Ok(all)
+    }
+
+    /// 剩下的工具（[`Self::remaining`]）的入口檔；開著覆寫的那幾行指向本機開發來源。
+    fn render_entry(&mut self, all: &[(String, Vec<String>)]) -> Step<String> {
         let tools: Vec<tools_just::Tool> = all
             .iter()
             .map(|(repo, namespaces)| tools_just::Tool { repo, namespaces })

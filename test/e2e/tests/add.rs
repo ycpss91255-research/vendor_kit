@@ -807,3 +807,62 @@ fn image_tar_without_its_digest_sidecar_exits_2_and_leaves_the_lock_alone() {
         lock_before
     );
 }
+
+#[test]
+fn other_tools_without_a_cache_are_all_named_before_any_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    // 全新 checkout：已裝的 alpha、beta 都還沒 sync（cache/<repo>/ 不在）。
+    install(
+        &m,
+        &format!(
+            "alpha = \"ghcr.io/acme/alpha:v1.0.0@{OTHER_DIGEST}\"\nbeta = \"ghcr.io/acme/beta:v1.0.0@{OTHER_DIGEST}\"\n"
+        ),
+    );
+    let before = vk_tree(&m);
+    let lock_before = fs::read(m.root.join(".vendor_kit/version.toml")).unwrap();
+    let peer = launcher(&m, &["tool"]);
+
+    let (code, stdout, stderr) = run(&m, HOST_ROOT, "000", &["add", "tool", "-i", IMAGE]);
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0056]: Internal vendor_kit error: the cache of installed tools is missing: .vendor_kit/cache/alpha/, .vendor_kit/cache/beta/; run just vendor_kit sync first; reason code pending (draft VK0068, N4). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log /srv/proj/.vendor_kit/log/r1.jsonl.
+
+"#]]
+    );
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 2\n"));
+    assert_eq!(vk_tree(&m), before);
+    assert_eq!(
+        fs::read(m.root.join(".vendor_kit/version.toml")).unwrap(),
+        lock_before
+    );
+    assert!(!events(&m).iter().any(|e| e == "writes_started"));
+}
+
+#[test]
+fn an_unchanged_add_does_not_read_other_tools() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    // tool 已以同一版導入；alpha 的 cache 不在，但未變更的 add 不讀其他工具，照常以 0 結束。
+    install(
+        &m,
+        &format!(
+            "alpha = \"ghcr.io/acme/alpha:v1.0.0@{OTHER_DIGEST}\"\ntool = \"{IMAGE}@{DIGEST}\"\n"
+        ),
+    );
+    let before = vk_tree(&m);
+    let peer = launcher(&m, &["tool"]);
+
+    let (code, _stdout, stderr) = run(&m, HOST_ROOT, "000", &["add", "tool", "-i", IMAGE]);
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(stderr, "");
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+    assert_eq!(vk_tree(&m), before);
+}

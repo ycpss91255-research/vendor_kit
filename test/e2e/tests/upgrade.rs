@@ -493,3 +493,65 @@ fn listing_a_private_tool_without_a_token_file_is_vk0001() {
     assert!(seen.requests.is_empty(), "{:?}", seen.requests);
     assert_eq!(snapshot(&m), before);
 }
+
+/// `tool` 之外再裝 alpha、beta（版本鎖定行），兩者的 `cache/<repo>/` 都還沒放。
+fn install_with_others(m: &Mounts) {
+    install(m);
+    fs::write(
+        m.root.join(".vendor_kit/version.toml"),
+        format!(
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nalpha = \"ghcr.io/acme/alpha:v1.0.0@{OTHER_DIGEST}\"\nbeta = \"ghcr.io/acme/beta:v1.0.0@{OTHER_DIGEST}\"\ntool = \"{OLD}\"\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn other_tools_whose_cache_cannot_be_read_are_all_named_before_any_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install_with_others(&m);
+    // alpha 還沒 sync；beta 的 cache 損壞（just/ 是一般檔），保留實際原因。
+    fs::create_dir_all(m.root.join(".vendor_kit/cache/beta")).unwrap();
+    fs::write(
+        m.root.join(".vendor_kit/cache/beta/just"),
+        "not a directory\n",
+    )
+    .unwrap();
+    let before = snapshot(&m);
+    let peer = launcher(&m, false);
+
+    let (code, stdout, stderr) = run(&m, &["upgrade", "tool@v1.2.0"]);
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0056]: Internal vendor_kit error: the cache of installed tools is missing: .vendor_kit/cache/alpha/; run just vendor_kit sync first; reason code pending (draft VK0068, N4). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log /srv/proj/.vendor_kit/log/r1.jsonl.
+vendor_kit: error[VK0056]: Internal vendor_kit error: the cache of installed tool beta (.vendor_kit/cache/beta/) cannot be read: dist has no just/ directory; reason code pending (draft VK0073, N4). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log /srv/proj/.vendor_kit/log/r1.jsonl.
+
+"#]]
+    );
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 2\n"));
+    assert_eq!(snapshot(&m), before);
+    assert!(!events(&m).iter().any(|e| e == "writes_started"));
+}
+
+#[test]
+fn an_unchanged_upgrade_does_not_read_other_tools() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install_with_others(&m);
+    let before = snapshot(&m);
+    let peer = launcher(&m, false);
+
+    let (code, _stdout, stderr) = run(&m, &["upgrade", "tool@v1.0.0"]);
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(stderr, "");
+    assert!(seen.requests.is_empty(), "{:?}", seen.requests);
+    assert_eq!(snapshot(&m), before);
+}

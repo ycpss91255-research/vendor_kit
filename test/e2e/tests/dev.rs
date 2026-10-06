@@ -1003,3 +1003,40 @@ vendor_kit: error[VK0046]: Tool tool is not in the lock version lines. The reque
     );
     assert_eq!(snapshot(&m), before);
 }
+
+#[test]
+fn dev_names_every_other_tool_whose_cache_cannot_be_read_before_any_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+    // 全新 checkout：alpha、gamma 還沒 sync；beta 的 cache 損壞（just/ 是一般檔）。
+    fs::write(
+        vk.join("version.toml"),
+        format!(
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nalpha = \"ghcr.io/acme/alpha:v1.0.0@{DIGEST}\"\nbeta = \"ghcr.io/acme/beta:v1.0.0@{DIGEST}\"\ngamma = \"ghcr.io/acme/gamma:v1.0.0@{DIGEST}\"\ntool = \"{IMAGE}@{DIGEST}\"\n"
+        ),
+    )
+    .unwrap();
+    fs::create_dir_all(vk.join("cache/beta")).unwrap();
+    fs::write(vk.join("cache/beta/just"), "not a directory\n").unwrap();
+    let src = m.root.join("work/tool/just");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo local\n").unwrap();
+    let before = snapshot(&m);
+
+    let (code, stdout, stderr) = run_idle(&m, &["dev", "tool", "-p", "./work/tool"]);
+
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0056]: Internal vendor_kit error: the cache of installed tools is missing: .vendor_kit/cache/alpha/, .vendor_kit/cache/gamma/; run just vendor_kit sync first; reason code pending (draft VK0068, N4). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log /srv/proj/.vendor_kit/log/r1.jsonl.
+vendor_kit: error[VK0056]: Internal vendor_kit error: the cache of installed tool beta (.vendor_kit/cache/beta/) cannot be read: dist has no just/ directory; reason code pending (draft VK0073, N4). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log /srv/proj/.vendor_kit/log/r1.jsonl.
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
+    assert!(!events(&m).iter().any(|e| e == "writes_started"));
+}

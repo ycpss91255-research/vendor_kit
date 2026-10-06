@@ -31,6 +31,10 @@
 //! 沒有對應的代碼，[`Error::message`] 回 `None`；VK0043 只寫 sync 的情況，sync 的呼叫端可自行對應。
 //! 逐檔指紋不符不用 VK0015：那是 sync 發現 `cache/` 不符、已重新取件的警告，不是暫存內容的錯誤。
 //!
+//! 已裝工具的 `cache/<repo>/` 讀不到（[`cached_namespaces`]）分成不在（草稿碼 VK0068，下一步 `sync`）與讀不到
+//! 或損壞（草稿碼 VK0073）；兩個草稿碼登錄前，`add`、`upgrade`、`remove`、`dev` 以 VK0056 停下，`<reason>` 由
+//! [`CacheCheck`] 收齊這次全部讀不到的工具再產生。
+//!
 //! # 呼叫端負責的事
 //!
 //! - inspect 輸出的解析：這裡收已經取出的 RepoDigests 字串。
@@ -337,6 +341,76 @@ pub fn namespaces(root: &Path) -> Result<Vec<String>, FormatError> {
     Ok(out)
 }
 
+/// 讀已裝工具的 `cache/<repo>/`（`cache` 是那個目錄）裡的全部 `<ns>`，讀不到時分成兩種（N4）：
+///
+/// - `cache/<repo>/` 本身不在（全新 checkout 還沒 `sync`、手動刪掉）：[`CacheError::Missing`]，`sync` 補得好。
+/// - 在，但讀不到或內容不合交付格式（權限、損壞）：[`CacheError::Unreadable`]，保留實際原因。
+pub fn cached_namespaces(cache: &Path) -> Result<Vec<String>, CacheError> {
+    match fs::symlink_metadata(cache) {
+        Ok(_) => namespaces(cache).map_err(CacheError::Unreadable),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(CacheError::Missing),
+        Err(source) => Err(CacheError::Unreadable(FormatError::Io {
+            path: cache.to_path_buf(),
+            source,
+        })),
+    }
+}
+
+/// 收齊一次執行裡讀不到 `cache/<repo>/` 的已裝工具（N4），在任何寫入之前一起報。
+///
+/// 草稿碼 VK0068（`cache/<repo>/` 不在，下一步 `sync`）與 VK0073（VK 管的檔讀不到）登錄前，呼叫端以 VK0056
+/// 停下，`<reason>` 用 [`CacheCheck::reasons`]：缺的工具合成一則、結尾是 [`DRAFT_CACHE_MISSING`]；讀不到的
+/// 每個工具一則、結尾是 [`DRAFT_CACHE_UNREADABLE`]。
+#[derive(Debug, Default)]
+pub struct CacheCheck {
+    missing: Vec<String>,
+    unreadable: Vec<(String, FormatError)>,
+}
+
+impl CacheCheck {
+    /// 記下一個讀不到的工具。
+    pub fn push(&mut self, repo: &str, e: CacheError) {
+        match e {
+            CacheError::Missing => self.missing.push(repo.to_owned()),
+            CacheError::Unreadable(e) => self.unreadable.push((repo.to_owned(), e)),
+        }
+    }
+
+    /// 全部讀得到。
+    pub fn is_empty(&self) -> bool {
+        self.missing.is_empty() && self.unreadable.is_empty()
+    }
+
+    /// 每則 VK0056 的 `<reason>`：缺的工具（依記下的順序）合成一則在前，讀不到的每個工具各一則在後。
+    pub fn reasons(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if !self.missing.is_empty() {
+            let dirs: Vec<String> = self
+                .missing
+                .iter()
+                .map(|r| format!(".vendor_kit/cache/{r}/"))
+                .collect();
+            out.push(format!(
+                "the cache of installed tools is missing: {}; run just vendor_kit sync first; \
+                 {DRAFT_CACHE_MISSING}",
+                dirs.join(", ")
+            ));
+        }
+        for (repo, e) in &self.unreadable {
+            out.push(format!(
+                "the cache of installed tool {repo} (.vendor_kit/cache/{repo}/) cannot be read: {e}; \
+                 {DRAFT_CACHE_UNREADABLE}"
+            ));
+        }
+        out
+    }
+}
+
+/// `cache/<repo>/` 不在：草稿碼 VK0068（N4）登錄前，以 VK0056 停下時 `<reason>` 的結尾。
+pub const DRAFT_CACHE_MISSING: &str = "reason code pending (draft VK0068, N4)";
+/// `cache/<repo>/` 讀不到或損壞：草稿碼 VK0073（N4）登錄前，以 VK0056 停下時 `<reason>` 的結尾。
+pub const DRAFT_CACHE_UNREADABLE: &str = "reason code pending (draft VK0073, N4)";
+
 /// just 的名稱：`[A-Za-z_][A-Za-z0-9_-]*`。
 pub fn is_namespace(s: &str) -> bool {
     let mut b = s.bytes();
@@ -389,6 +463,24 @@ impl std::error::Error for FormatError {
         match self {
             FormatError::Io { source, .. } => Some(source),
             _ => None,
+        }
+    }
+}
+
+/// [`cached_namespaces`] 讀不到已裝工具的 `cache/<repo>/`。
+#[derive(Debug)]
+pub enum CacheError {
+    /// `cache/<repo>/` 不在：先 `sync`（草稿碼 VK0068）。
+    Missing,
+    /// `cache/<repo>/` 在，但讀不到或不合交付格式：`sync` 不一定修得好，保留實際原因（草稿碼 VK0073）。
+    Unreadable(FormatError),
+}
+
+impl fmt::Display for CacheError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CacheError::Missing => write!(f, "the cache directory does not exist"),
+            CacheError::Unreadable(e) => e.fmt(f),
         }
     }
 }

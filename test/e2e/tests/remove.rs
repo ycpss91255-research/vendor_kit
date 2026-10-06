@@ -481,3 +481,50 @@ Kept .gitignore
     );
     assert_eq!(events(&m), REMOVED_EVENTS);
 }
+
+#[test]
+fn other_tools_whose_cache_cannot_be_read_stop_before_the_question_and_any_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    installed_with_insert(&m, GITIGNORE);
+    let vk = m.root.join(".vendor_kit");
+    // 全新 checkout：alpha、gamma 還沒 sync（cache/<repo>/ 不在）；beta 的 cache 損壞（just/ 是一般檔）。
+    fs::write(
+        vk.join("version.toml"),
+        format!(
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nalpha = \"ghcr.io/acme/alpha:v1.0.0@{DIGEST}\"\nbeta = \"ghcr.io/acme/beta:v1.0.0@{DIGEST}\"\ngamma = \"ghcr.io/acme/gamma:v1.0.0@{DIGEST}\"\ntool = \"{IMAGE}@{DIGEST}\"\n"
+        ),
+    )
+    .unwrap();
+    fs::create_dir_all(vk.join("cache/beta")).unwrap();
+    fs::write(vk.join("cache/beta/just"), "not a directory\n").unwrap();
+    let before = vk_tree(&m);
+    let lock_before = fs::read_to_string(vk.join("version.toml")).unwrap();
+    let peer = idle_launcher(&m);
+
+    // 沒有終端機：先問的話會是 VK0002；cache 讀不到要在詢問之前就停。
+    let (code, stdout, stderr) = run(&m, "000", "", &["remove", "tool"]);
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0056]: Internal vendor_kit error: the cache of installed tools is missing: .vendor_kit/cache/alpha/, .vendor_kit/cache/gamma/; run just vendor_kit sync first; reason code pending (draft VK0068, N4). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log /srv/proj/.vendor_kit/log/r1.jsonl.
+vendor_kit: error[VK0056]: Internal vendor_kit error: the cache of installed tool beta (.vendor_kit/cache/beta/) cannot be read: dist has no just/ directory; reason code pending (draft VK0073, N4). This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log /srv/proj/.vendor_kit/log/r1.jsonl.
+
+"#]]
+    );
+    assert!(seen.requests.is_empty());
+    assert_eq!(
+        fs::read_to_string(m.root.join(".gitignore")).unwrap(),
+        GITIGNORE
+    );
+    assert_eq!(
+        fs::read_to_string(vk.join("version.toml")).unwrap(),
+        lock_before
+    );
+    assert_eq!(vk_tree(&m), before);
+    assert!(!events(&m).iter().any(|e| e == "writes_started"));
+}

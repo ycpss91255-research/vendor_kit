@@ -95,7 +95,12 @@
 //!   `justfile` 的 recipe 與 module 這一版不比對。
 //! - `undev <repo>` 取到的內容與同一版本的既有印記不符（計畫 G1）、交付格式不符（G2），或交付保留名
 //!   `vendor_kit`：重跑也補不好，VK0053 的「請再執行一次」不適用，在寫任何檔之前停下（同 engine/sync）。
-//! - 其他工具的 `cache/<repo>/` 讀不到（例如還沒 `sync`）：重產入口檔要用到它的 `<ns>`。
+//! - 其他沒開覆寫的工具的 `cache/<repo>/` 讀不到（N4）：重產入口檔要用到它的 `<ns>`。
+//!   只在要重產入口檔時讀，在任何寫入之前收齊全部讀不到的工具一起報（`fetch::CacheCheck`）：
+//!   不在的合成一則、下一步 `run just vendor_kit sync first`；讀不到或損壞的各一則、保留實際原因。
+//!   兩種的草稿碼登錄前以 VK0056 停下，`<reason>` 結尾寫明草稿碼（`fetch::DRAFT_CACHE_MISSING`、
+//!   `fetch::DRAFT_CACHE_UNREADABLE`）。
+//!   `undev` 不另加檢查；它要重產入口檔時讀不到同樣停下，訊息相同。
 //! - 殘留的進度檔是其他 verb 的，或 `dev`、`undev` 但對象不同：怎麼併入沒定。
 //! - 中途寫檔失敗沒有代碼（G4），`undev` 解除覆寫後的那一段（換 `cache/`、寫入口檔、刪進度檔）除外
 //!   （VK0053）。
@@ -755,6 +760,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         let mut known = known.unwrap_or_default();
         let mut dirs: BTreeMap<String, Source> = BTreeMap::new();
         let mut blocked: Vec<Diagnostic> = Vec::new();
+        let mut check = fetch::CacheCheck::default();
         for repo in lockfile.tools().keys() {
             let source = local.tool(repo);
             if let Some(source) = source {
@@ -785,18 +791,19 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                         Ok(c) => c,
                         Err(e) => return Err(self.internal(e.to_string())),
                     };
-                    match fetch::namespaces(&cache) {
+                    match fetch::cached_namespaces(&cache) {
                         Ok(ns) => ns,
                         Err(e) => {
-                            blocked.push(self.gap_diag(format_args!(
-                                "regenerating gen/tools.just while cache/{repo}/ cannot be read ({e})"
-                            )));
+                            check.push(repo, e);
                             continue;
                         }
                     }
                 }
             };
             known.insert(repo.clone(), ns);
+        }
+        for reason in check.reasons() {
+            blocked.push(self.internal_diag(reason));
         }
         if !blocked.is_empty() {
             for d in blocked {
