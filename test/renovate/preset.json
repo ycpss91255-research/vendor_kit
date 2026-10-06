@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "vendor_kit: track the engine and tool lock lines in .vendor_kit/version.toml (release tags vX.Y.Z only)",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "vendor_kit lock lines: <key> = \"ghcr.io/<path>:vX.Y.Z@sha256:<digest>\"",
+      "managerFilePatterns": ["/(^|/)\\.vendor_kit/version\\.toml$/"],
+      "matchStrings": [
+        "(?:^|\\n)[A-Za-z0-9_-]+ = \"(?<depName>ghcr\\.io/[^\":@]+):(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)@(?<currentDigest>sha256:[0-9a-f]{64})\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^v(?<major>0|[1-9][0-9]*)\\.(?<minor>0|[1-9][0-9]*)\\.(?<patch>0|[1-9][0-9]*)$"
+    }
+  ]
+}

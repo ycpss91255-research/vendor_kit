@@ -10,8 +10,11 @@ description = "端到端測試：只經編好的 vendor_kit 執行檔，比對 s
 [dependencies]
 sha2.workspace = true
 
+# serde_json、regex：tests/renovate.rs 讀 test/renovate/preset.json，拿它的 matchStrings 比對 version.toml。
 [dev-dependencies]
 assert_cmd.workspace = true
+regex.workspace = true
+serde_json.workspace = true
 snapbox.workspace = true
 tempfile.workspace = true
 
