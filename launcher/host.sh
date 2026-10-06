@@ -8,6 +8,8 @@
 # - 只呼叫 docker 與 just 本身；主機不呼叫 git，「在 git repo 裡」以往上找 `.git` 判斷。
 # - 讀版本鎖定行的引擎行（vk_lock_engine_ref）也在這裡：同樣沒有副作用、排在建紀錄之前，
 #   薄殼的 log.sh（main.sh）與 bootstrap.sh 共用，各自決定讀不出時報哪一條診斷。
+#   本機覆寫的引擎行（vk_local_engine_ref，讀 version.local.toml）用同一套讀法，只有薄殼的 log.sh 讀；
+#   bootstrap.sh 不讀（04 用哪一版引擎：檢查、修復不套用本機覆寫）。
 #   引擎行旁記的介面版列表（vk_lock_protocols）同樣只讀不寫，由 launch.sh 的介面版判定在建紀錄之後讀：
 #   救援呼叫不讀它，列表缺漏或格式錯時救援路徑仍可用（N13）。
 #
@@ -124,13 +126,15 @@ vk_find_git() {
     return 1
 }
 
-# vk_lock_engine_ref <version.toml>：版本鎖定行裡引擎那一行的值（pinned 引用）放進 REPLY，回 0。
-# 引擎行是唯一符合 `^vendor_kit[[:space:]]*=` 的行（ADR-0002），以 `while read` 加字串比對，不用 grep；
-# 行尾的 CR 先去掉（ADR-0012：CRLF 與 LF 等價）。只讀到雙引號為止，其餘的形狀由引擎檢查。
-# 檔不存在算命中 0 行。讀不出（命中數不是 1、值不是雙引號裡的 pinned 引用、檔讀不到）時不印診斷，
-# 把原因（英文、不含結尾句點）放進 REPLY、回 1。
-vk_lock_engine_ref() {
-    local file=$1 line hit='' n=0
+# vk_engine_line <file> <what> <pinned|any>：讀 file 裡的引擎行，值放進 REPLY，回 0。
+# 引擎行是符合 `^vendor_kit[[:space:]]*=` 的行（ADR-0002；`vendor_kit_protocols` 不算），以 `while read` 加字串
+# 比對，不用 grep；行尾的 CR 先去掉（ADR-0012：CRLF 與 LF 等價）。只讀到雙引號為止，其餘的形狀由引擎檢查。
+# 檔不存在算命中 0 行。pinned（版本鎖定行）要命中恰好 1 行、值是 pinned 引用；any（本機覆寫）命中 0 或 1 行，
+# 0 行時 REPLY 是空字串，值只要是 image 引用（wire.sh 的 vk_wire_ref；例如 `vendor_kit:dev` 或 image ID）。
+# what 是原因裡的名稱（`engine lock`、`engine override`）。讀不出（命中數不合、值不是雙引號裡的引用、檔讀不到）
+# 時不印診斷，把原因（英文、不含結尾句點）放進 REPLY、回 1。
+vk_engine_line() {
+    local file=$1 what=$2 kind=$3 line hit='' n=0
     if [[ -e $file ]]; then
         if [[ ! -f $file || ! -r $file ]]; then
             REPLY="cannot read $file"
@@ -144,24 +148,48 @@ vk_lock_engine_ref() {
             fi
         done <"$file"
     fi
-    if ((n != 1)); then
-        REPLY="$file has $n engine lock lines, exactly 1 is required"
+    if [[ $kind == pinned ]] && ((n != 1)); then
+        REPLY="$file has $n $what lines, exactly 1 is required"
         return 1
+    fi
+    if ((n > 1)); then
+        REPLY="$file has $n $what lines, at most 1 is allowed"
+        return 1
+    fi
+    if ((n == 0)); then
+        REPLY=
+        return 0
     fi
     local value=${hit#*=}
     value=${value#"${value%%[![:space:]]*}"}
     if [[ $value != \"*\"* ]]; then
-        REPLY="the engine lock line in $file is not a double-quoted string"
+        REPLY="the $what line in $file is not a double-quoted string"
         return 1
     fi
     value=${value#\"}
     value=${value%%\"*}
-    if ! vk_wire_ref "$value" pinned; then
-        REPLY="the engine lock line in $file is not a pinned image reference"
+    if ! vk_wire_ref "$value" "$kind"; then
+        if [[ $kind == pinned ]]; then
+            REPLY="the $what line in $file is not a pinned image reference"
+        else
+            REPLY="the $what line in $file is not an image reference"
+        fi
         return 1
     fi
     REPLY=$value
     return 0
+}
+
+# vk_lock_engine_ref <version.toml>：版本鎖定行裡引擎那一行的值（pinned 引用）放進 REPLY，回 0。
+# 命中數要恰好 1；讀不出時同 vk_engine_line，不印診斷，原因放進 REPLY、回 1。
+vk_lock_engine_ref() {
+    vk_engine_line "$1" 'engine lock' pinned
+}
+
+# vk_local_engine_ref <version.local.toml>：本機覆寫的引擎行（`dev --engine -i` 寫的 image 引用，ADR-0010）
+# 放進 REPLY，回 0；沒有覆寫（檔不存在或命中 0 行）時 REPLY 是空字串。讀不出時同 vk_engine_line、回 1。
+vk_local_engine_ref() {
+    vk_engine_line "$1" 'engine override' any
 }
 
 # vk_lock_protocols <version.toml>：引擎鎖定行旁記的介面版列表（`vendor_kit_protocols = "<列表>"`，N13）

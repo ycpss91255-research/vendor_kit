@@ -10,9 +10,21 @@
 #      VK0009（fatal 3），除執行紀錄外零寫入（ADR-0008）。救援呼叫不判、不讀列表。
 #   5. 取得引擎 image（vk_launch_obtain，N40）：本機沒有才 pull 鎖定的 pinned 引用（有逾時，N59），
 #      取不到回 VK0036。救援呼叫也一樣。一般路徑接著讀 image 的 LABEL 跟列表核對，不一致就不起容器。
+#   第 4、5 步在有引擎的本機覆寫時改走 vk_launch_local（N55，見下面「本機覆寫」）。
 #   6. 起引擎：用法、安裝目錄（VK0028）與檔案版（VK0008）都由引擎判。
 #   第 6 步（建 session 目錄、寫 in/engine、起引擎、收尾）是 vk_launch_session，bootstrap.sh 的首次導入、只檢查
 #   與 --repair 也用它。
+#
+# 本機覆寫（N55；ADR-0010：「指定用哪個 image 當引擎」只有 version.local.toml 的引擎行這一個機制）：
+# - 薄殼的 log.sh（main.sh）把覆寫的 image 放進 vk_launch_override；空字串是沒有覆寫，照上面的順序走。
+# - 有覆寫時引擎容器用那個 image，救援呼叫也是（開發者要能用自己的引擎驗 sync、install）。in/engine 照舊寫
+#   鎖定的 pinned 引用：它是版本鎖定行的值，不是這次跑哪個 image。
+# - 覆寫的 image 是本機 image，不 pull，也不讀 version.toml 的介面版列表（列表只對應鎖定的引擎，列表壞掉也
+#   不擋覆寫）。介面版改用它的 LABEL 判：[floor, current] 要含薄殼的 P（ADR-0010：比薄殼舊、但仍含 P 的
+#   引擎允許跑）。不合與本機沒有那個 image 都還沒有專屬代碼，以 VK0056 停下（過渡做法）。救援呼叫不判介面版。
+# - `undev --engine`（`--` 之前帶 `--engine`）不套用覆寫，用鎖定的引擎：覆寫的 image 不在了也解除得了
+#   （04 本機覆寫：覆寫來源失效只擋需讀它的動作）。
+# - bootstrap.sh 不讀覆寫（04 用哪一版引擎）。
 #
 # 引擎與往返（文法見 wire.sh 與 engine/plan）：
 # - repo 外的 session 目錄 `${TMPDIR:-/tmp}/vendor_kit.<run-id>/`，以 mkdir -m 700 排他建立；
@@ -66,6 +78,12 @@ vk_pull_timeout=600
 vk_pending_list='reason code pending (draft VK0070, N13)'
 vk_pending_newer='reason code pending (draft VK0076, N82)'
 vk_pending_label='reason code pending (draft VK0080, N13)'
+vk_pending_local_missing='reason code pending (draft VK0036, N55)'
+vk_pending_local_older='reason code pending (draft VK0076, N55)'
+vk_pending_local_newer='reason code pending (draft VK0009, N55)'
+
+# 本機覆寫的引擎 image（main.sh 從 version.local.toml 讀）；空字串是沒有覆寫。
+vk_launch_override=
 
 vk_launch_stop=none
 
@@ -89,6 +107,24 @@ vk_launch_is_rescue() {
             return 1
         fi
         if [[ $a == --engine || $a == --engine=* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# vk_launch_is_undev_engine [<recipe> <args>...]：`undev` 在 `--` 之前帶 `--engine`（解除引擎覆寫）回 0。
+vk_launch_is_undev_engine() {
+    if [[ ${1:-} != undev ]]; then
+        return 1
+    fi
+    shift
+    local a
+    for a in "$@"; do
+        if [[ $a == -- ]]; then
+            return 1
+        fi
+        if [[ $a == --engine ]]; then
             return 0
         fi
     done
@@ -200,6 +236,34 @@ vk_launch_interface() {
     return 0
 }
 
+# vk_launch_local <image> <P_shell> <rescue 0|1>：本機覆寫的引擎 image（N55）。本機要有那個 image，不 pull；
+# 一般路徑另以它的 LABEL 判介面版：[floor, current] 要含 P_shell。不讀 version.toml 的介面版列表。
+# 合回 0；不合印診斷回 1（都還沒有專屬代碼，以 VK0056 停下）。
+vk_launch_local() {
+    local image=$1 proto=$2 rescue=$3
+    if ! vk_launch_labels "$image"; then
+        vk_launch_internal "the local engine override image $image is not available locally and is not pulled; $vk_pending_local_missing"
+        return 1
+    fi
+    if ((rescue)); then
+        return 0
+    fi
+    local floor=$vk_image_floor current=$vk_image_current
+    if [[ ! $floor =~ $vk_wire_re_proto || ! $current =~ $vk_wire_re_proto ]] || ((floor > current)); then
+        vk_launch_internal "the engine image $image does not announce a valid interface version range"
+        return 1
+    fi
+    if ((proto > current)); then
+        vk_launch_internal "shell interface version $proto is newer than the interface versions $floor-$current accepted by the local engine override image $image; $vk_pending_local_older"
+        return 1
+    fi
+    if ((proto < floor)); then
+        vk_launch_internal "shell interface version $proto is older than the interface versions $floor-$current accepted by the local engine override image $image; $vk_pending_local_newer"
+        return 1
+    fi
+    return 0
+}
+
 # vk_launch_user：引擎與 runner 以誰的身分跑，放進陣列 vk_user_args。
 # rootless Docker 已把容器的 root 對到主機使用者，不另指定；其他情況用主機的 uid:gid，寫出的檔才是使用者的。
 vk_launch_user() {
@@ -236,7 +300,8 @@ vk_launch() {
         REPLY=$vk_diag_exit
         return "$REPLY"
     fi
-    if [[ $root != /* || $cwd != /* ]] || ! vk_wire_ref "$engine" pinned || [[ ! $proto =~ $vk_wire_re_proto ]]; then
+    if [[ $root != /* || $cwd != /* ]] || ! vk_wire_ref "$engine" pinned || [[ ! $proto =~ $vk_wire_re_proto ]] ||
+        { [[ -n $vk_launch_override ]] && ! vk_wire_ref "$vk_launch_override"; }; then
         vk_launch_internal "invalid launcher arguments"
         REPLY=$vk_diag_exit
         return "$REPLY"
@@ -268,8 +333,19 @@ vk_launch() {
         return "$REPLY"
     fi
 
+    # 本機覆寫：用覆寫的 image，不 pull、不讀列表；undev --engine 不套用（見檔頭「本機覆寫」）。
+    local image=$engine override=$vk_launch_override
+    if vk_launch_is_undev_engine "$@"; then
+        override=
+    fi
+    if [[ -n $override ]]; then
+        if ! vk_launch_local "$override" "$proto" "$rescue"; then
+            vk_launch_finish ""
+            return "$REPLY"
+        fi
+        image=$override
     # 救援呼叫不判介面版、不讀列表，但本機沒有 image 時一樣要 pull（N40）。
-    if ((rescue)); then
+    elif ((rescue)); then
         if ! vk_launch_obtain "$engine"; then
             vk_launch_finish ""
             return "$REPLY"
@@ -279,7 +355,7 @@ vk_launch() {
         return "$REPLY"
     fi
 
-    vk_launch_session "$root" "$cwd" "$engine" "$engine" "$proto" "$run_id" "$run_log" "$@"
+    vk_launch_session "$root" "$cwd" "$image" "$engine" "$proto" "$run_id" "$run_log" "$@"
 }
 
 # vk_launch_session <host_root> <host_cwd> <image> <engine_ref> <P> <run-id> <run-log> [<recipe> <args>...]：
