@@ -40,10 +40,10 @@ pub const COMMAND_KEY: &str = "command";
 /// | 鍵 | 值 |
 /// |---|---|
 /// | [`upgrade::TARGET`] | 對象：工具填 `<repo>`，引擎填 [`upgrade::ENGINE_TARGET`] |
-/// | [`upgrade::IMAGE`] | 工具：這次換上的版本鎖定行的值（`<registry>/<路徑>:<tag>@<digest>`） |
-/// | [`upgrade::INIT_FILES`] | 工具：這次有沒有寫初始檔相關的檔（repo 檔、逐檔紀錄、基準版副本） |
+/// | [`upgrade::IMAGE`] | 這次換上的版本鎖定行的值（`<registry>/<路徑>:<tag>@<digest>`）；引擎的是目標引擎，tag 填 VK0023 的 `<vY>` |
+/// | [`upgrade::INIT_FILES`] | 工具：這次有沒有寫初始檔相關的檔（repo 檔、逐檔紀錄、基準版副本）；引擎不記 |
 ///
-/// 引擎 upgrade 的其他欄位等 `upgrade --engine` 實作時再定。原指令仍在共同欄位 [`COMMAND_KEY`]。
+/// 原指令仍在共同欄位 [`COMMAND_KEY`]。
 pub mod upgrade {
     use super::Progress;
 

@@ -836,7 +836,36 @@ fn residual_tool_upgrade_progress_is_vk0041_with_the_original_command() {
 }
 
 #[test]
-fn residual_engine_upgrade_or_upgrade_without_target_is_a_gap() {
+fn residual_engine_upgrade_progress_is_vk0023_with_the_target_tag_and_the_original_command() {
+    let fx = Fx::new();
+    let mut p =
+        Progress::new(UPGRADE_VERB, "r0", &[UPGRADE_VERB, "--engine=v1.4.0", "-y"]).unwrap();
+    let doc = p.document_mut();
+    doc.set(
+        &[progress::upgrade::TABLE, progress::upgrade::TARGET],
+        progress::upgrade::ENGINE_TARGET,
+    )
+    .unwrap();
+    doc.set(
+        &[progress::upgrade::TABLE, progress::upgrade::IMAGE],
+        "ghcr.io/ycpss91255-research/vendor_kit:v1.4.0@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    )
+    .unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    let before = fx.snapshot();
+    let out = run_update(&fx, None);
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0023]: Engine v1.4.0 is now installed. Run again: just vendor_kit upgrade --engine=v1.4.0 -y\n"
+    );
+    // 唯讀 recipe：不恢復、不刪進度檔。
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn residual_engine_upgrade_without_image_or_upgrade_without_target_is_a_gap() {
     let fx = Fx::new();
     fx.residual(
         UPGRADE_VERB,
@@ -848,7 +877,7 @@ fn residual_engine_upgrade_or_upgrade_without_target_is_a_gap() {
     assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
     assert!(
         out.stderr
-            .contains("reporting the incomplete engine upgrade"),
+            .contains("reporting the incomplete engine upgrade in .vendor_kit/.tmp.upgrade.r0.toml without its [upgrade] image field"),
         "{}",
         out.stderr
     );

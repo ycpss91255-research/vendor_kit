@@ -18,14 +18,14 @@ const OCI_INDEX: &str = "application/vnd.oci.image.index.v1+json";
 
 /// 假 registry 裡的一個 image 路徑：tag 清單、每個 tag 指向的 digest、要不要 [`GOOD_TOKEN`]。
 #[derive(Clone)]
-struct Repo {
+pub(super) struct Repo {
     tags: Vec<&'static str>,
     digests: Vec<(&'static str, &'static str)>,
-    private: bool,
+    pub(super) private: bool,
 }
 
 /// `acme/tool` 公開，列出 `tags`，每個 `vX.Y.Z` 都指向 [`DIGEST`]。
-fn public(tags: &[&'static str]) -> Repo {
+pub(super) fn public(tags: &[&'static str]) -> Repo {
     Repo {
         tags: tags.to_vec(),
         digests: tags.iter().map(|t| (*t, DIGEST)).collect(),
@@ -36,14 +36,14 @@ fn public(tags: &[&'static str]) -> Repo {
 /// GHCR 的樣子（token 認證）：沒帶 Bearer 回 401 加 challenge；`/token` 匿名給 `anon`，Basic 帶
 /// [`GOOD_TOKEN`] 給 `pat`，其他 Basic 回 401；`tags/list` 與 HEAD `manifests/<tag>` 依 [`Repo`] 回，私有的
 /// 匿名回 403，沒列的路徑或 tag 回 404。
-struct Registry {
+pub(super) struct Registry {
     base: String,
     /// 收到的請求（`<方法> <目標>`）與有沒有帶 Bearer，依序。
     log: Arc<Mutex<Vec<(String, bool)>>>,
 }
 
 impl Registry {
-    fn start(path: &str, repo: Repo) -> Registry {
+    pub(super) fn start(path: &str, repo: Repo) -> Registry {
         let repos: BTreeMap<String, Repo> = [(path.to_owned(), repo)].into_iter().collect();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -64,12 +64,12 @@ impl Registry {
         Registry { base, log }
     }
 
-    fn client(&self) -> Client {
+    pub(super) fn client(&self) -> Client {
         Client::with_base_url(&self.base).unwrap()
     }
 
     /// 帶 Bearer 的請求（`<方法> <目標>`）：不含第一次沒帶認證被回 401 的那一次，也不含換 token 的 `/token`。
-    fn requests(&self) -> Vec<String> {
+    pub(super) fn requests(&self) -> Vec<String> {
         let log = self.log.lock().unwrap();
         log.iter()
             .filter(|(_, bearer)| *bearer)

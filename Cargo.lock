@@ -1224,6 +1224,7 @@ dependencies = [
 name = "upgrade"
 version = "0.0.0"
 dependencies = [
+ "compat",
  "config",
  "diagnostics",
  "fetch",
