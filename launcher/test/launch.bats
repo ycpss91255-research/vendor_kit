@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # 啟動流程（launch.sh）：判定順序、起唯一的引擎、代辦每種 op 的 req→res 位元組、非法 req（VK0056）、
 # 救援呼叫辨識、離線的介面版判定（VK0009，N13）與缺 image 才 pull（N40）、done 與容器結束碼的核對、
-# 中斷（N49）、收尾。
+# 中斷（N49）、收尾、本機覆寫的引擎（N55）。
 # docker 是假的（fixture/fake_docker.bash）：`start -ai` 當引擎，照 $fake/engine 寫 req、等 res。
 
 load helper
@@ -850,6 +850,165 @@ assert_sites() {
     [ "$stderr" = "vendor_kit: error[VK0036]: Cannot obtain engine image $engine: docker pull exited with 1. No alternative engine version was used." ]
     assert_not_called '^create'
     [ ! -e "$sess" ]
+}
+
+# ---- 本機覆寫的引擎（N55） ----
+
+# launch_ov <image> <P> [<recipe> <args>...]：同 launch，但 version.local.toml 的引擎行是 image。
+launch_ov() {
+    local image=$1 proto=$2 args='' a
+    shift 2
+    for a in "$@"; do
+        args+=" $(printf '%q' "$a")"
+    done
+    vk "vk_log_version=0.0.0; vk_log_invocation_id=r1; vk_launch_override='$image'; vk_launch \"\$PWD\" \"\$PWD/sub\" '$engine' $proto$args; exit \$?"
+}
+
+# engine_image：引擎容器用的 image（docker create 的 -w /vk/root 之後那一個）放進 REPLY。
+engine_image() {
+    local -a got
+    mapfile -t got <"$fake/engine.argv"
+    local i
+    REPLY=
+    for ((i = 0; i < ${#got[@]}; i++)); do
+        if [[ ${got[i]} == -w ]]; then
+            REPLY=${got[i + 2]}
+        fi
+    done
+}
+
+@test "an override runs its image with in/engine still the locked reference, without the list or a pull" {
+    printf 'vendor_kit = "%s"\n' "$engine" >"$work/.vendor_kit/version.toml"
+    engine_does 'cp "$engine_ctl/../in/engine" "$VK_FAKE/ref"
+finish 0'
+    launch_ov vendor_kit:dev 1 add foo
+    [ "$status" -eq 0 ] || {
+        echo "$stderr" >&2
+        return 1
+    }
+    [ "$stderr" = "" ]
+    engine_image
+    [ "$REPLY" = vendor_kit:dev ]
+    assert_ref "$fake/ref"
+    grep -q '^image inspect --format .* vendor_kit:dev$' "$fake/calls"
+    assert_not_called "$engine"
+    assert_not_called '^pull'
+    [ ! -e "$sess" ]
+}
+
+@test "an override image is judged by its LABEL range, which must contain the shell's P" {
+    # 列表跟 LABEL 都不一樣也不管：只看覆寫 image 的 LABEL
+    lock_protocols 7
+    printf '2 4 v' >"$fake/labels"
+    local p
+    for p in 2 3 4; do
+        rm -rf "$work/.vendor_kit/log"
+        launch_ov vendor_kit:dev "$p" add foo
+        [ "$status" -eq 0 ] || {
+            echo "$p: $stderr" >&2
+            return 1
+        }
+    done
+    rm -rf "$work/.vendor_kit/log" "$fake/calls"
+    launch_ov vendor_kit:dev 5 add foo
+    [ "$status" -eq 2 ]
+    internal 'shell interface version 5 is newer than the interface versions 2-4 accepted by the local engine override image vendor_kit:dev; reason code pending (draft VK0076, N55)'
+    [ "$stderr" = "$REPLY" ]
+    assert_not_called '^create'
+    rm -rf "$work/.vendor_kit/log"
+    launch_ov vendor_kit:dev 1 add foo
+    [ "$status" -eq 2 ]
+    internal 'shell interface version 1 is older than the interface versions 2-4 accepted by the local engine override image vendor_kit:dev; reason code pending (draft VK0009, N55)'
+    [ "$stderr" = "$REPLY" ]
+    assert_not_called '^create'
+    local l
+    for l in '  ' '0 1 v' '3 2 v' '01 2 v'; do
+        rm -rf "$work/.vendor_kit/log"
+        printf '%s' "$l" >"$fake/labels"
+        launch_ov vendor_kit:dev 2 add foo
+        [ "$status" -eq 2 ]
+        internal 'the engine image vendor_kit:dev does not announce a valid interface version range'
+        [ "$stderr" = "$REPLY" ]
+    done
+    assert_not_called '^create'
+}
+
+@test "an override image that is not local stops with VK0056 and is never pulled" {
+    rm "$fake/labels"
+    printf '1 1 v' >"$fake/labels_after_pull"
+    local c
+    for c in 'add foo' sync; do
+        rm -rf "$work/.vendor_kit/log" "$fake/calls"
+        # shellcheck disable=SC2086
+        launch_ov vendor_kit:dev 1 $c
+        [ "$status" -eq 2 ]
+        internal 'the local engine override image vendor_kit:dev is not available locally and is not pulled; reason code pending (draft VK0036, N55)'
+        [ "$stderr" = "$REPLY" ]
+        assert_not_called '^pull'
+        assert_not_called '^create'
+        [ ! -e "$sess" ]
+        last_finished
+        [[ $REPLY == *'"vendor_kit.exit_code":2,"vendor_kit.engine.exit_code":null,"vendor_kit.stop_reason_code":"VK0056"}}' ]]
+    done
+}
+
+@test "rescue calls run the override image too, without the interface check" {
+    printf 'vendor_kit = "%s"\n' "$engine" >"$work/.vendor_kit/version.toml"
+    printf '5 6 v' >"$fake/labels"
+    local c
+    for c in sync install 'upgrade --engine' ''; do
+        rm -rf "$work/.vendor_kit/log"
+        # shellcheck disable=SC2086
+        launch_ov vendor_kit:dev 1 $c
+        [ "$status" -eq 0 ] || {
+            echo "$c: $stderr" >&2
+            return 1
+        }
+        engine_image
+        [ "$REPLY" = vendor_kit:dev ]
+    done
+    assert_not_called '^pull'
+}
+
+@test "undev --engine runs the locked engine, so a gone override image can still be removed" {
+    printf '1 1 v1.0.0' >"$fake/labels"
+    launch_ov vendor_kit:gone 1 undev --engine
+    [ "$status" -eq 0 ] || {
+        echo "$stderr" >&2
+        return 1
+    }
+    engine_image
+    [ "$REPLY" = "$engine" ]
+    assert_not_called 'vendor_kit:gone'
+    # `--` 之後的 --engine 不算；undev <repo> 照樣用覆寫
+    rm -rf "$work/.vendor_kit/log"
+    launch_ov vendor_kit:dev 1 undev foo -- --engine
+    [ "$status" -eq 0 ]
+    engine_image
+    [ "$REPLY" = vendor_kit:dev ]
+    local -a yes=('undev --engine' 'undev -y --engine' 'undev --engine -h')
+    local -a no=('' 'undev' 'undev foo' 'undev -- --engine' 'undev --engine=x' 'dev --engine -i x' 'upgrade --engine')
+    for c in "${yes[@]}"; do
+        vk "vk_launch_is_undev_engine $c || exit 1"
+        [ "$status" -eq 0 ] || {
+            echo "not undev --engine: $c" >&2
+            return 1
+        }
+    done
+    for c in "${no[@]}"; do
+        vk "vk_launch_is_undev_engine $c || exit 1"
+        [ "$status" -eq 1 ] || {
+            echo "undev --engine: $c" >&2
+            return 1
+        }
+    done
+}
+
+@test "an invalid override reference is an internal error before the run log" {
+    launch_ov 'Vendor_Kit:Dev' 1 add foo
+    [ "$status" -eq 2 ]
+    [[ $stderr == *'[VK0056]'*'invalid launcher arguments'* ]]
+    [ ! -e "$work/.vendor_kit/log" ]
 }
 
 # ---- 主機前置檢查在建執行紀錄之前 ----

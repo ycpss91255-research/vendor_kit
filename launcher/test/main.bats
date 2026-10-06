@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# 薄殼 log.sh 的入口（main.sh）：版本鎖定行的引擎行（命中數、引號、縮排、CRLF）、自描述標頭的介面版與引擎版，
+# 薄殼 log.sh 的入口（main.sh）：版本鎖定行的引擎行（命中數、引號、縮排、CRLF）、本機覆寫的引擎行
+# （version.local.toml，N55）、自描述標頭的介面版與引擎版，
 # 以及組好的 log.sh 加上標頭後，用假 docker 從 vendor.just 的呼叫形狀跑完整一趟。
 
 load helper
@@ -98,6 +99,87 @@ header() {
     vk 'vk_main_recipe "$PWD/v.toml"'
     [ "$status" -eq 2 ]
     internal "cannot read $work/v.toml; $pending"
+    [ "$stderr" = "$REPLY" ]
+}
+
+# ---- 本機覆寫的引擎行（version.local.toml，N55） ----
+
+# local_ov <內容（printf %b）>：版本鎖定行就位，寫 $work/l.toml，再跑 vk_main_recipe，成功時印出引用與覆寫。
+local_ov() {
+    printf 'vendor_kit = "%s"\n' "$engine" >"$work/v.toml"
+    printf '%b' "$1" >"$work/l.toml"
+    vk 'vk_main_recipe "$PWD/v.toml" "$PWD/l.toml" || exit "$vk_diag_exit"; printf "%s|%s\n" "$REPLY" "$vk_main_override"'
+}
+
+@test "no override (no file, no engine line, only the protocols key) leaves the override empty" {
+    printf 'vendor_kit = "%s"\n' "$engine" >"$work/v.toml"
+    vk 'vk_main_recipe "$PWD/v.toml" "$PWD/l.toml" || exit 1; printf "%s|%s\n" "$REPLY" "$vk_main_override"'
+    [ "$status" -eq 0 ]
+    [ "$output" = "$engine|" ]
+    local text
+    for text in "" "schema = 1\nwritten_by = \"v1.0.0\"\n" "schema = 1\n[tools]\nfoo = \"../foo\"\n" \
+        "vendor_kit_protocols = \"1\"\n" "  vendor_kit = \"vendor_kit:dev\"\n"; do
+        local_ov "$text"
+        [ "$status" -eq 0 ]
+        [ "$output" = "$engine|" ] || {
+            echo "'$text': $output" >&2
+            return 1
+        }
+    done
+}
+
+@test "one override engine line gives that image, with any spacing, CRLF or no final LF" {
+    local text id=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    for text in "schema = 1\nvendor_kit = \"vendor_kit:dev\"\n" "vendor_kit=\"vendor_kit:dev\" # dev\n" \
+        "vendor_kit = \"vendor_kit:dev\"\r\nschema = 1\r\n" "schema = 1\nvendor_kit = \"vendor_kit:dev\""; do
+        local_ov "$text"
+        [ "$status" -eq 0 ]
+        [ "$output" = "$engine|vendor_kit:dev" ]
+        [ "$stderr" = "" ]
+    done
+    local_ov "vendor_kit = \"$id\"\n"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$engine|$id" ]
+}
+
+@test "a bad override engine line is VK0056, not a silent fallback to the locked engine" {
+    local p='reason code pending (draft VK0070, N55)' f=$work/l.toml
+    local_ov "vendor_kit = \"a:1\"\n[tools]\nvendor_kit = \"b:1\"\n"
+    [ "$status" -eq 2 ]
+    internal "$f has 2 engine override lines, at most 1 is allowed; $p"
+    [ "$stderr" = "$REPLY" ]
+    [ "$output" = "" ]
+    local text
+    for text in "vendor_kit = 'vendor_kit:dev'\n" "vendor_kit = vendor_kit:dev\n"; do
+        local_ov "$text"
+        [ "$status" -eq 2 ]
+        internal "the engine override line in $f is not a double-quoted string; $p"
+        [ "$stderr" = "$REPLY" ]
+    done
+    for text in "vendor_kit = \"\"\n" "vendor_kit = \"Vendor_Kit:Dev\"\n" "vendor_kit = \"-x\"\n" "vendor_kit = \"a b\"\n"; do
+        local_ov "$text"
+        [ "$status" -eq 2 ]
+        internal "the engine override line in $f is not an image reference; $p"
+        [ "$stderr" = "$REPLY" ] || {
+            echo "'$text': $stderr" >&2
+            return 1
+        }
+    done
+    rm "$f"
+    mkdir "$f"
+    printf 'vendor_kit = "%s"\n' "$engine" >"$work/v.toml"
+    vk 'vk_main_recipe "$PWD/v.toml" "$PWD/l.toml"'
+    [ "$status" -eq 2 ]
+    internal "cannot read $f; $p"
+    [ "$stderr" = "$REPLY" ]
+}
+
+@test "a bad lock line is reported before the override" {
+    printf 'schema = 1\n' >"$work/v.toml"
+    printf 'vendor_kit = vendor_kit:dev\n' >"$work/l.toml"
+    vk 'vk_main_recipe "$PWD/v.toml" "$PWD/l.toml"'
+    [ "$status" -eq 2 ]
+    internal "$work/v.toml has 0 engine lock lines, exactly 1 is required; $pending"
     [ "$stderr" = "$REPLY" ]
 }
 
@@ -231,6 +313,34 @@ engine_tail() {
     shell_run sync
     [ "$status" -eq 2 ]
     internal "$work/.vendor_kit/version.toml has 0 engine lock lines, exactly 1 is required; $pending"
+    [ "$stderr" = "$REPLY" ]
+    [ ! -e "$work/.vendor_kit/log" ]
+    [ ! -e "$fake/calls" ]
+}
+
+@test "log.sh runs the local engine override image, keeps the locked reference in in/engine, and pulls nothing" {
+    install_shell
+    printf 'vendor_kit = "vendor_kit:dev"\n' >"$work/.vendor_kit/version.local.toml"
+    # 列表只對應鎖定的引擎；覆寫時不讀
+    printf 'vendor_kit = "%s"\nschema = 1\n' "$engine" >"$work/.vendor_kit/version.toml"
+    printf 'cp "$engine_ctl/../in/engine" "$VK_FAKE/ref"\nfinish 0\n' >"$fake/engine"
+    shell_run add foo
+    [ "$status" -eq 0 ] || {
+        echo "$stderr" >&2
+        return 1
+    }
+    mapfile -t got <"$fake/engine.argv"
+    [[ " ${got[*]} " == *" -w /vk/root vendor_kit:dev --protocol "* ]]
+    [ "$(cat "$fake/ref")" = "$engine" ]
+    ! grep -q '^pull' "$fake/calls"
+}
+
+@test "a bad override line stops log.sh before the run log and docker" {
+    install_shell
+    printf 'vendor_kit = "a:1"\nvendor_kit = "b:1"\n' >"$work/.vendor_kit/version.local.toml"
+    shell_run sync
+    [ "$status" -eq 2 ]
+    internal "$work/.vendor_kit/version.local.toml has 2 engine override lines, at most 1 is allowed; reason code pending (draft VK0070, N55)"
     [ "$stderr" = "$REPLY" ]
     [ ! -e "$work/.vendor_kit/log" ]
     [ ! -e "$fake/calls" ]
