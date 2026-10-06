@@ -1,10 +1,12 @@
-//! `test` 印到 stdout 的字句（英文，03 輸出：檢查結果印到 stdout，不加前綴），與 VK0047 `<files>` 裡標出
+//! `test`、`test dist` 印到 stdout 的字句（英文，03 輸出：檢查結果印到 stdout，不加前綴），與 VK0047 `<files>` 裡標出
 //! 「是哪一種」的字。這些不是診斷，訊息表不登錄；契約沒定字句，這裡是第一版的寫法。
 
 use std::fmt::Display;
 
 /// 完整安裝檢查全部通過。
 pub const PASSED: &str = "Install check passed.";
+/// `test dist` 的交付規則全部通過。
+pub const DIST_PASSED: &str = "Delivery check passed.";
 
 /// 該有的檔或目錄不在。
 pub const MISSING: &str = "missing";

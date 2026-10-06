@@ -19,8 +19,8 @@
 //! 其他參數就是 VK0026。保留入口屬救援路徑，介面版不在區間內也照常執行（[`gate`]），執行位置照樣檢查（VK0028）。
 //!
 //! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`dev`、`undev`、`prune`
-//! 與 `test`、`test <path>`（安裝檢查與使用者測試，engine/check）。04 說明與用法錯誤：不認得的名稱由 just
-//! 擋下、到不了引擎；還沒實作的 `upgrade --engine`、`test dist` 以 VK0056 停下（#372 N62）。
+//! 與 `test`、`test <path>`、`test dist`（安裝檢查、使用者測試與交付內容檢查，engine/check）。04 說明與用法
+//! 錯誤：不認得的名稱由 just 擋下、到不了引擎；還沒實作的 `upgrade --engine` 以 VK0056 停下（#372 N62）。
 //! `-h`／`--help` 把 [`output::Help`] 的用法印到 stdout、以 0 結束（03 輸出），不看執行位置；救援呼叫的 `-h`
 //! 在介面版不合時也照印，其餘的 `-h` 跟一般呼叫一樣先報版本（[`gate`]）。
 
@@ -684,7 +684,7 @@ where
         args::Command::Test { path: Some(path) } => {
             run_user_test(path, inv, mounts, host_log, channel, stdout, diags)
         }
-        args::Command::TestDist => not_implemented("test dist", host_log, diags),
+        args::Command::TestDist => run_dist(inv, mounts, host_log, stdout, diags),
     }
 }
 
@@ -730,6 +730,35 @@ where
         diags,
     };
     check::run(&mut env)
+}
+
+/// `test dist`：檢查安裝目錄底下 `dist/` 的工具交付內容（engine/check 的 `dist`）；不需要薄殼模板。
+fn run_dist<O, E>(
+    inv: &plan::Invocation,
+    mounts: &Mounts,
+    host_log: &str,
+    stdout: O,
+    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
+) -> u8
+where
+    O: Write,
+    E: Write,
+{
+    let dir = layout::InstallDir::new(&mounts.root);
+    let host_root = inv.host_root.display().to_string();
+    let mut stdout = stdout;
+    let mut env = check::Env {
+        dir: &dir,
+        host_root: &host_root,
+        run_log: host_log,
+        written_by: VERSION,
+        shell_templates: None,
+        stdout: &mut stdout,
+        diags,
+    };
+    let code = check::dist::run(&mut env);
+    let _ = stdout.flush();
+    code
 }
 
 /// `test <path>`：完整安裝檢查通過後經 `runner` op 跑使用者測試（engine/check 的 `user_test`）。
@@ -1434,22 +1463,17 @@ mod tests {
 
     #[test]
     fn unimplemented_commands_are_internal_errors_not_usage_errors() {
-        for (rest, what) in [
-            (&["upgrade", "--engine"][..], "upgrade --engine"),
-            (&["test", "dist"], "test dist"),
-        ] {
-            let s = Scratch::new("unimplemented");
-            let (code, stdout, stderr) = launch(&s, &compat::THIS, 1, rest);
-            assert_eq!(code, 2, "{rest:?}");
-            assert_eq!(stdout, "");
-            assert!(
-                stderr.starts_with(&format!(
-                    "vendor_kit: error[VK0056]: Internal vendor_kit error: {what} is not implemented yet."
-                )),
-                "{stderr}"
-            );
-            assert!(!stderr.contains(SHORT_USAGE), "{stderr}");
-        }
+        let s = Scratch::new("unimplemented");
+        let (code, stdout, stderr) = launch(&s, &compat::THIS, 1, &["upgrade", "--engine"]);
+        assert_eq!(code, 2);
+        assert_eq!(stdout, "");
+        assert!(
+            stderr.starts_with(
+                "vendor_kit: error[VK0056]: Internal vendor_kit error: upgrade --engine is not implemented yet."
+            ),
+            "{stderr}"
+        );
+        assert!(!stderr.contains(SHORT_USAGE), "{stderr}");
     }
 
     #[test]
