@@ -39,7 +39,7 @@ fn install(m: &Mounts, tools: &str) {
     };
     fs::write(
         vk.join("version.toml"),
-        format!("vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n{tools}"),
+        format!("vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n{tools}"),
     )
     .unwrap();
     fs::write(m.root.join(RUN_LOG), "").unwrap();

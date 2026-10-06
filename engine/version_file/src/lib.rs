@@ -13,6 +13,12 @@
 //!   - 每行是 `<鍵> = "<值>"`：鍵不加引號，值是不含跳脫的雙引號字串，內容是完整的 image 引用
 //!     （`imageref`）。重複鍵是 TOML 語法錯誤，由 `schema` 擋下。
 //!   - `[tools]` 表裡只能放工具行；`[tools]` 表外的未知欄位照 `schema` 的約定保留。
+//!   - 根層有 `vendor_kit_protocols = "<列表>"`：鎖定的引擎接受的介面版，由它的 `[floor, current]`
+//!     逐一展開、由小到大、以一個空白分隔（`compat::Compat::protocol_list`，例如 `"1"`、`"2 3 4"`）。
+//!     本機沒有引擎 image 時，啟動器拿薄殼標頭的介面版跟這串逐項做字串相等比對（N13、#42）。鍵名的
+//!     `_` 讓它不被 `^vendor_kit[[:space:]]*=` 命中。缺少或格式錯（不是 `<鍵> = "<值>"`、有前導零或 0、
+//!     多餘空白、不是連續遞增）都拒絕；只查形狀，不跟本引擎的區間比，因為記的是鎖定的那一版引擎的區間。
+//!     訊息表還沒有代碼，原因寫明草稿碼（VK0070），由呼叫端以 VK0056 停下。
 //! - 非正規形一律拒絕並列出全部差異（[`Problem`]），不自動改寫：`version.toml` 進 git，自動改寫等於
 //!   自動化寫追蹤檔（不變量 3）。訊息表目前沒有非正規形的代碼（計畫缺口 G3），
 //!   [`ParseError::message`] 先回 `None`。
@@ -23,7 +29,8 @@
 //!   鎖定行的覆寫就回 [`OrphanOverrides`]，不悄悄忽略。[`Versions`] 給生效的來源（覆寫優先）；
 //!   不套用覆寫的場合（既有安裝目錄的檢查與修復、`update` 照鎖定行查等，見 04）直接讀 [`LockFile`]。
 //! - 寫出前用同一套規則再查一次輸出，查不過就拒絕寫，不寫出自己讀不回來的檔。
-//!   新的 `version.toml` 第一行是引擎行，這是 `install` 寫出的慣例，讀取不依賴它（ADR-0002）。
+//!   新的 `version.toml` 第一行是引擎行、第二行是介面版列表，這是 `install` 寫出的慣例，讀取不依賴它
+//!   （ADR-0002）。
 //!
 //! 這裡不印診斷；要怎麼印由呼叫端經 `diagnostics` 決定。
 
@@ -33,6 +40,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use compat::Compat;
 use imageref::{ImageRef, ImageRefError};
 use layout::InstallDir;
 use messages::Message;
@@ -43,20 +51,24 @@ use toml_edit::{Item, Table, Value};
 pub const ENGINE_KEY: &str = "vendor_kit";
 /// 工具行所在的表名。
 pub const TOOLS_KEY: &str = "tools";
+/// 引擎鎖定行旁記的介面版列表的鍵（N13）。
+pub const PROTOCOLS_KEY: &str = "vendor_kit_protocols";
 
 /// `version.toml`：引擎與各工具的版本鎖定行。
 #[derive(Debug, Clone)]
 pub struct LockFile {
     doc: Document,
     engine: ImageRef,
+    protocols: Vec<u32>,
     tools: BTreeMap<String, ImageRef>,
 }
 
 impl LockFile {
-    /// 新檔，只有引擎行；引擎行寫在第一行（`install` 的慣例）。
+    /// 新檔，只有引擎行與本引擎接受的介面版列表；引擎行寫在第一行、列表緊接在下（`install` 的慣例）。
     pub fn new(engine: &ImageRef) -> LockFile {
         let text = format!(
-            "{ENGINE_KEY} = \"{engine}\"\n{} = {}\n{} = \"\"\n",
+            "{ENGINE_KEY} = \"{engine}\"\n{PROTOCOLS_KEY} = \"{}\"\n{} = {}\n{} = \"\"\n",
+            compat::THIS.protocol_list(),
             schema::SCHEMA_KEY,
             compat::THIS.max_schema,
             schema::WRITTEN_BY_KEY,
@@ -74,6 +86,7 @@ impl LockFile {
         let mut problems = Vec::new();
         let (engine, tools) = check_shape(text, &doc, Kind::Lock, &mut problems);
         let engine = engine.and_then(|v| parse_ref(ENGINE_KEY, &v, &mut problems));
+        let protocols = check_protocols(&doc, &mut problems);
         let tools: BTreeMap<String, ImageRef> = tools
             .into_iter()
             .filter_map(|(repo, v)| {
@@ -81,8 +94,13 @@ impl LockFile {
                 Some((repo, r))
             })
             .collect();
-        match engine {
-            Some(engine) if problems.is_empty() => Ok(LockFile { doc, engine, tools }),
+        match (engine, protocols) {
+            (Some(engine), Some(protocols)) if problems.is_empty() => Ok(LockFile {
+                doc,
+                engine,
+                protocols,
+                tools,
+            }),
             _ => Err(ParseError::NotCanonical(problems)),
         }
     }
@@ -110,6 +128,11 @@ impl LockFile {
         &self.engine
     }
 
+    /// 鎖定的引擎接受的介面版，由小到大。
+    pub fn protocols(&self) -> &[u32] {
+        &self.protocols
+    }
+
     /// 全部工具的鎖定版本，依工具名排序。
     pub fn tools(&self) -> &BTreeMap<String, ImageRef> {
         &self.tools
@@ -120,12 +143,22 @@ impl LockFile {
         self.tools.get(repo)
     }
 
-    /// 換引擎的鎖定版本，原地改值，行的位置與註解不動。
+    /// 換引擎的鎖定版本，原地改值，行的位置與註解不動。介面版列表不跟著改：換上的引擎才知道自己的區間，
+    /// 由它經 [`LockFile::set_protocols`] 寫。
     pub fn set_engine(&mut self, engine: &ImageRef) -> Result<(), EditError> {
         self.doc
             .set(&[ENGINE_KEY], engine.to_string())
             .map_err(EditError::Write)?;
         self.engine = engine.clone();
+        Ok(())
+    }
+
+    /// 把介面版列表換成 `compat` 的區間展開的那一串，原地改值，行的位置與註解不動。
+    pub fn set_protocols(&mut self, compat: &Compat) -> Result<(), EditError> {
+        self.doc
+            .set(&[PROTOCOLS_KEY], compat.protocol_list())
+            .map_err(EditError::Write)?;
+        self.protocols = (compat.floor_protocol..=compat.current_protocol).collect();
         Ok(())
     }
 
@@ -412,6 +445,11 @@ pub enum Problem {
     EngineLineCount(usize),
     /// 根層沒有引擎行。
     EngineMissing,
+    /// 根層沒有介面版列表（`vendor_kit_protocols`）。訊息表還沒有代碼（草稿 VK0070，N13）。
+    ProtocolsMissing,
+    /// 介面版列表不是 `vendor_kit_protocols = "<列表>"`，或列表不是以一個空白分隔、沒有前導零、
+    /// 從 1 以上連續遞增的整數。訊息表還沒有代碼（草稿 VK0070，N13）。
+    BadProtocols,
     /// 這一項不是 `<鍵> = "<值>"`：鍵加了引號或用了點、值不是不含跳脫的雙引號字串、或是空字串。
     NotPlainLine { key: String },
     /// 鎖定行的值不是完整的 image 引用。
@@ -430,6 +468,15 @@ impl fmt::Display for Problem {
                 write!(f, "{n} lines match ^{ENGINE_KEY}[[:space:]]*=")
             }
             Problem::EngineMissing => write!(f, "no top-level `{ENGINE_KEY}` line"),
+            Problem::ProtocolsMissing => write!(
+                f,
+                "no top-level `{PROTOCOLS_KEY}` line; {PROTOCOLS_PENDING}"
+            ),
+            Problem::BadProtocols => write!(
+                f,
+                "`{PROTOCOLS_KEY}` is not written as {PROTOCOLS_KEY} = \"<versions>\" with consecutive \
+                 interface versions separated by single spaces; {PROTOCOLS_PENDING}"
+            ),
             Problem::NotPlainLine { key } => {
                 write!(f, "`{key}` is not written as <key> = \"<value>\"")
             }
@@ -643,6 +690,48 @@ fn check_shape(
     (engine, tools)
 }
 
+/// 介面版列表的問題還沒有訊息表代碼時附在原因後面（共同規則：過渡做法）。
+const PROTOCOLS_PENDING: &str = "reason code pending (draft VK0070, N13)";
+
+/// 查根層的介面版列表（只有 `version.toml`）；合格時回由小到大的介面版，不合記一筆。
+fn check_protocols(doc: &Document, problems: &mut Vec<Problem>) -> Option<Vec<u32>> {
+    let root = doc.root();
+    let item = match root.get(PROTOCOLS_KEY) {
+        None | Some(Item::None) => {
+            problems.push(Problem::ProtocolsMissing);
+            return None;
+        }
+        Some(item) => item,
+    };
+    // 形狀不合時只記 `BadProtocols`，不另記 `NotPlainLine`。
+    let parsed =
+        plain_value(root, PROTOCOLS_KEY, item, &mut Vec::new()).and_then(|v| parse_protocols(&v));
+    if parsed.is_none() {
+        problems.push(Problem::BadProtocols);
+    }
+    parsed
+}
+
+/// `"1"`、`"2 3 4"`：一個空白分隔、沒有前導零、從 1 以上連續遞增的整數。
+fn parse_protocols(value: &str) -> Option<Vec<u32>> {
+    let mut out: Vec<u32> = Vec::new();
+    for token in value.split(' ') {
+        let digits = !token.is_empty() && token.bytes().all(|b| b.is_ascii_digit());
+        if !digits || token.starts_with('0') {
+            return None;
+        }
+        let p: u32 = token.parse().ok()?;
+        if out
+            .last()
+            .is_some_and(|last| last.checked_add(1) != Some(p))
+        {
+            return None;
+        }
+        out.push(p);
+    }
+    Some(out)
+}
+
 /// `^vendor_kit[[:space:]]*=`：POSIX 的 `[[:space:]]` 是空白、`\t`、`\n`、`\v`、`\f`、`\r`。
 fn is_engine_line(line: &str) -> bool {
     line.strip_prefix(ENGINE_KEY).is_some_and(|rest| {
@@ -766,7 +855,7 @@ mod tests {
 
     fn canonical() -> String {
         format!(
-            "vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"x\"\n\n[tools]\ntool = \"{TOOL}\"\n"
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"x\"\n\n[tools]\ntool = \"{TOOL}\"\n"
         )
     }
 
@@ -790,7 +879,7 @@ mod tests {
     #[test]
     fn engine_line_need_not_be_first() {
         let text = format!(
-            "# header comment\nschema = 1\nwritten_by = \"x\"\nvendor_kit   =   \"{ENGINE}\" # pinned\n"
+            "# header comment\nschema = 1\nwritten_by = \"x\"\nvendor_kit   =   \"{ENGINE}\" # pinned\nvendor_kit_protocols = \"1\"\n"
         );
         let lock = LockFile::parse(&text).unwrap();
         assert_eq!(lock.engine(), &r(ENGINE));
@@ -814,6 +903,112 @@ mod tests {
         assert!(!is_engine_line("\"vendor_kit\" = \"x\""));
         assert!(!is_engine_line("vendor_kit_x = \"x\""));
         assert!(!is_engine_line("vendor_kit.x = \"x\""));
+    }
+
+    // ---- 介面版列表（N13） ----
+
+    #[test]
+    fn protocols_key_is_not_an_engine_line() {
+        // 鍵名的 `_` 斷開 `^vendor_kit[[:space:]]*=`：啟動器的比對、Renovate 的 regex 都只看到引擎行。
+        assert!(!is_engine_line(&format!("{PROTOCOLS_KEY} = \"1\"")));
+        let text = LockFile::new(&r(ENGINE)).render("x").unwrap();
+        assert_eq!(text.split('\n').filter(|l| is_engine_line(l)).count(), 1);
+    }
+
+    #[test]
+    fn new_file_records_this_engines_protocols_under_the_engine_line() {
+        let lock = LockFile::new(&r(ENGINE));
+        let range: Vec<u32> =
+            (compat::THIS.floor_protocol..=compat::THIS.current_protocol).collect();
+        assert_eq!(lock.protocols(), range.as_slice());
+        let out = LockFile::new(&r(ENGINE)).render("vk 1").unwrap();
+        assert_eq!(
+            out,
+            format!(
+                "vendor_kit = \"{ENGINE}\"\n{PROTOCOLS_KEY} = \"{}\"\nschema = {}\nwritten_by = \"vk 1\"\n",
+                compat::THIS.protocol_list(),
+                compat::THIS.max_schema
+            )
+        );
+    }
+
+    #[test]
+    fn accepts_consecutive_protocol_lists() {
+        for (value, want) in [
+            ("1", vec![1]),
+            ("2 3 4", vec![2, 3, 4]),
+            ("10 11", vec![10, 11]),
+        ] {
+            let text =
+                canonical().replace("protocols = \"1\"", &format!("protocols = \"{value}\""));
+            let lock = LockFile::parse(&text).unwrap();
+            assert_eq!(lock.protocols(), want.as_slice(), "{value:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_missing_protocols() {
+        let text = canonical().replace("vendor_kit_protocols = \"1\"\n", "");
+        assert_eq!(problems(&text), vec![Problem::ProtocolsMissing]);
+        let err = LockFile::parse(&text).unwrap_err();
+        assert_eq!(err.message(), None);
+        assert!(
+            err.to_string()
+                .contains("reason code pending (draft VK0070, N13)"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_protocols() {
+        for line in [
+            "vendor_kit_protocols = \"\"",
+            "vendor_kit_protocols = \"0\"",
+            "vendor_kit_protocols = \"01\"",
+            "vendor_kit_protocols = \"1  2\"",
+            "vendor_kit_protocols = \" 1\"",
+            "vendor_kit_protocols = \"1 \"",
+            "vendor_kit_protocols = \"1\t2\"",
+            "vendor_kit_protocols = \"1,2\"",
+            "vendor_kit_protocols = \"2 1\"",
+            "vendor_kit_protocols = \"1 3\"",
+            "vendor_kit_protocols = \"1 1\"",
+            "vendor_kit_protocols = \"+1\"",
+            "vendor_kit_protocols = \"99999999999\"",
+            "vendor_kit_protocols = '1'",
+            "\"vendor_kit_protocols\" = \"1\"",
+            "vendor_kit_protocols = 1",
+            "vendor_kit_protocols = [1]",
+        ] {
+            let text = canonical().replace("vendor_kit_protocols = \"1\"", line);
+            assert_eq!(problems(&text), vec![Problem::BadProtocols], "{line}");
+        }
+    }
+
+    #[test]
+    fn set_protocols_rewrites_the_list_in_place() {
+        let mut lock = LockFile::parse(&canonical()).unwrap();
+        let next = Compat {
+            floor_protocol: 2,
+            current_protocol: 3,
+            max_schema: 1,
+        };
+        lock.set_engine(&r(ENGINE2)).unwrap();
+        assert_eq!(lock.protocols(), &[1]);
+        lock.set_protocols(&next).unwrap();
+        assert_eq!(lock.protocols(), &[2, 3]);
+        let out = lock.render("x").unwrap();
+        assert_eq!(
+            out,
+            canonical()
+                .replace(ENGINE, ENGINE2)
+                .replace("protocols = \"1\"", "protocols = \"2 3\"")
+        );
+    }
+
+    #[test]
+    fn local_file_does_not_need_protocols() {
+        assert!(LocalFile::parse("schema = 1\n").unwrap().is_empty());
     }
 
     // ---- 非正規形 ----
@@ -855,7 +1050,8 @@ mod tests {
 
     #[test]
     fn rejects_indented_engine_line() {
-        let text = format!("  vendor_kit = \"{ENGINE}\"\nschema = 1\n");
+        let text =
+            format!("  vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\n");
         assert_eq!(problems(&text), vec![Problem::EngineLineCount(0)]);
     }
 
@@ -871,7 +1067,9 @@ mod tests {
             "{p:?}"
         );
 
-        let text = format!("vendor_kit = '{ENGINE}'\nschema = 1\n[tools]\n\"tool\" = \"{TOOL}\"\n");
+        let text = format!(
+            "vendor_kit = '{ENGINE}'\nvendor_kit_protocols = \"1\"\nschema = 1\n[tools]\n\"tool\" = \"{TOOL}\"\n"
+        );
         let p = problems(&text);
         assert_eq!(
             p,
@@ -926,8 +1124,7 @@ mod tests {
 
     #[test]
     fn rejects_values_that_are_not_full_image_refs() {
-        let text =
-            "vendor_kit = \"ghcr.io/acme/vendor_kit:v1.0.0\"\nschema = 1\n[tools]\ntool = \"\"\n";
+        let text = "vendor_kit = \"ghcr.io/acme/vendor_kit:v1.0.0\"\nvendor_kit_protocols = \"1\"\nschema = 1\n[tools]\ntool = \"\"\n";
         let p = problems(text);
         assert_eq!(
             p,
@@ -999,14 +1196,14 @@ mod tests {
     #[test]
     fn edits_keep_comments_and_order() {
         let text = format!(
-            "# lock\nvendor_kit = \"{ENGINE}\" # engine\nschema = 1\nwritten_by = \"x\"\n\n[tools]\n# the tool\ntool = \"{TOOL}\"\n"
+            "# lock\nvendor_kit = \"{ENGINE}\" # engine\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"x\"\n\n[tools]\n# the tool\ntool = \"{TOOL}\"\n"
         );
         let mut lock = LockFile::parse(&text).unwrap();
         lock.set_engine(&r(ENGINE2)).unwrap();
         lock.set_tool("tool", &r(TOOL2)).unwrap();
         let out = lock.render("x").unwrap();
         let expected = format!(
-            "# lock\nvendor_kit = \"{ENGINE2}\" # engine\nschema = 1\nwritten_by = \"x\"\n\n[tools]\n# the tool\ntool = \"{TOOL2}\"\n"
+            "# lock\nvendor_kit = \"{ENGINE2}\" # engine\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"x\"\n\n[tools]\n# the tool\ntool = \"{TOOL2}\"\n"
         );
         assert_eq!(out, expected);
     }

@@ -89,7 +89,7 @@ impl Fx {
         };
         fs::write(
             dir.version_toml(),
-            format!("vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n{tools}"),
+            format!("vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n{tools}"),
         )
         .unwrap();
         let bodies = BODIES.map(str::as_bytes);
@@ -448,7 +448,7 @@ fn lock_line_changed_since_the_stamp_refetches_without_warning() {
     // 鎖定行換成另一版（例如 git pull 換了版本）。
     let new_locked = format!("ghcr.io/acme/tool:v1.3.0@{}", TOOL_V13.digest());
     let moved = format!(
-        "vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"{new_locked}\"\n"
+        "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"{new_locked}\"\n"
     );
     fs::write(fx.dir.version_toml(), &moved).unwrap();
     let behavior = Behavior {

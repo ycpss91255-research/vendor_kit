@@ -54,6 +54,15 @@ pub fn image_build_args() -> String {
 }
 
 impl Compat {
+    /// 接受的介面版列表：`[floor, current]` 逐一展開、由小到大、以一個空白分隔（例如 `"2 3 4"`）。
+    /// `version.toml` 的引擎鎖定行旁記這一串，啟動器離線逐項做字串相等比對（N13）。
+    pub fn protocol_list(&self) -> String {
+        (self.floor_protocol..=self.current_protocol)
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     /// 呼叫方的 P 落在 `[floor, current]` 內就接受，回傳引擎回應時用的 P（就是呼叫方的 P）。
     pub fn accept_protocol(&self, protocol: u32) -> Result<u32, ProtocolError> {
         if (self.floor_protocol..=self.current_protocol).contains(&protocol) {
@@ -198,6 +207,17 @@ mod tests {
                 env!("CARGO_PKG_VERSION")
             )
         );
+    }
+
+    #[test]
+    fn protocol_list_expands_the_range() {
+        assert_eq!(ENGINE.protocol_list(), "2 3 4");
+        let one = Compat {
+            floor_protocol: 1,
+            current_protocol: 1,
+            max_schema: 1,
+        };
+        assert_eq!(one.protocol_list(), "1");
     }
 
     #[test]

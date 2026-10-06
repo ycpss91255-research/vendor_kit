@@ -20,7 +20,8 @@
 //!    引擎引用檔（[`release::engine_from`]）：不在、不是 pinned 引用、repo 不是 [`release::ENGINE_REPO`]、
 //!    tag 不是本引擎版，都以 VK0056 停下並寫明哪裡不一致；既有安裝目錄不讀它。
 //! 6. 算這次要寫的東西，只讀不寫：
-//!    - `version.toml`：首次導入時只有引擎版本鎖定行。
+//!    - `version.toml`：首次導入時只有引擎版本鎖定行，與緊接在下的本引擎接受的介面版列表
+//!      （`vendor_kit_protocols`，`version_file`）。
 //!    - 薄殼四檔（`shell`）：以 `compat` 的介面版、本引擎版與模板本文產生，跟現有的逐檔比對，只寫不一致的
 //!      （缺檔、被改過、不是這一版的模板）。symlink 或不是一般檔時停下（`shell` 第一版禁止 symlink）。
 //!    - 根 `justfile` 的 `import` 行與根 `.dockerignore` 的行：`baseline/.vendor_kit.toml` 已有那個檔的
@@ -80,6 +81,8 @@
 //! - 根目錄檔沒有紀錄、卻已含有要插入的行（`initfiles` 的 `LinesAlreadyPresent`，04 只說未收回的內容
 //!   不得無條件再 append），以及 `initfiles` 判出的其他缺口。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）。
+//! - 既有安裝目錄的 `version.toml` 缺介面版列表或格式錯（`version_file` 拒絕，訊息表還沒有代碼）：
+//!   04 沒說 `install` 要不要補寫或改寫追蹤檔裡的這一行，所以照樣停下，不補。
 //! - `config.toml` 已在、卻沒有紀錄（使用者在 `install` 之前自己建的，或寫了之後改過才補跑）：04 沒說要不要
 //!   記成未納管。這一條不停下（檔是使用者的，不寫也不違反 04）：不碰、不記，之後的換版與合併（`upgrade`）
 //!   照沒有紀錄處理。

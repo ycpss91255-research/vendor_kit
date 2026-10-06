@@ -243,9 +243,12 @@ fn install_in_an_empty_repo_writes_everything_without_asking() {
     assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
     assert_eq!(vk_tree(&m), INSTALLED_TREE);
     assert_eq!(events(&m), LANDED);
+    // 引擎鎖定行在第一行，緊接著記這版引擎接受的介面版（N13）。
     let lock = read(&m, ".vendor_kit/version.toml");
     assert!(
-        lock.starts_with(&format!("vendor_kit = \"{engine}\"\n")),
+        lock.starts_with(&format!(
+            "vendor_kit = \"{engine}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \""
+        )),
         "{lock}"
     );
     assert_eq!(read(&m, "justfile"), format!("{IMPORT}\n\n{DEFAULT}"));

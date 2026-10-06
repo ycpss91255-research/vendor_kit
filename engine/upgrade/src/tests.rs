@@ -47,7 +47,7 @@ impl Fx {
         fs::write(
             dir.version_toml(),
             format!(
-                "vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"{OLD}\"\n"
+                "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"{OLD}\"\n"
             ),
         )
         .unwrap();
@@ -788,7 +788,7 @@ fn namespace_collision_is_a_gap() {
     fs::write(
         fx.dir.version_toml(),
         format!(
-            "vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nother = \"ghcr.io/acme/other:v1.0.0@{DIGEST}\"\ntool = \"{OLD}\"\n"
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nother = \"ghcr.io/acme/other:v1.0.0@{DIGEST}\"\ntool = \"{OLD}\"\n"
         ),
     )
     .unwrap();
@@ -897,7 +897,7 @@ fn local_override_of_another_tool_keeps_its_entry_lines_and_namespaces() {
     fs::write(
         fx.dir.version_toml(),
         format!(
-            "vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nother = \"ghcr.io/acme/other:v1.0.0@{DIGEST}\"\ntool = \"{OLD}\"\n"
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nother = \"ghcr.io/acme/other:v1.0.0@{DIGEST}\"\ntool = \"{OLD}\"\n"
         ),
     )
     .unwrap();

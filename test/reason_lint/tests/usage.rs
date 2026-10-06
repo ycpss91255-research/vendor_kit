@@ -14,11 +14,18 @@ const DIRS: &[&str] = &["engine", "test"];
 const SKIP: &[&str] = &["engine/messages/src/generated.rs", "test/reason_lint"];
 
 /// 可以出現未登錄或已退役代碼的地方。
-const ALLOWS: &[Allow] = &[Allow {
-    path: "engine/runlog/src/tests.rs",
-    code: "VK9999",
-    reason: "測試執行紀錄讀到未登錄代碼時的處理，故意用不存在的代碼",
-}];
+const ALLOWS: &[Allow] = &[
+    Allow {
+        path: "engine/runlog/src/tests.rs",
+        code: "VK9999",
+        reason: "測試執行紀錄讀到未登錄代碼時的處理，故意用不存在的代碼",
+    },
+    Allow {
+        path: "engine/version_file/src/lib.rs",
+        code: "VK0070",
+        reason: "介面版列表缺少或格式錯的草稿碼（N13），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
+    },
+];
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
