@@ -47,17 +47,48 @@
 //! 3. `gen/.stamp`：版本鎖定行的引擎值（同 `install`），跟現有內容不同才寫。
 //! 4. VK 檔格式升級（[`crate::migrate`]）：「現有檔案版」列的每個檔，檔案版低於本引擎上限就直接升到上限
 //!    （不鏈式）。`version.toml` 升級後交給版本鎖定行那一步寫。
-//! 5. 介面版列表：`vendor_kit_protocols` 寫成本引擎的區間。
-//! 6. 沒有殘留的進度檔、而上面全都已是這一版：stdout 說明未變更，以 0 結束，不建進度檔。
-//! 7. 一次問完（帶 `-y` 全部同意）：答否是正常取消，stdout 說明未變更、以 0 結束，第一段換好的鎖定行與進度檔
-//!    都不動（04：第二次呼叫答否，不撤回第一次已完成的換引擎）；不能互動回 VK0002。這一版第二段沒有要問的事
-//!    （`config.toml` 的換版與合併還沒做），所以這一步一律通過。
-//! 8. 經 `txn` 落地：建這次的進度檔（同第一段的 `[upgrade]` 表，`image` 是版本鎖定行的值）→ 薄殼、升級後的 VK
-//!    檔、`gen/.stamp`（紀錄檔那一步，依序）→ 版本鎖定行（介面版列表）→ 刪這次的進度檔；之後才刪殘留的進度檔。
-//! 9. stdout 列出寫了哪些薄殼、升級了哪些 VK 檔，最後一行說明引擎升級完成。
+//! 5. `config.toml` 的換版與合併（見「config.toml」）：算出判定、要問的那一題與要寫的內容。
+//! 6. 介面版列表：`vendor_kit_protocols` 寫成本引擎的區間。
+//! 7. 沒有殘留的進度檔、而上面全都已是這一版（`config.toml` 沒有要寫的）：stdout 說明未變更，以 0 結束，
+//!    不建進度檔。
+//! 8. 一次問完（帶 `-y` 全部同意）：答否是正常取消，stdout 說明未變更、以 0 結束，什麼都不寫，第一段換好的
+//!    鎖定行與進度檔都不動（04：第二次呼叫答否，不撤回第一次已完成的換引擎），所以引擎升級仍未做完，唯讀
+//!    recipe 照樣報 VK0023；不能互動回 VK0002，同樣不寫。要問的只有 `config.toml` 的那一題。
+//! 9. 經 `txn` 落地：建這次的進度檔（同第一段的 `[upgrade]` 表，`image` 是版本鎖定行的值）→ `config.toml`
+//!    （repo 檔那一步）→ 薄殼、升級後的 VK 檔、`config.toml` 的基準版副本與 `baseline/.vendor_kit.toml`、
+//!    `gen/.stamp`（紀錄檔那一步，依序）→ 版本鎖定行（介面版列表）→ 刪這次的進度檔；之後才刪殘留的進度檔。
+//! 10. stdout 列出寫了哪些薄殼、升級了哪些 VK 檔、`config.toml` 怎麼了（同 `upgrade <repo>` 的初始檔字句），
+//!     最後一行說明引擎升級完成；合併留下衝突時再印 VK0021（warn，結束碼 1）。
 //!
 //! 中途停下時這次與第一段的進度檔都還在，鎖定行已是新版；重跑原指令照上面再做一次（薄殼與 `gen/.stamp` 只寫
-//! 不一致的，升過的 VK 檔已是上限），落地後一起刪掉。
+//! 不一致的，升過的 VK 檔已是上限，`config.toml` 見下一節），落地後一起刪掉。
+//!
+//! # config.toml
+//!
+//! 04 使用者的檔與 VK 的檔：`config.toml` 是使用者維護的檔，不是初始檔，換版與合併沿用初始檔的保護規則
+//! （04 寫入既有檔的例外：未改過也先問是否換版；雙方都改過先問是否合併，衝突留標記）。做法跟 `upgrade <repo>`
+//! 的初始檔一樣經 `initfiles`（`Command::Upgrade`，整份型），三份輸入是：
+//!
+//! - 新版：隨本引擎出貨的模板（[`Request::config_template`]，engine/install 的 `release::CONFIG_TEMPLATE`）。
+//! - 基準版：`baseline/.vendor_kit/config.toml`（[`layout::InstallDir::config_baseline`]，engine/install 存的）。
+//! - 目前檔：`.vendor_kit/config.toml`。
+//!
+//! 紀錄是 `baseline/.vendor_kit.toml` 裡 `path` 為 [`CONFIG_TOML`] 的那一筆；判定只拿這一筆（同一份紀錄檔裡
+//! 根目錄檔的紀錄不是引擎升級的新版）。依 `initfiles` 的判定：
+//!
+//! - 新版跟基準版相同：不動、不問（大多數引擎升級都是這樣）。
+//! - 使用者沒改過：問「是否換成新版」；同意就換，基準版副本推到新版，紀錄的 hash 換成寫入後的。
+//! - 雙方都改過：問「是否合併」；同意就寫入合併結果，基準版推到新版。`config.toml` 是 TOML，留下衝突標記的
+//!   結果一定解析不過，所以照 scope_roadmap:32 的例外處理：留原檔、不問、基準版不推，記入
+//!   `baseline/.vendor_kit.toml` 的 `conflicts`，stdout 說明留了原檔（同 `upgrade <repo>`）；之後換版或合併
+//!   寫入成功就從 `conflicts` 拿掉。VK0021 只在合併結果仍是合法 TOML 時才可能出現，實際上碰不到。
+//! - 使用者刪掉了：不重建，紀錄記 `deleted`，stdout 列出來。
+//! - `initfiles` 判成缺口的情況：以 VK0056 停下（見「缺口」）。
+//!
+//! 中斷後恢復：repo 檔先於紀錄檔寫入，所以換版寫進 `config.toml` 之後、推基準版之前停下，重跑時目前檔等於新版
+//! 卻不等於基準版（`initfiles` 的 `Gap::CurrentIsNew`）。有殘留的進度檔時這就是上一次寫的：基準版副本推到新版、
+//! 紀錄的 hash 換成目前檔的、從 `conflicts` 拿掉，repo 檔不再寫，stdout 不再列。合併寫到一半停下的，重跑時
+//! 照「雙方都改過」再問一次，合併結果不變。
 //!
 //! # 查詢失敗
 //!
@@ -81,6 +112,11 @@
 //! - 目標 image 的 [`LABEL_VERSION`] 必須等於目標 tag，否則以 VK0056 停下：鎖定行的 tag 要描述的就是那個 image。
 //! - [`ENGINE_REPO`] 照抄 engine/install 的同名常數（指令之間互不依賴），兩邊相等由入口 crate 的測試檢查。
 //! - stdout 的字句（英文）見 [`crate::text`]；未變更的字句同 `upgrade <repo>`（[`crate::text::unchanged`]）。
+//!   `config.toml` 的詢問與字句用 `upgrade <repo>` 的初始檔字句（[`crate::text::question`]、
+//!   [`crate::text::file_line`]、[`crate::text::listed_line`]），`<repo>` 是 [`ENGINE_NAME`]。
+//! - `baseline/.vendor_kit.toml` 沒有 `config.toml` 的紀錄（例如 engine/install 記紀錄之前裝的，或使用者在
+//!   `install` 之前自己建了檔）：不碰 `config.toml`。04 的換版與合併規則說的是已納管的檔；沒有紀錄就沒有
+//!   基準版，新建或納管是 `install` 的事。
 //!
 //! # 缺口（契約或其他 crate 沒定；遇到就以 VK0056 停下並寫明原因）
 //!
@@ -91,6 +127,9 @@
 //! - 目標 image 缺 LABEL 或值不合（例如公告檔案版上限的 LABEL 之前出的 image）：判不了降版。
 //! - 引擎開著本機覆寫（`dev --engine`）：第一段照樣只換鎖定行、覆寫不動；第二段由哪一版引擎做沒定，停下。
 //! - 第二段時這一版 image 沒有薄殼模板（出貨輸入缺項，同 `install`）。
+//! - `config.toml` 遇到 `initfiles` 判成缺口的情況（例如紀錄記 `deleted` 而檔又出現了；目前檔等於新版卻不等於
+//!   基準版、又沒有殘留的進度檔）。
+//! - `config.toml` 合併結果解析不過、留了原檔：同 `upgrade <repo>`，沒有訊息表代碼，照常以 0 結束。
 //! - registry 列得到、但一個 tag 都沒有：照 `upgrade <repo>` 報 VK0055（[`crate::text::NO_TAGS`]）。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）。
 
@@ -101,15 +140,17 @@ use std::path::{Path, PathBuf};
 use compat::Compat;
 use diagnostics::{Diagnostic, Sink};
 use imageref::{ImageRef, Tag};
+use initfiles::{Ask, FilePlan, Gap, InitFile, Strategy, Verdict};
+use metadata::{FileHash, Metadata};
 use progress::Progress;
 use progress::upgrade as table;
 use prompt::{Consent, PromptError, TtyState};
 use runlog::Target;
 use shell::Shell;
-use txn::{Disk, RecordFile, Txn};
+use txn::{Disk, RecordFile, RepoFile, Txn};
 use version_file::{LocalFile, LockFile};
 
-use super::{Env, Step, Upgrade, VERB, discover_init_files, migrate, text};
+use super::{Env, Step, Upgrade, VERB, discover_init_files, migrate, read_optional, text};
 
 /// 引擎 image 的 `<registry>/<路徑>`（engine/install 的 `release::ENGINE_REPO`；指令之間互不依賴，照抄）。
 pub const ENGINE_REPO: &str = "ghcr.io/ycpss91255-research/vendor_kit";
@@ -123,6 +164,9 @@ pub const LABEL_CURRENT: &str = "vendor_kit.protocol.current";
 pub const LABEL_SCHEMA_MAX: &str = "vendor_kit.schema.max";
 /// 引擎 image 公告引擎版本（`v<X.Y.Z>`）的 LABEL。
 pub const LABEL_VERSION: &str = "org.opencontainers.image.version";
+/// `.vendor_kit/config.toml` 的 repo 相對路徑（`baseline/.vendor_kit.toml` 裡紀錄的 `path`；engine/install 的
+/// `CONFIG_TOML`，照抄，兩邊相等由入口 crate 的測試檢查）。
+pub const CONFIG_TOML: &str = ".vendor_kit/config.toml";
 /// 重組 `<original_command>` 時接在參數前面的字。
 pub const COMMAND_PREFIX: [&str; 2] = ["just", "vendor_kit"];
 
@@ -137,21 +181,12 @@ pub struct Request<'a> {
     pub yes: bool,
     /// 薄殼模板（入口讀 image 裡的出貨輸入）；四檔不齊是 `None`，第二段遇到就停下（模組說明「缺口」）。
     pub shell_templates: Option<&'a ShellTemplates>,
+    /// 隨本引擎出貨的 `config.toml` 模板（engine/install 的 `release::CONFIG_TEMPLATE`），第二段拿它當新版。
+    pub config_template: &'a str,
 }
-
-/// 第二段要問的事；這一版沒有（模組說明「第二段」第 7 步），測試換成直接給。
-pub(crate) type Questions<'f> = &'f dyn Fn() -> Vec<String>;
 
 /// 跑一次 `upgrade --engine`，回傳結束碼。`env` 跟 `upgrade <repo>` 共用（`argv` 第一個是 `upgrade`）。
 pub fn run<W: Write, S: Sink, L: Write>(req: &Request<'_>, env: &mut Env<'_, W, S, L>) -> u8 {
-    run_with(req, env, &Vec::<String>::new)
-}
-
-pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
-    req: &Request<'_>,
-    env: &mut Env<'_, W, S, L>,
-    questions: Questions,
-) -> u8 {
     let mut upgrade = Upgrade {
         env,
         init: &discover_init_files,
@@ -161,8 +196,20 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
         local: Default::default(),
         engine: true,
     };
-    let _ = upgrade.engine_run(req, questions);
+    let _ = upgrade.engine_run(req);
     upgrade.code
+}
+
+/// 第二段對 `config.toml` 要做的事（模組說明「config.toml」）。
+struct ConfigChange {
+    /// `initfiles` 對 `config.toml` 的判定；中斷後恢復時改過的見 [`ConfigChange::adopted`]。
+    plan: FilePlan,
+    /// 恢復時補上紀錄（`Gap::CurrentIsNew` 且有殘留的進度檔）。
+    adopted: bool,
+    /// 要一起問的那一題。
+    question: Option<String>,
+    /// 換過的 `baseline/.vendor_kit.toml` 全文；紀錄沒變是 `None`。
+    metadata: Option<Vec<u8>>,
 }
 
 /// POSIX shell 的單引號引用：只含安全字元就原樣（同 engine/update 的 `shell_quote`；指令之間互不依賴，照抄）。
@@ -229,7 +276,7 @@ const ANY_SCHEMA: Compat = Compat {
 };
 
 impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
-    fn engine_run(&mut self, req: &Request<'_>, questions: Questions) -> Step<()> {
+    fn engine_run(&mut self, req: &Request<'_>) -> Step<()> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
         let lockfile = self.lockfile()?;
@@ -243,7 +290,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                      {file} is incomplete"
                 )));
             }
-            return self.engine_stage2(req, questions, lockfile, &residuals);
+            return self.engine_stage2(req, lockfile, &residuals);
         }
         let registry = self.env.registry;
 
@@ -267,7 +314,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             }
         };
         if tag == current {
-            return self.engine_stage2(req, questions, lockfile, &[]);
+            return self.engine_stage2(req, lockfile, &[]);
         }
         self.engine_stage1(tag, listed.as_mut(), lockfile)
     }
@@ -346,7 +393,6 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
     fn engine_stage2(
         &mut self,
         req: &Request<'_>,
-        questions: Questions,
         mut lockfile: LockFile,
         residuals: &[progress::Entry],
     ) -> Step<()> {
@@ -405,6 +451,29 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             }
         }
 
+        // `config.toml`：新版是本引擎出貨的模板；`baseline/.vendor_kit.toml` 升級過就接著改升級後的內容。
+        let md_rel = self.vk_rel(&metadata::vk_path(self.env.dir))?;
+        let md_index = records.iter().position(|(p, _)| *p == md_rel);
+        let migrated_md = md_index.map(|i| records[i].1.clone());
+        let config = self.config_change(req.config_template, !residuals.is_empty(), migrated_md)?;
+        let mut repo_writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        let mut questions: Vec<String> = Vec::new();
+        if let Some(c) = &config {
+            if let Some(w) = &c.plan.write {
+                repo_writes.push((PathBuf::from(CONFIG_TOML), w.after.clone()));
+            }
+            if let Some(b) = &c.plan.baseline {
+                records.push((self.vk_rel(&self.env.dir.config_baseline())?, b.clone()));
+            }
+            if let Some(m) = &c.metadata {
+                match md_index {
+                    Some(i) => records[i].1 = m.clone(),
+                    None => records.push((md_rel, m.clone())),
+                }
+            }
+            questions.extend(c.question.clone());
+        }
+
         // `gen/.stamp`：產生薄殼的引擎 ref，跟現有內容不同才寫。
         let stamp = format!("{engine}\n").into_bytes();
         let stamp_path = self.env.dir.stamp();
@@ -426,17 +495,27 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             .set_protocols(&compat::THIS)
             .map_err(|e| self.internal(e.to_string()))?;
 
-        if residuals.is_empty() && records.is_empty() && migrated.is_empty() && !protocols_changed {
+        if residuals.is_empty()
+            && records.is_empty()
+            && repo_writes.is_empty()
+            && migrated.is_empty()
+            && !protocols_changed
+        {
+            self.config_lines(config.as_ref(), tag);
             self.say(&text::unchanged(ENGINE_NAME, tag));
             return Ok(());
         }
 
-        if !self.engine_ask(&questions(), req.yes)? {
+        if !self.engine_ask(&questions, req.yes)? {
             self.say(text::NO_CHANGES);
             return Ok(());
         }
 
         let progress = self.engine_progress(&engine)?;
+        let repo_files: Vec<RepoFile> = repo_writes
+            .iter()
+            .map(|(path, contents)| RepoFile { path, contents })
+            .collect();
         let record_files: Vec<RecordFile> = records
             .iter()
             .map(|(path, contents)| RecordFile { path, contents })
@@ -445,7 +524,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             let mut fx = Disk::new(self.env.dir, self.env.log, self.env.written_by);
             Txn::begin(&mut fx, progress).and_then(|t| {
                 t.swap_cache(&[])?
-                    .write_repo_files(&[])?
+                    .write_repo_files(&repo_files)?
                     .write_records(&record_files)?
                     .write_tools_just(None)?
                     .write_lock_line(&mut lockfile, Target::Engine)?
@@ -465,8 +544,138 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         for (file, from) in &migrated {
             self.say(&text::migrated(file, *from, compat::THIS.max_schema));
         }
+        self.config_lines(config.as_ref(), tag);
         self.say(&text::engine_upgraded(&engine));
+        if let Some(m) = config.as_ref().and_then(|c| c.plan.message()) {
+            let d = Diagnostic::new(m)
+                .arg("file", CONFIG_TOML)
+                .arg("repo", ENGINE_NAME)
+                .arg("tag", tag.to_string());
+            self.emit(d);
+        }
         Ok(())
+    }
+
+    /// `config.toml` 的換版與合併（模組說明「config.toml」）：只讀不寫地算出判定、要問的那一題與寫入內容。
+    /// `baseline/.vendor_kit.toml` 沒有它的紀錄回 `None`（不碰）。`resuming` 是有殘留的進度檔；`migrated_md`
+    /// 是這次升級過的 `baseline/.vendor_kit.toml` 全文。
+    fn config_change(
+        &mut self,
+        template: &str,
+        resuming: bool,
+        migrated_md: Option<Vec<u8>>,
+    ) -> Step<Option<ConfigChange>> {
+        let md_path = metadata::vk_path(self.env.dir);
+        let mut meta = match migrated_md {
+            Some(bytes) => {
+                let parsed = String::from_utf8(bytes)
+                    .map_err(|e| e.to_string())
+                    .and_then(|t| Metadata::parse(&t).map_err(|e| e.to_string()));
+                parsed.map_err(|e| self.internal(format!("{}: {e}", self.rel(&md_path))))?
+            }
+            None => match Metadata::load(&md_path) {
+                Ok(m) => m,
+                Err(metadata::Error::Missing { .. }) => return Ok(None),
+                Err(metadata::Error::TooNew { file, too_new }) => {
+                    return Err(self.too_new(&file, &too_new));
+                }
+                Err(e) => return Err(self.failed(&md_path, e.message(), e.to_string())),
+            },
+        };
+        let Some(record) = meta.get(CONFIG_TOML).cloned() else {
+            return Ok(None);
+        };
+        // 只拿 `config.toml` 的紀錄去判：同一份紀錄檔裡根目錄檔的紀錄不是這次的新版。
+        let mut only = Metadata::new();
+        only.put(record.clone())
+            .map_err(|e| self.internal(e.to_string()))?;
+        let root = self.env.dir.root().to_path_buf();
+        let copy = self.env.dir.config_baseline();
+        let file = InitFile {
+            path: CONFIG_TOML,
+            strategy: Strategy::Whole,
+            contents: template.as_bytes(),
+        };
+        let planned = initfiles::plan(
+            initfiles::Command::Upgrade,
+            &[file],
+            &only,
+            |p| read_optional(&root.join(p)),
+            |_| read_optional(&copy),
+        );
+        let mut planned = planned.map_err(|e| self.internal(e.to_string()))?;
+        let Some(mut plan) = planned.files.drain(..).find(|f| f.path == CONFIG_TOML) else {
+            return Err(self.internal(format!("no plan for {CONFIG_TOML}")));
+        };
+
+        // 中斷後恢復：上一次已把模板寫進 `config.toml`、還沒推基準版與紀錄，補上（模組說明「config.toml」）。
+        let mut adopted = false;
+        if resuming && plan.verdict == Verdict::Gap(Gap::CurrentIsNew) {
+            let now = read_optional(&self.env.dir.config_toml());
+            let now = now.map_err(|e| self.internal(format!("{CONFIG_TOML}: {e}")))?;
+            let now = now.ok_or_else(|| self.internal(format!("{CONFIG_TOML} disappeared")))?;
+            let mut r = record.clone();
+            r.hash = Some(FileHash::of(&now));
+            plan.baseline = Some(template.as_bytes().to_vec());
+            plan.record = Some(r);
+            plan.conflict = Some(false);
+            adopted = true;
+        }
+        if let (Verdict::Gap(gap), false) = (plan.verdict, adopted) {
+            return Err(self.gap(format_args!(
+                "{CONFIG_TOML} in the second stage of the engine upgrade ({gap:?})"
+            )));
+        }
+
+        let mut changed = false;
+        if let Some(r) = &plan.record {
+            meta.put(r.clone())
+                .map_err(|e| self.internal(e.to_string()))?;
+            changed = true;
+        }
+        if let Some(c) = plan.conflict {
+            let set = meta.set_conflict(CONFIG_TOML, c);
+            changed |= set.map_err(|e| self.internal(e.to_string()))?;
+        }
+        if let Some((before, after)) = plan
+            .write
+            .as_ref()
+            .and_then(|w| Some((w.before.as_deref()?, w.after.as_slice())))
+        {
+            match meta.record_write(CONFIG_TOML, before, after) {
+                Ok(metadata::WriteOutcome::Updated) => changed = true,
+                Ok(_) => {}
+                Err(e) => return Err(self.internal(e.to_string())),
+            }
+        }
+        let metadata = if changed {
+            let text = meta.render(self.env.written_by);
+            Some(text.map_err(|e| self.internal(e.to_string()))?.into_bytes())
+        } else {
+            None
+        };
+        let question = plan
+            .ask
+            .map(|a: Ask| text::question(ENGINE_NAME, CONFIG_TOML, a));
+        Ok(Some(ConfigChange {
+            plan,
+            adopted,
+            question,
+            metadata,
+        }))
+    }
+
+    /// `config.toml` 這次的 stdout 字句（同 `upgrade <repo>` 的初始檔字句）。
+    fn config_lines(&mut self, config: Option<&ConfigChange>, tag: Tag) {
+        let Some(c) = config.filter(|c| !c.adopted) else {
+            return;
+        };
+        if let Some(line) = text::file_line(&c.plan) {
+            self.say(&line);
+        }
+        if let Some(line) = text::listed_line(ENGINE_NAME, tag, &c.plan) {
+            self.say(&line);
+        }
     }
 
     /// 引擎開著本機覆寫時停下（模組說明「缺口」）。

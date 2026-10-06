@@ -27,9 +27,10 @@
 //!    - 根 `justfile` 的 `import` 行與根 `.dockerignore` 的行：`baseline/.vendor_kit.toml` 已有那個檔的
 //!      紀錄就不動；沒有紀錄時以 `initfiles` 的 append 規則判（`add` 用的同一套）：檔在就先問再 append，
 //!      檔不在就新建（根 `justfile` 附 `default`）。
-//!    - `.vendor_kit/config.toml`：`baseline/.vendor_kit.toml` 已有它的紀錄就不動（換版與合併歸 `upgrade`，
-//!      04 使用者的檔與 VK 的檔）；沒有紀錄、檔也不在時，照隨引擎出貨的模板（[`release::CONFIG_TEMPLATE`]）
-//!      新建，不問（04 寫入既有檔的例外：目標不存在就新建），並記基準版。路徑上已有東西（含 symlink）就不碰。
+//!    - `.vendor_kit/config.toml`：`baseline/.vendor_kit.toml` 已有它的紀錄就不動（換版與合併歸
+//!      `upgrade --engine` 的第二段，04 使用者的檔與 VK 的檔）；沒有紀錄、檔也不在時，照隨引擎出貨的模板
+//!      （[`release::CONFIG_TEMPLATE`]）新建，不問（04 寫入既有檔的例外：目標不存在就新建），並記基準版。
+//!      路徑上已有東西（含 symlink）就不碰。
 //!    - `baseline/.vendor_kit.toml`：根目錄兩個檔的 `appended` 紀錄（插入的行、寫入後的整檔 hash）與
 //!      `config.toml` 的 `managed` 紀錄（寫入後的整檔 hash）；其他工具的紀錄檔有同一個檔、寫入前相符的
 //!      紀錄，跟著換成寫入後的 hash（ADR-0003）。
@@ -84,8 +85,8 @@
 //! - 既有安裝目錄的 `version.toml` 缺介面版列表或格式錯（`version_file` 拒絕，訊息表還沒有代碼）：
 //!   04 沒說 `install` 要不要補寫或改寫追蹤檔裡的這一行，所以照樣停下，不補。
 //! - `config.toml` 已在、卻沒有紀錄（使用者在 `install` 之前自己建的，或寫了之後改過才補跑）：04 沒說要不要
-//!   記成未納管。這一條不停下（檔是使用者的，不寫也不違反 04）：不碰、不記，之後的換版與合併（`upgrade`）
-//!   照沒有紀錄處理。
+//!   記成未納管。這一條不停下（檔是使用者的，不寫也不違反 04）：不碰、不記，`upgrade --engine` 的換版與合併
+//!   照沒有紀錄處理（不碰）。
 //! - 巢狀安裝（VK0029）與「在 git repo 內」要看安裝目錄以外的路徑，引擎只看得到掛進來的安裝目錄，
 //!   由啟動器在起引擎前判（flow-bootstrap），不在這裡。
 

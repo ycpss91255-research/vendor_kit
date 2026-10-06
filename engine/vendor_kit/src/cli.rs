@@ -720,6 +720,7 @@ where
                 tag: *tag,
                 yes: *yes,
                 shell_templates: release.shell.as_ref(),
+                config_template: &release.config,
             };
             let code = upgrade::engine::run(&req, &mut env);
             let _ = stdout.flush();
@@ -1058,6 +1059,12 @@ mod tests {
     fn update_and_install_agree_on_the_engine_repo() {
         assert_eq!(update::ENGINE_REPO, install::release::ENGINE_REPO);
         assert_eq!(upgrade::engine::ENGINE_REPO, install::release::ENGINE_REPO);
+    }
+
+    /// `upgrade --engine` 照抄的 `config.toml` 紀錄路徑跟 `install` 記的是同一個。
+    #[test]
+    fn upgrade_and_install_agree_on_the_config_record_path() {
+        assert_eq!(upgrade::engine::CONFIG_TOML, install::CONFIG_TOML);
     }
 
     fn call(args: &[&str]) -> (u8, String, String) {
