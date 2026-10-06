@@ -55,6 +55,14 @@ pub fn question(repo: &str, path: &str, ask: Ask) -> String {
     }
 }
 
+/// 帶 `-y` 又不能互動、卻有要 append 進既有檔的詢問：VK0056 的 `<reason>`（不含結尾的草稿碼）。
+pub fn yes_append(files: &[&str]) -> String {
+    format!(
+        "-y does not append to existing files that are not yet managed ({}); run from a terminal to answer",
+        files.join(", ")
+    )
+}
+
 /// VK0031 的 `<reason>`：inspect 的 RepoDigests 沒有這個 image 名稱的 digest。
 pub fn no_repo_digest(name: &str) -> String {
     format!("it has no repository digest for {name}")

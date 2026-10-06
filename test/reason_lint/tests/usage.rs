@@ -56,6 +56,11 @@ const ALLOWS: &[Allow] = &[
         reason: "驗線上 add 同一個 tag 指向不同 digest 時原因寫明草稿碼（N53）；e2e 不能依賴 engine crate 的常數",
     },
     Allow {
+        path: "engine/add/src/lib.rs",
+        code: "VK0084",
+        reason: "add 帶 -y 又不能互動、卻要 append 進既有未納管檔的草稿碼（N14），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
+    },
+    Allow {
         path: "engine/check/src/dist.rs",
         code: "VK0075",
         reason: "test dist 交付內容不合格式、文字檔含 CR 的草稿碼（N78、N24），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
