@@ -10,8 +10,9 @@
 //! 2. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束。
 //! 3. 讀 `version.toml`（檔案版過高回 VK0008）。
 //! 4. 看殘留的進度檔，在任何 docker 動作與寫入之前：都是引擎升級的（`[upgrade] target = "vendor_kit"`），
-//!    而且記的目標就是版本鎖定行，表示第一段做完了，直接做第二段（見「第二段」），不連 registry。帶的
-//!    `--engine=<tag>` 跟版本鎖定行不同、或有別的殘留，見「缺口」。
+//!    而且記的目標就是版本鎖定行，表示第一段做完了，直接做第二段（見「第二段」），不連 registry。都記著同一個
+//!    目標、但不是版本鎖定行：第一段建好進度檔、還沒換鎖定行就停下了，照記的目標重做第一段（見「第一段中斷」）。
+//!    帶的 `--engine=<tag>` 跟要續作的目標不同、或有別的殘留，見「缺口」。
 //! 5. 判目標版本：`--engine=<tag>` 就是那個 tag；不帶 tag 就匿名列 [`ENGINE_REPO`] 的 tag，依 04 指定版本取最新版
 //!    （[`imageref::Tag::latest`]）。不讀 `--registry-token-file`（04：不適用引擎升版，`args` 也不收）。
 //!    目標 tag 等於版本鎖定行的 tag：沒有第一段可做，照第二段判薄殼與 VK 檔（N21 草稿點：鎖定行已是目標版、
@@ -34,6 +35,18 @@
 //!     （保留原 tag 與 `-y`，依 POSIX shell 規則加引號，[`original_command`]）。
 //!
 //! `-y` 第一段用不到（第一段不詢問），只是原樣留在原指令裡給第二段。
+//!
+//! # 第一段中斷
+//!
+//! 第一段在建好進度檔、還沒換版本鎖定行時停下（第 9 步的 `writes_started` 到 `lock_line_written` 之間），重跑時
+//! 鎖定行仍是舊引擎，啟動器起的也還是舊引擎，讀到的進度檔記的目標不是鎖定行。這時照進度檔記的目標重做第一段：
+//!
+//! 1. 目標 tag 取進度檔 `[upgrade] image` 的 tag；不帶 tag 也不列 registry 的 tag（不換成重跑當下的最新版）。
+//! 2. 照第 6～8 步解析並檢查目標；解析出的 digest 跟進度檔記的不同，照第 6 步的同一個 tag 指向不同 digest
+//!    以 VK0056 停下（草稿碼見 [`crate::DRAFT_TAG_DIGESTS`]）。
+//! 3. 照第 9 步建這次的進度檔、換鎖定行，再刪殘留的進度檔，照第 10 步報 VK0023。
+//!
+//! 鎖定行在第一段之後被手改過，看起來跟這個狀態一樣，也照同樣做法換回進度檔記的目標。
 //!
 //! # 第二段
 //!
@@ -121,8 +134,8 @@
 //! # 缺口（契約或其他 crate 沒定；遇到就以 VK0056 停下並寫明原因）
 //!
 //! - 殘留其他可寫 recipe 的進度檔：可寫 recipe 要先恢復（04 成對與無害），引擎升級怎麼恢復別的指令沒定。殘留的
-//!   引擎升級進度檔記的目標不是版本鎖定行（鎖定行之後又被手改過），或帶的 `--engine=<tag>` 跟版本鎖定行不同：
-//!   04 沒說要續作哪一個。
+//!   引擎升級進度檔記著不同的目標（有的是版本鎖定行、有的不是，或彼此不同），或帶的 `--engine=<tag>` 跟要續作
+//!   的目標（版本鎖定行，或「第一段中斷」時進度檔記的目標）不同：04 沒說要續作哪一個。
 //! - 不帶 tag 而 registry 的最新版比鎖定行舊：04 只說最新版不限目前的 vX，沒說要不要因此降版（同 `upgrade <repo>`）。
 //! - 目標 image 缺 LABEL 或值不合（例如公告檔案版上限的 LABEL 之前出的 image）：判不了降版。
 //! - 引擎開著本機覆寫（`dev --engine`）：第一段照樣只換鎖定行、覆寫不動；第二段由哪一版引擎做沒定，停下。
@@ -199,6 +212,23 @@ pub fn run<W: Write, S: Sink, L: Write>(req: &Request<'_>, env: &mut Env<'_, W, 
     };
     let _ = upgrade.engine_run(req);
     upgrade.code
+}
+
+/// 殘留的進度檔怎麼續作（模組說明第 4 步）。
+enum Residuals {
+    None,
+    /// 第一段做完：記的目標就是版本鎖定行，做第二段。
+    FirstStageDone(Vec<progress::Entry>),
+    /// 第一段建好進度檔、還沒換鎖定行就停下：照記的目標重做第一段（模組說明「第一段中斷」）。
+    FirstStageInterrupted(Vec<progress::Entry>, ImageRef),
+}
+
+/// 重做第一段時要對照的進度檔（模組說明「第一段中斷」）。
+#[derive(Clone, Copy)]
+struct Resume<'a> {
+    /// 進度檔記的版本鎖定行值。
+    recorded: &'a ImageRef,
+    residuals: &'a [progress::Entry],
 }
 
 /// 第二段對 `config.toml` 要做的事（模組說明「config.toml」）。
@@ -281,17 +311,21 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
         let lockfile = self.lockfile()?;
-        let residuals = self.engine_residuals(&lockfile)?;
         let current = lockfile.engine().tag();
-        if let Some(first) = residuals.first() {
-            if let Some(tag) = req.tag.filter(|t| *t != current) {
-                let file = self.rel(&first.path);
-                return Err(self.gap(format_args!(
-                    "upgrade --engine={tag} while the engine upgrade to {current} recorded in \
-                     {file} is incomplete"
-                )));
+        match self.engine_residuals(&lockfile)? {
+            Residuals::None => {}
+            Residuals::FirstStageDone(residuals) => {
+                self.same_tag(req, current, &residuals[0])?;
+                return self.engine_stage2(req, lockfile, &residuals);
             }
-            return self.engine_stage2(req, lockfile, &residuals);
+            Residuals::FirstStageInterrupted(residuals, recorded) => {
+                self.same_tag(req, recorded.tag(), &residuals[0])?;
+                let resume = Resume {
+                    recorded: &recorded,
+                    residuals: &residuals,
+                };
+                return self.engine_stage1(recorded.tag(), None, lockfile, Some(resume));
+            }
         }
         let registry = self.env.registry;
 
@@ -317,7 +351,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         if tag == current {
             return self.engine_stage2(req, lockfile, &[]);
         }
-        self.engine_stage1(tag, listed.as_mut(), lockfile)
+        self.engine_stage1(tag, listed.as_mut(), lockfile, None)
     }
 
     fn engine_stage1(
@@ -325,8 +359,33 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         tag: Tag,
         listed: Option<&mut registry::Repository<'_>>,
         mut lockfile: LockFile,
+        resume: Option<Resume<'_>>,
     ) -> Step<()> {
+        if let Some(entry) =
+            resume.and_then(|r| r.residuals.iter().find(|e| e.id == self.env.run_id))
+        {
+            let file = self.rel(&entry.path);
+            return Err(self.internal(format!("{file} has this run's id {}", entry.id)));
+        }
+        if let Some(r) = resume {
+            let name = format!("{}/{}", r.recorded.registry(), r.recorded.path());
+            if name != ENGINE_REPO {
+                let file = self.rel(&r.residuals[0].path);
+                return Err(self.internal(format!(
+                    "{file} records the engine upgrade to {}, which is not a {ENGINE_REPO} image",
+                    r.recorded
+                )));
+            }
+        }
         let resolved = self.resolve(ENGINE_REPO, tag, listed, ENGINE_NAME)?;
+        if let Some(r) = resume.filter(|r| *r.recorded != resolved.locked) {
+            let given = format!("{ENGINE_REPO}:{tag}");
+            let digests = [
+                r.recorded.digest().to_string(),
+                resolved.locked.digest().to_string(),
+            ];
+            return Err(self.tag_digests(&given, &digests));
+        }
         let target = target_compat(&resolved.labels, tag).map_err(|r| self.internal(r))?;
         let existing = self.existing_schema(&lockfile)?;
         if let Err(e) = target.check_downgrade(existing) {
@@ -344,6 +403,12 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         set.map_err(|e| self.internal(e.to_string()))?;
         let progress = self.engine_progress(&resolved.locked)?;
         self.switch(progress, &mut lockfile)?;
+        // 「第一段中斷」：這次的進度檔已記著同一個目標，殘留的那份不再需要。
+        for entry in resume.map_or(&[][..], |r| r.residuals) {
+            if let Err(e) = progress::delete(self.env.dir, &entry.verb, &entry.id) {
+                return Err(self.failed(&entry.path, e.message(), e.to_string()));
+            }
+        }
 
         let d = Diagnostic::new(&messages::VK0023)
             .arg("vY", tag.to_string())
@@ -351,14 +416,27 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         Err(self.stop(d))
     }
 
-    /// 殘留的進度檔：全是記著版本鎖定行那個目標的引擎升級，回傳它們（第一段做完，接著做第二段）；有別的就停下
-    /// （模組說明「缺口」）。
-    fn engine_residuals(&mut self, lockfile: &LockFile) -> Step<Vec<progress::Entry>> {
+    /// 帶的 `--engine=<tag>` 跟要續作的目標 `target` 不同就停下（模組說明「缺口」）；`first` 是殘留的進度檔之一。
+    fn same_tag(&mut self, req: &Request<'_>, target: Tag, first: &progress::Entry) -> Step<()> {
+        match req.tag.filter(|t| *t != target) {
+            Some(tag) => {
+                let file = self.rel(&first.path);
+                Err(self.gap(format_args!(
+                    "upgrade --engine={tag} while the engine upgrade to {target} recorded in \
+                     {file} is incomplete"
+                )))
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// 殘留的進度檔（模組說明第 4 步）：全是引擎升級、記著同一個目標時回傳怎麼續作；有別的就停下（模組說明「缺口」）。
+    fn engine_residuals(&mut self, lockfile: &LockFile) -> Step<Residuals> {
         let entries = match progress::find(self.env.dir) {
             Ok(e) => e,
             Err(e) => return Err(self.internal(e.to_string())),
         };
-        let locked = lockfile.engine().to_string();
+        let mut targets: Vec<(String, ImageRef)> = Vec::new();
         for entry in &entries {
             let file = self.rel(&entry.path);
             if entry.verb != VERB {
@@ -380,14 +458,30 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                     "upgrade --engine while the incomplete upgrade operation in {file} remains"
                 )));
             }
-            if table::field(&loaded, table::IMAGE) != Some(locked.as_str()) {
-                return Err(self.gap(format_args!(
-                    "completing the engine upgrade recorded in {file}, whose target is not the \
-                     engine lock version line ({locked})"
+            let image = table::field(&loaded, table::IMAGE).map(ImageRef::parse);
+            let Some(Ok(image)) = image else {
+                return Err(self.internal(format!(
+                    "{file} has no valid [{}] {} field",
+                    table::TABLE,
+                    table::IMAGE
                 )));
-            }
+            };
+            targets.push((file, image));
         }
-        Ok(entries)
+        let Some((first, recorded)) = targets.first().cloned() else {
+            return Ok(Residuals::None);
+        };
+        if let Some((file, other)) = targets.iter().find(|(_, t)| *t != recorded) {
+            return Err(self.gap(format_args!(
+                "completing the engine upgrades recorded in {first} ({recorded}) and {file} \
+                 ({other}), which name different targets,"
+            )));
+        }
+        if recorded == *lockfile.engine() {
+            Ok(Residuals::FirstStageDone(entries))
+        } else {
+            Ok(Residuals::FirstStageInterrupted(entries, recorded))
+        }
     }
 
     /// 第二段（模組說明「第二段」）；`residuals` 是第一段（或中斷的第二段）留下的進度檔。

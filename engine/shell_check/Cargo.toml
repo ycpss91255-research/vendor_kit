@@ -10,6 +10,7 @@ compat.workspace = true
 config.workspace = true
 diagnostics.workspace = true
 filelock.workspace = true
+imageref.workspace = true
 layout.workspace = true
 messages.workspace = true
 progress.workspace = true
