@@ -67,15 +67,18 @@ ENV LC_ALL=C.UTF-8 TZ=UTC
 COPY --from=test /out/vendor_kit /usr/local/bin/vendor_kit
 # install 與 sync 從這裡讀薄殼模板；路徑與 engine/install 的 release::SHIPPED_DIR 加 SHELL_DIR 一致。
 COPY --from=shell /out/shell/ /usr/share/vendor_kit/shell/
-# 啟動器讀這三個 LABEL 判介面版（ADR-0008:27），鍵與 launcher/launch.sh 的 vk_label_* 一致。
+# 啟動器讀介面版區間與版本這三個 LABEL 判介面版（ADR-0008:27），鍵與 launcher/launch.sh 的 vk_label_* 一致。
+# vendor_kit.schema.max 公告檔案版上限，啟動器現在不讀；留給判引擎降版（VK0007）與比對兩平台的 LABEL。
 # 值由 build-arg 帶入，來源只有 engine/compat 的 THIS 與 Cargo workspace version（compat::image_build_args）；
 # 這裡與 test stage 產出的 image_labels.env 逐位元組比對，沒帶或不一致就建不出 image。
-ARG VK_PROTOCOL_FLOOR VK_PROTOCOL_CURRENT VK_VERSION
+ARG VK_PROTOCOL_FLOOR VK_PROTOCOL_CURRENT VK_SCHEMA_MAX VK_VERSION
 RUN --mount=type=bind,from=test,source=/out/image_labels.env,target=/tmp/image_labels.env \
-    printf 'VK_PROTOCOL_FLOOR=%s\nVK_PROTOCOL_CURRENT=%s\nVK_VERSION=%s\n' \
-        "$VK_PROTOCOL_FLOOR" "$VK_PROTOCOL_CURRENT" "$VK_VERSION" | cmp -s - /tmp/image_labels.env \
+    printf 'VK_PROTOCOL_FLOOR=%s\nVK_PROTOCOL_CURRENT=%s\nVK_SCHEMA_MAX=%s\nVK_VERSION=%s\n' \
+        "$VK_PROTOCOL_FLOOR" "$VK_PROTOCOL_CURRENT" "$VK_SCHEMA_MAX" "$VK_VERSION" \
+        | cmp -s - /tmp/image_labels.env \
     || { echo "build-args differ from compat::image_build_args; build with: just build" >&2; exit 1; }
 LABEL vendor_kit.protocol.floor=$VK_PROTOCOL_FLOOR \
       vendor_kit.protocol.current=$VK_PROTOCOL_CURRENT \
+      vendor_kit.schema.max=$VK_SCHEMA_MAX \
       org.opencontainers.image.version=$VK_VERSION
 ENTRYPOINT ["/usr/local/bin/vendor_kit"]
