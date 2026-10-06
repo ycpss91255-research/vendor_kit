@@ -36,9 +36,9 @@ const POLL: Duration = Duration::from_millis(20);
 /// 啟動器起引擎容器時不帶任何環境變數，正式執行時一定不設；e2e 在主機上直接跑執行檔時用它。
 pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";
 
-/// 測試用：設了這個環境變數，`install` 的出貨輸入改從這個目錄讀（`install::Release::from_dir`）。
-/// 這一版引擎沒有出貨那些輸入（`install::Release::shipped`），正式執行時一定不設（啟動器起引擎容器時
-/// 不帶任何環境變數）；e2e 用它驗 `install` 其餘的流程。
+/// 測試用：設了這個環境變數，`install` 的薄殼模板改從這個目錄讀（`install::Release::from_dir`）。
+/// 這一版引擎還沒出貨薄殼模板（`install::Release::shipped`），正式執行時一定不設（啟動器起引擎容器時
+/// 不帶任何環境變數）；e2e 用它驗 `install` 其餘的流程。模板隨 image 出貨之後就拿掉。
 pub const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
 
 /// 引擎容器內的三個掛載點（`plan::mount`）。
@@ -641,6 +641,7 @@ where
     let mut prompt = stderr.clone();
     let mut env = install::Env {
         dir: &dir,
+        inbox: &mounts.inbox,
         host_root: &host_root,
         run_log: host_log,
         tty: prompt::TtyState {

@@ -664,6 +664,8 @@ fn rescue_constants_are_pinned() {
         ],
         ["req.", "res.", ".out", "done", ".tmp"]
     );
+    // in/ 裡啟動器寫的引擎引用檔（launcher/wire.sh 的 vk_wire_in_engine）。
+    assert_eq!(files::IN_ENGINE, "engine");
 }
 
 #[test]

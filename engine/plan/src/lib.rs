@@ -8,8 +8,8 @@
 //! # 掛載與控制檔
 //!
 //! 安裝目錄掛在 [`mount::ROOT`]；repo 外的 session 目錄（`${TMPDIR:-/tmp}/vendor_kit.<run-id>/`）的 `ctl/`
-//! 可寫掛在 [`mount::CTL`]，`in/` 唯讀掛在 [`mount::IN`]（啟動器 `docker cp` 進 `in/<slot>` 的檔）。
-//! 控制檔都在 `ctl/`（[`files`]）：
+//! 可寫掛在 [`mount::CTL`]，`in/` 唯讀掛在 [`mount::IN`]（啟動器 `docker cp` 進 `in/<slot>` 的檔，與起引擎前
+//! 寫好的引擎引用檔 [`files::IN_ENGINE`]）。控制檔都在 `ctl/`（[`files`]）：
 //!
 //! - 引擎寫 `req.<seq>`：先寫 `req.<seq>.tmp` 再 rename，啟動器只讀 rename 完的檔。
 //! - 啟動器寫 `res.<seq>`（同樣先寫暫存再 rename）；有原始輸出（inspect、ps）時另存 `res.<seq>.out`。
@@ -130,7 +130,7 @@ pub mod mount {
     pub const IN: &str = "/vk/in";
 }
 
-/// `ctl/` 裡的控制檔名；救援路徑也用，永久不變。
+/// `ctl/` 裡的控制檔名與 `in/` 裡啟動器放的引擎引用檔名；救援路徑也用，永久不變。
 pub mod files {
     /// 引擎寫的 request：`req.<seq>`。
     pub const REQ_PREFIX: &str = "req.";
@@ -142,6 +142,10 @@ pub mod files {
     pub const DONE: &str = "done";
     /// 寫到一半的檔：`<名>.tmp`，寫完才 rename 成正式檔名。
     pub const TMP_SUFFIX: &str = ".tmp";
+    /// `in/` 裡啟動器起引擎前寫好的檔：這次起的引擎 image 的 pinned 引用，一行、LF 結尾（N37）。
+    /// 引擎 image 不可能含有自己的 index digest，救援 argv 又凍結，所以經這個檔交給引擎。
+    /// 不會跟 `tool<N>` 的 slot 撞名（stage、extract 遇到已存在的 slot 一律拒絕）。
+    pub const IN_ENGINE: &str = "engine";
 }
 
 #[cfg(test)]

@@ -2,9 +2,10 @@
 //! 經假的啟動器跑。
 //!
 //! `install` 不碰 docker，假啟動器只收 `done`；`add` 那一段照 tests/add.rs 回 inspect 與 extract。
-//! 這一版引擎沒有出貨 `install` 要寫的模板與固定行（engine/install 的缺口），所以除了驗缺口的那一則，
-//! 都以測試用的 `VK_TEST_RELEASE_DIR`（engine/vendor_kit 的 `RELEASE_DIR_ENV`）從 fixture 目錄讀進來。
-//! 啟動器在起引擎前已建好 `.vendor_kit/log/` 與這次的執行紀錄，fixture 照做。
+//! 這一版引擎還沒出貨薄殼模板（engine/install 的缺口），所以除了驗缺口的那一則，都以測試用的
+//! `VK_TEST_RELEASE_DIR`（engine/vendor_kit 的 `RELEASE_DIR_ENV`）從 fixture 目錄讀進模板；根 `justfile` 與
+//! `.dockerignore` 的內容是引擎出貨的常數。啟動器在起引擎前已建好 `.vendor_kit/log/` 與這次的執行紀錄，
+//! 並把這次的引擎引用寫成 `in/engine`，fixture 每次執行都照做。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
@@ -20,7 +21,11 @@ const HOST_ROOT: &str = "/srv/proj";
 const RUN_LOG: &str = ".vendor_kit/log/r1.jsonl";
 /// 測試用的出貨輸入目錄（engine/vendor_kit 的 `RELEASE_DIR_ENV`；這裡不能依賴 engine crate，照抄名字）。
 const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
-const ENGINE: &str = "ghcr.io/ycpss91255-research/vendor_kit:v1.0.0@sha256:1111111111111111111111111111111111111111111111111111111111111111";
+/// 啟動器放引擎引用的檔（`in/` 裡；engine/plan 的 `files::IN_ENGINE`，照抄名字）。
+const IN_ENGINE: &str = "engine";
+const ENGINE_REPO: &str = "ghcr.io/ycpss91255-research/vendor_kit";
+const ENGINE_DIGEST: &str =
+    "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 const IMAGE: &str = "ghcr.io/acme/tool:v1.2.0";
 const DIGEST: &str = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
 const IMAGE_ID: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -35,7 +40,8 @@ const SHELL: [(&str, &str); 4] = [
         "cache/\ngen/\nlog/\nversion.local.toml\n.tmp.*\n",
     ),
 ];
-const DOCKERIGNORE: &str = ".vendor_kit/cache/\n.vendor_kit/log/\n";
+const DOCKERIGNORE: &str =
+    ".vendor_kit/cache/\n.vendor_kit/gen/\n.vendor_kit/log/\n.vendor_kit/version.local.toml\n";
 const USER_JUSTFILE: &str = "build:\n    echo build\n";
 const USER_DOCKERIGNORE: &str = "target/\n";
 
@@ -48,22 +54,29 @@ const LANDED: [&str; 6] = [
     "engine_finished",
 ];
 
-/// 出貨輸入的 fixture 目錄。
+/// 這個引擎自己的 pinned 引用（tag 是本引擎版）。
+fn engine() -> String {
+    format!("{ENGINE_REPO}:{VERSION}@{ENGINE_DIGEST}")
+}
+
+/// 出貨輸入的 fixture 目錄：薄殼模板。
 fn release(dir: &Path) {
     fs::create_dir_all(dir.join("shell")).unwrap();
-    fs::write(dir.join("engine"), format!("{ENGINE}\n")).unwrap();
     for (name, body) in SHELL {
         fs::write(dir.join("shell").join(name), body).unwrap();
     }
-    fs::write(dir.join("justfile.import"), format!("{IMPORT}\n")).unwrap();
-    fs::write(dir.join("justfile.default"), DEFAULT).unwrap();
-    fs::write(dir.join("dockerignore"), DOCKERIGNORE).unwrap();
 }
 
-/// 啟動器起引擎前的安裝目錄：`.vendor_kit/log/` 與空的執行紀錄。
+/// 啟動器起引擎前寫的引擎引用檔。
+fn engine_ref(m: &Mounts, contents: &str) {
+    fs::write(m.inbox.join(IN_ENGINE), contents).unwrap();
+}
+
+/// 啟動器起引擎前的安裝目錄與 session：`.vendor_kit/log/`、空的執行紀錄與引擎引用檔。
 fn fresh(m: &Mounts) {
     fs::create_dir_all(m.root.join(".vendor_kit/log")).unwrap();
     fs::write(m.root.join(RUN_LOG), "").unwrap();
+    engine_ref(m, &format!("{}\n", engine()));
 }
 
 /// 每次執行的 session 目錄與執行紀錄是新的。
@@ -73,6 +86,7 @@ fn new_session(m: &Mounts) {
         fs::create_dir_all(d).unwrap();
     }
     fs::write(m.root.join(RUN_LOG), "").unwrap();
+    engine_ref(m, &format!("{}\n", engine()));
 }
 
 /// 工具內容：`just/tool.just` 與一個一般檔。
@@ -208,10 +222,11 @@ fn install_in_an_empty_repo_writes_everything_without_asking() {
     let seen = peer.join().unwrap();
 
     assert_eq!(code, 0, "stderr: {stderr}");
+    let engine = engine();
     assert_eq!(
         stdout,
         format!(
-            "Locked the engine to v1.0.0 ({ENGINE}).\n\
+            "Locked the engine to {VERSION} ({engine}).\n\
              Wrote .vendor_kit/entry.just\nWrote .vendor_kit/vendor.just\n\
              Wrote .vendor_kit/log.sh\nWrote .vendor_kit/.gitignore\n\
              Created justfile\nCreated .dockerignore\n\
@@ -225,7 +240,7 @@ fn install_in_an_empty_repo_writes_everything_without_asking() {
     assert_eq!(events(&m), LANDED);
     let lock = read(&m, ".vendor_kit/version.toml");
     assert!(
-        lock.starts_with(&format!("vendor_kit = \"{ENGINE}\"\n")),
+        lock.starts_with(&format!("vendor_kit = \"{engine}\"\n")),
         "{lock}"
     );
     assert_eq!(read(&m, "justfile"), format!("{IMPORT}\n\n{DEFAULT}"));
@@ -288,7 +303,7 @@ fn install_add_remove_uninstall_returns_to_a_clean_repo() {
     assert_eq!(
         stderr,
         "Append 1 vendor_kit line to the existing justfile? [y/N] \
-         Append 2 vendor_kit lines to the existing .dockerignore? [y/N] "
+         Append 4 vendor_kit lines to the existing .dockerignore? [y/N] "
     );
     assert!(
         stdout.contains("Appended to justfile\nAppended to .dockerignore\n"),
@@ -325,7 +340,7 @@ fn install_add_remove_uninstall_returns_to_a_clean_repo() {
     assert_eq!(
         stderr,
         "Remove the 1 line that vendor_kit appended to justfile? [y/N] \
-         Remove the 2 lines that vendor_kit appended to .dockerignore? [y/N] "
+         Remove the 4 lines that vendor_kit appended to .dockerignore? [y/N] "
     );
     assert!(seen.requests.is_empty());
     assert!(
@@ -402,8 +417,10 @@ fn install_without_the_shipped_inputs_is_vk0056_without_writes() {
     assert_eq!(stdout, "");
     assert!(
         stderr.starts_with("vendor_kit: error[VK0056]: ")
-            && stderr.contains("the shell templates")
-            && stderr.contains("the engine lock line value"),
+            && stderr.contains(
+                "install without the shell templates, which this engine image does not ship"
+            )
+            && !stderr.contains("engine reference"),
         "{stderr}"
     );
     assert!(seen.requests.is_empty());
@@ -414,4 +431,63 @@ fn install_without_the_shipped_inputs_is_vk0056_without_writes() {
     );
     assert!(vk_tree(&m).is_empty());
     assert!(!m.root.join("justfile").exists());
+}
+
+/// 首次導入時 `in/engine` 不合：VK0056 寫明哪裡不一致，除執行紀錄外什麼都不寫。
+fn bad_engine_ref(contents: Option<&str>, reason: &str) {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(&tmp.path().join("m"));
+    let rel = tmp.path().join("release");
+    release(&rel);
+    fresh(&m);
+    match contents {
+        Some(c) => engine_ref(&m, c),
+        None => fs::remove_file(m.inbox.join(IN_ENGINE)).unwrap(),
+    }
+    let peer = idle_launcher(&m);
+
+    let (code, stdout, stderr) = run(&m, Some(&rel), "000", "", &["install"]);
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_eq!(stdout, "");
+    assert!(
+        stderr.starts_with(
+            "vendor_kit: error[VK0056]: Internal vendor_kit error: \
+             the engine reference in/engine from the launcher"
+        ) && stderr.contains(reason),
+        "{reason}: {stderr}"
+    );
+    assert!(seen.requests.is_empty());
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 2\n"));
+    assert_eq!(
+        events(&m),
+        ["engine_started", "diagnostic_emitted", "engine_finished"]
+    );
+    assert!(vk_tree(&m).is_empty());
+    assert!(!m.root.join("justfile").exists());
+    assert!(!m.root.join(".dockerignore").exists());
+}
+
+#[test]
+fn engine_ref_with_another_tag_is_vk0056_without_writes() {
+    let other = format!("{ENGINE_REPO}:v99.0.0@{ENGINE_DIGEST}");
+    bad_engine_ref(
+        Some(&format!("{other}\n")),
+        &format!("has tag v99.0.0, not this engine's {VERSION}"),
+    );
+}
+
+#[test]
+fn engine_ref_with_another_path_is_vk0056_without_writes() {
+    let other = format!("ghcr.io/acme/vendor_kit:{VERSION}@{ENGINE_DIGEST}");
+    bad_engine_ref(
+        Some(&format!("{other}\n")),
+        &format!("names ghcr.io/acme/vendor_kit, not this engine's {ENGINE_REPO}"),
+    );
+}
+
+#[test]
+fn missing_engine_ref_is_vk0056_without_writes() {
+    bad_engine_ref(None, "is missing");
 }
