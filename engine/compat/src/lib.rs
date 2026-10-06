@@ -44,12 +44,13 @@ pub const ENGINE_VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 /// 建引擎 image 時帶給 `image/Dockerfile` 的 build-arg，一行一個 `NAME=value`，順序固定。
 ///
 /// 最終 stage 把它們寫成 LABEL（`vendor_kit.protocol.floor`、`vendor_kit.protocol.current`、
-/// `org.opencontainers.image.version`），啟動器只讀這些 LABEL 判介面版（ADR-0008:27）。
+/// `vendor_kit.schema.max`、`org.opencontainers.image.version`）。啟動器讀介面版區間判介面版
+/// （ADR-0008:27）；檔案版上限只公告，供判引擎降版（VK0007）與比對兩平台的 LABEL。
 /// 值只從 [`THIS`] 與 [`ENGINE_VERSION`] 來，Dockerfile 不另寫數字。
 pub fn image_build_args() -> String {
     format!(
-        "VK_PROTOCOL_FLOOR={}\nVK_PROTOCOL_CURRENT={}\nVK_VERSION={}\n",
-        THIS.floor_protocol, THIS.current_protocol, ENGINE_VERSION
+        "VK_PROTOCOL_FLOOR={}\nVK_PROTOCOL_CURRENT={}\nVK_SCHEMA_MAX={}\nVK_VERSION={}\n",
+        THIS.floor_protocol, THIS.current_protocol, THIS.max_schema, ENGINE_VERSION
     )
 }
 
@@ -201,9 +202,10 @@ mod tests {
         assert_eq!(
             image_build_args(),
             format!(
-                "VK_PROTOCOL_FLOOR={}\nVK_PROTOCOL_CURRENT={}\nVK_VERSION=v{}\n",
+                "VK_PROTOCOL_FLOOR={}\nVK_PROTOCOL_CURRENT={}\nVK_SCHEMA_MAX={}\nVK_VERSION=v{}\n",
                 THIS.floor_protocol,
                 THIS.current_protocol,
+                THIS.max_schema,
                 env!("CARGO_PKG_VERSION")
             )
         );
