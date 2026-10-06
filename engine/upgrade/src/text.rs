@@ -1,5 +1,5 @@
 //! `upgrade` 印到 stdout 的字句與詢問文字（英文，03 輸出）。這些不是診斷，訊息表不登錄；
-//! 契約沒定字句，這裡是第一版的寫法。
+//! 契約沒定字句，這裡是第一版的寫法。改動的字句都有預演（`--dry-run`）的寫法：`dry` 為真時印「Would …」。
 
 use imageref::{ImageRef, Tag};
 use initfiles::{Ask, FilePlan, Gap, Syntax, Verdict};
@@ -13,13 +13,10 @@ pub fn local_override(repo: &str, dir: &str) -> String {
     format!("{repo} uses the local source {dir} (local override).")
 }
 
-/// 換版完成。
-pub fn upgraded(repo: &str, from: &ImageRef, to: &ImageRef) -> String {
-    format!(
-        "Upgraded {repo} from {} to {} ({to}).",
-        from.tag(),
-        to.tag()
-    )
+/// 換版完成；預演時是會換的版本。
+pub fn upgraded(repo: &str, from: &ImageRef, to: &ImageRef, dry: bool) -> String {
+    let verb = if dry { "Would upgrade" } else { "Upgraded" };
+    format!("{verb} {repo} from {} to {} ({to}).", from.tag(), to.tag())
 }
 
 /// 已是指定的版本（04 成對與無害：已完整且一致的 `upgrade`，stdout 說明未變更）。
@@ -27,46 +24,66 @@ pub fn unchanged(repo: &str, tag: Tag) -> String {
     format!("{repo} is already at {tag}; no changes were made.")
 }
 
-/// 恢復了殘留的 `upgrade`。
-pub fn recovered(repo: &str, locked: &ImageRef) -> String {
+/// 恢復了殘留的 `upgrade`；預演時是會一併完成的。
+pub fn recovered(repo: &str, locked: &ImageRef, dry: bool) -> String {
+    let verb = if dry { "Would complete" } else { "Completed" };
     format!(
-        "Completed the interrupted upgrade of {repo} to {} ({locked}).",
+        "{verb} the interrupted upgrade of {repo} to {} ({locked}).",
         locked.tag()
     )
 }
 
-/// `upgrade --engine` 第二段重產了一個薄殼檔（同 engine/install 的字句）。
-pub fn wrote_shell(name: &str) -> String {
-    format!("Wrote .vendor_kit/{name}")
+/// `upgrade --engine` 第二段重產了一個薄殼檔（同 engine/install 的字句）；預演時是會重產的。
+pub fn wrote_shell(name: &str, dry: bool) -> String {
+    let verb = if dry { "Would write" } else { "Wrote" };
+    format!("{verb} .vendor_kit/{name}")
 }
 
-/// `upgrade --engine` 第二段把一個 VK 檔（安裝目錄相對路徑）從檔案版 `from` 升到 `to`。
-pub fn migrated(file: &str, from: u32, to: u32) -> String {
-    format!("Migrated {file} from schema version {from} to {to}")
+/// `upgrade --engine` 第二段把一個 VK 檔（安裝目錄相對路徑）從檔案版 `from` 升到 `to`；預演時是會升的。
+pub fn migrated(file: &str, from: u32, to: u32, dry: bool) -> String {
+    let verb = if dry { "Would migrate" } else { "Migrated" };
+    format!("{verb} {file} from schema version {from} to {to}")
 }
 
-/// `upgrade --engine` 第二段做完。
-pub fn engine_upgraded(locked: &ImageRef) -> String {
-    format!(
-        "Completed the engine upgrade to {} ({locked}).",
-        locked.tag()
-    )
+/// `upgrade --engine` 第二段做完；預演時是會做完的。
+pub fn engine_upgraded(locked: &ImageRef, dry: bool) -> String {
+    let verb = if dry { "Would complete" } else { "Completed" };
+    format!("{verb} the engine upgrade to {} ({locked}).", locked.tag())
 }
 
-/// 一個初始檔寫了什麼；沒有寫入的判定回 `None`。
-pub fn file_line(f: &FilePlan) -> Option<String> {
-    let word = match f.verdict {
-        Verdict::Create => "Created",
-        Verdict::Append => "Appended to",
-        Verdict::Replace => "Updated",
-        Verdict::Merge { .. } => "Merged",
-        Verdict::Unparsable { syntax, .. } => {
+/// 預演 `upgrade --engine` 第一段：會換上的引擎版本鎖定行（同 engine/install 的字句）。
+pub fn would_lock_engine(locked: &ImageRef) -> String {
+    format!("Would lock the engine to {} ({locked}).", locked.tag())
+}
+
+/// 預演 `upgrade --engine` 第一段：第二段由新的引擎做，這一版算不出來（engine 模組說明「預演」）。
+pub fn would_finish_on(tag: Tag) -> String {
+    format!("The rest of the engine upgrade would run on {tag} when the command is run again.")
+}
+
+/// 一個初始檔寫了什麼；沒有寫入的判定回 `None`。預演時是會寫什麼。
+pub fn file_line(f: &FilePlan, dry: bool) -> Option<String> {
+    let word = match (&f.verdict, dry) {
+        (Verdict::Create, false) => "Created",
+        (Verdict::Create, true) => "Would create",
+        (Verdict::Append, false) => "Appended to",
+        (Verdict::Append, true) => "Would append to",
+        (Verdict::Replace, false) => "Updated",
+        (Verdict::Replace, true) => "Would update",
+        (Verdict::Merge { .. }, false) => "Merged",
+        (Verdict::Merge { .. }, true) => "Would merge",
+        (Verdict::Unparsable { syntax, .. }, _) => {
             let kind = match syntax {
                 Syntax::Toml => "TOML",
                 Syntax::Just => "just",
             };
+            let (kept, recorded) = if dry {
+                ("Would keep", "would record it")
+            } else {
+                ("Kept", "recorded")
+            };
             return Some(format!(
-                "Kept {}: the merged version is not valid {kind}; recorded in conflicts",
+                "{kept} {}: the merged version is not valid {kind}; {recorded} in conflicts",
                 f.path
             ));
         }
@@ -76,16 +93,24 @@ pub fn file_line(f: &FilePlan) -> Option<String> {
 }
 
 /// 04 寫入既有檔的例外：新版不再提供的初始檔、使用者已刪的納管初始檔，不刪、不重建，只列清單。
-/// 不在清單裡的判定回 `None`。
-pub fn listed_line(repo: &str, tag: Tag, f: &FilePlan) -> Option<String> {
+/// 不在清單裡的判定回 `None`。預演時是會怎麼列。
+pub fn listed_line(repo: &str, tag: Tag, f: &FilePlan, dry: bool) -> Option<String> {
     match f.verdict {
         Verdict::UserDeleted | Verdict::StillDeleted => {
-            Some(format!("Not recreated (deleted): {}", f.path))
+            let not = if dry {
+                "Would not recreate"
+            } else {
+                "Not recreated"
+            };
+            Some(format!("{not} (deleted): {}", f.path))
         }
-        Verdict::Gap(Gap::NoLongerProvided) => Some(format!(
-            "Kept (no longer provided by {repo} {tag}): {}",
-            f.path
-        )),
+        Verdict::Gap(Gap::NoLongerProvided) => {
+            let kept = if dry { "Would keep" } else { "Kept" };
+            Some(format!(
+                "{kept} (no longer provided by {repo} {tag}): {}",
+                f.path
+            ))
+        }
         _ => None,
     }
 }

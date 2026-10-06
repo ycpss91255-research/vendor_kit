@@ -196,9 +196,17 @@ impl Out {
 }
 
 fn run_prune(fx: &Fx, behavior: Behavior) -> Out {
+    run_opts(fx, behavior, false)
+}
+
+/// 跑一次；`dry_run` 是有沒有帶 `--dry-run`。
+fn run_opts(fx: &Fx, behavior: Behavior, dry_run: bool) -> Out {
     fx.new_session();
     let peer = Peer::start(fx, behavior);
-    let argv = vec!["prune".to_owned()];
+    let mut argv = vec!["prune".to_owned()];
+    if dry_run {
+        argv.push("--dry-run".to_owned());
+    }
     let mut channel = Channel::new(&fx.ctl, header());
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -225,7 +233,7 @@ fn run_prune(fx: &Fx, behavior: Behavior) -> Out {
             diags: &mut diags,
             log: &mut log,
         };
-        run(&mut env)
+        run(dry_run, &mut env)
     };
     let ops = peer.finish();
     Out {
@@ -521,4 +529,53 @@ fn ps_output_is_one_id_per_line() {
     ] {
         assert!(parse_ps(&bad).is_err(), "{bad:?}");
     }
+}
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+#[test]
+fn dry_run_lists_paths_and_containers_without_removing_them() {
+    let fx = Fx::new();
+    fx.tool_dir("old");
+    fs::write(fx.vk(".tmp.version.toml.12.0"), "half\n").unwrap();
+    let mut p = Progress::new(VERB, "old1", &["prune"]).unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    let before = fx.snapshot();
+    let out = run_opts(
+        &fx,
+        Behavior {
+            stopped: vec![cid('a')],
+            ..Behavior::default()
+        },
+        true,
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Would remove .vendor_kit/.tmp.version.toml.12.0.\n\
+             Would remove .vendor_kit/cache/old/.\n\
+             Would remove .vendor_kit/cache/old.stamp.toml.\n\
+             Would complete the interrupted prune recorded in .vendor_kit/.tmp.prune.old1.toml.\n\
+             Would remove stopped container {}.\n\
+             Dry run: no changes were made.\n",
+            cid('a')
+        )
+    );
+    // ps 照送，rm-container 不送。
+    assert_eq!(out.ops, ["ps"]);
+    assert!(out.events().is_empty());
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn dry_run_with_nothing_to_prune_prints_only_the_last_line() {
+    let fx = Fx::new();
+    let before = fx.snapshot();
+    let out = run_opts(&fx, Behavior::default(), true);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stdout, "Dry run: no changes were made.\n");
+    assert_eq!(out.ops, ["ps"]);
+    assert_eq!(fx.snapshot(), before);
 }

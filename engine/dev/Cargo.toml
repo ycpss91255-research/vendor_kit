@@ -15,6 +15,7 @@ layout.workspace = true
 messages.workspace = true
 plan.workspace = true
 progress.workspace = true
+prompt.workspace = true
 runlog.workspace = true
 schema.workspace = true
 serde_json.workspace = true

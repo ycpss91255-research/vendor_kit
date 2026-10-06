@@ -1,5 +1,5 @@
 //! `remove`、`uninstall` 印到 stdout 的字句與詢問文字（英文，03 輸出）。這些不是診斷，訊息表不登錄；
-//! 契約沒定字句，這裡是第一版的寫法。
+//! 契約沒定字句，這裡是第一版的寫法。改動與保留的字句都有預演（`--dry-run`）的寫法：`dry` 為真時印「Would …」。
 
 use retract::{Owner, Question};
 
@@ -12,39 +12,55 @@ pub fn local_override(repo: &str, dir: &str) -> String {
 /// 答否的正常取消（03 輸出：不做變更，在 stdout 說明未變更）。
 pub const NO_CHANGES: &str = "No changes were made.";
 
-/// 解除了一個工具。
-pub fn removed(repo: &str, tag: &str, locked: &str) -> String {
-    format!("Removed {repo} {tag} ({locked}).")
+/// 預演時的動詞換成「Would <原形>」。
+fn verb(dry: bool, done: &'static str, base: &'static str) -> String {
+    if dry {
+        format!("Would {base}")
+    } else {
+        done.to_owned()
+    }
 }
 
-/// 這次一併完成了殘留的 `remove`（版本鎖定行裡已經沒有這個工具）。
-pub fn recovered(repo: &str) -> String {
-    format!("Completed the interrupted remove of {repo}.")
+/// 解除了一個工具；預演時是會解除的。
+pub fn removed(repo: &str, tag: &str, locked: &str, dry: bool) -> String {
+    let v = verb(dry, "Removed", "remove");
+    format!("{v} {repo} {tag} ({locked}).")
 }
 
-/// 移除了 VK。
-pub fn uninstalled(install_dir: &str) -> String {
-    format!("Uninstalled vendor_kit from {install_dir}.")
+/// 這次一併完成了殘留的 `remove`（版本鎖定行裡已經沒有這個工具）；預演時是會一併完成。
+pub fn recovered(repo: &str, dry: bool) -> String {
+    let v = verb(dry, "Completed", "complete");
+    format!("{v} the interrupted remove of {repo}.")
 }
 
-/// 收回了一個檔裡插入的行。
-pub fn retracted(path: &str) -> String {
-    format!("Removed inserted lines from {path}")
+/// 移除了 VK；預演時是會移除。
+pub fn uninstalled(install_dir: &str, dry: bool) -> String {
+    let v = verb(dry, "Uninstalled", "uninstall");
+    format!("{v} vendor_kit from {install_dir}.")
 }
 
-/// 保留清單的一項（04：`remove`、`uninstall` 保留初始檔，保留清單印到 stdout）。
-pub fn kept(path: &str) -> String {
-    format!("Kept {path}")
+/// 收回了一個檔裡插入的行；預演時是會收回。
+pub fn retracted(path: &str, dry: bool) -> String {
+    let v = verb(dry, "Removed", "remove");
+    format!("{v} inserted lines from {path}")
 }
 
-/// `remove` 解除了對象的本機覆寫（04 本機覆寫：報告用了哪個覆寫，不加診斷前綴）。
-pub fn lifted_override(repo: &str, dir: &str) -> String {
-    format!("Removed the local override of {repo} ({dir}).")
+/// 保留清單的一項（04：`remove`、`uninstall` 保留初始檔，保留清單印到 stdout）；預演時是會保留。
+pub fn kept(path: &str, dry: bool) -> String {
+    let v = verb(dry, "Kept", "keep");
+    format!("{v} {path}")
 }
 
-/// `remove`、`uninstall` 解除覆寫時保留的本機開發來源。
-pub fn kept_local_source(repo: &str, dir: &str) -> String {
-    format!("Kept the local development source of {repo}: {dir}")
+/// `remove` 解除了對象的本機覆寫（04 本機覆寫：報告用了哪個覆寫，不加診斷前綴）；預演時是會解除。
+pub fn lifted_override(repo: &str, dir: &str, dry: bool) -> String {
+    let v = verb(dry, "Removed", "remove");
+    format!("{v} the local override of {repo} ({dir}).")
+}
+
+/// `remove`、`uninstall` 解除覆寫時保留的本機開發來源；預演時是會保留。
+pub fn kept_local_source(repo: &str, dir: &str, dry: bool) -> String {
+    let v = verb(dry, "Kept", "keep");
+    format!("{v} the local development source of {repo}: {dir}")
 }
 
 /// 一題詢問（`prompt` 會在後面接 ` [y/N] `）。

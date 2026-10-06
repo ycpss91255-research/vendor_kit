@@ -662,17 +662,59 @@ fn install_dry_run_prints_the_plan_and_writes_only_the_run_log() {
 }
 
 #[test]
-fn dry_run_is_not_accepted_by_other_commands_yet() {
+fn uninstall_dry_run_prints_the_plan_and_writes_only_the_run_log() {
     let tmp = tempfile::tempdir().unwrap();
     let m = Mounts::create(&tmp.path().join("m"));
     let rel = tmp.path().join("release");
     release(&rel);
     fresh(&m);
+    fs::write(m.root.join("justfile"), USER_JUSTFILE).unwrap();
+    fs::write(m.root.join(".dockerignore"), USER_DOCKERIGNORE).unwrap();
+    let peer = idle_launcher(&m);
+    let (code, _, stderr) = run(&m, Some(&rel), "000", "", &["install", "-y"]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let before = snapshot(&m);
+
+    // 沒有終端也不問、不報 VK0002；-y 並用沒有作用。
     for rest in [
         &["uninstall", "--dry-run"][..],
-        &["upgrade", "--engine", "--dry-run"],
-        &["install", "--dry-run", "-h"],
+        &["uninstall", "--dry-run", "-y"],
     ] {
+        new_session(&m);
+        let peer = idle_launcher(&m);
+        let (code, stdout, stderr) = run(&m, None, "000", "", rest);
+        let seen = peer.join().unwrap();
+        assert_eq!(code, 0, "stderr: {stderr}");
+        assert_eq!(stderr, "");
+        assert_eq!(
+            stdout,
+            format!(
+                "Would uninstall vendor_kit from {HOST_ROOT}.\n\
+                 Would remove inserted lines from .dockerignore\n\
+                 Would remove inserted lines from justfile\n\
+                 Would keep .dockerignore\n\
+                 Would keep .vendor_kit/config.toml\n\
+                 Would keep justfile\n\
+                 Would keep .vendor_kit/log/\n\
+                 Dry run: no changes were made.\n"
+            )
+        );
+        assert!(seen.requests.is_empty());
+        assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+        assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+        assert_eq!(snapshot(&m), before);
+    }
+}
+
+#[test]
+fn dry_run_is_not_accepted_by_sync_or_with_help() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(&tmp.path().join("m"));
+    let rel = tmp.path().join("release");
+    release(&rel);
+    fresh(&m);
+    for rest in [&["sync", "--dry-run"][..], &["install", "--dry-run", "-h"]] {
         new_session(&m);
         let peer = idle_launcher(&m);
         let (code, stdout, stderr) = run(&m, Some(&rel), "000", "", rest);

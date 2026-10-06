@@ -421,7 +421,7 @@ fn run_as(fx: &Fx, req: &Request<'_>, argv: &[&str], run_id: &str) -> Out {
             diags: &mut diags,
             log: &mut log,
         };
-        run(req, &mut env)
+        run(req, argv.iter().any(|a| a == "--dry-run"), &mut env)
     };
     let ops = peer.finish();
     Out {
@@ -1354,4 +1354,127 @@ fn commands_are_quoted_for_posix_shells() {
         full_command(&["dev", "tool", "-p", "my dir"]),
         "just vendor_kit dev tool -p 'my dir'"
     );
+}
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+#[test]
+fn dev_and_undev_dry_run_print_the_plan_and_write_nothing() {
+    let fx = Fx::new();
+    let before = fx.snapshot();
+    let p = OsString::from("dev/tool");
+    let out = run_with(
+        &fx,
+        &Request::DevTool {
+            repo: "tool",
+            path: p.as_os_str(),
+        },
+        &["dev", "tool", "-p", "dev/tool", "--dry-run"],
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        "tool would use the local source dev/tool (local override).\n\
+         Would update .vendor_kit/gen/tools.just.\n\
+         Dry run: no changes were made.\n"
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.snapshot(), before);
+
+    // 開著覆寫、鎖定行換了：預演照樣取件（docker 動作照送）但不換 cache/。
+    assert_eq!(dev(&fx, "tool", "dev/tool").code, 0);
+    fx.set_lock_line(NEW_TOOL);
+    fx.registry
+        .borrow_mut()
+        .images
+        .push(Image::new(NEW_PINNED, false, "new:\n    echo new\n"));
+    let before = fx.snapshot();
+    let out = run_with(
+        &fx,
+        &Request::UndevTool { repo: "tool" },
+        &["undev", "tool", "--dry-run"],
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Would remove the local override of tool; tool would use v1.3.0 ({NEW_TOOL}).\n\
+             Would fetch tool v1.3.0 ({NEW_TOOL}).\n\
+             Would update .vendor_kit/gen/tools.just.\n\
+             Dry run: no changes were made.\n"
+        )
+    );
+    assert_eq!(
+        out.ops.last().unwrap(),
+        &format!("extract {IMAGE_ID} tool1")
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.snapshot(), before);
+    assert_eq!(fx.local().unwrap().tool("tool"), Some("dev/tool"));
+}
+
+#[test]
+fn engine_dev_and_undev_dry_run_write_nothing() {
+    let fx = Fx::new();
+    fx.registry
+        .borrow_mut()
+        .images
+        .push(Image::engine("vendor_kit:dev", &engine_labels("1", "2")));
+    let before = fx.snapshot();
+    let out = run_with(
+        &fx,
+        &Request::DevEngine {
+            image: OsStr::new("vendor_kit:dev"),
+        },
+        &["dev", "--engine", "-i", "vendor_kit:dev", "--dry-run"],
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.ops, ["inspect vendor_kit:dev"]);
+    assert_eq!(
+        out.stdout,
+        "The engine would use the local image vendor_kit:dev (local override).\n\
+         Dry run: no changes were made.\n"
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.snapshot(), before);
+
+    // 沒有覆寫：未變更照印，最後一行照樣是預演的。
+    let out = run_with(
+        &fx,
+        &Request::UndevEngine,
+        &["undev", "--engine", "--dry-run"],
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "The engine has no local override. No changes were made.\n\
+         Dry run: no changes were made.\n"
+    );
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn dry_run_keeps_the_residual_progress_file() {
+    let fx = Fx::new();
+    fx.write_local("");
+    fs::write(fx.dir.gen_dir().join(txn::TOOLS_JUST), DEV_GEN).unwrap();
+    fx.residual(UNDEV_VERB, &["undev", "tool"], &[(TARGET_KEY, "tool")]);
+    let before = fx.snapshot();
+    let out = run_with(
+        &fx,
+        &Request::UndevTool { repo: "tool" },
+        &["undev", "tool", "--dry-run"],
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stdout.ends_with(
+            "Would complete the interrupted undev recorded in .vendor_kit/.tmp.undev.r0.toml.\n\
+             Dry run: no changes were made.\n"
+        ),
+        "{}",
+        out.stdout
+    );
+    assert_eq!(fx.progress_files().len(), 1);
+    assert_eq!(fx.snapshot(), before);
 }

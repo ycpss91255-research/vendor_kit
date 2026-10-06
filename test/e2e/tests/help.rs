@@ -106,6 +106,7 @@ Move a tool to its latest version, or to <tag>, which may be older.
 
 Options:
   -y, --yes                         Answer yes to the questions upgrade asks
+      --dry-run                     Print the changes without making them
       --registry-token-file <path>  Read a registry token from <path> to list versions
   -h, --help                        Print this help
 
@@ -127,6 +128,7 @@ The first run switches the engine and stops; rerun the command it prints to fini
 
 Options:
   -y, --yes                         Answer yes to the questions upgrade asks
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 "#]],
@@ -138,12 +140,13 @@ fn dev_help() {
     help(
         &["dev", "-h"],
         snapbox::str![[r#"
-Usage: just vendor_kit dev <repo> -p <dir>
+Usage: just vendor_kit dev <repo> -p <dir> [options]
 
 Use a local directory as the source of a tool in this working directory.
 
 Options:
   -p, --path <dir>                  Local tool directory, relative to the install directory
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 For the engine: just vendor_kit dev --engine -h
@@ -157,12 +160,13 @@ fn dev_engine_help() {
     help(
         &["dev", "--engine", "-h"],
         snapbox::str![[r#"
-Usage: just vendor_kit dev --engine -i <image>
+Usage: just vendor_kit dev --engine -i <image> [options]
 
 Use a local engine image in this working directory.
 
 Options:
   -i, --image <image>               Local engine image
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 "#]],
@@ -174,11 +178,12 @@ fn undev_help() {
     help(
         &["undev", "-h"],
         snapbox::str![[r#"
-Usage: just vendor_kit undev <repo>
+Usage: just vendor_kit undev <repo> [options]
 
 Stop using the local source of a tool and sync it to its pinned version.
 
 Options:
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 For the engine: just vendor_kit undev --engine -h
@@ -192,11 +197,12 @@ fn undev_engine_help() {
     help(
         &["undev", "--engine", "-h"],
         snapbox::str![[r#"
-Usage: just vendor_kit undev --engine
+Usage: just vendor_kit undev --engine [options]
 
 Stop using the local engine image and return to the pinned engine.
 
 Options:
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 "#]],
@@ -214,6 +220,7 @@ Remove a tool. Init files are kept.
 
 Options:
   -y, --yes                         Answer yes to the questions remove asks
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 "#]],
@@ -284,6 +291,7 @@ Remove VK from this directory. Init files are kept.
 
 Options:
   -y, --yes                         Answer yes to the questions uninstall asks
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 "#]],
@@ -295,12 +303,13 @@ fn prune_help() {
     help(
         &["prune", "-h"],
         snapbox::str![[r#"
-Usage: just vendor_kit prune
+Usage: just vendor_kit prune [options]
 
 Remove local resources no longer in use: caches of unpinned tools,
 VK temporary files, and stopped containers VK created.
 
 Options:
+      --dry-run                     Print the changes without making them
   -h, --help                        Print this help
 
 "#]],

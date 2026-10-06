@@ -641,3 +641,48 @@ vendor_kit: error[VK0030]: Cannot add tool: namespace tool is already used by al
     assert_eq!(snapshot(&m), before);
     assert!(!events(&m).iter().any(|e| e == "writes_started"));
 }
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+#[test]
+fn dry_run_fetches_to_plan_but_writes_only_the_run_log() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let before = snapshot(&m);
+    // -y 並用沒有作用。
+    for rest in [
+        &["upgrade", "tool@v1.2.0", "--dry-run"][..],
+        &["upgrade", "--dry-run", "-y", "tool@v1.2.0"],
+    ] {
+        for d in [&m.ctl, &m.inbox] {
+            fs::remove_dir_all(d).unwrap();
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::write(m.root.join(RUN_LOG), "").unwrap();
+        let peer = launcher(&m, false);
+        let (code, stdout, stderr) = run(&m, rest);
+        let seen = peer.join().unwrap();
+        assert_eq!(code, 0, "stderr: {stderr}");
+        assert_data_eq!(
+            stdout,
+            snapbox::str![[r#"
+Would upgrade tool from v1.0.0 to v1.2.0 (ghcr.io/acme/tool:v1.2.0@sha256:2222222222222222222222222222222222222222222222222222222222222222).
+Dry run: no changes were made.
+
+"#]]
+        );
+        assert_data_eq!(stderr, "");
+        // 取件照送（動到的是 session 目錄），安裝目錄不動。
+        assert_eq!(
+            seen.requests,
+            [
+                format!("inspect {IMAGE}"),
+                format!("extract {IMAGE_ID} tool1"),
+            ]
+        );
+        assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+        assert_eq!(snapshot(&m), before);
+        assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+    }
+}

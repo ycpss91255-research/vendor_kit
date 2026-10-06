@@ -67,6 +67,7 @@ fn run_engine_with(fx: &Fx, argv: &[&str], registry: &Client, opts: &Opts) -> Ou
     let req = engine::Request {
         tag,
         yes: argv.contains(&"-y"),
+        dry_run: argv.contains(&"--dry-run"),
         shell_templates: opts.templates,
         config_template: opts.config,
     };
@@ -1119,4 +1120,66 @@ fn original_command_quotes_each_argument() {
         engine::original_command(&["a b", "it's"]),
         "just vendor_kit 'a b' 'it'\\''s'"
     );
+}
+
+// ---- 預演（--dry-run，#372 N11） ----
+
+#[test]
+fn dry_run_of_the_first_stage_resolves_the_target_but_switches_nothing() {
+    let fx = Fx::new();
+    let before = fx.snapshot();
+    let peer = Peer::start(&fx, TARGET);
+    let argv = ["upgrade", "--engine=v1.2.0", "--dry-run", "-y"];
+    let out = run_engine(&fx, &argv, &unused_registry());
+    let ops = peer.finish();
+    assert_eq!(ops, [format!("inspect {}", target_ref())]);
+    assert_rescue_only(&ops);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Would lock the engine to v1.2.0 ({}).\n\
+             The rest of the engine upgrade would run on v1.2.0 when the command is run again.\n\
+             Dry run: no changes were made.\n",
+            target_locked()
+        )
+    );
+    assert_eq!(out.log, "");
+    assert_eq!(fx.snapshot(), before);
+    assert!(progress::find(&fx.dir).unwrap().is_empty());
+}
+
+#[test]
+fn dry_run_of_the_second_stage_lists_the_writes_without_asking() {
+    let fx = Fx::new();
+    install_config(&fx, CONFIG_OLD, Some(CONFIG_OLD));
+    let argv = ["upgrade", "--engine=v0.0.0"];
+    first_stage(&fx, &argv);
+    let before = fx.snapshot();
+    let t = templates();
+    // 沒有終端：預演不問，也不報 VK0002。
+    let out = run_engine_with(
+        &fx,
+        &["upgrade", "--engine=v0.0.0", "--dry-run"],
+        &unused_registry(),
+        &config_opts("r2", &t),
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Would write .vendor_kit/entry.just\nWould write .vendor_kit/vendor.just\n\
+             Would write .vendor_kit/log.sh\nWould write .vendor_kit/.gitignore\n\
+             Would update .vendor_kit/config.toml\n\
+             Would complete the engine upgrade to {WRITTEN_BY} ({}).\n\
+             Dry run: no changes were made.\n",
+            self_locked()
+        )
+    );
+    assert_eq!(out.log, "");
+    // 第一段的進度檔與鎖定行都還在。
+    assert_eq!(fx.snapshot(), before);
+    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
 }

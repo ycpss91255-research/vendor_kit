@@ -38,6 +38,19 @@
 //!    （04 成對與無害：`prune` 不改追蹤檔），最後刪進度檔；再刪殘留的 `prune` 進度檔。
 //! 8. stdout 依序列出刪掉的路徑與完成的殘留，再逐一請啟動器 `rm-container`，刪掉一個印一行。
 //!
+//! # 預演（`--dry-run`，#372 N11）
+//!
+//! 語意是這一版自訂的（契約沒寫，列給維護者確認）：照上面的順序判定，差別只在：
+//!
+//! - 取安裝目錄的共享鎖，不取排他鎖（只讀）。`ps` 照送（只讀）；`lock_enabled = false` 時照樣不送。
+//!   共享鎖下別的唯讀執行可能還在跑，所以列出的容器只是預估，實際刪哪些以不帶 `--dry-run` 的那次為準。
+//! - 不建進度檔、不刪路徑、不刪殘留的進度檔、不送 `rm-container`；除執行紀錄外不寫任何檔。
+//! - stdout 照實際執行的順序印會刪的路徑、會完成的殘留與會刪的容器（[`text`] 的「Would …」寫法）；什麼
+//!   都不刪時也印最後一行 `prompt::DRY_RUN_DONE`，以 0 結束。
+//! - 判定時遇到的停下（其他 verb 的殘留、仍被入口檔引用、`ps` 失敗等）照樣以各自的結束碼停下。
+//! - 啟動器在 `prune` 以 0 結束後清殘留的現場（launcher/launch.sh），只刪這次執行期間容器被刪光的 run；
+//!   預演不刪容器，所以實際上不會清到預演前就在的現場。
+//!
 //! # 恢復
 //!
 //! 殘留的 `prune` 進度檔表示上一次 `prune` 中途停了。`prune` 只刪不寫，恢復就是照常再做一次：刪到一半的
@@ -122,9 +135,13 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
     pub log: &'a mut runlog::Writer<L>,
 }
 
-/// 跑一次 `prune`，回傳結束碼。
-pub fn run<W: Write, S: Sink, L: Write>(env: &mut Env<'_, W, S, L>) -> u8 {
-    let mut prune = Prune { env, code: 0 };
+/// 跑一次 `prune`，回傳結束碼；`dry_run` 是有沒有帶 `--dry-run`（模組說明「預演」）。
+pub fn run<W: Write, S: Sink, L: Write>(dry_run: bool, env: &mut Env<'_, W, S, L>) -> u8 {
+    let mut prune = Prune {
+        env,
+        dry_run,
+        code: 0,
+    };
     let _ = prune.run();
     prune.code
 }
@@ -153,6 +170,8 @@ type Step<T> = Result<T, Stop>;
 
 struct Prune<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
+    /// 預演：只印、不刪（模組說明「預演」）。
+    dry_run: bool,
     code: u8,
 }
 
@@ -244,24 +263,36 @@ impl<W: Write, S: Sink, L: Write> Prune<'_, '_, W, S, L> {
             Vec::new()
         };
 
+        let dry = self.dry_run;
         if !removes.is_empty() || !residual.is_empty() {
-            self.land(&removes)?;
-            for e in &residual {
-                if let Err(err) = progress::delete(self.env.dir, &e.verb, &e.id) {
-                    let d = self.failed_diag(&e.path, err.message(), err.to_string());
-                    return Err(self.stop(d));
+            // 預演不落地，殘留的進度檔照留（模組說明「預演」）。
+            if !dry {
+                self.land(&removes)?;
+                for e in &residual {
+                    if let Err(err) = progress::delete(self.env.dir, &e.verb, &e.id) {
+                        let d = self.failed_diag(&e.path, err.message(), err.to_string());
+                        return Err(self.stop(d));
+                    }
                 }
             }
             for r in &removes {
-                let line = text::removed(&self.shown(r));
+                let line = text::removed(&self.shown(r), dry);
                 self.say(&line);
             }
             for e in &residual {
-                let line = text::recovered(&self.rel(&e.path));
+                let line = text::recovered(&self.rel(&e.path), dry);
                 self.say(&line);
             }
         }
 
+        if dry {
+            // 預演不送 `rm-container`，只列 `ps` 讀回的容器。
+            for c in &containers {
+                self.say(&text::would_remove_container(c.as_str()));
+            }
+            self.say(prompt::DRY_RUN_DONE);
+            return Ok(());
+        }
         for c in &containers {
             let (_, outcome) = self.request(&Op::RmContainer(c.clone()))?;
             match outcome {
@@ -297,7 +328,13 @@ impl<W: Write, S: Sink, L: Write> Prune<'_, '_, W, S, L> {
     }
 
     fn lock(&mut self, config: &Config) -> Step<Lock> {
-        match Lock::acquire(self.env.dir, Mode::Exclusive, config) {
+        // 預演只讀，持共享鎖（模組說明「預演」）。
+        let mode = if self.dry_run {
+            Mode::Shared
+        } else {
+            Mode::Exclusive
+        };
+        match Lock::acquire(self.env.dir, mode, config) {
             Ok(lock) => {
                 if let Some(m) = lock.warning() {
                     let d = Diagnostic::new(m).arg("install_dir", self.env.host_root);

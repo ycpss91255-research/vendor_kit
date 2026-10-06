@@ -22,7 +22,7 @@
 //! （engine/upgrade 的 `engine` 模組；第二段要薄殼模板，同 `install` 讀出貨輸入）、`dev`、`undev`、`prune`
 //! 與 `test`、`test <path>`、`test dist`（安裝檢查、使用者測試與交付內容檢查，engine/check）。04 說明與用法
 //! 錯誤：不認得的名稱由 just 擋下、到不了引擎。
-//! `--dry-run`（預演，#372 N11）這一版只有 `add`、`install` 收（`args`），值原樣交給指令。
+//! `--dry-run`（預演，#372 N11）可寫 recipe 都收（`args`），值原樣交給指令。
 //! `-h`／`--help` 把 [`output::Help`] 的用法印到 stdout、以 0 結束（03 輸出），不看執行位置；救援呼叫的 `-h`
 //! 在介面版不合時也照印，其餘的 `-h` 跟一般呼叫一樣先報版本（[`gate`]）。
 
@@ -523,7 +523,7 @@ where
             let _ = stdout.flush();
             code
         }
-        args::Command::Prune => {
+        args::Command::Prune { dry_run } => {
             let dir = layout::InstallDir::new(&mounts.root);
             let argv: Vec<String> = inv
                 .rest
@@ -545,7 +545,7 @@ where
                 diags,
                 log,
             };
-            let code = prune::run(&mut env);
+            let code = prune::run(*dry_run, &mut env);
             let _ = stdout.flush();
             code
         }
@@ -585,6 +585,7 @@ where
             repo,
             tag,
             yes,
+            dry_run,
             registry_token_file,
         } => {
             let registry = match registry_client(host_log, diags) {
@@ -622,14 +623,20 @@ where
                 repo,
                 tag: *tag,
                 yes: *yes,
+                dry_run: *dry_run,
                 registry_token_file: registry_token_file.as_deref(),
             };
             let code = upgrade::run(&req, &mut env);
             let _ = stdout.flush();
             code
         }
-        args::Command::DevTool { repo, path } => run_dev(
+        args::Command::DevTool {
+            repo,
+            path,
+            dry_run,
+        } => run_dev(
             &dev::Request::DevTool { repo, path },
+            *dry_run,
             inv,
             mounts,
             host_log,
@@ -638,8 +645,9 @@ where
             diags,
             log,
         ),
-        args::Command::DevEngine { image } => run_dev(
+        args::Command::DevEngine { image, dry_run } => run_dev(
             &dev::Request::DevEngine { image },
+            *dry_run,
             inv,
             mounts,
             host_log,
@@ -648,8 +656,9 @@ where
             diags,
             log,
         ),
-        args::Command::UndevTool { repo } => run_dev(
+        args::Command::UndevTool { repo, dry_run } => run_dev(
             &dev::Request::UndevTool { repo },
+            *dry_run,
             inv,
             mounts,
             host_log,
@@ -658,8 +667,9 @@ where
             diags,
             log,
         ),
-        args::Command::UndevEngine => run_dev(
+        args::Command::UndevEngine { dry_run } => run_dev(
             &dev::Request::UndevEngine,
+            *dry_run,
             inv,
             mounts,
             host_log,
@@ -679,9 +689,12 @@ where
             diags,
             log,
         ),
-        args::Command::Remove { repo, yes } => run_remove(
+        args::Command::Remove { repo, yes, dry_run } => run_remove(
             Some(repo),
-            *yes,
+            remove::Opts {
+                yes: *yes,
+                dry_run: *dry_run,
+            },
             inv,
             mounts,
             host_log,
@@ -692,10 +705,23 @@ where
             diags,
             log,
         ),
-        args::Command::Uninstall { yes } => run_remove(
-            None, *yes, inv, mounts, host_log, channel, stdin, stdout, stderr, diags, log,
+        args::Command::Uninstall { yes, dry_run } => run_remove(
+            None,
+            remove::Opts {
+                yes: *yes,
+                dry_run: *dry_run,
+            },
+            inv,
+            mounts,
+            host_log,
+            channel,
+            stdin,
+            stdout,
+            stderr,
+            diags,
+            log,
         ),
-        args::Command::UpgradeEngine { tag, yes } => {
+        args::Command::UpgradeEngine { tag, yes, dry_run } => {
             let registry = match registry_client(host_log, diags) {
                 Ok(c) => c,
                 Err(code) => return code,
@@ -734,6 +760,7 @@ where
             let req = upgrade::engine::Request {
                 tag: *tag,
                 yes: *yes,
+                dry_run: *dry_run,
                 shell_templates: release.shell.as_ref(),
                 config_template: &release.config,
             };
@@ -852,6 +879,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn run_dev<O, E>(
     req: &dev::Request<'_>,
+    dry_run: bool,
     inv: &plan::Invocation,
     mounts: &Mounts,
     host_log: &str,
@@ -886,7 +914,7 @@ where
         diags,
         log,
     };
-    let code = dev::run(req, &mut env);
+    let code = dev::run(req, dry_run, &mut env);
     let _ = stdout.flush();
     code
 }
@@ -995,7 +1023,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn run_remove<O, E>(
     repo: Option<&str>,
-    yes: bool,
+    opts: remove::Opts,
     inv: &plan::Invocation,
     mounts: &Mounts,
     host_log: &str,
@@ -1040,8 +1068,8 @@ where
         log,
     };
     let code = match repo {
-        Some(repo) => remove::remove(repo, yes, &mut env),
-        None => remove::uninstall(yes, &mut env),
+        Some(repo) => remove::remove(repo, opts, &mut env),
+        None => remove::uninstall(opts, &mut env),
     };
     let _ = stdout.flush();
     code
@@ -1440,25 +1468,26 @@ mod tests {
     #[test]
     fn every_option_in_the_help_is_accepted() {
         use output::Help;
-        let base: [(Help, &[&str]); 15] = [
-            (Help::Add, &["add", "lint"]),
-            (Help::UpgradeTool, &["upgrade", "lint"]),
-            (Help::UpgradeEngine, &["upgrade", "--engine"]),
-            (Help::DevTool, &["dev", "lint"]),
-            (Help::DevEngine, &["dev", "--engine"]),
-            (Help::UndevTool, &["undev", "lint"]),
-            (Help::UndevEngine, &["undev", "--engine"]),
-            (Help::Remove, &["remove", "lint"]),
-            (Help::Update, &["update"]),
-            (Help::Sync, &["sync"]),
-            (Help::Install, &["install"]),
-            (Help::Uninstall, &["uninstall"]),
-            (Help::Prune, &["prune"]),
-            (Help::Test, &["test"]),
-            (Help::TestDist, &["test", "dist"]),
+        // 第三欄是必要的選項：檢查別的選項時一起帶上，檢查它自己時不帶。
+        let base: [(Help, &[&str], &[&str]); 15] = [
+            (Help::Add, &["add", "lint"], &[]),
+            (Help::UpgradeTool, &["upgrade", "lint"], &[]),
+            (Help::UpgradeEngine, &["upgrade", "--engine"], &[]),
+            (Help::DevTool, &["dev", "lint"], &["-p", "x"]),
+            (Help::DevEngine, &["dev", "--engine"], &["-i", "x"]),
+            (Help::UndevTool, &["undev", "lint"], &[]),
+            (Help::UndevEngine, &["undev", "--engine"], &[]),
+            (Help::Remove, &["remove", "lint"], &[]),
+            (Help::Update, &["update"], &[]),
+            (Help::Sync, &["sync"], &[]),
+            (Help::Install, &["install"], &[]),
+            (Help::Uninstall, &["uninstall"], &[]),
+            (Help::Prune, &["prune"], &[]),
+            (Help::Test, &["test"], &[]),
+            (Help::TestDist, &["test", "dist"], &[]),
         ];
         let mut checked = 0;
-        for (help, base) in base {
+        for (help, base, required) in base {
             for line in help
                 .text()
                 .lines()
@@ -1471,6 +1500,9 @@ mod tests {
                         continue;
                     }
                     let mut argv: Vec<&str> = base.to_vec();
+                    if !takes_value {
+                        argv.extend_from_slice(required);
+                    }
                     argv.push(opt);
                     if takes_value {
                         // `--image-path` 的值要是 `ghcr.io/<路徑>`，其他帶值選項收任何值。
@@ -1490,8 +1522,8 @@ mod tests {
             }
         }
         // -i／--image 兩處、-y／--yes 六處、--registry-token-file 三處、-p／--path 一處、--image-path 一處、
-        // --dry-run 兩處。
-        assert_eq!(checked, 4 + 12 + 3 + 2 + 1 + 2);
+        // --dry-run 十一處。
+        assert_eq!(checked, 4 + 12 + 3 + 2 + 1 + 11);
     }
 
     #[test]
