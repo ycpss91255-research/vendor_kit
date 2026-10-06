@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # 薄殼模板的組裝（launcher/shell/assemble.sh）：輸出逐位元組決定、串接順序固定、組好的 log.sh 過 shellcheck
 # 與命令白名單 lint、三份模板的內容，以及輸入不合時不寫檔。
-# 用真 just 解析模板的測試不在這裡（test stage 還沒有 just）。
+# 用真 just 解析模板的測試在 test/e2e/tests/entry.rs（image/Dockerfile 的 test stage 跑完這裡的 bats 才裝 just）。
 
 load helper
 
