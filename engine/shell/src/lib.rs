@@ -13,13 +13,16 @@
 //!   四檔都以 `#` 起頭的行為註解，所以標頭不改變各檔的意義。標頭固定放在第一行起，`log.sh` 由
 //!   啟動器以 `bash` 執行或載入，不靠 shebang。每行都是 `<前綴><鍵> <值>\n`，啟動器（bash）不用解析器、
 //!   以字串比對就讀得出介面版（不變量 6：啟動器只做不需要知道規則內容的事）。
+//! - 行尾：CRLF 與 LF 等價（ADR-0003、ADR-0012）。標頭的 sha256 是其餘內容 CRLF→LF 正規化後的 sha256
+//!   （[`files::fingerprint_normalized`]）；檢查前整檔（含標頭）先正規化（[`files::normalize_crlf`]），
+//!   所以 Windows checkout 後只是行尾變 CRLF 的檔仍判為一致，不重產，也不動使用者的行尾。
 //! - 產生（[`Shell::render`]）只依呼叫端給的介面版、引擎版與四檔模板本文，同樣的輸入每次得到位元組
 //!   相同的內容，不放時間等會變的值；`--repair`「一致則不重產」靠這一點。介面版不寫死在這裡，由呼叫端
 //!   傳入（ADR-0008 的介面版由引擎決定）；模板本文也由呼叫端給（模板隨 image 出貨，內容不在這個 crate）。
 //! - 檢查（[`Shell::check`]）逐檔分兩段（ADR-0007 內部機制）：
-//!   1. 用標頭重算比對：其餘內容的 sha256（原樣位元組，不做 CRLF 正規化，[`files::fingerprint`]）跟標頭
-//!      記的不同，或標頭缺了、格式不對，就是被改過（[`Status::Modified`]）。
-//!   2. 與這一版模板產生的內容整檔比對（含標頭）：自洽但位元組不同，就是不是這一版引擎的模板
+//!   1. 用標頭重算比對：其餘內容正規化後的 sha256 跟標頭記的不同，或標頭缺了、格式不對，就是被改過
+//!      （[`Status::Modified`]）。
+//!   2. 與這一版模板產生的內容整檔比對（含標頭，兩邊都正規化）：自洽但內容不同，就是不是這一版引擎的模板
 //!      （[`Status::OtherTemplate`]）。標頭的 sha256 只涵蓋其餘內容，只改標頭裡引擎版的檔會過第一段，
 //!      由這一段抓出來。
 //!
@@ -67,10 +70,11 @@ pub struct Header {
     pub sha256: String,
 }
 
-/// 由介面版、引擎版與其餘內容產生一個薄殼檔：標頭三行接著原樣的 `body`。
+/// 由介面版、引擎版與其餘內容產生一個薄殼檔：標頭三行接著原樣的 `body`。sha256 是 `body`
+/// CRLF→LF 正規化後的 sha256。
 pub fn render(interface: u32, engine: &str, body: &[u8]) -> Result<Vec<u8>, InvalidEngine> {
     check_engine(engine)?;
-    let sha256 = files::fingerprint(body).to_hex();
+    let sha256 = files::fingerprint_normalized(body).to_hex();
     let mut out = format!(
         "{HEADER_PREFIX}{INTERFACE_KEY} {interface}\n\
          {HEADER_PREFIX}{ENGINE_KEY} {engine}\n\
@@ -81,7 +85,8 @@ pub fn render(interface: u32, engine: &str, body: &[u8]) -> Result<Vec<u8>, Inva
     Ok(out)
 }
 
-/// 拆出標頭與其餘內容；標頭缺了或格式不對回 `None`。不驗 sha256，驗用 [`is_intact`]。
+/// 拆出標頭與其餘內容；標頭缺了或格式不對回 `None`。標頭每行以 LF 結尾，CRLF 的檔要先經
+/// [`files::normalize_crlf`]。不驗 sha256，驗用 [`is_intact`]。
 pub fn parse(contents: &[u8]) -> Option<(Header, &[u8])> {
     let (interface, rest) = header_line(contents, INTERFACE_KEY)?;
     let (engine, rest) = header_line(rest, ENGINE_KEY)?;
@@ -108,9 +113,11 @@ pub fn parse(contents: &[u8]) -> Option<(Header, &[u8])> {
     ))
 }
 
-/// 第一段：標頭在、格式對，而且其餘內容的 sha256 跟標頭記的相同。
+/// 第一段：整檔 CRLF→LF 正規化後，標頭在、格式對，而且其餘內容的 sha256 跟標頭記的相同。
 pub fn is_intact(contents: &[u8]) -> bool {
-    parse(contents).is_some_and(|(header, body)| files::fingerprint(body).to_hex() == header.sha256)
+    let contents = files::normalize_crlf(contents);
+    parse(&contents)
+        .is_some_and(|(header, body)| files::fingerprint(body).to_hex() == header.sha256)
 }
 
 /// 讀一行 `<前綴><鍵> <值>\n`，回傳值與之後的內容。
@@ -214,11 +221,11 @@ impl Shell {
     }
 }
 
-/// 兩段比對一個在場的檔。
+/// 兩段比對一個在場的檔，兩邊都先 CRLF→LF 正規化。
 fn classify(actual: &[u8], expected: &[u8]) -> Status {
     if !is_intact(actual) {
         Status::Modified
-    } else if actual != expected {
+    } else if files::normalize_crlf(actual) != files::normalize_crlf(expected) {
         Status::OtherTemplate
     } else {
         Status::Match
@@ -264,11 +271,11 @@ fn read_regular(path: &Path) -> Result<Option<Vec<u8>>, Error> {
 /// 一個薄殼檔的比對結果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
-    /// 與這一版的內容位元組相同。
+    /// 與這一版的內容相同（CRLF 與 LF 視為相同）。
     Match,
     /// 檔不在。
     Missing,
-    /// 被改過：標頭缺了、格式不對，或其餘內容跟標頭的 sha256 不符。
+    /// 被改過：標頭缺了、格式不對，或其餘內容正規化後跟標頭的 sha256 不符。
     Modified,
     /// 自洽，但不是這一版引擎的模板。
     OtherTemplate,
@@ -530,15 +537,66 @@ mod tests {
     }
 
     #[test]
-    fn crlf_only_change_is_modified() {
+    fn crlf_body_only_matches() {
         let (_tmp, dir) = install();
         let shell = shell();
         shell.write(&dir).unwrap();
         let path = dir.gitignore();
         let text = String::from_utf8(fs::read(&path).unwrap()).unwrap();
         let (head, body) = text.split_at(text.len() - BODIES[3].len());
-        fs::write(&path, format!("{head}{}", body.replace('\n', "\r\n"))).unwrap();
-        only(&shell.check(&dir).unwrap(), ".gitignore", Status::Modified);
+        let crlf = format!("{head}{}", body.replace('\n', "\r\n"));
+        fs::write(&path, &crlf).unwrap();
+        let report = shell.check(&dir).unwrap();
+        assert!(report.is_consistent());
+        assert!(shell.write_mismatched(&dir, &report).unwrap().is_empty());
+        assert_eq!(fs::read(&path).unwrap(), crlf.as_bytes());
+    }
+
+    #[test]
+    fn crlf_checkout_of_all_files_matches_and_is_kept() {
+        let (_tmp, dir) = install();
+        let shell = shell();
+        shell.write(&dir).unwrap();
+        let mut crlf = Vec::new();
+        for path in dir.shell_files() {
+            let text = String::from_utf8(fs::read(&path).unwrap()).unwrap();
+            let converted = text.replace('\n', "\r\n");
+            fs::write(&path, &converted).unwrap();
+            crlf.push(converted);
+        }
+        let report = shell.check(&dir).unwrap();
+        assert!(report.is_consistent());
+        assert_eq!(report.message(), None);
+        assert!(shell.write_mismatched(&dir, &report).unwrap().is_empty());
+        for (path, converted) in dir.shell_files().into_iter().zip(&crlf) {
+            assert_eq!(fs::read(&path).unwrap(), converted.as_bytes());
+        }
+    }
+
+    #[test]
+    fn crlf_file_with_changed_body_is_modified() {
+        let (_tmp, dir) = install();
+        let shell = shell();
+        shell.write(&dir).unwrap();
+        let path = dir.vk_dir().join("vendor.just");
+        let text = String::from_utf8(fs::read(&path).unwrap()).unwrap();
+        let edited = text
+            .replace('\n', "\r\n")
+            .replace("mod vendor_kit", "mod vendor_kix");
+        fs::write(&path, edited).unwrap();
+        only(&shell.check(&dir).unwrap(), "vendor.just", Status::Modified);
+    }
+
+    #[test]
+    fn sha256_is_of_normalized_body() {
+        let lf = render(INTERFACE, ENGINE, b"a\nb\n").unwrap();
+        let crlf = render(INTERFACE, ENGINE, b"a\r\nb\r\n").unwrap();
+        assert_eq!(parse(&lf).unwrap().0.sha256, parse(&crlf).unwrap().0.sha256);
+        assert!(is_intact(&crlf));
+        // 單獨的 `\r`（後面不是 `\n`）不正規化，算內容變了。
+        let mut lone_cr = lf.clone();
+        lone_cr.insert(lone_cr.len() - 2, b'\r');
+        assert!(!is_intact(&lone_cr));
     }
 
     #[test]

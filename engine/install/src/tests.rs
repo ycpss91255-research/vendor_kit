@@ -290,6 +290,33 @@ fn second_install_changes_nothing() {
     assert_eq!(fx.read(".vendor_kit/version.toml"), toml);
 }
 
+#[test]
+fn crlf_checkout_of_the_shell_changes_nothing() {
+    let fx = Fx::new();
+    assert_eq!(run_install(&fx, false, "").code, 0);
+    let mut crlf = Vec::new();
+    for name in layout::SHELL_FILES {
+        let path = fx.vk().join(name);
+        let text = String::from_utf8(fs::read(&path).unwrap()).unwrap();
+        let converted = text.replace('\n', "\r\n");
+        fs::write(&path, &converted).unwrap();
+        crlf.push(converted);
+    }
+    let before = fx.tree();
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "vendor_kit is already installed in /h/proj; no changes were made.\n"
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.tree(), before);
+    for (name, converted) in layout::SHELL_FILES.iter().zip(&crlf) {
+        let contents = fs::read(fx.vk().join(name)).unwrap();
+        assert_eq!(contents, converted.as_bytes(), "{name}");
+    }
+}
+
 // ---- 使用者既有的根目錄檔 ----
 
 const USER_JUSTFILE: &str = "build:\n    echo build\n";
