@@ -30,7 +30,7 @@
   - 可寫 recipe 的時序：
     1. 主機前置檢查依 [ADR-0007 主機薄層決議](0007-host-thin-layer-and-shell-integrity.md)與 [使用者介面頁的主機需求](../contract/04_interface.md#主機需求)執行。Docker 版本不足與偵測到 Podman，首次導入與已有安裝目錄都由啟動器檢查；檢查沒有副作用，排在建執行紀錄之前，失敗時不留執行紀錄、不動任何 VK 檔，只在 stderr 印 `vendor_kit: error[VKnnnn]: <message>` 診斷、以 `2` 結束，訊息依 [03 輸出的訊息表](../contract/reason_codes.csv)。just 版本不足只有首次導入由 `bootstrap.sh` 檢查，失敗時同樣不留執行紀錄、不動任何 VK 檔，只在 stderr 印 `vendor_kit: error[VKnnnn]: <message>` 診斷、以 `2` 結束，訊息依 [03 輸出的訊息表](../contract/reason_codes.csv)；已有安裝目錄時由 just 解析 justfile 時自己拒絕，不承諾 VK 的訊息與結束碼，也不留執行紀錄。
     2. 建執行紀錄，早於任何寫入、拉 image、起引擎。
-    3. 建進度檔（`.tmp.<verb>.<id>.toml`、metadata 的 `[progress]`），早於第一個 repo 檔或 VK 檔的寫入。
+    3. 建進度檔（`.tmp.<verb>.<id>.toml`），早於第一個 repo 檔或 VK 檔的寫入。
     4. 一次處理多個工具時，先對全部工具做完整預檢；任一項不過就整體不動，列出每一個原因，結束碼依各原因的結束碼取最大值。
     5. 寫入。中途失敗依 [不變量頁第 4 條](../contract/02_invariants.md#4-永不靜默失敗)處理。
     6. 最後才改版本鎖定行：工具層的可寫 recipe 回 `2` 時，該工具的版本鎖定行不動。升引擎是明列例外，見 [ADR-0007](0007-host-thin-layer-and-shell-integrity.md)。
