@@ -39,7 +39,6 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
         "inspect $pinned" "inspect\n$pinned"
         "extract sha256:$B x1" "extract\nsha256:$B\nx1"
         'stage e:/srv/u/.ghcr\\040token t1' "stage\n/srv/u/.ghcr\\\\ token\nt1"
-        # stage-dir 是啟動器先認的 op（N48）：引擎端加進 OPS 時，這一條改成照 engine/plan/src/tests.rs 的 golden。
         'stage-dir e:/srv/u/my\\040src d1' "stage-dir\n/srv/u/my\\\\ src\nd1"
         "ps" "ps"
         "rm-container $B" "rm-container\n$B"
@@ -70,9 +69,8 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
     [ "${lines[3]}" = engine ]
 }
 
-@test "the launcher knows every op of engine/plan and at most the pending stage-dir besides" {
-    # 啟動器先 merge、引擎後加 op（N48 的 stage-dir）時，兩邊有一段時間不相等：
-    # 這裡比對的是「啟動器認得的 ⊇ engine/plan 的 OPS」，多出來的只准是還沒落地的 stage-dir。
+@test "the launcher ops equal the OPS of engine/plan in order" {
+    # 兩邊各自寫一份；這裡從 engine/plan/src/lib.rs 讀 OPS，逐項依序比對。
     local src re='pub const OPS: \[&str; [0-9]+\] = \[([^]]*)\]'
     src=$(<"$repo_root/engine/plan/src/lib.rs")
     [[ $src =~ $re ]]
@@ -81,17 +79,10 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
     [ "${#engine_ops[@]}" -gt 0 ]
     vk 'printf "%s\n" "${vk_wire_ops[@]}"'
     [ "$status" -eq 0 ]
-    local o extra=()
-    for o in "${engine_ops[@]}"; do
-        printf '%s\n' "${lines[@]}" | grep -qxF -- "$o" || {
-            echo "launcher does not know engine op $o" >&2
-            return 1
-        }
-    done
-    for o in "${lines[@]}"; do
-        printf '%s\n' "${engine_ops[@]}" | grep -qxF -- "$o" || extra+=("$o")
-    done
-    [ "${extra[*]}" = "" ] || [ "${extra[*]}" = stage-dir ]
+    [ "${lines[*]}" = "${engine_ops[*]}" ] || {
+        echo "launcher ops: ${lines[*]}; engine/plan OPS: ${engine_ops[*]}" >&2
+        return 1
+    }
 }
 
 @test "free-text fields decode exactly like field_encoding_is_exact" {

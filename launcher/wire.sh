@@ -15,8 +15,8 @@
 # inspect、extract、stage）跨介面版永久不變（#372 維護者 10/05 定救援路徑協定選 A）；改了就破壞救援，P+1 也不能改。
 
 vk_wire_grammar=vk-resolve
-# op 的封閉集合，依文法的順序（engine/plan 的 OPS）。stage-dir（N48，開發來源的目錄）先在啟動器這邊認，
-# 引擎端之後才加進 OPS（同一個位置）；在那之前啟動器比引擎多認這一個，wire.bats 檢查的是 ⊇ 與差集。
+# op 的封閉集合，依文法的順序（engine/plan 的 OPS），兩邊相等；wire.bats 比對兩份清單。
+# stage-dir（N48，開發來源的目錄）只給 dev 用，不屬救援路徑。
 vk_wire_ops=(pull load inspect extract stage stage-dir ps rm-container runner)
 # 引擎入口的具名選項，依傳的順序（engine/plan 的 argv::ORDER），之後接 `--`。
 vk_wire_argv=(--protocol --run-id --host-root --host-cwd --run-log --tty --no-color)
