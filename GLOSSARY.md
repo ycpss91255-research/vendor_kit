@@ -91,7 +91,7 @@ image 引用裡那個 image 內容的 sha256；內容相同才會相同，所以
 VK 在 repo 內建立與管理的目錄，放薄殼、版本鎖定行、本機狀態與快取。
 
 **`version.toml`**：
-`.vendor_kit/version.toml`，放全部版本鎖定行的檔；進 git。
+`.vendor_kit/version.toml`，放全部版本鎖定行與[介面版列表](#介面版與契約)的檔；進 git。
 _Avoid_: `.version`
 
 **repo 檔** (repo file)：
@@ -182,6 +182,10 @@ VK 在修改 repo 檔前，向使用者取得同意的互動。
 讓使用者預先回答詢問的選項。
 寫法：`-y`，長選項 `--yes`。
 
+**預演** (dry run)：
+以 `--dry-run` 啟動、算出完整計畫並列出會改的內容、但不做這些修改的執行；規則見 [04 使用者介面](doc/contract/04_interface.md)的[預演](doc/contract/04_interface.md#預演)。
+寫法：`--dry-run`。
+
 **`--engine`** (engine option)：
 讓 VK recipe 的對象改為引擎、而不是工具的選項。
 寫法：`--engine`；要帶版本時只接受 `--engine=<tag>`。
@@ -251,6 +255,9 @@ VK recipe 或 `bootstrap.sh` 結束時回給呼叫方、表示整體結果的整
 
 **最低介面版** (floor)：
 引擎仍支援的最低介面版。
+
+**介面版列表** (protocol list)：
+`version.toml` 裡記錄鎖定引擎支援哪些介面版的項目，從最低介面版到目前介面版逐一列出。
 
 **檔案版** (schema version)：
 VK 寫入檔案時用來標示該檔資料格式的整數版號。
