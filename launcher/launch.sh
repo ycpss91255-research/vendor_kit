@@ -26,6 +26,11 @@
 # - 協定不合（VK0056）時迴圈停掉引擎容器，原因寫在 session 目錄的 fault（不在 ctl/，引擎寫不到）。
 # - 引擎結束後核對 done 與容器結束碼，寫 run_finished，刪容器（不加 -f）與 session 目錄。
 #   容器停不下來時保留 session 目錄與容器，不刪現場。
+# - 殘留的現場（N58）：`prune` 會刪本安裝目錄已停止的容器，但 session 目錄在 repo 外、引擎看不到。
+#   所以 `prune` 起引擎之前先記下帶本安裝目錄 label 的容器屬於哪些 run-id，`prune` 成功（結束碼 0）之後
+#   再查一次：先前有、現在一個容器都不剩的 run-id，它留下的 `vendor_kit.<run-id>/` 由啟動器刪掉。
+#   session 目錄本身不記安裝目錄，只有容器的 label 記，所以只清這次執行期間容器被刪掉的；更早就沒了
+#   容器的目錄不清。stdout 不列刪了什麼（要列得由引擎印，協定還沒有對應的 op）。
 #
 # 呼叫端（薄殼）先載入 msggen 的訊息片段與 diag.sh、host.sh、log.sh、wire.sh，設好 vk_log_version。
 # 那些檔定義的變數（vk_wire_*、vk_log_*、vk_diag_exit、vk_req_*）在這裡直接用。
@@ -199,8 +204,66 @@ vk_launch() {
         return "$REPLY"
     fi
 
+    # prune 起引擎之前記下本安裝目錄的容器所屬的 run-id；查不到就不清殘留的現場。
+    local prune=0
+    local -a before=()
+    if [[ ${1:-} == prune ]] && vk_launch_runs "$root"; then
+        prune=1
+        before=("${vk_runs[@]}")
+    fi
+
     vk_launch_engine "$sess" "$root" "$cwd" "$engine" "$proto" "$run_id" "$run_log" "$@"
+    local code=$REPLY
+    if ((prune && code == 0)); then
+        vk_launch_prune_sessions "${tmp:-/tmp}" "$root" "$run_id" "${before[@]}"
+    fi
+    REPLY=$code
     return "$REPLY"
+}
+
+# vk_launch_runs <root>：帶本安裝目錄 label 的容器（不論狀態）所屬的 run-id，一個容器一個，放進陣列 vk_runs。
+# docker 失敗回 1。
+vk_launch_runs() {
+    vk_runs=()
+    local out line
+    if ! out=$(docker ps -a --no-trunc --filter "label=$vk_label_root=$1" --format "{{.Label \"$vk_label_run\"}}" 2>/dev/null); then
+        return 1
+    fi
+    while IFS= read -r line; do
+        if [[ -n $line ]]; then
+            vk_runs+=("$line")
+        fi
+    done <<<"$out"
+    return 0
+}
+
+# vk_launch_prune_sessions <tmp> <root> <run-id> [<prune 之前的 run-id>...]：prune 成功之後清殘留的現場（N58）。
+# 只刪這樣的 <tmp>/vendor_kit.<id>/：<id> 在 prune 之前帶本安裝目錄 label 的容器裡、現在一個都不剩、
+# 不是這次執行，而且是自己的實體目錄（不是 symlink）。label 值來自 docker，先照 run-id 文法驗過才拼路徑。
+# 查不到現在的容器就一個都不刪。不印、不影響結束碼。
+vk_launch_prune_sessions() {
+    local tmp=$1 root=$2 self=$3
+    shift 3
+    if (($# == 0)) || ! vk_launch_runs "$root"; then
+        return 0
+    fi
+    local id now dir left
+    for id in "$@"; do
+        if [[ ! $id =~ $vk_wire_re_run_id || $id == "$self" ]]; then
+            continue
+        fi
+        left=0
+        for now in "${vk_runs[@]}"; do
+            if [[ $now == "$id" ]]; then
+                left=1
+            fi
+        done
+        dir=$tmp/vendor_kit.$id
+        if ((!left)) && [[ -d $dir && ! -L $dir && -O $dir ]]; then
+            rm -rf -- "$dir" 2>/dev/null
+        fi
+    done
+    return 0
 }
 
 # vk_launch_engine <sess> <root> <cwd> <engine> <P> <run-id> <run-log> [<recipe> <args>...]：

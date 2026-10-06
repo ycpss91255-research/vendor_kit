@@ -12,7 +12,7 @@ just
 
 # 基礎 userland
 mkdir
-# 啟動流程（launch.sh）：session 目錄的檔（res 先寫 .tmp 再 mv、stage 複製主機檔、收尾刪 session）、
+# 啟動流程（launch.sh）：session 目錄的檔（res 先寫 .tmp 再 mv、stage 複製主機檔、收尾刪 session、prune 之後刪殘留的 session）、
 # 代辦迴圈的輪詢間隔、引擎與 runner 的 gid（bash 沒有 $GID）。
 cp
 id
