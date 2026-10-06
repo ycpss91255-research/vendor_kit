@@ -46,6 +46,19 @@
 //!    `cache/` 與 `gen/tools.just` 不動。
 //! 10. stdout 列出改了什麼。
 //!
+//! # 預演（`--dry-run`，#372 N11）
+//!
+//! 語意是這一版自訂的（契約沒寫，列給維護者確認）：照上面的順序算出完整計畫（第 1～7 步一樣），差別只在：
+//!
+//! - 取安裝目錄的共享鎖，不取排他鎖（只讀）。
+//! - 不問（第 8 步跳過，不能互動也不報 VK0002），不落地（第 9 步），不建進度檔、不刪殘留的進度檔；
+//!   除執行紀錄外不寫任何檔。
+//! - stdout 照實際執行的順序印會改的內容，每一行換成「Would …」的寫法（[`text`] 各函式的 `dry` 參數）；
+//!   未變更時照樣印未變更。最後一行是 `prompt::DRY_RUN_DONE`，以 0 結束。
+//! - 跟 `-y` 並用時 `-y` 沒有作用（反正不問）。
+//! - 算計畫時遇到的停下（出貨輸入缺、引擎引用檔不合、缺口等）照樣以各自的結束碼停下。
+//! - `install --dry-run` 屬救援路徑（`args` 的 crate 文件），文法跨介面版永久不變（待維護者確認）。
+//!
 //! # 恢復
 //!
 //! 殘留的 `install` 進度檔表示上一次中途停了。`install` 只把安裝目錄對齊這一版，判定時看的是目前的檔，
@@ -167,12 +180,18 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
 pub struct Request<'a> {
     /// 帶了 `-y`。
     pub yes: bool,
+    /// 帶了 `--dry-run`：算出完整計畫後只印、不問、不寫（模組說明「預演」）。
+    pub dry_run: bool,
     pub release: &'a Release,
 }
 
 /// 跑一次 `install`，回傳結束碼。
 pub fn run<W: Write, S: Sink, L: Write>(req: &Request<'_>, env: &mut Env<'_, W, S, L>) -> u8 {
-    let mut run = Run { env, code: 0 };
+    let mut run = Run {
+        env,
+        dry_run: req.dry_run,
+        code: 0,
+    };
     let _ = run.install(req);
     run.code
 }
@@ -221,6 +240,8 @@ struct Inputs<'r> {
 
 struct Run<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
+    /// 預演（[`Request::dry_run`]）。
+    dry_run: bool,
     code: u8,
 }
 
@@ -302,6 +323,13 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         let _ = writeln!(self.env.stdout, "{line}");
     }
 
+    /// 預演時印收尾的那一行（模組說明「預演」）；不是預演就不印。
+    fn dry_run_done(&mut self) {
+        if self.dry_run {
+            self.say(prompt::DRY_RUN_DONE);
+        }
+    }
+
     // ---- 前段 ----
 
     fn config(&mut self) -> Step<Config> {
@@ -319,7 +347,13 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
     }
 
     fn lock(&mut self, config: &Config) -> Step<Lock> {
-        match Lock::acquire(self.env.dir, Mode::Exclusive, config) {
+        // 預演只讀，持共享鎖（模組說明「預演」）。
+        let mode = if self.dry_run {
+            Mode::Shared
+        } else {
+            Mode::Exclusive
+        };
+        match Lock::acquire(self.env.dir, mode, config) {
             Ok(lock) => {
                 if let Some(m) = lock.warning() {
                     let d = Diagnostic::new(m).arg("install_dir", self.env.host_root);
@@ -563,15 +597,17 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         {
             let host_root = self.env.host_root;
             self.say(&text::unchanged(host_root));
+            self.dry_run_done();
             return Ok(());
         }
 
+        // 預演不問（模組說明「預演」）。
         let questions: Vec<String> = edits
             .iter()
             .filter(|e| e.ask)
             .map(|e| text::question(e.path, e.lines.len()))
             .collect();
-        if !self.ask(&questions, req.yes)? {
+        if !self.dry_run && !self.ask(&questions, req.yes)? {
             return Ok(());
         }
 
@@ -601,33 +637,38 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         }
 
         let progress = self.progress(&edits)?;
-        self.land(progress, &edits, &records, new_lock.as_mut())?;
-        for Residual { entry, .. } in &residual {
-            if let Err(e) = progress::delete(self.env.dir, &entry.verb, &entry.id) {
-                let d = self.failed_diag(&entry.path, e.message(), e.to_string());
-                return Err(self.stop(d));
+        // 預演不落地，殘留的進度檔照留（模組說明「預演」）。
+        let dry = self.dry_run;
+        if !dry {
+            self.land(progress, &edits, &records, new_lock.as_mut())?;
+            for Residual { entry, .. } in &residual {
+                if let Err(e) = progress::delete(self.env.dir, &entry.verb, &entry.id) {
+                    let d = self.failed_diag(&entry.path, e.message(), e.to_string());
+                    return Err(self.stop(d));
+                }
             }
         }
 
         if let Some(engine) = inputs.engine.as_ref().filter(|_| new_lock.is_some()) {
-            self.say(&text::locked(engine));
+            self.say(&text::locked(engine, dry));
         }
         for name in &shell_names {
-            self.say(&text::wrote_shell(name));
+            self.say(&text::wrote_shell(name, dry));
         }
         for e in &edits {
             let line = if e.before.is_some() {
-                text::appended(e.path)
+                text::appended(e.path, dry)
             } else {
-                text::created(e.path)
+                text::created(e.path, dry)
             };
             self.say(&line);
         }
         if !residual.is_empty() {
-            self.say(text::RECOVERED);
+            self.say(text::recovered(dry));
         }
         let (version, host_root) = (self.env.written_by, self.env.host_root);
-        self.say(&text::installed(version, host_root));
+        self.say(&text::installed(version, host_root, dry));
+        self.dry_run_done();
         Ok(())
     }
 

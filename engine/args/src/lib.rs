@@ -13,6 +13,9 @@
 //!   加的，04 的組合清單待維護者確認）。判準看指令可不可能詢問，不看這次有沒有問到：這次沒問到也收。
 //!   不會詢問的指令（`dev`、`undev`、`update`、`sync`、`prune`、`test`）不收。`-y` 只省略詢問，不擴大授權範圍
 //!   （判定在各指令，這裡不管）。
+//! - `--dry-run`（預演，#372 N11；只有長選項）這一版只有 `add`、`install` 收，其他指令算不允許的參數（VK0026），
+//!   之後逐個接上。語意由各指令實作：算出完整計畫、stdout 印出會改的內容、不詢問、除執行紀錄外不寫檔；
+//!   跟 `-y` 可以並用，`-y` 沒有作用。`install --dry-run` 屬救援路徑（見下），`upgrade --engine` 這一版不收。
 //! - 引擎一律用 `--engine`，只有 `upgrade`、`dev`、`undev` 收；帶版本只收 `upgrade --engine=<tag>`，
 //!   `--engine <tag>` 的 `<tag>` 算多出的位置參數。工具用 `<repo>@<tag>`，只有 `add`、`upgrade` 收。
 //! - `--registry-token-file <path>` 只有 `update`、`add`、`upgrade <repo>` 收；值是單獨的 `-` 算用法錯誤。
@@ -37,8 +40,9 @@
 //! 錯誤的優先次序：先 VK0026（不認得、多出或不允許的參數，取最前面的那一個），再 VK0027（tag 格式不合），
 //! 最後 VK0025（缺必要參數）。不認得的指令名報 VK0026；經 just 時到不了引擎，只有直接呼叫引擎時會遇到（#372 N108）。
 //!
-//! 救援路徑（04 說明與用法錯誤的表）：`install`、`upgrade --engine`、`sync`，以及用法的 `just vendor_kit`、
-//! `install -h`、`upgrade --engine -h`、`sync -h`（長選項同）。這些呼叫的文法跨介面版永久不變
+//! 救援路徑（04 說明與用法錯誤的表）：`install`（含 `-y`、`--dry-run`）、`upgrade --engine`、`sync`，以及用法的
+//! `just vendor_kit`、`install -h`、`upgrade --engine -h`、`sync -h`（長選項同）。`install --dry-run` 是 #372 N11
+//! 加進來的（待維護者確認）。這些呼叫的文法跨介面版永久不變
 //! （#372 維護者 10/05 定救援路徑協定選 A、ADR-0007），改這裡的規則時不能動到它們，測試釘住。
 //! `bootstrap.sh` 只檢查與 `--repair` 的保留入口（`plan::entry`）不經這裡：入口 `vendor_kit` 先認出來，
 //! 這裡一律當不認得的指令名（VK0026），測試釘住。
@@ -146,12 +150,14 @@ impl Invocation {
 /// 各指令的參數值（04 指令表）。路徑與 image 保留原本的 [`OsString`]。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    /// `add <repo>[@<tag>] [-i <image>] [--image-path <registry>/<path>] [-y] [--registry-token-file <path>]`
+    /// `add <repo>[@<tag>] [-i <image>] [--image-path <registry>/<path>] [-y] [--dry-run] [--registry-token-file <path>]`
     Add {
         repo: String,
         tag: Option<Tag>,
         image: Option<OsString>,
         yes: bool,
+        /// 帶了 `--dry-run`（crate 文件的規則）。
+        dry_run: bool,
         /// `--image-path` 的值，已驗過是 `ghcr.io/<路徑>`（crate 文件的規則）。
         image_path: Option<String>,
         registry_token_file: Option<OsString>,
@@ -182,8 +188,8 @@ pub enum Command {
     },
     /// `sync`
     Sync,
-    /// `install [-y]`
-    Install { yes: bool },
+    /// `install [-y] [--dry-run]`
+    Install { yes: bool, dry_run: bool },
     /// `uninstall [-y]`
     Uninstall { yes: bool },
     /// `prune`
@@ -305,6 +311,8 @@ struct Token<'a> {
 #[derive(Debug)]
 enum Kind<'a> {
     Yes,
+    /// `--dry-run`。
+    DryRun,
     /// `--engine`，或 `--engine=<tag>`（帶原字串）。
     Engine(Option<&'a str>),
     Value(Opt, Option<&'a OsStr>),
@@ -357,6 +365,7 @@ fn tokenize<'a>(rest: &[&'a OsStr]) -> Vec<Token<'a>> {
                 continue;
             }
             Some("-y" | "--yes") => Some(Kind::Yes),
+            Some(DRY_RUN) => Some(Kind::DryRun),
             Some("--engine") => Some(Kind::Engine(None)),
             Some(t) if t.starts_with("--engine=") => Some(Kind::Engine(t.get("--engine=".len()..))),
             Some("-i" | "--image") => Some(Kind::Value(Opt::Image, None)),
@@ -390,6 +399,7 @@ fn accepts(name: Name, kind: &Kind<'_>) -> bool {
             name,
             Name::Add | Name::Upgrade | Name::Remove | Name::Install | Name::Uninstall
         ),
+        Kind::DryRun => matches!(name, Name::Add | Name::Install),
         Kind::Engine(None) => name.takes_engine(),
         Kind::Engine(Some(_)) => name == Name::Upgrade,
         Kind::Value(Opt::Image, _) => matches!(name, Name::Add | Name::Dev),
@@ -410,6 +420,7 @@ fn accepts(name: Name, kind: &Kind<'_>) -> bool {
 #[derive(Default)]
 struct Seen<'a> {
     yes: Option<usize>,
+    dry_run: Option<usize>,
     engine: Option<(usize, Option<&'a str>)>,
     image: Option<(usize, &'a OsStr)>,
     image_path: Option<(usize, &'a OsStr)>,
@@ -448,6 +459,7 @@ impl<'a> Seen<'a> {
             }
             match t.kind {
                 Kind::Yes => s.yes = s.once(s.yes, t.at, t.raw, t.at),
+                Kind::DryRun => s.dry_run = s.once(s.dry_run, t.at, t.raw, t.at),
                 Kind::Engine(tag) => s.engine = s.once(s.engine, t.at, t.raw, (t.at, tag)),
                 Kind::Value(opt, None) => {
                     if s.missing_value.is_none() {
@@ -609,6 +621,9 @@ fn engine_raw(engine: Option<(usize, Option<&str>)>) -> String {
 
 const REPO: &str = "<repo>";
 
+/// 預演選項（crate 文件的規則）：只有長選項。
+pub const DRY_RUN: &str = "--dry-run";
+
 /// `--image-path` 的值合不合（crate 文件）：`ghcr.io/` 加合法的路徑；路徑的規則不收 `:`、`@`，所以帶 tag 或
 /// digest 都不合。
 pub fn is_image_path(value: &str) -> bool {
@@ -631,6 +646,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                 s.forbid(s.image_path, "--image-path");
             }
             let yes = s.yes.is_some();
+            let dry_run = s.dry_run.is_some();
             let need = (name != Name::Update && target.is_none()).then_some(REPO);
             s.finish(need)?;
             match (name, repo) {
@@ -643,6 +659,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                     tag,
                     image,
                     yes,
+                    dry_run,
                     image_path,
                     registry_token_file: token_file,
                 },
@@ -720,9 +737,10 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
         }
         Name::Install | Name::Uninstall => {
             let yes = s.yes.is_some();
+            let dry_run = s.dry_run.is_some();
             s.finish(None)?;
             match name {
-                Name::Install => Command::Install { yes },
+                Name::Install => Command::Install { yes, dry_run },
                 _ => Command::Uninstall { yes },
             }
         }
@@ -887,6 +905,7 @@ mod tests {
                 tag: None,
                 image: None,
                 yes: false,
+                dry_run: false,
                 image_path: None,
                 registry_token_file: None
             }
@@ -898,6 +917,7 @@ mod tests {
                 tag: Some(tag("v1.2.0")),
                 image: None,
                 yes: false,
+                dry_run: false,
                 image_path: None,
                 registry_token_file: None
             }
@@ -909,6 +929,7 @@ mod tests {
                 tag: None,
                 image: Some(os("lint.tar")),
                 yes: false,
+                dry_run: false,
                 image_path: None,
                 registry_token_file: None
             }
@@ -920,6 +941,7 @@ mod tests {
                 tag: None,
                 image: Some(os("ghcr.io/o/lint:v1.0.0")),
                 yes: false,
+                dry_run: false,
                 image_path: None,
                 registry_token_file: None
             }
@@ -931,6 +953,7 @@ mod tests {
                 tag: None,
                 image: None,
                 yes: false,
+                dry_run: false,
                 image_path: None,
                 registry_token_file: Some(os("tok"))
             }
@@ -942,6 +965,7 @@ mod tests {
                 tag: Some(tag("v1.2.0")),
                 image: None,
                 yes: false,
+                dry_run: false,
                 image_path: Some("ghcr.io/acme/lint".into()),
                 registry_token_file: None
             }
@@ -1284,14 +1308,81 @@ mod tests {
         );
     }
 
+    #[test]
+    fn dry_run_is_add_and_install_only() {
+        for args in [
+            &["add", "lint", "--dry-run"][..],
+            &["add", "--dry-run", "lint@v1.2.0", "-y"],
+            &["add", "lint", "-i", "lint.tar", "--dry-run"],
+        ] {
+            match run(args) {
+                Command::Add { dry_run, .. } => assert!(dry_run, "{args:?}"),
+                other => panic!("{args:?} → {other:?}"),
+            }
+        }
+        assert_eq!(
+            run(&["install", "--dry-run"]),
+            Command::Install {
+                yes: false,
+                dry_run: true
+            }
+        );
+        assert_eq!(
+            run(&["install", "-y", "--dry-run"]),
+            Command::Install {
+                yes: true,
+                dry_run: true
+            }
+        );
+        // 其他指令這一版不收（#372 N11 先做 add 與 install）；`upgrade --engine` 屬救援路徑，收了就進凍結文法。
+        for args in [
+            &["upgrade", "lint", "--dry-run"][..],
+            &["upgrade", "--engine", "--dry-run"],
+            &["remove", "lint", "--dry-run"],
+            &["uninstall", "--dry-run"],
+            &["dev", "lint", "-p", "d", "--dry-run"],
+            &["undev", "lint", "--dry-run"],
+            &["update", "--dry-run"],
+            &["sync", "--dry-run"],
+            &["prune", "--dry-run"],
+            &["test", "--dry-run"],
+        ] {
+            bad(args, "--dry-run");
+        }
+        // 只有長選項、只能給一次、不跟 -h 並用；`--` 之後是位置參數。
+        bad(&["add", "lint", "--dry-run", "--dry-run"], "--dry-run");
+        bad(&["install", "--dry-run=yes"], "--dry-run=yes");
+        bad(&["add", "lint", "--dry-run", "-h"], "lint");
+        bad(&["install", "--dry-run", "-h"], "--dry-run");
+        bad(&["install", "--", "--dry-run"], "--dry-run");
+    }
+
     // ---- 不帶參數的指令 ----
 
     #[test]
     fn argumentless_commands() {
         assert_eq!(run(&["sync"]), Command::Sync);
-        assert_eq!(run(&["install"]), Command::Install { yes: false });
-        assert_eq!(run(&["install", "-y"]), Command::Install { yes: true });
-        assert_eq!(run(&["install", "--yes"]), Command::Install { yes: true });
+        assert_eq!(
+            run(&["install"]),
+            Command::Install {
+                yes: false,
+                dry_run: false
+            }
+        );
+        assert_eq!(
+            run(&["install", "-y"]),
+            Command::Install {
+                yes: true,
+                dry_run: false
+            }
+        );
+        assert_eq!(
+            run(&["install", "--yes"]),
+            Command::Install {
+                yes: true,
+                dry_run: false
+            }
+        );
         assert_eq!(run(&["uninstall"]), Command::Uninstall { yes: false });
         assert_eq!(run(&["uninstall", "-y"]), Command::Uninstall { yes: true });
         assert_eq!(
@@ -1522,8 +1613,34 @@ mod tests {
     #[test]
     fn rescue_path_grammar_is_pinned() {
         assert_eq!(err(&[]), UsageError::NoCommand);
-        assert_eq!(run(&["install"]), Command::Install { yes: false });
-        assert_eq!(run(&["install", "-y"]), Command::Install { yes: true });
+        assert_eq!(
+            run(&["install"]),
+            Command::Install {
+                yes: false,
+                dry_run: false
+            }
+        );
+        assert_eq!(
+            run(&["install", "-y"]),
+            Command::Install {
+                yes: true,
+                dry_run: false
+            }
+        );
+        assert_eq!(
+            run(&["install", "--dry-run"]),
+            Command::Install {
+                yes: false,
+                dry_run: true
+            }
+        );
+        assert_eq!(
+            run(&["install", "--dry-run", "-y"]),
+            Command::Install {
+                yes: true,
+                dry_run: true
+            }
+        );
         assert_eq!(
             run(&["upgrade", "--engine"]),
             Command::UpgradeEngine {
@@ -1560,6 +1677,8 @@ mod tests {
         for a in [
             &["install"][..],
             &["install", "-y"],
+            &["install", "--dry-run"],
+            &["install", "--dry-run", "-y"],
             &["upgrade", "--engine"],
             &["upgrade", "--engine=v2.0.0", "-y"],
             &["sync"],

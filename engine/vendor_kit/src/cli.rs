@@ -22,6 +22,7 @@
 //! （engine/upgrade 的 `engine` 模組；第二段要薄殼模板，同 `install` 讀出貨輸入）、`dev`、`undev`、`prune`
 //! 與 `test`、`test <path>`、`test dist`（安裝檢查、使用者測試與交付內容檢查，engine/check）。04 說明與用法
 //! 錯誤：不認得的名稱由 just 擋下、到不了引擎。
+//! `--dry-run`（預演，#372 N11）這一版只有 `add`、`install` 收（`args`），值原樣交給指令。
 //! `-h`／`--help` 把 [`output::Help`] 的用法印到 stdout、以 0 結束（03 輸出），不看執行位置；救援呼叫的 `-h`
 //! 在介面版不合時也照印，其餘的 `-h` 跟一般呼叫一樣先報版本（[`gate`]）。
 
@@ -449,6 +450,7 @@ where
             tag,
             image,
             yes,
+            dry_run,
             image_path,
             registry_token_file,
         } => {
@@ -488,6 +490,7 @@ where
                 tag: *tag,
                 image: image.as_deref(),
                 yes: *yes,
+                dry_run: *dry_run,
                 image_path: image_path.as_deref(),
                 registry_token_file: registry_token_file.as_deref(),
             };
@@ -665,8 +668,16 @@ where
             diags,
             log,
         ),
-        args::Command::Install { yes } => run_install(
-            *yes, inv, mounts, host_log, stdin, stdout, stderr, diags, log,
+        args::Command::Install { yes, dry_run } => run_install(
+            (*yes, *dry_run),
+            inv,
+            mounts,
+            host_log,
+            stdin,
+            stdout,
+            stderr,
+            diags,
+            log,
         ),
         args::Command::Remove { repo, yes } => run_remove(
             Some(repo),
@@ -925,7 +936,7 @@ fn registry_client<E: Write>(
 /// `install [-y]`。
 #[allow(clippy::too_many_arguments)]
 fn run_install<O, E>(
-    yes: bool,
+    (yes, dry_run): (bool, bool),
     inv: &plan::Invocation,
     mounts: &Mounts,
     host_log: &str,
@@ -972,6 +983,7 @@ where
     };
     let req = install::Request {
         yes,
+        dry_run,
         release: &release,
     };
     let code = install::run(&req, &mut env);
@@ -1477,8 +1489,9 @@ mod tests {
                 }
             }
         }
-        // -i／--image 兩處、-y／--yes 六處、--registry-token-file 三處、-p／--path 一處、--image-path 一處。
-        assert_eq!(checked, 4 + 12 + 3 + 2 + 1);
+        // -i／--image 兩處、-y／--yes 六處、--registry-token-file 三處、-p／--path 一處、--image-path 一處、
+        // --dry-run 兩處。
+        assert_eq!(checked, 4 + 12 + 3 + 2 + 1 + 2);
     }
 
     #[test]

@@ -11,6 +11,9 @@
 //! - 帶 `-y`（[`Consent::AssumeYes`]）時全部同意，不看終端、不讀輸入、不印提示；改動仍由呼叫端印到 stdout。
 //! - 沒帶 `-y` 又不能互動時回 [`PromptError::NotInteractive`]（VK0002），一個提示都不印；
 //!   重跑指令 `<command_with_y>` 由 [`command_with_y`] 產生。
+//! - 預演（`--dry-run`，#372 N11）不經這裡：可寫 recipe 算出完整計畫後不問、不寫（執行紀錄除外），
+//!   把會改的內容逐行印到 stdout，最後印 [`DRY_RUN_DONE`]、以 0 結束；`-y` 並用時沒有作用。
+//!   殘留進度檔的恢復也只印、不落地，進度檔照留。
 //!
 //! 這裡不印診斷；要怎麼印由呼叫端經 `diagnostics` 決定。
 
@@ -24,6 +27,9 @@ pub const PROMPT_SUFFIX: &str = " [y/N] ";
 
 /// 預先回答詢問的選項（04 共同選項）。
 pub const YES_FLAG: &str = "-y";
+
+/// 預演印完計畫之後，stdout 的最後一行（各可寫 recipe 共用）。
+pub const DRY_RUN_DONE: &str = "Dry run: no changes were made.";
 
 /// 這次執行的終端狀態。由呼叫端提供，這裡不自己判斷。
 pub trait Terminal {
