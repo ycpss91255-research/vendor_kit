@@ -230,6 +230,7 @@ pub enum OpKind {
     Inspect,
     Extract,
     Stage,
+    StageDir,
     Ps,
     RmContainer,
     Runner,
@@ -237,12 +238,13 @@ pub enum OpKind {
 
 impl OpKind {
     /// 依 [`crate::OPS`] 的順序。
-    pub const ALL: [OpKind; 8] = [
+    pub const ALL: [OpKind; 9] = [
         OpKind::Pull,
         OpKind::Load,
         OpKind::Inspect,
         OpKind::Extract,
         OpKind::Stage,
+        OpKind::StageDir,
         OpKind::Ps,
         OpKind::RmContainer,
         OpKind::Runner,
@@ -255,6 +257,7 @@ impl OpKind {
             OpKind::Inspect => "inspect",
             OpKind::Extract => "extract",
             OpKind::Stage => "stage",
+            OpKind::StageDir => "stage-dir",
             OpKind::Ps => "ps",
             OpKind::RmContainer => "rm-container",
             OpKind::Runner => "runner",
@@ -279,6 +282,8 @@ pub enum Op {
     Extract(ImageId, Slot),
     /// 把主機檔複製進 `in/<slot>`。
     Stage(Field, Slot),
+    /// 把主機上的目錄整個複製進 `in/<slot>`（`dev` 驗安裝目錄外的本機開發來源）。
+    StageDir(Field, Slot),
     /// 列本安裝目錄 label 的已停止容器，輸出寫 `res.<seq>.out`。
     Ps,
     /// 刪本次 ps 列出的一個容器，不加 -f。
@@ -307,19 +312,20 @@ impl Op {
             Op::Inspect(_) => OpKind::Inspect,
             Op::Extract(..) => OpKind::Extract,
             Op::Stage(..) => OpKind::Stage,
+            Op::StageDir(..) => OpKind::StageDir,
             Op::Ps => OpKind::Ps,
             Op::RmContainer(_) => OpKind::RmContainer,
             Op::Runner { .. } => OpKind::Runner,
         }
     }
 
-    /// 型別保證不了的條件：pull 帶 digest、load 與 stage 的路徑是絕對路徑。
+    /// 型別保證不了的條件：pull 帶 digest、load、stage 與 stage-dir 的路徑是絕對路徑。
     pub fn validate(&self) -> Result<(), ProtocolError> {
         match self {
             Op::Pull(r) if !r.is_pinned() => {
                 Err(ProtocolError::new("pull reference is not pinned by digest"))
             }
-            Op::Load(p) | Op::Stage(p, _) => host_path(p),
+            Op::Load(p) | Op::Stage(p, _) | Op::StageDir(p, _) => host_path(p),
             _ => Ok(()),
         }
     }
@@ -330,7 +336,9 @@ impl Op {
             Op::Pull(r) | Op::Inspect(r) => format!("{name} {}", r.0),
             Op::Load(p) => format!("{name} {}", p.encode()),
             Op::Extract(id, slot) => format!("{name} {} {}", id.0, slot.0),
-            Op::Stage(p, slot) => format!("{name} {} {}", p.encode(), slot.0),
+            Op::Stage(p, slot) | Op::StageDir(p, slot) => {
+                format!("{name} {} {}", p.encode(), slot.0)
+            }
             Op::Ps => name.to_owned(),
             Op::RmContainer(c) => format!("{name} {}", c.0),
             Op::Runner {
@@ -382,6 +390,7 @@ fn parse_op(t: &[&str]) -> Result<Op, ProtocolError> {
         (OpKind::Inspect, [r]) => Op::Inspect(image(r)?),
         (OpKind::Extract, [id, s]) => Op::Extract(ImageId::parse(id).ok_or_else(bad)?, slot(s)?),
         (OpKind::Stage, [p, s]) => Op::Stage(Field::decode(p)?, slot(s)?),
+        (OpKind::StageDir, [p, s]) => Op::StageDir(Field::decode(p)?, slot(s)?),
         (OpKind::Ps, []) => Op::Ps,
         (OpKind::RmContainer, [c]) => Op::RmContainer(Container::parse(c).ok_or_else(bad)?),
         (OpKind::Runner, [r, cmd, args @ ..]) => Op::Runner {

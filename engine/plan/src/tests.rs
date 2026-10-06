@@ -60,6 +60,10 @@ fn golden_ops() -> Vec<(Op, String)> {
             Op::Stage(field("/srv/u/.ghcr token"), Slot::parse("t1").unwrap()),
             "vk-resolve/1 r1 3\nstage e:/srv/u/.ghcr\\040token t1\n".to_owned(),
         ),
+        (
+            Op::StageDir(field("/srv/u/my src"), Slot::parse("d1").unwrap()),
+            "vk-resolve/1 r1 3\nstage-dir e:/srv/u/my\\040src d1\n".to_owned(),
+        ),
         (Op::Ps, "vk-resolve/1 r1 3\nps\n".to_owned()),
         (
             Op::RmContainer(Container::parse(B).unwrap()),
@@ -103,6 +107,7 @@ fn op_names_are_the_closed_set() {
             "inspect",
             "extract",
             "stage",
+            "stage-dir",
             "ps",
             "rm-container",
             "runner"
@@ -227,6 +232,14 @@ fn request_rejects_malformed_bytes() {
         "vk-resolve/1 r1 1\nload e:\n".to_owned(),
         "vk-resolve/1 r1 1\nload /srv/u/a.tar\n".to_owned(),
         "vk-resolve/1 r1 1\nstage e:token t1\n".to_owned(),
+        // stage-dir（launcher/test/wire.bats 的同一份拒絕清單）
+        "vk-resolve/1 r1 1\nstage-dir e:src d1\n".to_owned(),
+        "vk-resolve/1 r1 1\nstage-dir e:\n".to_owned(),
+        "vk-resolve/1 r1 1\nstage-dir /srv/u/src d1\n".to_owned(),
+        "vk-resolve/1 r1 1\nstage-dir e:/srv/u/src\n".to_owned(),
+        "vk-resolve/1 r1 1\nstage-dir e:/srv/u/src D1\n".to_owned(),
+        "vk-resolve/1 r1 1\nstage-dir e:/srv/u/src d1 d2\n".to_owned(),
+        "vk-resolve/1 r1 1\nstage_dir e:/srv/u/src d1\n".to_owned(),
         // rm-container
         format!("vk-resolve/1 r1 1\nrm-container {}\n", &B[..12]),
         // runner 至少要有 command
@@ -249,6 +262,8 @@ fn encoding_refuses_ops_the_grammar_rejects() {
         Op::Load(field("rel/a.tar")),
         Op::Load(field("")),
         Op::Stage(field("token"), Slot::parse("t1").unwrap()),
+        Op::StageDir(field("src"), Slot::parse("d1").unwrap()),
+        Op::StageDir(field(""), Slot::parse("d1").unwrap()),
     ] {
         assert!(op.encode_request(&h, seq(1)).is_err(), "{op:?}");
     }
@@ -620,6 +635,17 @@ fn channel_restricted_to_rescue_only_sends_rescue_ops() {
     ch.restrict_to_rescue();
     let e = ch.send(&Op::Ps).unwrap_err();
     assert!(matches!(e, ChannelError::NotRescue(OpKind::Ps)), "{e:?}");
+    // stage-dir 只給 dev 用，不在救援路徑裡。
+    let e = ch
+        .send(&Op::StageDir(
+            field("/srv/u/src"),
+            Slot::parse("d1").unwrap(),
+        ))
+        .unwrap_err();
+    assert!(
+        matches!(e, ChannelError::NotRescue(OpKind::StageDir)),
+        "{e:?}"
+    );
     assert_eq!(e.message().code, "VK0056");
     assert!(listing(dir.path()).is_empty());
     // 救援路徑的 op 照常送，header 用呼叫方的 P；被拒的 op 不佔 seq。

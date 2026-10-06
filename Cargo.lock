@@ -254,6 +254,7 @@ dependencies = [
  "imageref",
  "layout",
  "messages",
+ "plan",
  "progress",
  "runlog",
  "schema",

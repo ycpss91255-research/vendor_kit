@@ -13,6 +13,7 @@ filelock.workspace = true
 imageref.workspace = true
 layout.workspace = true
 messages.workspace = true
+plan.workspace = true
 progress.workspace = true
 runlog.workspace = true
 schema.workspace = true

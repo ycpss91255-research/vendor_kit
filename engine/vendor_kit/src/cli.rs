@@ -587,6 +587,7 @@ where
             inv,
             mounts,
             host_log,
+            channel,
             stdout,
             diags,
             log,
@@ -596,6 +597,7 @@ where
             inv,
             mounts,
             host_log,
+            channel,
             stdout,
             diags,
             log,
@@ -605,6 +607,7 @@ where
             inv,
             mounts,
             host_log,
+            channel,
             stdout,
             diags,
             log,
@@ -614,6 +617,7 @@ where
             inv,
             mounts,
             host_log,
+            channel,
             stdout,
             diags,
             log,
@@ -655,11 +659,13 @@ fn not_implemented<E: Write>(
 }
 
 /// `dev` 與 `undev`（四種呼叫）。
+#[allow(clippy::too_many_arguments)]
 fn run_dev<O, E>(
     req: &dev::Request<'_>,
     inv: &plan::Invocation,
     mounts: &Mounts,
     host_log: &str,
+    channel: &mut plan::Channel,
     stdout: O,
     diags: &mut Diagnostics<E, runlog::Writer<&File>>,
     log: &mut runlog::Writer<&File>,
@@ -679,6 +685,9 @@ where
     let mut env = dev::Env {
         dir: &dir,
         host_root: &host_root,
+        inbox: &mounts.inbox,
+        channel,
+        poll: POLL,
         run_log: host_log,
         argv: &argv,
         run_id: inv.run_id.as_str(),
