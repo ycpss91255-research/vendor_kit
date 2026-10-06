@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# bootstrap.sh 的入口（#372 的 N39 前半、N41、N93）：參數、模式判定與主機檢查（04 bootstrap.sh）。
+# bootstrap.sh 的入口（#372 的 N39、N41、N93）：參數、模式判定、主機檢查、首次導入、只檢查與 --repair
+# （04 bootstrap.sh）。
 #
 # - 成品 bootstrap.sh 之後組裝：訊息片段，接著 launcher/ 的 diag、host、log、wire、launch 與這個檔，
 #   前面再放內嵌引擎的引用 vk_bootstrap_engine（pinned 引用，tag 是 vX.Y.Z）。
@@ -14,7 +15,7 @@
 #   verb bootstrap、argv 是這次的參數原樣），取得引擎 image，再以 `install [-y]` 起引擎（vk_bootstrap_import）。
 #   引擎的起法與往返跟 VK recipe 相同（launch.sh 的 vk_launch_session）；P 是內嵌的 vk_bootstrap_proto，
 #   不讀介面版列表（首次導入還沒有 version.toml）。
-# - 引擎來源（vk_bootstrap_source；04 用哪一版引擎、離線導入）：
+# - 首次導入的引擎來源（vk_bootstrap_source；04 用哪一版引擎、離線導入）：
 #   - 不帶 -i：內嵌的 pinned 引用；本機沒有才 pull（launch.sh 的 vk_launch_obtain），取不到回 VK0036。
 #   - `-i <path>.tar`：先讀同名旁檔 `<path>.digest`（一行多架構 index digest，ADR-0009；缺少或格式不合回
 #     VK0031），再 `docker load -q`，從輸出拿 image ID（`Loaded image ID: <id>`，或 `Loaded image: <ref>` 再
@@ -27,7 +28,21 @@
 # - classic image store 載入 tar 後沒有 RepoDigests，之後的 VK recipe 以鎖定行的 pinned 引用找不到 image、
 #   改去 pull，離線時回 VK0036（實測 docker 29.8；`docker tag` 不收帶 digest 的引用，啟動器補不出來）。
 #   containerd image store 載入保留 index 的 tar 時，鎖定行的 name 跟 tar 裡的 name 相同才找得到。這是已知缺口。
-# - 只檢查與 --repair 還沒接（下一個 PR），通過判定 3 後以 VK0056 停下，不建紀錄。
+# - 判定 4（只檢查與 --repair，vk_bootstrap_check）：比對之前先建 `.vendor_kit/log/` 的這次紀錄（mode check 或
+#   repair、verb bootstrap、argv 是這次的參數原樣），再取得引擎 image，以 `--` 之後只放保留入口 `@shell-check`
+#   或 `@shell-repair`（engine/plan 的 entry）起引擎；比對、修復、VK0023 與 VK0006 都由引擎做。
+#   - 用版本鎖定行那一版引擎（vk_bs_lock），不讀 version.local.toml、不套用本機覆寫（04 用哪一版引擎）；
+#     in/engine 寫鎖定行的引用，紀錄的 service.version 是鎖定行的 tag。
+#   - 保留入口屬救援路徑：不做介面版判定、不讀介面版列表與 image 的 LABEL（引擎以送來的 P 照常回應），
+#     P 是內嵌的 vk_bootstrap_proto。
+#   - 不執行、不讀 repo 內的薄殼；鎖定行只以字串讀。
+# - 只檢查與 --repair 的引擎來源（vk_bootstrap_locked；04 用哪一版引擎）：
+#   - 不帶 -i：鎖定行的 pinned 引用；本機沒有才 pull（vk_launch_obtain），取不到回 VK0036，不改用內嵌版本。
+#   - `-i <path>.tar`：旁檔 `<path>.digest` 缺少或格式不合回 VK0031（缺 digest）；digest 跟鎖定行不同回 VK0031
+#     （不符）；兩者都在 docker load 之前判。之後同首次導入載入，以 image ID 起容器。
+#   - `-i <ref>`：只用本機 image，不 pull。ref 自帶的 digest 跟鎖定行不同先回 VK0031（不符）；之後同首次導入
+#     取 RepoDigest（不在本機 VK0036、缺 digest VK0031），digest 跟鎖定行不同回 VK0031（不符），digest 相符但
+#     `<ref 的 name>[:<tag>]@<digest>` 跟鎖定行不完全相同回 VK0038。以 image ID 起容器。
 # - 參數的細節跟 engine/args 取同樣的嚴格寫法（之後放寬不破壞相容）：同一個選項給兩次（含 -y 與 --yes）
 #   第二個算不允許；帶值的選項只收以空白分開的 `-i <image>`、`--image <image>`，把下一個參數原樣當值；
 #   短選項不合併；單獨的 `--` 是選項結束標記，之後的參數都算多出的參數。錯誤先 VK0026（取最前面的那個），
@@ -55,10 +70,9 @@ vk_bootstrap_usage='Usage: bootstrap.sh [-i <image>] [-y] | --repair [-i <image>
   --repair           regenerate mismatched shell files of an existing install directory
   -h, --help         print this usage'
 
-# 只檢查與 --repair 通過判定 3 後的 VK0056 reason（還沒接）。
-vk_bootstrap_pending='checking and repairing the shell files are not implemented yet (next PR, #372)'
-# VK0031 的 <reason>（訊息表只收這兩種）；首次導入只會是缺 digest。
+# VK0031 的 <reason>（訊息表只收這兩種）；首次導入只會是缺 digest，不符只在既有安裝目錄。
 vk_bootstrap_no_digest='required digest information is missing'
+vk_bootstrap_bad_digest='the digest does not match the engine lock version line'
 
 # ---- 參數 ----
 
@@ -606,6 +620,84 @@ vk_bootstrap_import() {
         "$run_id" "$run_log" "${args[@]}"
 }
 
+# ---- 判定 4：只檢查與 --repair ----
+
+# vk_bootstrap_locked：只檢查與 --repair 的引擎來源（見檔頭），結果放進 vk_bs_engine_image（docker create 用）。
+# in/engine 一律寫鎖定行的引用 vk_bs_lock。取不到或跟鎖定行不合時印診斷、回 1。
+vk_bootstrap_locked() {
+    local lock=$vk_bs_lock given=$vk_bs_image
+    local digest=${lock#*@}
+    vk_bs_engine_image=
+    if ((!vk_bs_image_set)); then
+        vk_launch_obtain "$lock" || return 1
+        vk_bs_engine_image=$lock
+        return 0
+    fi
+    if [[ $given == *.tar ]]; then
+        if ! vk_bootstrap_digest "${given%.tar}.digest"; then
+            vk_launch_fail VK0031 image "$given" reason "$vk_bootstrap_no_digest"
+            return 1
+        fi
+        if [[ $REPLY != "$digest" ]]; then
+            vk_launch_fail VK0031 image "$given" reason "$vk_bootstrap_bad_digest"
+            return 1
+        fi
+        vk_bootstrap_load "$given" || return 1
+        vk_bs_engine_image=$REPLY
+        return 0
+    fi
+    if [[ $given == *@* && ${given#*@} != "$digest" ]]; then
+        vk_launch_fail VK0031 image "$given" reason "$vk_bootstrap_bad_digest"
+        return 1
+    fi
+    vk_bootstrap_local "$given" || return 1
+    if [[ ${vk_bs_engine_ref#*@} != "$digest" ]]; then
+        vk_launch_fail VK0031 image "$given" reason "$vk_bootstrap_bad_digest"
+        return 1
+    fi
+    if [[ $vk_bs_engine_ref != "$lock" ]]; then
+        vk_launch_fail VK0038 image "$given" locked_image "$lock"
+        return 1
+    fi
+    return 0
+}
+
+# vk_bootstrap_check <dir> <check|repair> [<args>...]：判定 4 的只檢查與 --repair。args 是這次的參數原樣
+# （寫進 run_started 的 argv）。結束碼放進 REPLY 並回傳。
+vk_bootstrap_check() {
+    local dir=$1 mode=$2 entry=@shell-check
+    shift 2
+    if [[ $mode == repair ]]; then
+        entry=@shell-repair
+    fi
+    # shellcheck disable=SC2034 # launch.sh 的 vk_launch_finish 讀它
+    vk_launch_stop=none
+    if ! dir=$(cd -- "$dir" 2>/dev/null && pwd -P); then
+        vk_diag VK0056 reason "cannot resolve the current directory" path none
+        REPLY=$vk_diag_exit
+        return "$REPLY"
+    fi
+    vk_launch_engine_version "$vk_bs_lock"
+    # shellcheck disable=SC2034 # log.sh 的 vk_log_line 讀它
+    vk_log_version=$REPLY
+    if ! vk_log_start "$dir/.vendor_kit/log" bootstrap "$mode" "$@"; then
+        REPLY=$vk_diag_exit
+        return "$REPLY"
+    fi
+    local run_id=$vk_log_invocation_id run_log=${vk_log_file#"$dir/"}
+    if [[ ! $run_id =~ $vk_wire_re_run_id ]]; then
+        vk_launch_internal "invocation id $run_id does not fit the protocol"
+        vk_launch_finish ""
+        return "$REPLY"
+    fi
+    if ! vk_bootstrap_locked; then
+        vk_launch_finish ""
+        return "$REPLY"
+    fi
+    vk_launch_session "$dir" "$dir" "$vk_bs_engine_image" "$vk_bs_lock" "$vk_bootstrap_proto" \
+        "$run_id" "$run_log" "$entry"
+}
+
 # ---- 入口 ----
 
 # vk_bootstrap_main [<args>...]：bootstrap.sh 本體。目前目錄是要導入或已有 VK 的目錄。回傳整次的結束碼。
@@ -649,8 +741,7 @@ vk_bootstrap_main() {
         vk_bootstrap_import "$dir" "$@"
         return
     fi
-    vk_diag VK0056 reason "$vk_bootstrap_pending" path none
-    return "$vk_diag_exit"
+    vk_bootstrap_check "$dir" "$mode" "$@"
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
