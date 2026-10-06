@@ -16,8 +16,8 @@
 - 認證與快取沿用使用者本來就在用的 docker 路徑：在支援的 registry 上，`docker pull` 成功的機器上取件就會成功；支援哪些 registry 由驗收決定。代價是要建一個暫存 container 再刪掉，也需要 docker daemon 在。
 - 驗收：取件後逐檔比對出貨 image 與導入結果，以 `FROM scratch` 純資料 fixture image 走完整流程。
 - 內部機制（之後搬到實作 issue）：
-  - `Dockerfile.dist` 逐字三行：`FROM scratch` + LABEL + `COPY dist/`。沒有 entrypoint、shell 或可執行層，「能不能跑」在契約上不存在。
+  - `Dockerfile.dist` 的三行範本是 `FROM scratch` + LABEL + `COPY dist/ /dist/`，明定工具內容放在 image 的 `/dist/`。LABEL 只建議 `org.opencontainers.image.source=<工具來源 repo URL>`，作為來源資訊；VK 不訂取件會讀取或驗證的工具 image LABEL，也不拿它判斷相容性或可信度。沒有 entrypoint、shell 或可執行層，「能不能跑」在契約上不存在。
   - 取件：主機啟動器 `docker create` → `docker cp` 到這次呼叫專用、repo 外、由啟動器擁有的暫存處 → 唯讀掛進引擎容器，讀取與判斷都在引擎那一份實作裡做；不 `docker run` 工具 image；全部同意後由引擎重驗，再寫進 `cache/`。
   - 位元組相同靠三層：digest 鎖住 image 內容；取到暫存處時逐檔算 sha256，全部同意、寫入時才記進印記；寫入前再重驗一次。三層各擋一類失手：拉到的是不是同一個 image、取出來的是不是同一份檔、掛進來到落地之間有沒有被動過。同一份檔因此算兩次 sha256，檔多的工具會付出可觀察的時間。
-  - 出貨端另由 CI 驗兩平台位元組一致（[ADR-0011](0011-test-layers-and-ci-matrix.md)）；導入端的三層驗不出兩個平台各自打包出不同東西。
+  - 多架構建置與兩平台逐檔一致的 CI 範本放在工具端文件，第一版由出貨的 repo 自己執行建置、比對與推送，不另做會推 image 的 VK recipe（[#108](https://github.com/ycpss91255-research/vendor_kit/issues/108)）；這跟 [01「VK 做的事」](../contract/01_purpose.md#vk-做的事)第一條的界線待確認（N7b）。出貨端另由 CI 驗兩平台位元組一致（[ADR-0011](0011-test-layers-and-ci-matrix.md)）；導入端的三層驗不出兩個平台各自打包出不同東西。
   - 引擎以 `vendor_kit:vN` 發布；工具端不出現引擎程式，引擎端不出現工具專屬分支。
