@@ -1,0 +1,14 @@
+[package]
+name = "registry"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "GHCR 的 registry client：token 交換、列 tag（分頁）、HEAD 取 index digest；逾時與重試是常數"
+
+[dependencies]
+imageref.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+
+[lints]
+workspace = true

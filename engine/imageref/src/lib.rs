@@ -182,7 +182,7 @@ impl ImageRef {
             return Err(ImageRefError::UnsupportedRegistry(registry.to_owned()));
         }
         let (path, tag) = path_tag.rsplit_once(':').ok_or(ImageRefError::MissingTag)?;
-        if !path.split('/').all(path_component) {
+        if !is_valid_path(path) {
             return Err(ImageRefError::Path);
         }
         let tag = Tag::parse(tag).map_err(ImageRefError::Tag)?;
@@ -227,6 +227,11 @@ impl fmt::Display for ImageRef {
             self.registry, self.path, self.tag, self.digest
         )
     }
+}
+
+/// image 路徑（registry 之後、tag 之前）是否合法：以 `/` 分段，每段都是 [`path_component`]。
+pub fn is_valid_path(path: &str) -> bool {
+    path.split('/').all(path_component)
 }
 
 /// 路徑的一段：`[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*`（OCI distribution 的 path-component）。
