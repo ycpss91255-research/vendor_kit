@@ -3,7 +3,7 @@ name = "check"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "test 的完整安裝檢查：讀設定、持共享鎖，檢查薄殼、版本鎖定行、本機覆寫、殘留進度、cache 與 gen；除執行紀錄外零寫入。test <path> 通過檢查後經 runner op 跑使用者測試"
+description = "test 的完整安裝檢查：讀設定、持共享鎖，檢查薄殼、版本鎖定行、本機覆寫、殘留進度、cache 與 gen；除執行紀錄外零寫入。test <path> 通過檢查後經 runner op 跑使用者測試；test dist 檢查工具交付的 dist/"
 
 [dependencies]
 compat.workspace = true

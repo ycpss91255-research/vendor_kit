@@ -55,6 +55,16 @@ const ALLOWS: &[Allow] = &[
         code: "VK0078",
         reason: "驗線上 add 同一個 tag 指向不同 digest 時原因寫明草稿碼（N53）；e2e 不能依賴 engine crate 的常數",
     },
+    Allow {
+        path: "engine/check/src/dist.rs",
+        code: "VK0075",
+        reason: "test dist 交付內容不合格式、文字檔含 CR 的草稿碼（N78、N24），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
+    },
+    Allow {
+        path: "test/e2e/tests/test_dist.rs",
+        code: "VK0075",
+        reason: "e2e 比對 test dist 以 VK0056 停下時原因裡寫的草稿碼（N78、N24）",
+    },
 ];
 
 fn repo_root() -> PathBuf {
