@@ -194,6 +194,7 @@ pub fn run<W: Write, S: Sink, L: Write>(req: &Request<'_>, env: &mut Env<'_, W, 
         extracts: 0,
         stages: 0,
         local: Default::default(),
+        pending: Vec::new(),
         engine: true,
     };
     let _ = upgrade.engine_run(req);

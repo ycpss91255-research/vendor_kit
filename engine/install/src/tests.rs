@@ -724,6 +724,28 @@ fn residual_install_is_completed_and_removed() {
 }
 
 #[test]
+fn residual_install_waits_for_the_answers_of_this_install() {
+    // 恢復跟這次的詢問一起問完，全部同意才一起落地（04 共同選項，#372 N65）：答否或不能互動時恢復也不寫，
+    // 殘留的進度檔照留。
+    for (interactive, input, code) in [(true, "n\n", 0), (false, "", 2)] {
+        let fx = Fx::new();
+        fx.write(JUSTFILE, USER_JUSTFILE);
+        fx.residual(INSTALL_VERB, "r0", false);
+        let out = run_install(&fx, interactive, input);
+        assert_eq!(out.code, code, "{}", out.stderr);
+        if interactive {
+            assert_eq!(out.stdout, "No changes were made.\n");
+        } else {
+            assert!(out.stderr.contains("error[VK0002]"), "{}", out.stderr);
+        }
+        assert!(out.events().is_empty());
+        assert_eq!(fx.progress_left(), [INSTALL_VERB]);
+        assert_eq!(fx.read(JUSTFILE), USER_JUSTFILE);
+        assert!(!fx.exists(DOCKERIGNORE));
+    }
+}
+
+#[test]
 fn residual_of_another_verb_or_with_repo_files_stops() {
     for (verb, repo_files) in [("add", false), (INSTALL_VERB, true)] {
         let fx = Fx::new();

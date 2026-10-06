@@ -9,7 +9,11 @@
 //! 2. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束。
 //! 3. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）；有工具的覆寫就讀它的本機開發來源，
 //!    讀不到回 VK0052（見「本機覆寫」）。
-//! 4. 恢復殘留的進度檔（04 成對與無害：可寫 recipe 先恢復再判是否重複）；做法見 `Upgrade::recover`。
+//! 4. 備好殘留進度檔的恢復（04 成對與無害：可寫 recipe 先恢復再判是否重複）：重新取件、驗證，算好恢復
+//!    之後的版本鎖定行與入口檔，只讀不寫；之後的判定都看恢復之後的樣子。恢復跟這次的詢問一起問完（04
+//!    共同選項：全部同意才寫入，含恢復舊操作），能恢復的只有沒寫初始檔的那種、沒有要問的事。恢復只在
+//!    這次以 0 結束、要寫入時才落地（換好或未變更），排在這次自己的落地之前；答否、不能互動或停下時恢復
+//!    也不寫，殘留的進度檔照留。做法見 `Upgrade::recover`、`Upgrade::land_recoveries`。
 //! 5. 判對象與目標版本：
 //!    - 工具不在版本鎖定行：VK0046（訊息表：先辨識未完成進度，再判斷對象不存在，所以排在第 4 步之後；
 //!      情境擴到 upgrade，契約文字待補，#372 N80）。工具名不是合法的 just 名稱已在 `args` 回 VK0026。
@@ -93,7 +97,7 @@
 //!   撞名判定裡開著覆寫的其他工具也以本機開發來源的 `<ns>` 為準（入口檔裡生效的是它）。
 //! - 每次以 0 結束時（換好、已是該版、答否取消）都在 stdout 報告用了哪個覆寫，排在那條路徑的字句前面
 //!   （04 本機覆寫：不加診斷前綴，`update` 以外到 stdout）；停下時只印診斷。恢復殘留 `upgrade` 的字句在恢復
-//!   當下就印，所以排在覆寫報告前面。
+//!   落地時印，排在覆寫報告前面。
 //! - 引擎的覆寫與工具換版無關，不看。
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
@@ -136,8 +140,6 @@
 //!   `fetch::DRAFT_CACHE_UNREADABLE`）。
 //! - 殘留的進度檔不是 `upgrade` 的；殘留的是引擎 upgrade；或殘留的工具 upgrade 寫過初始檔相關的檔（要寫的
 //!   repo 檔已記在進度檔，但重新落地要讀 `init.toml`，格式沒定，見上）。
-//! - 已知偏離：恢復殘留 `upgrade` 的寫入排在這次的詢問之前，04 共同選項要先問完再寫（含恢復）。能恢復
-//!   的只有沒寫初始檔的那種，恢復本身沒有要問的事；同 engine/add。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）；dist 格式不符（G2）、指紋不符（G1）沒有代碼。
 //! - 合併結果解析不過、留了原檔的初始檔沒有訊息表代碼，對外結束碼也沒定（VK0021 說檔裡含有衝突，
 //!   不能借用）：這一版只在 stdout 說明，照常以 0 結束（ADR-0003 的補寫待定）。
@@ -289,6 +291,7 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
         extracts: 0,
         stages: 0,
         local: BTreeMap::new(),
+        pending: Vec::new(),
         engine: false,
     };
     let _ = upgrade.run(req);
@@ -313,6 +316,21 @@ struct Local {
     namespaces: Vec<String>,
 }
 
+/// 照殘留進度檔備好、還沒落地的恢復（模組說明第 4 步）：取件、驗證過，入口檔與版本鎖定行也算好了。
+struct Recovery {
+    /// 殘留的進度檔，這次落地完成之後才刪。
+    entry: progress::Entry,
+    /// 殘留進度檔記的指令（新的進度檔沿用）。
+    command: Vec<String>,
+    repo: String,
+    locked: ImageRef,
+    candidate: Candidate,
+    /// 恢復當下的 `gen/tools.just`。
+    tools_just: String,
+    /// 恢復之後的版本鎖定行。
+    lockfile: LockFile,
+}
+
 /// 一個工具（或引擎）這次要換上的版本：版本鎖定行的值、image ID 與 inspect 讀到的 LABEL。
 struct Resolved {
     locked: ImageRef,
@@ -331,6 +349,8 @@ struct Upgrade<'r, 'a, W: Write, S: Sink, L: Write> {
     stages: u32,
     /// 開著覆寫的工具（模組說明「本機覆寫」）。
     local: BTreeMap<String, Local>,
+    /// 備好、等這次的詢問全部同意才落地的恢復，依進度檔的順序。
+    pending: Vec<Recovery>,
     /// 這次是 `upgrade --engine`（[`engine`]）：列 tag 要求認證時不報 VK0001（見 [`engine`] 的「查詢失敗」）。
     engine: bool,
 }
@@ -430,9 +450,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         let _lock = self.lock(&config)?;
         let mut lockfile = self.lockfile()?;
         self.local = self.local(&lockfile)?;
-        if self.recover_all(&lockfile)? {
-            lockfile = self.lockfile()?;
-        }
+        self.recover_all(&mut lockfile)?;
 
         // 先恢復殘留的進度檔，再判對象不存在（訊息表 VK0046；#372 N80 擴到 upgrade）。
         let Some(current) = lockfile.tool(req.repo).cloned() else {
@@ -482,6 +500,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                     req.repo
                 )));
             }
+            self.land_recoveries()?;
             self.report_overrides();
             self.say(&text::unchanged(req.repo, tag));
             return Ok(());
@@ -907,7 +926,8 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         }
     }
 
-    /// 已裝工具（不含 `repo` 自己）的 `<ns>` 與根 `justfile` 的名字。開著覆寫的工具取本機開發來源的 `<ns>`。
+    /// 已裝工具（不含 `repo` 自己）的 `<ns>` 與根 `justfile` 的名字。開著覆寫的工具取本機開發來源的 `<ns>`，
+    /// 備好還沒落地的恢復取它暫存內容的 `<ns>`。
     fn installed(&mut self, repo: &str, lockfile: &LockFile) -> Step<Installed> {
         let mut taken = Taken::new();
         let mut namespaces = BTreeMap::new();
@@ -916,6 +936,13 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             if let Some(l) = self.local.get(other) {
                 taken.tool(other, l.namespaces.iter().cloned());
                 namespaces.insert(other.clone(), l.namespaces.clone());
+                continue;
+            }
+            // 備好還沒落地的恢復：`cache/<repo>/` 還沒換，以暫存內容的 `<ns>` 為準。
+            if let Some(r) = self.pending.iter().rev().find(|r| &r.repo == other) {
+                let ns = r.candidate.namespaces().to_vec();
+                taken.tool(other, ns.iter().cloned());
+                namespaces.insert(other.clone(), ns);
                 continue;
             }
             let cache = match self.env.dir.tool_cache(other) {
@@ -1037,6 +1064,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         if let Err(e) = candidate.recheck() {
             return Err(self.internal(format!("staged content of {repo} changed: {e}")));
         }
+        self.land_recoveries()?;
 
         let mut repo_writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
         let mut written: Vec<WrittenFile> = Vec::new();
@@ -1276,14 +1304,13 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
 
     // ---- 恢復 ----
 
-    /// 恢復全部殘留的進度檔；有恢復任何一份回 `true`。
-    fn recover_all(&mut self, lockfile: &LockFile) -> Step<bool> {
+    /// 備好全部殘留的進度檔（只讀不寫），`lockfile` 換成恢復之後的版本鎖定行；落地等這次的詢問全部同意
+    /// （[`Self::land_recoveries`]）。
+    fn recover_all(&mut self, lockfile: &mut LockFile) -> Step<()> {
         let entries = match progress::find(self.env.dir) {
             Ok(e) => e,
             Err(e) => return Err(self.internal(e.to_string())),
         };
-        let mut lockfile = lockfile.clone();
-        let mut any = false;
         for entry in entries {
             if entry.verb != VERB {
                 return Err(self.gap(format_args!(
@@ -1292,17 +1319,17 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                     self.rel(&entry.path)
                 )));
             }
-            self.recover(&entry, &lockfile)?;
-            lockfile = self.lockfile()?;
-            any = true;
+            let recovery = self.recover(entry, lockfile)?;
+            *lockfile = recovery.lockfile.clone();
+            self.pending.push(recovery);
         }
-        Ok(any)
+        Ok(())
     }
 
-    /// 恢復一份殘留的工具 `upgrade`：依進度檔記的版本鎖定行值，以帶 digest 的引用 inspect（本機沒有就
-    /// `pull` 再 inspect），重新取件、驗證，再走一次同樣的落地順序；新的進度檔完成之後才刪舊的那一份，
-    /// 中途再斷也還認得出來。只在那次沒寫初始檔相關的檔時做（見模組說明的缺口）。
-    fn recover(&mut self, entry: &progress::Entry, lockfile: &LockFile) -> Step<()> {
+    /// 備好一份殘留的工具 `upgrade`：依進度檔記的版本鎖定行值，以帶 digest 的引用 inspect（本機沒有就
+    /// `pull` 再 inspect），重新取件、驗證，算好恢復之後的入口檔與版本鎖定行，不寫任何檔。只在那次沒寫
+    /// 初始檔相關的檔時做（見模組說明的缺口）。
+    fn recover(&mut self, entry: progress::Entry, lockfile: &LockFile) -> Step<Recovery> {
         let old = match entry.load() {
             Ok(p) => p,
             Err(progress::Error::Parse {
@@ -1379,20 +1406,43 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             labels: inspected.labels,
         };
         let (candidate, installed) = self.fetch(&repo, &resolved, lockfile)?;
-        if let Err(e) = candidate.recheck() {
-            return Err(self.internal(format!("staged content of {repo} changed: {e}")));
-        }
         let mut lockfile = lockfile.clone();
         if let Err(e) = lockfile.set_tool(&repo, &resolved.locked) {
             return Err(self.internal(e.to_string()));
         }
-        let entry_text = self.entry(installed.namespaces, &candidate)?;
-        let progress = self.progress(old.command(), &repo, &resolved.locked, false, &[])?;
-        self.land(&candidate, progress, &[], &[], &entry_text, &mut lockfile)?;
-        if let Err(e) = progress::delete(self.env.dir, &entry.verb, &entry.id) {
-            return Err(self.failed(&entry.path, e.message(), e.to_string()));
+        let tools_just = self.entry(installed.namespaces, &candidate)?;
+        Ok(Recovery {
+            entry,
+            command: old.command().to_vec(),
+            repo,
+            locked: resolved.locked,
+            candidate,
+            tools_just,
+            lockfile,
+        })
+    }
+
+    /// 依序落地備好的恢復（04 共同選項：全部同意才寫入，含恢復舊操作），排在這次自己的落地與輸出之前：
+    /// 每一份重驗暫存內容、走一次同樣的落地順序，新的進度檔完成之後才刪舊的那一份，中途再斷也還認得出來。
+    fn land_recoveries(&mut self) -> Step<()> {
+        for mut r in std::mem::take(&mut self.pending) {
+            if let Err(e) = r.candidate.recheck() {
+                return Err(self.internal(format!("staged content of {} changed: {e}", r.repo)));
+            }
+            let progress = self.progress(&r.command, &r.repo, &r.locked, false, &[])?;
+            self.land(
+                &r.candidate,
+                progress,
+                &[],
+                &[],
+                &r.tools_just,
+                &mut r.lockfile,
+            )?;
+            if let Err(e) = progress::delete(self.env.dir, &r.entry.verb, &r.entry.id) {
+                return Err(self.failed(&r.entry.path, e.message(), e.to_string()));
+            }
+            self.say(&text::recovered(&r.repo, &r.locked));
         }
-        self.say(&text::recovered(&repo, &resolved.locked));
         Ok(())
     }
 }
