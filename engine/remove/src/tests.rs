@@ -150,6 +150,23 @@ impl Out {
 /// 跑一次；`argv` 的第一個是指令名，`remove` 時第二個是工具名。
 fn run(fx: &Fx, argv: &[&str], interactive: bool, input: &str) -> Out {
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
+    with_env(fx, "r1", &argv, interactive, input, |env| {
+        match argv[0].as_str() {
+            REMOVE_VERB => remove(&argv[1], env),
+            _ => uninstall(env),
+        }
+    })
+}
+
+/// 以 `run_id` 這次執行的環境跑 `f`。
+fn with_env(
+    fx: &Fx,
+    run_id: &str,
+    argv: &[String],
+    interactive: bool,
+    input: &str,
+    f: impl FnOnce(&mut Env<'_, Shared, NoSink, Vec<u8>>) -> u8,
+) -> Out {
     let mut stdin = Cursor::new(input.as_bytes().to_vec());
     let mut stdout = Vec::new();
     let shared = Shared::default();
@@ -166,7 +183,7 @@ fn run(fx: &Fx, argv: &[&str], interactive: bool, input: &str) -> Out {
     // 安裝目錄裡的覆寫不送 request；這裡沒有假啟動器，送了就等不到 result。
     let ctl = fx._tmp.path().join("ctl");
     let inbox = fx._tmp.path().join("in");
-    let mut channel = Channel::new(&ctl, Header::new(1, RunId::parse("r1").unwrap()).unwrap());
+    let mut channel = Channel::new(&ctl, Header::new(1, RunId::parse(run_id).unwrap()).unwrap());
     let code = {
         let mut env = Env {
             dir: &fx.dir,
@@ -179,8 +196,8 @@ fn run(fx: &Fx, argv: &[&str], interactive: bool, input: &str) -> Out {
                 stdin: interactive,
                 stderr: interactive,
             },
-            argv: &argv,
-            run_id: "r1",
+            argv,
+            run_id,
             written_by: WRITTEN_BY,
             stdin: &mut stdin,
             stdout: &mut stdout,
@@ -188,10 +205,7 @@ fn run(fx: &Fx, argv: &[&str], interactive: bool, input: &str) -> Out {
             diags: &mut diags,
             log: &mut log,
         };
-        match argv[0].as_str() {
-            REMOVE_VERB => remove(&argv[1], &mut env),
-            _ => uninstall(&mut env),
-        }
+        f(&mut env)
     };
     Out {
         code,
@@ -779,4 +793,165 @@ fn line_numbers_are_listed_or_none() {
     assert_eq!(text::line_numbers(&[]), "none");
     assert_eq!(text::line_numbers(&[2]), "2");
     assert_eq!(text::line_numbers(&[2, 5]), "2, 5");
+}
+
+// ---- 照進度檔記的 repo 檔恢復（#372 N47、N95）----
+
+/// 以真的 `remove <repo>`／`uninstall` 判定（同意全部收回）建一份殘留進度檔（id `r0`），回傳它記的 repo 檔。
+/// 之後由測試自己做「中斷前已寫的部分」。
+fn interrupted(fx: &Fx, argv: &[&str]) -> Vec<WrittenFile> {
+    let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
+    let verb = if argv[0] == REMOVE_VERB {
+        REMOVE_VERB
+    } else {
+        UNINSTALL_VERB
+    };
+    let out = with_env(fx, "r0", &argv, false, "", |env| {
+        let mut run = Run::new(env);
+        let (records, targets) = if verb == REMOVE_VERB {
+            let Ok(path) = run.tool_metadata(&argv[1]) else {
+                panic!("metadata path")
+            };
+            let metadata = Metadata::load(&path).unwrap();
+            let owner = Owner::Tool(argv[1].clone());
+            let records = vec![Record {
+                owner,
+                path,
+                metadata,
+            }];
+            (records, BTreeSet::from([argv[1].clone()]))
+        } else {
+            let Ok(records) = run.all_records() else {
+                panic!("records")
+            };
+            let targets = BTreeSet::from(["other".to_owned(), "tool".to_owned()]);
+            (records, targets)
+        };
+        let Ok(plan) = run.plan(&records, &[]) else {
+            panic!("plan")
+        };
+        let Ok(mut p) = run.progress(verb, &targets, &plan) else {
+            panic!("progress")
+        };
+        p.create(&fx.dir, WRITTEN_BY).unwrap();
+        0
+    });
+    assert_eq!(out.stderr, "");
+    let p = progress::load(&fx.dir, verb, "r0").unwrap().unwrap();
+    assert_eq!(
+        p.document()
+            .get(&[verb, REPO_FILES_KEY])
+            .and_then(|i| i.as_bool()),
+        Some(true)
+    );
+    repo_files::read(&p).unwrap().unwrap()
+}
+
+#[test]
+fn the_progress_file_records_the_repo_files_to_write() {
+    let fx = Fx::new();
+    let files = interrupted(&fx, &["remove", "tool"]);
+    assert_eq!(
+        files,
+        [WrittenFile::new(
+            ".gitignore",
+            Some(GITIGNORE.as_bytes()),
+            b"user-owned\n"
+        )]
+    );
+    assert_eq!(files[0].action, repo_files::Action::Modify);
+}
+
+#[test]
+fn an_interrupted_remove_is_completed_from_its_recorded_repo_files() {
+    let fx = Fx::new();
+    fx.record("baseline/other.toml", ".gitignore", "user-owned", GITIGNORE);
+    interrupted(&fx, &["remove", "tool"]);
+    // 上一次停在寫完 repo 檔之後：紀錄檔、cache、版本鎖定行都還沒動。重新判定會因整檔 hash 變了
+    // 報 VK0061；照記錄算做完。
+    fs::write(fx.dir.root().join(".gitignore"), "user-owned\n").unwrap();
+
+    let out = run(&fx, &["remove", "tool"], false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        format!("Removed tool v1.2.0 ({TOOL}).\nKept .gitignore\n")
+    );
+    assert_eq!(fx.read(".gitignore"), "user-owned\n");
+    // other 的紀錄補上那次該換的 hash。
+    let other = Metadata::load(&fx.vk().join("baseline/other.toml")).unwrap();
+    assert_eq!(
+        other.get(".gitignore").unwrap().hash,
+        Some(FileHash::of(b"user-owned\n"))
+    );
+    for gone in ["cache/tool", "baseline/tool", "baseline/tool.toml"] {
+        assert!(!fx.vk().join(gone).exists(), "{gone}");
+    }
+    assert!(fx.lock().tool("tool").is_none());
+    assert!(fx.progress_left().is_empty());
+}
+
+#[test]
+fn a_recorded_repo_file_not_yet_written_is_judged_as_usual() {
+    let fx = Fx::new();
+    fx.record("baseline/other.toml", ".gitignore", "user-owned", GITIGNORE);
+    interrupted(&fx, &["remove", "tool"]);
+
+    let out = run(&fx, &["remove", "tool"], true, "y\n");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stderr,
+        "Remove the 1 line that tool appended to .gitignore? [y/N] "
+    );
+    assert!(
+        out.stdout
+            .contains("Removed inserted lines from .gitignore\n")
+    );
+    assert_eq!(fx.read(".gitignore"), "user-owned\n");
+    let other = Metadata::load(&fx.vk().join("baseline/other.toml")).unwrap();
+    assert_eq!(
+        other.get(".gitignore").unwrap().hash,
+        Some(FileHash::of(b"user-owned\n"))
+    );
+    assert!(fx.progress_left().is_empty());
+}
+
+#[test]
+fn a_recorded_repo_file_changed_after_the_interruption_is_judged_as_usual() {
+    let fx = Fx::new();
+    interrupted(&fx, &["remove", "tool"]);
+    // 收回之後使用者又改了：不是那次寫的內容，照常判定，只列不刪是真的。
+    fs::write(fx.dir.root().join(".gitignore"), "user-owned\nmine\n").unwrap();
+
+    let out = run(&fx, &["remove", "tool"], false, "");
+    assert_eq!(out.code, 1, "{}", out.stderr);
+    assert!(
+        out.stderr.starts_with("vendor_kit: warn[VK0061]: "),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(fx.read(".gitignore"), "user-owned\nmine\n");
+    assert!(fx.progress_left().is_empty());
+}
+
+#[test]
+fn an_interrupted_uninstall_is_completed_from_its_recorded_repo_files() {
+    let fx = Fx::new();
+    fx.record("baseline/.vendor_kit.toml", "justfile", IMPORT, JUSTFILE);
+    let files = interrupted(&fx, &["uninstall"]);
+    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, [".gitignore", "justfile"]);
+    // 上一次只寫完 .gitignore：justfile 還是寫入前的樣子，照常判定、照常問。
+    fs::write(fx.dir.root().join(".gitignore"), "user-owned\n").unwrap();
+
+    let out = run(&fx, &["uninstall"], true, "y\n");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(!out.stderr.contains("VK0061"), "{}", out.stderr);
+    assert!(!out.stderr.contains(".gitignore"), "{}", out.stderr);
+    assert!(out.stderr.contains("justfile"), "{}", out.stderr);
+    assert_eq!(fx.read(".gitignore"), "user-owned\n");
+    assert_eq!(fx.read("justfile"), "\nbuild:\n    echo build\n");
+    assert!(!fx.dir.version_toml().exists());
+    assert!(fx.progress_left().is_empty());
 }

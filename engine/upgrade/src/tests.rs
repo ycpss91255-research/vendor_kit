@@ -1271,7 +1271,8 @@ fn residuals_that_cannot_be_recovered_are_gaps() {
 
 #[test]
 fn progress_records_the_upgrade_table_while_landing() {
-    // 落地中途的進度檔要讓 update 認得：`[upgrade]` 的 target、image、init_files 與原指令。
+    // 落地中途的進度檔要讓 update 認得：`[upgrade]` 的 target、image、init_files 與原指令；
+    // 另記這次要寫的 repo 檔。
     let fx = Fx::new();
     let mut up = Upgrade {
         env: &mut Env {
@@ -1307,7 +1308,11 @@ fn progress_records_the_upgrade_table_while_landing() {
         engine: false,
     };
     let locked = ImageRef::parse(&new_locked()).unwrap();
-    let Ok(mut p) = up.progress(&["upgrade", "tool@v1.2.0"], "tool", &locked, true) else {
+    let files = [
+        WrittenFile::new(".gitignore", Some(b"a\n"), b"a\nb\n"),
+        WrittenFile::new("tool.toml", None, b"x = 1\n"),
+    ];
+    let Ok(mut p) = up.progress(&["upgrade", "tool@v1.2.0"], "tool", &locked, true, &files) else {
         panic!("progress");
     };
     p.create(&fx.dir, WRITTEN_BY).unwrap();
@@ -1319,4 +1324,6 @@ fn progress_records_the_upgrade_table_while_landing() {
     );
     assert_eq!(table::flag(&back, table::INIT_FILES), Some(true));
     assert_eq!(back.command(), ["upgrade", "tool@v1.2.0"]);
+    // 這次要寫的 repo 檔、內容 hash 與動作（#372 N47、N95）。
+    assert_eq!(repo_files::read(&back), Ok(Some(files.to_vec())));
 }

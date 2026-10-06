@@ -761,6 +761,69 @@ fn two_leftover_adds_each_get_their_own_slot() {
 }
 
 #[test]
+fn progress_records_the_repo_files_to_write() {
+    // 落地中途的進度檔記下這次要寫的 repo 檔、內容 hash 與動作（#372 N47、N95）。
+    let fx = Fx::new("");
+    let registry = Client::with_base_url("http://127.0.0.1:9").unwrap();
+    let mut add = Add {
+        env: &mut Env {
+            dir: &fx.dir,
+            host_root: "/h",
+            run_log: "/h/log",
+            inbox: &fx.inbox,
+            channel: &mut Channel::new(&fx.ctl, header()),
+            poll: Duration::from_millis(1),
+            registry: &registry,
+            tty: tty(false),
+            argv: &["add".to_owned(), "tool".to_owned()],
+            run_id: "r9",
+            written_by: WRITTEN_BY,
+            stdin: &mut Cursor::new(Vec::new()),
+            stdout: &mut Vec::new(),
+            prompt: &mut Vec::new(),
+            diags: &mut Diagnostics::with_sink(Vec::new(), NoSink),
+            log: &mut runlog::Writer::new(
+                Vec::new(),
+                runlog::Header {
+                    version: WRITTEN_BY.to_owned(),
+                    component: runlog::Component::Engine,
+                    invocation_id: "r9".to_owned(),
+                },
+            ),
+        },
+        init: &|_: &Path| Ok(Vec::new()),
+        code: 0,
+        extracts: 0,
+        stages: 0,
+        local: BTreeMap::new(),
+    };
+    let locked = ImageRef::parse(&locked()).unwrap();
+    let files = [
+        WrittenFile::new(".gitignore", Some(b"a\n"), b"a\n.tool\n"),
+        WrittenFile::new("tool.toml", None, b"x = 1\n"),
+    ];
+    let Ok(mut p) = add.progress("tool", &locked, &files) else {
+        panic!("progress");
+    };
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    let back = progress::load(&fx.dir, VERB, "r9").unwrap().unwrap();
+    let flag = back
+        .document()
+        .get(&[PROGRESS_TABLE, "repo_files"])
+        .and_then(|i| i.as_bool());
+    assert_eq!(flag, Some(true));
+    assert_eq!(repo_files::read(&back), Ok(Some(files.to_vec())));
+
+    let Ok(mut p) = add.progress("tool", &locked, &[]) else {
+        panic!("progress");
+    };
+    progress::delete(&fx.dir, VERB, "r9").unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    let back = progress::load(&fx.dir, VERB, "r9").unwrap().unwrap();
+    assert_eq!(repo_files::read(&back), Ok(None));
+}
+
+#[test]
 fn leftover_of_another_verb_stops() {
     let fx = Fx::new("");
     let before = fx.lock_text();

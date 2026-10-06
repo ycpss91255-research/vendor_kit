@@ -66,6 +66,13 @@
 //! 一次。殘留的詢問與這次的詢問一起問完、全部同意才寫，答否時殘留的進度檔照留。這次落地完成之後才刪殘留
 //! 的那幾份，中途再斷也還認得出來。
 //!
+//! 收回插入行的 repo 檔例外，照殘留進度檔記的 `[[repo_file]]`（`progress::repo_files`）補完、不重新判定：
+//! 重新判定會因整檔 hash 變了，把 VK 自己剛收回的結果當成使用者改過（假的 VK0061）。每個記錄過的檔對照
+//! 目前內容：
+//! - 已經是記錄的寫入後內容：那次收回過了，殘留對象對這個檔的插入行紀錄算做完、不交給 `retract`（保留
+//!   清單照列）；其他紀錄檔裡還記著寫入前 hash 的紀錄，照那次會做的換成寫入後的。
+//! - 還是寫入前的樣子，或兩者都不是（中斷之後有人改過）：照常判定。
+//!
 //! 覆寫紀錄的解除也一樣可重做，兩種半套都照常再做一次就補完：覆寫已解除、版本鎖定行還在（落地停在紀錄檔
 //! 之後、鎖定行之前），重跑時覆寫已不在、照常收回鎖定行；鎖定行已拿掉、覆寫還在，殘留 `remove` 記的對象
 //! 一樣會解除覆寫。
@@ -73,7 +80,8 @@
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
 //! - 進度檔 `.tmp.<verb>.<run-id>.toml` 另記 `[<verb>]` 表的 `repos`（這次收回的工具）與
-//!   `repo_files`（這次有沒有要寫 repo 檔）。
+//!   `repo_files`（這次有沒有要寫 repo 檔），以及這次要寫的每個 repo 檔（`[[repo_file]]` 的路徑、動作、
+//!   寫入前後內容的 hash；格式定在 `progress::repo_files`）。
 //! - 覆寫的解除排在紀錄檔那一步（寫回拿掉對象那一行的 `version.local.toml`），在版本鎖定行之前；進度檔不另記
 //!   覆寫，恢復時照 `repos` 重算。上一次已解除的覆寫，恢復時不再報告（原來的來源已經不在檔裡）。
 //! - 覆寫全部解除後 `version.local.toml` 照留（只剩檔案版與寫入者），跟 `dev` 相同。
@@ -93,8 +101,10 @@
 //!   沒有代碼，停下。
 //! - 對象以外開著覆寫的工具交付保留名 `vendor_kit`：沒有代碼（同 engine/upgrade）。
 //! - `-y`：兩個指令都還不收（#47，`args` 照 #489）；VK0002 的下一步指令照訊息表插入 `-y`。
-//! - 殘留的進度檔不是可以併入的 verb（`add`、`install` 等），或殘留的操作要寫 repo 檔：那次寫了哪些
-//!   repo 檔沒有記錄，重新判定會把 VK 自己剛收回的結果當成使用者改過（假的 VK0061）。
+//! - 殘留的進度檔不是可以併入的 verb（`add`、`install` 等），或殘留的操作要寫 repo 檔、進度檔卻沒有
+//!   `[[repo_file]]`（舊版寫的）：照記錄補完不了，重新判定會報假的 VK0061。
+//! - 恢復中又中斷：殘留對象寫完的檔，這次又為別的對象改寫過，殘留那份記錄對不上目前內容，下次照常判定，
+//!   可能報假的 VK0061。
 //! - 其他已裝、沒開覆寫的工具的 `cache/<repo>/` 讀不到（N4）：重產入口檔要它的 `<ns>`。
 //!   在詢問與任何寫入之前讀，收齊全部讀不到的工具一起報（`fetch::CacheCheck`）：
 //!   不在的合成一則、下一步 `run just vendor_kit sync first`；讀不到或損壞的各一則、保留實際原因。
@@ -122,11 +132,12 @@ use config::{Config, ConfigError};
 use diagnostics::{Diagnostic, Diagnostics, Message, Sink};
 use filelock::{Lock, Mode};
 use layout::InstallDir;
-use metadata::{Metadata, State};
+use metadata::{FileHash, Metadata, State};
 use plan::{Channel, Field, Op, Outcome, Slot};
 use progress::Progress;
+use progress::repo_files::{self, RepoFile as WrittenFile, Status};
 use prompt::{Consent, PromptError, TtyState};
-use retract::{Owner, Plan, Source, Verdict};
+use retract::{Owner, Plan, RecordPlan, Source, Verdict};
 use runlog::Target;
 use txn::{Disk, Entry, RecordFile, RepoFile, Txn};
 use version_file::{LocalFile, LockFile};
@@ -193,6 +204,43 @@ type Step<T> = Result<T, Stop>;
 struct Residual {
     entry: progress::Entry,
     repos: Vec<String>,
+    /// 那次要寫的 repo 檔（`progress::repo_files`）；沒有要寫的是空的。
+    files: Vec<WrittenFile>,
+}
+
+/// 殘留的操作已經寫完的一個 repo 檔（模組說明「恢復」）。
+struct Written {
+    path: String,
+    /// 寫入前內容的 hash。
+    before: Option<FileHash>,
+    /// 寫入後內容的 hash，也就是目前的。
+    after: FileHash,
+    /// 那次收回了誰的紀錄：`None` 是全部（`uninstall`），否則是那次的工具。
+    owners: Option<BTreeSet<String>>,
+}
+
+impl Written {
+    /// `owner` 對這個檔的紀錄，那次已經收回了。
+    fn covers(&self, owner: &Owner, path: &str) -> bool {
+        self.path == path
+            && match (&self.owners, owner) {
+                (None, _) => true,
+                (Some(repos), Owner::Tool(repo)) => repos.contains(repo),
+                (Some(_), Owner::Vk) => false,
+            }
+    }
+
+    /// 那次寫完之後、紀錄檔那一步之前中斷時，其他紀錄還記著寫入前的 hash：照那次會做的換成寫入後的
+    /// （同 [`Metadata::record_write`] 的規則）。回傳有沒有換。
+    fn replay(&self, hash: &mut Option<FileHash>) -> bool {
+        match (&self.before, hash.as_ref()) {
+            (Some(before), Some(h)) if h == before => {
+                *hash = Some(self.after.clone());
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 /// 版本鎖定行怎麼處理。
@@ -392,7 +440,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         }
     }
 
-    /// 辨識殘留的進度檔：`accept` 裡的 verb 而且沒有要寫 repo 檔的，回傳讓這次併入；其他的每一份
+    /// 辨識殘留的進度檔：`accept` 裡的 verb、要寫 repo 檔時也記了是哪些的，回傳讓這次併入；其他的每一份
     /// 都印出原因再停下。
     fn residuals(&mut self, accept: &[&str]) -> Step<Vec<Residual>> {
         let entries = match progress::find(self.env.dir) {
@@ -444,13 +492,58 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                 "recovering {shown} without its [{verb}] fields"
             )));
         };
-        if repo_files {
-            return Err(self.gap_diag(format_args!("recovering {shown}, which writes repo files")));
-        }
+        let files = match (repo_files, repo_files::read(&loaded)) {
+            (false, _) => Vec::new(),
+            (true, Ok(Some(files))) => files,
+            // 舊版寫的進度檔：要寫 repo 檔卻沒記是哪些，照記錄補完不了。
+            (true, Ok(None)) => {
+                return Err(self.gap_diag(format_args!(
+                    "recovering {shown}, which writes repo files without recording them"
+                )));
+            }
+            (true, Err(e)) => return Err(self.internal_diag(format!("{shown}: {e}"))),
+        };
         Ok(Residual {
             entry,
             repos: repos_vec(repos),
+            files,
         })
+    }
+
+    /// 殘留的操作已經寫完的 repo 檔：目前內容等於記錄的寫入後內容（`progress::repo_files::Status::Done`）。
+    /// 還是寫入前的、或之後被改過的，照常判定。
+    fn written(&mut self, residual: &[Residual]) -> Step<Vec<Written>> {
+        let mut out = Vec::new();
+        for r in residual {
+            for f in &r.files {
+                let current = read_optional(&self.env.dir.root().join(&f.path));
+                let current = current.map_err(|e| self.internal(format!("{}: {e}", f.path)))?;
+                if f.status(current.as_deref()) != Status::Done {
+                    continue;
+                }
+                let after = FileHash::parse(&f.after);
+                let before = match &f.before {
+                    None => Some(None),
+                    Some(h) => FileHash::parse(h).map(Some),
+                };
+                let (Some(after), Some(before)) = (after, before) else {
+                    return Err(self.internal(format!(
+                        "{}: bad hash for {}",
+                        self.rel(&r.entry.path),
+                        f.path
+                    )));
+                };
+                let owners = (r.entry.verb != UNINSTALL_VERB)
+                    .then(|| r.repos.iter().cloned().collect::<BTreeSet<_>>());
+                out.push(Written {
+                    path: f.path.clone(),
+                    before,
+                    after,
+                    owners,
+                });
+            }
+        }
+        Ok(out)
     }
 
     /// 讀一份逐檔紀錄檔；不在回 `None`。
@@ -475,17 +568,50 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
 
     /// `retract` 判定。自相矛盾的紀錄（`retract` 判成 [`Verdict::Gap`]）不收回：每份有這種紀錄的紀錄檔各報
     /// 一則 VK0013（#372 N86 擴的情境，契約文字待補），在詢問與任何寫入之前停下。
-    fn plan(&mut self, records: &[Record]) -> Step<Plan> {
+    ///
+    /// 殘留的操作已經收回完的檔（`written`）照記錄算做完、不再判定：那次對象的那筆插入行紀錄不交給
+    /// `retract`（直接列進 [`Plan::records`]，保留清單照列）；其他紀錄還記著寫入前的 hash 的，照那次會做的
+    /// 換成寫入後的再判定。重新判定會因整檔 hash 變了把 VK 自己收回的結果當成使用者改過（假的 VK0061）。
+    fn plan(&mut self, records: &[Record], written: &[Written]) -> Step<Plan> {
+        let mut adjusted: Vec<Metadata> = Vec::with_capacity(records.len());
+        let mut done: Vec<RecordPlan> = Vec::new();
+        for r in records {
+            if written.is_empty() {
+                adjusted.push(r.metadata.clone());
+                continue;
+            }
+            let mut m = Metadata::new();
+            for f in r.metadata.files() {
+                let judged = f.state == State::Appended && !f.lines.is_empty();
+                if judged && written.iter().any(|w| w.covers(&r.owner, &f.path)) {
+                    done.push(RecordPlan {
+                        owner: r.owner.clone(),
+                        path: f.path.clone(),
+                        state: f.state,
+                        verdict: Verdict::Judged,
+                    });
+                    continue;
+                }
+                let mut f = f.clone();
+                for w in written.iter().filter(|w| w.path == f.path) {
+                    w.replay(&mut f.hash);
+                }
+                m.put(f).map_err(|e| self.internal(e.to_string()))?;
+            }
+            adjusted.push(m);
+        }
         let sources: Vec<Source<'_>> = records
             .iter()
-            .map(|r| Source {
+            .zip(&adjusted)
+            .map(|(r, metadata)| Source {
                 owner: &r.owner,
-                metadata: &r.metadata,
+                metadata,
             })
             .collect();
         let root = self.env.dir.root().to_path_buf();
         let planned = retract::plan(&sources, |p| read_optional(&root.join(p)));
-        let planned = planned.map_err(|e| self.internal(e.to_string()))?;
+        let mut planned = planned.map_err(|e| self.internal(e.to_string()))?;
+        planned.records.extend(done);
         let broken: BTreeSet<&Owner> = planned
             .records
             .iter()
@@ -532,22 +658,25 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         }
     }
 
-    fn progress(
-        &mut self,
-        verb: &str,
-        repos: &BTreeSet<String>,
-        repo_files: bool,
-    ) -> Step<Progress> {
+    /// 這次的進度檔：`[<verb>]` 表記對象與有沒有要寫 repo 檔，`[[repo_file]]` 記這次收回要寫的每個 repo 檔
+    /// （`progress::repo_files`），恢復時照它補完。
+    fn progress(&mut self, verb: &str, repos: &BTreeSet<String>, plan: &Plan) -> Step<Progress> {
         let mut p = match Progress::new(verb, self.env.run_id, self.env.argv) {
             Ok(p) => p,
             Err(e) => return Err(self.internal(e.to_string())),
         };
         let list: toml_edit::Array = repos.iter().map(String::as_str).collect();
+        let files: Vec<WrittenFile> = plan
+            .edits
+            .iter()
+            .map(|e| WrittenFile::new(e.path.as_str(), Some(&e.before), &e.after))
+            .collect();
         let doc = p.document_mut();
         let set = doc
             .set(&[verb, REPOS_KEY], list)
-            .and_then(|()| doc.set(&[verb, REPO_FILES_KEY], repo_files));
-        set.map_err(|e| self.internal(e.to_string()))?;
+            .and_then(|()| doc.set(&[verb, REPO_FILES_KEY], !files.is_empty()));
+        set.and_then(|()| repo_files::record(&mut p, &files))
+            .map_err(|e| self.internal(e.to_string()))?;
         Ok(p)
     }
 
@@ -627,12 +756,13 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                 });
             }
         }
-        let plan = self.plan(&records)?;
+        let written = self.written(&residual)?;
+        let plan = self.plan(&records, &written)?;
         if !self.ask(&plan)? {
             return Ok(());
         }
 
-        let mut writes = self.other_records(&targets, &lockfile, &plan)?;
+        let mut writes = self.other_records(&targets, &lockfile, &plan, &written)?;
         let lifted = self.lift_overrides(local, &targets, &mut writes)?;
         let mut removed = Vec::new();
         for t in &targets {
@@ -662,7 +792,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             removes.push(self.vk_rel(&meta)?);
         }
 
-        let progress = self.progress(REMOVE_VERB, &targets, !plan.edits.is_empty())?;
+        let progress = self.progress(REMOVE_VERB, &targets, &plan)?;
         let lock = if removed.is_empty() {
             LockAction::Keep
         } else {
@@ -724,15 +854,17 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         metadata::tool_path(self.env.dir, repo).map_err(|e| self.internal(e.to_string()))
     }
 
-    /// 其他紀錄檔裡同一個路徑的紀錄（ADR-0003）：寫入前內容相符的紀錄跟著換成寫入後的 hash。
+    /// 其他紀錄檔裡同一個路徑的紀錄（ADR-0003）：寫入前內容相符的紀錄跟著換成寫入後的 hash。殘留的操作
+    /// 已經寫完的檔（`written`）先補上那次該換的 hash，再套這次的。
     fn other_records(
         &mut self,
         targets: &BTreeSet<String>,
         lockfile: &LockFile,
         plan: &Plan,
+        written: &[Written],
     ) -> Step<Vec<(PathBuf, Vec<u8>)>> {
         let mut out = Vec::new();
-        if plan.edits.is_empty() {
+        if plan.edits.is_empty() && written.is_empty() {
             return Ok(out);
         }
         let mut paths = vec![metadata::vk_path(self.env.dir)];
@@ -744,6 +876,15 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                 continue;
             };
             let mut changed = false;
+            for w in written {
+                let Some(mut r) = m.get(&w.path).cloned() else {
+                    continue;
+                };
+                if w.replay(&mut r.hash) {
+                    m.put(r).map_err(|e| self.internal(e.to_string()))?;
+                    changed = true;
+                }
+            }
             for e in &plan.edits {
                 match m.record_write(&e.path, &e.before, &e.after) {
                     Ok(metadata::WriteOutcome::Updated) => changed = true,
@@ -973,7 +1114,8 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         let mut targets: BTreeSet<String> = lockfile.tools().keys().cloned().collect();
         targets.extend(residual.iter().flat_map(|r| r.repos.iter().cloned()));
         let records = self.all_records()?;
-        let plan = self.plan(&records)?;
+        let written = self.written(&residual)?;
+        let plan = self.plan(&records, &written)?;
         if !self.ask(&plan)? {
             return Ok(());
         }
@@ -986,7 +1128,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         removes.push(self.vk_rel(&local_toml)?);
         removes.extend(layout::SHELL_FILES.iter().map(PathBuf::from));
 
-        let progress = self.progress(UNINSTALL_VERB, &targets, !plan.edits.is_empty())?;
+        let progress = self.progress(UNINSTALL_VERB, &targets, &plan)?;
         self.land(
             progress,
             &plan,
