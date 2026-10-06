@@ -13,6 +13,7 @@
 //! - 內容是 VK 寫的 TOML，經 `schema` 讀寫：先過檔案版門檻（過高回 VK0008），未知欄位讀時忽略、
 //!   寫時保留（ADR-0008）。已知欄位只有 `command`：原指令的參數（`just vendor_kit` 之後的每一段），
 //!   給 recipe 重組 `<original_command>`；其餘欄位由 recipe 經 [`Progress::document_mut`] 自己放。
+//!   好幾個 recipe 共用的格式定在這裡：[`upgrade`] 的 `[upgrade]` 表、[`repo_files`] 的這次要寫的 repo 檔。
 //! - 第一版禁止 symlink：進度檔是 symlink 時一律回錯，不跟隨。
 //! - 建立時同名進度檔已在就拒絕（[`Error::Exists`]），不蓋掉另一次未完成操作的恢復證據。檢查與
 //!   rename 之間不是原子的，呼叫端要先持安裝目錄的排他鎖（`filelock`）。
@@ -71,6 +72,192 @@ pub mod upgrade {
             .get(&[TABLE, key])
             .and_then(|i| i.as_bool())
     }
+}
+
+/// 這次要寫的 repo 檔：根層陣列表 `[[repo_file]]`，`add`、`upgrade`、`remove`、`uninstall` 共用（#372 N47、N95）。
+///
+/// 恢復時照這份記錄補完、不重新判定：重新判定會把 VK 自己剛寫的結果當成使用者改過（例如 `remove` 收回後
+/// 整檔 hash 變了，重判就報假的 VK0061）。每個檔一個表：
+///
+/// | 鍵 | 值 |
+/// |---|---|
+/// | [`repo_files::PATH`] | repo 相對路徑 |
+/// | [`repo_files::ACTION`] | [`repo_files::Action`]：`create`（新建）或 `modify`（改寫既有檔） |
+/// | [`repo_files::BEFORE`] | 寫入前內容的 hash；`create` 沒有 |
+/// | [`repo_files::AFTER`] | 寫入後內容的 hash |
+///
+/// hash 跟逐檔紀錄（`metadata::FileHash`）同一種：CRLF→LF 正規化後 sha256 的小寫十六進位
+/// （`files::fingerprint_normalized`），所以可以直接跟逐檔紀錄的 `hash` 比。這次沒有要寫的 repo 檔時
+/// 不放這個鍵。
+pub mod repo_files {
+    use std::fmt;
+
+    use toml_edit::{Item, Table};
+
+    use super::Progress;
+    use schema::WriteError;
+
+    /// 根層陣列表的名字。
+    pub const ARRAY: &str = "repo_file";
+    pub const PATH: &str = "path";
+    pub const ACTION: &str = "action";
+    pub const BEFORE: &str = "before";
+    pub const AFTER: &str = "after";
+
+    /// 對一個 repo 檔的動作。
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Action {
+        /// 寫入前檔不在。
+        Create,
+        /// 改寫既有檔。
+        Modify,
+    }
+
+    impl Action {
+        pub const fn as_str(self) -> &'static str {
+            match self {
+                Action::Create => "create",
+                Action::Modify => "modify",
+            }
+        }
+
+        pub fn parse(s: &str) -> Option<Action> {
+            match s {
+                "create" => Some(Action::Create),
+                "modify" => Some(Action::Modify),
+                _ => None,
+            }
+        }
+    }
+
+    /// 一個 repo 檔的記錄。
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct RepoFile {
+        pub path: String,
+        pub action: Action,
+        /// 寫入前內容的 hash；`create` 是 `None`。
+        pub before: Option<String>,
+        /// 寫入後內容的 hash。
+        pub after: String,
+    }
+
+    /// 恢復時一個記錄過的檔目前的樣子。
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Status {
+        /// 已經是寫入後的內容：那次寫過了，照記錄算做完，不再判定。
+        Done,
+        /// 還是寫入前的樣子（`create` 時檔還不在）：那次還沒寫到它，照常判定。
+        Pending,
+        /// 兩者都不是：中斷之後有人改過。
+        Changed,
+    }
+
+    /// 內容的 hash（同 `metadata::FileHash`）。
+    pub fn hash(contents: &[u8]) -> String {
+        files::fingerprint_normalized(contents).to_hex()
+    }
+
+    impl RepoFile {
+        /// 由寫入前（檔不在是 `None`）與寫入後的內容組一筆記錄。
+        pub fn new(path: impl Into<String>, before: Option<&[u8]>, after: &[u8]) -> RepoFile {
+            RepoFile {
+                path: path.into(),
+                action: if before.is_some() {
+                    Action::Modify
+                } else {
+                    Action::Create
+                },
+                before: before.map(hash),
+                after: hash(after),
+            }
+        }
+
+        /// 對照目前的內容（檔不在是 `None`）。
+        pub fn status(&self, current: Option<&[u8]>) -> Status {
+            let now = current.map(hash);
+            if now.as_deref() == Some(self.after.as_str()) {
+                Status::Done
+            } else if now == self.before {
+                Status::Pending
+            } else {
+                Status::Changed
+            }
+        }
+    }
+
+    /// 把 `files` 記進進度檔；已有的記錄整批換掉。`files` 是空的就拿掉這個鍵。
+    pub fn record(progress: &mut Progress, files: &[RepoFile]) -> Result<(), WriteError> {
+        let doc = progress.document_mut();
+        doc.remove(&[ARRAY])?;
+        for f in files {
+            let i = doc.push_table(ARRAY)?;
+            doc.set_in(ARRAY, i, PATH, f.path.as_str())?;
+            doc.set_in(ARRAY, i, ACTION, f.action.as_str())?;
+            if let Some(before) = &f.before {
+                doc.set_in(ARRAY, i, BEFORE, before.as_str())?;
+            }
+            doc.set_in(ARRAY, i, AFTER, f.after.as_str())?;
+        }
+        Ok(())
+    }
+
+    /// 讀回記錄；沒有這個鍵回 `Ok(None)`（舊版寫的進度檔，或這次沒有要寫的 repo 檔）。
+    pub fn read(progress: &Progress) -> Result<Option<Vec<RepoFile>>, Invalid> {
+        let tables = match progress.document().get(&[ARRAY]) {
+            None | Some(Item::None) => return Ok(None),
+            Some(Item::ArrayOfTables(a)) => a,
+            Some(_) => return Err(Invalid(format!("`{ARRAY}` is not an array of tables"))),
+        };
+        let mut out = Vec::with_capacity(tables.len());
+        for (i, table) in tables.iter().enumerate() {
+            out.push(read_one(table).map_err(|Invalid(e)| Invalid(format!("{ARRAY}[{i}]: {e}")))?);
+        }
+        Ok(Some(out))
+    }
+
+    fn read_one(table: &Table) -> Result<RepoFile, Invalid> {
+        let text = |key: &str| -> Result<Option<String>, Invalid> {
+            match table.get(key) {
+                None | Some(Item::None) => Ok(None),
+                Some(item) => item
+                    .as_str()
+                    .map(|s| Some(s.to_owned()))
+                    .ok_or_else(|| Invalid(format!("`{key}` is not a string"))),
+            }
+        };
+        let required = |key: &str| -> Result<String, Invalid> {
+            text(key)?.ok_or_else(|| Invalid(format!("missing `{key}`")))
+        };
+        let path = required(PATH)?;
+        let action = required(ACTION)?;
+        let action = Action::parse(&action)
+            .ok_or_else(|| Invalid(format!("unknown `{ACTION}` {action:?}")))?;
+        let before = text(BEFORE)?;
+        let after = required(AFTER)?;
+        if (action == Action::Modify) != before.is_some() {
+            return Err(Invalid(format!(
+                "`{BEFORE}` must be present exactly when `{ACTION}` is \"modify\""
+            )));
+        }
+        Ok(RepoFile {
+            path,
+            action,
+            before,
+            after,
+        })
+    }
+
+    /// 記錄的格式不對。
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Invalid(pub String);
+
+    impl fmt::Display for Invalid {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    impl std::error::Error for Invalid {}
 }
 
 /// 進度檔名的前綴與副檔名（`layout::InstallDir::progress_file` 的格式）。
@@ -567,6 +754,79 @@ mod tests {
         assert_eq!(upgrade::field(&back, upgrade::INIT_FILES), None);
         assert_eq!(upgrade::flag(&back, upgrade::TARGET), None);
         assert_eq!(upgrade::field(&upgrade(), upgrade::TARGET), None);
+    }
+
+    #[test]
+    fn repo_files_round_trip() {
+        let (_t, dir) = install();
+        let mut p = upgrade();
+        assert_eq!(repo_files::read(&p), Ok(None));
+        let files = [
+            repo_files::RepoFile::new(".gitignore", Some(b"a\n"), b"a\nb\n"),
+            repo_files::RepoFile::new("tool.toml", None, b"x = 1\n"),
+        ];
+        assert_eq!(files[0].action, repo_files::Action::Modify);
+        assert_eq!(files[1].action, repo_files::Action::Create);
+        assert_eq!(files[1].before, None);
+        repo_files::record(&mut p, &files).unwrap();
+        p.create(&dir, "v1").unwrap();
+        let back = load(&dir, "upgrade", "42").unwrap().unwrap();
+        assert_eq!(repo_files::read(&back), Ok(Some(files.to_vec())));
+        assert_eq!(back.command(), ["upgrade", "acme/tool", "v1.2.0", "-y"]);
+
+        // 整批換掉；空的就拿掉這個鍵。
+        let mut back = back;
+        repo_files::record(&mut back, &files[1..]).unwrap();
+        assert_eq!(repo_files::read(&back), Ok(Some(files[1..].to_vec())));
+        repo_files::record(&mut back, &[]).unwrap();
+        back.save(&dir, "v1").unwrap();
+        let back = load(&dir, "upgrade", "42").unwrap().unwrap();
+        assert_eq!(repo_files::read(&back), Ok(None));
+    }
+
+    #[test]
+    fn repo_file_hash_matches_metadata_hash_and_ignores_crlf() {
+        assert_eq!(repo_files::hash(b"a\r\nb\n"), repo_files::hash(b"a\nb\n"));
+        assert_eq!(
+            repo_files::hash(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn repo_file_status() {
+        use repo_files::{RepoFile, Status};
+        let modify = RepoFile::new("f", Some(b"a\nb\n"), b"a\n");
+        assert_eq!(modify.status(Some(b"a\n")), Status::Done);
+        assert_eq!(modify.status(Some(b"a\r\n")), Status::Done);
+        assert_eq!(modify.status(Some(b"a\nb\n")), Status::Pending);
+        assert_eq!(modify.status(Some(b"c\n")), Status::Changed);
+        assert_eq!(modify.status(None), Status::Changed);
+        let create = RepoFile::new("f", None, b"x\n");
+        assert_eq!(create.status(Some(b"x\n")), Status::Done);
+        assert_eq!(create.status(None), Status::Pending);
+        assert_eq!(create.status(Some(b"y\n")), Status::Changed);
+    }
+
+    #[test]
+    fn repo_files_reject_malformed_records() {
+        let hash = "0".repeat(64);
+        for bad in [
+            "repo_file = 1".to_owned(),
+            format!("[[repo_file]]\naction = \"create\"\nafter = \"{hash}\""),
+            format!("[[repo_file]]\npath = \"f\"\naction = \"move\"\nafter = \"{hash}\""),
+            format!("[[repo_file]]\npath = \"f\"\naction = \"modify\"\nafter = \"{hash}\""),
+            format!(
+                "[[repo_file]]\npath = \"f\"\naction = \"create\"\nbefore = \"{hash}\"\n\
+                 after = \"{hash}\""
+            ),
+            "[[repo_file]]\npath = \"f\"\naction = \"create\"".to_owned(),
+            format!("[[repo_file]]\npath = 1\naction = \"create\"\nafter = \"{hash}\""),
+        ] {
+            let text = format!("schema = 1\ncommand = [\"remove\"]\n{bad}\n");
+            let p = Progress::parse("remove", "1", &text).unwrap();
+            assert!(repo_files::read(&p).is_err(), "{bad}");
+        }
     }
 
     #[test]

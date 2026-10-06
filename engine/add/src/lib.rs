@@ -108,7 +108,8 @@
 //!   又不在 `cache/<repo>/` 裡，換 `cache/<repo>/` 時不會被帶走。
 //! - 基準版副本放在 `.vendor_kit/baseline/<repo>/<初始檔的 repo 相對路徑>`（[`baseline_file`]）。
 //! - 進度檔 `.tmp.add.<run-id>.toml` 另記 `[add]` 表的 `repo`、`image`（版本鎖定行的值）與
-//!   `repo_files`（這次有沒有要寫 repo 檔）。
+//!   `repo_files`（這次有沒有要寫 repo 檔），以及這次要寫的每個 repo 檔（`[[repo_file]]` 的路徑、動作、
+//!   寫入前後內容的 hash；格式定在 `progress::repo_files`）。
 //! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）：啟動器不收已存在的
 //!   slot，恢復好幾份殘留時每次取件都要一個新的。token 檔 `stage` 的 slot 是 [`TOKEN_SLOT`]，image tar 的
 //!   `.digest` 旁檔是 [`DIGEST_SLOT`]。
@@ -142,7 +143,8 @@
 //! - 覆寫指到不在版本鎖定行的工具（孤兒覆寫）：訊息表沒有代碼（`version_file::OrphanOverrides`）；開著覆寫的
 //!   工具交付保留名 `vendor_kit`：沒有代碼（同 engine/upgrade）。
 //! - 同一個 tag 的版本鎖定行指向別的 digest；`<repo>` 不是 just 名稱；`initfiles` 判成缺口的檔。
-//! - 殘留的進度檔不是 `add` 的（其他可寫 recipe 還沒實作），或殘留的 `add` 要寫 repo 檔。
+//! - 殘留的進度檔不是 `add` 的（其他可寫 recipe 還沒實作），或殘留的 `add` 要寫 repo 檔：寫了哪些已記在
+//!   進度檔，但重新落地要讀 `init.toml`，格式沒定（見上）。
 //! - 已知偏離：恢復殘留 `add` 的寫入排在這次的詢問之前，04 共同選項要先問完再寫（含恢復）。
 //!   目前沒有初始檔、`add` 不會詢問，所以碰不到；`init.toml` 定案、`add` 會詢問時要改成先問完再一起落地。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）；dist 格式不符（G2）、指紋不符（G1）沒有代碼。
@@ -176,6 +178,7 @@ use layout::InstallDir;
 use metadata::Metadata;
 use plan::{Channel, Field, ImageId, Op, Outcome, Slot, Tty};
 use progress::Progress;
+use progress::repo_files::{self, RepoFile as WrittenFile};
 use prompt::{Consent, PromptError, TtyState};
 use registry::{Client, ErrorKind, Repository, Token};
 use runlog::Target;
@@ -1227,10 +1230,16 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
 
         // 紀錄檔：這個工具的 metadata 與基準版副本。
         let mut repo_writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        let mut written: Vec<WrittenFile> = Vec::new();
         let mut records: Vec<(PathBuf, Vec<u8>)> = Vec::new();
         for f in &planned.files {
             if let Some(w) = &f.write {
                 repo_writes.push((PathBuf::from(&f.path), w.after.clone()));
+                written.push(WrittenFile::new(
+                    f.path.as_str(),
+                    w.before.as_deref(),
+                    &w.after,
+                ));
             }
             if let Some(b) = &f.baseline {
                 records.push((baseline_file(repo, &f.path), b.clone()));
@@ -1259,7 +1268,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         all_ns.insert(repo.to_owned(), candidate.namespaces().to_vec());
         let entry = self.entry(&all_ns)?;
 
-        let progress = self.progress(repo, locked, !repo_writes.is_empty())?;
+        let progress = self.progress(repo, locked, &written)?;
         self.land(
             &candidate,
             progress,
@@ -1341,7 +1350,9 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         Ok(())
     }
 
-    fn progress(&mut self, repo: &str, locked: &ImageRef, repo_files: bool) -> Step<Progress> {
+    /// 這次的進度檔：`[add]` 表記對象、版本鎖定行的值與有沒有要寫 repo 檔，`[[repo_file]]` 記這次要寫的
+    /// 每個 repo 檔（`progress::repo_files`）。
+    fn progress(&mut self, repo: &str, locked: &ImageRef, files: &[WrittenFile]) -> Step<Progress> {
         let mut p = match Progress::new(VERB, self.env.run_id, self.env.argv) {
             Ok(p) => p,
             Err(e) => return Err(self.internal(e.to_string())),
@@ -1350,8 +1361,9 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let set = doc
             .set(&[PROGRESS_TABLE, "repo"], repo)
             .and_then(|()| doc.set(&[PROGRESS_TABLE, "image"], locked.to_string()))
-            .and_then(|()| doc.set(&[PROGRESS_TABLE, "repo_files"], repo_files));
-        set.map_err(|e| self.internal(e.to_string()))?;
+            .and_then(|()| doc.set(&[PROGRESS_TABLE, "repo_files"], !files.is_empty()));
+        set.and_then(|()| repo_files::record(&mut p, files))
+            .map_err(|e| self.internal(e.to_string()))?;
         Ok(p)
     }
 
@@ -1419,8 +1431,8 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
     }
 
     /// 恢復一份殘留的 `add`：依進度檔記的版本鎖定行值重新取件、驗證，再走一次同樣的落地順序；
-    /// 新的進度檔完成之後才刪舊的那一份，中途再斷也還認得出來。只在沒有 repo 檔要寫時做：
-    /// 那次寫了哪些 repo 檔沒有記錄，重新判定會把它自己建的檔當成使用者的檔。
+    /// 新的進度檔完成之後才刪舊的那一份，中途再斷也還認得出來。只在沒有 repo 檔要寫時做：要寫的已記在
+    /// 進度檔，但重新落地要讀 `init.toml`，格式沒定（見模組說明的缺口）。
     fn recover(&mut self, entry: &progress::Entry, lockfile: &LockFile) -> Step<()> {
         let old = match entry.load() {
             Ok(p) => p,
@@ -1443,7 +1455,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         };
         if repo_files {
             return Err(self.gap(format_args!(
-                "recovering {}, which writes repo files",
+                "recovering {}, which writes repo files from init.toml",
                 self.rel(&entry.path)
             )));
         }
@@ -1480,7 +1492,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let mut all_ns = installed.namespaces;
         all_ns.insert(repo.clone(), candidate.namespaces().to_vec());
         let entry_text = self.entry(&all_ns)?;
-        let progress = self.progress(&repo, &locked, false)?;
+        let progress = self.progress(&repo, &locked, &[])?;
         self.land(&candidate, progress, &[], &[], &entry_text, &mut lockfile)?;
         if let Err(e) = progress::delete(self.env.dir, &entry.verb, &entry.id) {
             return Err(self.failed(&entry.path, e.message(), e.to_string()));

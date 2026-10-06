@@ -101,7 +101,8 @@
 //! - 印記、基準版副本的位置與 `add` 相同：`.vendor_kit/cache/<repo>.stamp.toml`（[`stamp::tool_file`]）、
 //!   `.vendor_kit/baseline/<repo>/<初始檔的 repo 相對路徑>`（[`baseline_file`]，照抄 engine/add）。
 //! - 進度檔 `.tmp.upgrade.<run-id>.toml` 的 `[upgrade]` 表：格式定在 `progress::upgrade`，讓 `update`
-//!   等唯讀 recipe 也讀得到（VK0041 的 `<repo>`）。
+//!   等唯讀 recipe 也讀得到（VK0041 的 `<repo>`）。另記這次要寫的每個 repo 檔（`[[repo_file]]` 的路徑、
+//!   動作、寫入前後內容的 hash；格式定在 `progress::repo_files`）。
 //! - 新版不再提供的初始檔：`initfiles` 判成缺口（紀錄記成什麼 state 契約沒寫），但 04 只要求不刪、只列
 //!   清單，所以這裡照列、不改它的紀錄，不因此停下。
 //! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）；`stage-dir` 的另外編號
@@ -133,8 +134,8 @@
 //!   不在的合成一則、下一步 `run just vendor_kit sync first`；讀不到或損壞的各一則、保留實際原因。
 //!   兩種的草稿碼登錄前以 VK0056 停下，`<reason>` 結尾寫明草稿碼（`fetch::DRAFT_CACHE_MISSING`、
 //!   `fetch::DRAFT_CACHE_UNREADABLE`）。
-//! - 殘留的進度檔不是 `upgrade` 的；殘留的是引擎 upgrade；或殘留的工具 upgrade 寫過初始檔相關的檔（那次
-//!   寫了哪些沒有記錄，重新判定會把它自己寫的內容當成使用者改的）。
+//! - 殘留的進度檔不是 `upgrade` 的；殘留的是引擎 upgrade；或殘留的工具 upgrade 寫過初始檔相關的檔（要寫的
+//!   repo 檔已記在進度檔，但重新落地要讀 `init.toml`，格式沒定，見上）。
 //! - 已知偏離：恢復殘留 `upgrade` 的寫入排在這次的詢問之前，04 共同選項要先問完再寫（含恢復）。能恢復
 //!   的只有沒寫初始檔的那種，恢復本身沒有要問的事；同 engine/add。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）；dist 格式不符（G2）、指紋不符（G1）沒有代碼。
@@ -170,6 +171,7 @@ use layout::InstallDir;
 use metadata::Metadata;
 use plan::{Channel, Field, ImageId, Op, Outcome, Slot, Tty};
 use progress::Progress;
+use progress::repo_files::{self, RepoFile as WrittenFile};
 use progress::upgrade as table;
 use prompt::{Consent, PromptError, TtyState};
 use registry::{Client, ErrorKind, Repository, Token};
@@ -1037,11 +1039,17 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         }
 
         let mut repo_writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        let mut written: Vec<WrittenFile> = Vec::new();
         let mut records: Vec<(PathBuf, Vec<u8>)> = Vec::new();
         let mut meta_changed = false;
         for f in &planned.files {
             if let Some(w) = &f.write {
                 repo_writes.push((PathBuf::from(&f.path), w.after.clone()));
+                written.push(WrittenFile::new(
+                    f.path.as_str(),
+                    w.before.as_deref(),
+                    &w.after,
+                ));
             }
             if let Some(b) = &f.baseline {
                 records.push((baseline_file(repo, &f.path), b.clone()));
@@ -1094,7 +1102,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         let entry = self.entry(installed.namespaces, &candidate)?;
         let init_files = !repo_writes.is_empty() || !records.is_empty();
         let argv = self.env.argv;
-        let progress = self.progress(argv, repo, locked, init_files)?;
+        let progress = self.progress(argv, repo, locked, init_files, &written)?;
         self.land(
             &candidate,
             progress,
@@ -1203,13 +1211,15 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         tools_just::render_with(&tools, &dirs).map_err(|e| self.internal(e.to_string()))
     }
 
-    /// 這次的進度檔：共同欄位之外記 `[upgrade]` 表（`progress::upgrade`）。
+    /// 這次的進度檔：共同欄位之外記 `[upgrade]` 表（`progress::upgrade`）與這次要寫的每個 repo 檔
+    /// （`progress::repo_files`）。
     fn progress<A: AsRef<str>>(
         &mut self,
         command: &[A],
         repo: &str,
         locked: &ImageRef,
         init_files: bool,
+        files: &[WrittenFile],
     ) -> Step<Progress> {
         let mut p = match Progress::new(VERB, self.env.run_id, command) {
             Ok(p) => p,
@@ -1220,7 +1230,8 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             .set(&[table::TABLE, table::TARGET], repo)
             .and_then(|()| doc.set(&[table::TABLE, table::IMAGE], locked.to_string()))
             .and_then(|()| doc.set(&[table::TABLE, table::INIT_FILES], init_files));
-        set.map_err(|e| self.internal(e.to_string()))?;
+        set.and_then(|()| repo_files::record(&mut p, files))
+            .map_err(|e| self.internal(e.to_string()))?;
         Ok(p)
     }
 
@@ -1376,7 +1387,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             return Err(self.internal(e.to_string()));
         }
         let entry_text = self.entry(installed.namespaces, &candidate)?;
-        let progress = self.progress(old.command(), &repo, &resolved.locked, false)?;
+        let progress = self.progress(old.command(), &repo, &resolved.locked, false, &[])?;
         self.land(&candidate, progress, &[], &[], &entry_text, &mut lockfile)?;
         if let Err(e) = progress::delete(self.env.dir, &entry.verb, &entry.id) {
             return Err(self.failed(&entry.path, e.message(), e.to_string()));
