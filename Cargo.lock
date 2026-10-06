@@ -1241,6 +1241,7 @@ dependencies = [
  "runlog",
  "schema",
  "serde_json",
+ "shell",
  "stamp",
  "tempfile",
  "tools_just",

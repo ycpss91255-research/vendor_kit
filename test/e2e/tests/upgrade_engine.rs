@@ -1,9 +1,11 @@
-//! `upgrade --engine`、`upgrade --engine=<tag>` 的第一段（04 upgrade --engine、指定版本；訊息表 VK0007、VK0023）：
+//! `upgrade --engine`、`upgrade --engine=<tag>` 的兩段（04 upgrade --engine、指定版本；訊息表 VK0007、VK0023）：
 //! 經假的啟動器跑。
 //!
 //! 每個測試在暫存目錄建好安裝目錄（引擎鎖定在 v1.0.0、工具 `tool` 已導入），假啟動器回帶 LABEL 的 inspect 與
 //! pull。第一段換好引擎鎖定行與介面版列表、留下進度檔，以 VK0023 停下；之後唯讀的 `update` 照進度檔報 VK0023。
-//! 第二段（新引擎重產薄殼、刪進度檔）還沒做，重跑停在 VK0056。
+//! 第二段由鎖定行那一版引擎做：這個執行檔就是 [`VERSION`]，所以兩段都跑的測試以它當目標，重跑原指令時重產
+//! 薄殼、寫 `gen/.stamp`、刪進度檔；起的引擎不是鎖定行那一版就停在 VK0056。第二段這一版沒有要問的事
+//! （`config.toml` 的換版與合併還沒做），答否要等它才走得到，這裡不測。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
@@ -12,7 +14,7 @@ use std::path::{Path, PathBuf};
 use assert_cmd::Command;
 use e2e::launcher::{self, Mounts, Reply, Request, Seen};
 use e2e::registry::{Registry, Repo};
-use e2e::{MOUNT_PREFIX_ENV, REGISTRY_URL_ENV, vendor_kit_bin};
+use e2e::{MOUNT_PREFIX_ENV, REGISTRY_URL_ENV, VERSION, shell, vendor_kit_bin};
 
 const RUN_ID: &str = "r1";
 const HOST_ROOT: &str = "/srv/proj";
@@ -47,10 +49,15 @@ fn install(m: &Mounts) {
     fs::write(m.root.join(RUN_LOG), "").unwrap();
 }
 
-/// 目標引擎 image 的 inspect 輸出：RepoDigests 與 LABEL（介面版 [1, 2]、檔案版上限 `schema_max`）。
+/// 目標引擎 image 的 inspect 輸出：RepoDigests 與 LABEL（引擎版 v1.2.0、介面版 [1, 2]、檔案版上限 `schema_max`）。
 fn inspect_json(schema_max: u32) -> String {
+    inspect_labels("v1.2.0", 2, schema_max)
+}
+
+/// 目標引擎 image 的 inspect 輸出：引擎版 `version`、介面版 [1, `current`]、檔案版上限 `schema_max`。
+fn inspect_labels(version: &str, current: u32, schema_max: u32) -> String {
     format!(
-        "[\n    {{\n        \"Id\": \"{IMAGE_ID}\",\n        \"RepoTags\": [],\n        \"RepoDigests\": [\"{ENGINE_REPO}@{DIGEST}\"],\n        \"Config\": {{\n            \"Labels\": {{\n                \"org.opencontainers.image.version\": \"v1.2.0\",\n                \"vendor_kit.protocol.current\": \"2\",\n                \"vendor_kit.protocol.floor\": \"1\",\n                \"vendor_kit.schema.max\": \"{schema_max}\"\n            }}\n        }}\n    }}\n]\n"
+        "[\n    {{\n        \"Id\": \"{IMAGE_ID}\",\n        \"RepoTags\": [],\n        \"RepoDigests\": [\"{ENGINE_REPO}@{DIGEST}\"],\n        \"Config\": {{\n            \"Labels\": {{\n                \"org.opencontainers.image.version\": \"{version}\",\n                \"vendor_kit.protocol.current\": \"{current}\",\n                \"vendor_kit.protocol.floor\": \"1\",\n                \"vendor_kit.schema.max\": \"{schema_max}\"\n            }}\n        }}\n    }}\n]\n"
     )
 }
 
@@ -226,14 +233,14 @@ fn first_stage_switches_the_lock_line_and_asks_to_run_again() {
     assert!(seen.requests.is_empty(), "{:?}", seen.requests);
     assert_eq!(snapshot(&m), before);
 
-    // 重跑原指令：第二段還沒做，停下，不再寫任何檔。
+    // 重跑原指令，起的卻還是這個引擎（不是鎖定行的 v1.2.0）：第二段不做，停下，不再寫任何檔。
     new_session(&m);
     let peer = launcher::serve(&m.ctl, &header(1), |_: &Request| Reply::Failed(1));
     let (code, _, stderr) = run(&m, 1, &["upgrade", "--engine=v1.2.0", "-y"], NO_REGISTRY);
     let seen = peer.join().unwrap();
     assert_eq!(code, 2);
     assert!(
-        stderr.starts_with("vendor_kit: error[VK0056]: Internal vendor_kit error: completing the engine upgrade recorded in .vendor_kit/.tmp.upgrade.r1.toml"),
+        stderr.starts_with(&format!("vendor_kit: error[VK0056]: Internal vendor_kit error: this engine is {VERSION}, but the engine lock version line names v1.2.0")),
         "{stderr}"
     );
     assert!(seen.requests.is_empty(), "{:?}", seen.requests);
@@ -301,4 +308,229 @@ fn a_target_that_cannot_read_the_existing_files_is_vk0007_without_writes() {
     );
     assert_eq!(seen.requests, [format!("inspect {}", target())]);
     assert_eq!(snapshot(&m), before);
+}
+
+// ---- 第二段 ----
+
+/// 以這個執行檔（[`VERSION`]）當目標的版本鎖定行值。
+fn self_locked() -> String {
+    format!("{ENGINE_REPO}:{VERSION}@{DIGEST}")
+}
+
+/// 跑一次第二段：run-id 是 `run_id`（各自的執行紀錄），出貨輸入從 `release` 讀，不需要往返與 registry。
+fn run_second(m: &Mounts, run_id: &str, rest: &[&str], release: &Path) -> (i32, String, String) {
+    let log = format!(".vendor_kit/log/{run_id}.jsonl");
+    fs::write(m.root.join(&log), "").unwrap();
+    new_session(m);
+    let peer = launcher::serve(&m.ctl, &format!("vk-resolve/1 {run_id}"), |_: &Request| {
+        Reply::Failed(1)
+    });
+    let mut args = vec![
+        "--protocol",
+        "1",
+        "--run-id",
+        run_id,
+        "--host-root",
+        HOST_ROOT,
+        "--host-cwd",
+        HOST_ROOT,
+        "--run-log",
+        &log,
+        "--tty",
+        "000",
+        "--no-color",
+        "1",
+        "--",
+    ];
+    args.extend_from_slice(rest);
+    let out = Command::new(vendor_kit_bin().unwrap())
+        .args(&args)
+        .env(MOUNT_PREFIX_ENV, &m.prefix)
+        .env(REGISTRY_URL_ENV, NO_REGISTRY)
+        .env(shell::RELEASE_DIR_ENV, release)
+        .write_stdin("")
+        .output()
+        .unwrap();
+    let seen = peer.join().unwrap();
+    // 第二段不送任何 op。
+    assert!(seen.requests.is_empty(), "{:?}", seen.requests);
+    (
+        out.status.code().unwrap(),
+        String::from_utf8(out.stdout).unwrap(),
+        String::from_utf8(out.stderr).unwrap(),
+    )
+}
+
+/// 第一段換到這個執行檔（v1.0.0 → [`VERSION`]；檔案版上限相同，降版照樣過），停在 VK0023。
+fn first_stage(m: &Mounts, rest: &[&str]) {
+    let ctl = m.ctl.clone();
+    let peer = launcher::serve(&m.ctl, &header(1), move |req: &Request| {
+        match req.op.as_str() {
+            "inspect" => {
+                fs::write(
+                    ctl.join(format!("res.{}.out", req.seq)),
+                    inspect_labels(VERSION, 1, 1),
+                )
+                .unwrap();
+                Reply::Ok
+            }
+            _ => Reply::Failed(1),
+        }
+    });
+    let (code, stdout, stderr) = run(m, 1, rest, NO_REGISTRY);
+    peer.join().unwrap();
+    assert_eq!(code, 2, "{stderr}");
+    assert_eq!(stdout, "");
+    assert_eq!(
+        stderr,
+        format!(
+            "vendor_kit: error[VK0023]: Engine {VERSION} is now installed. Run again: just vendor_kit {}\n",
+            rest.join(" ")
+        )
+    );
+}
+
+/// 第二段做完：薄殼四檔跟這一版一致、`gen/.stamp` 是鎖定行的值、介面版列表是這一版的，沒有進度檔。
+fn assert_completed(m: &Mounts, code: i32, stdout: &str, stderr: &str, wrote: &[&str]) {
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(stderr, "");
+    let mut expected: String = wrote
+        .iter()
+        .map(|n| format!("Wrote .vendor_kit/{n}\n"))
+        .collect();
+    expected.push_str(&format!(
+        "Completed the engine upgrade to {VERSION} ({}).\n",
+        self_locked()
+    ));
+    assert_eq!(stdout, expected);
+    let vk = m.root.join(".vendor_kit");
+    for (name, body) in shell::TEMPLATES {
+        assert_eq!(
+            fs::read_to_string(vk.join(name)).unwrap(),
+            shell::render(shell::INTERFACE, VERSION, body),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(vk.join("gen/.stamp")).unwrap(),
+        format!("{}\n", self_locked())
+    );
+    assert_eq!(
+        fs::read_to_string(vk.join("version.toml")).unwrap(),
+        format!(
+            "vendor_kit = \"{}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"{VERSION}\"\n\n[tools]\ntool = \"{TOOL}\"\n",
+            self_locked()
+        )
+    );
+    let left: Vec<String> = fs::read_dir(&vk)
+        .unwrap()
+        .filter_map(|e| {
+            let name = e.unwrap().file_name().to_string_lossy().into_owned();
+            name.starts_with(".tmp.").then_some(name)
+        })
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+}
+
+#[test]
+fn both_stages_switch_the_engine_and_regenerate_the_shell_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    // 舊引擎寫的薄殼。
+    shell::install(&m.root, "v1.0.0").unwrap();
+    let release = tmp.path().join("release");
+    shell::release(&release).unwrap();
+    let rest = ["upgrade", &format!("--engine={VERSION}"), "-y"].map(str::to_owned);
+    let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
+
+    first_stage(&m, &rest);
+    let (code, stdout, stderr) = run_second(&m, "r2", &rest, &release);
+    assert_completed(
+        &m,
+        code,
+        &stdout,
+        &stderr,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+    );
+
+    // 再跑一次：都已是這一版，說明未變更，不寫任何檔。
+    let before = snapshot(&m);
+    let (code, stdout, stderr) = run_second(&m, "r3", &rest, &release);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        stdout,
+        format!("vendor_kit is already at {VERSION}; no changes were made.\n")
+    );
+    let mut after = snapshot(&m);
+    after.retain(|(p, _)| !p.ends_with(".vendor_kit/log/r3.jsonl"));
+    let mut before = before;
+    before.retain(|(p, _)| !p.ends_with(".vendor_kit/log/r3.jsonl"));
+    assert_eq!(after, before);
+}
+
+#[test]
+fn an_interrupted_second_stage_is_completed_by_running_it_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let release = tmp.path().join("release");
+    shell::release(&release).unwrap();
+    let rest = ["upgrade", &format!("--engine={VERSION}")].map(str::to_owned);
+    let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
+    first_stage(&m, &rest);
+
+    // 第二段中途停下的樣子：第一段與第二段的進度檔都在，薄殼寫了一半，gen/.stamp 還沒寫。
+    let vk = m.root.join(".vendor_kit");
+    fs::copy(
+        vk.join(".tmp.upgrade.r1.toml"),
+        vk.join(".tmp.upgrade.r2.toml"),
+    )
+    .unwrap();
+    for (name, body) in &shell::TEMPLATES[..2] {
+        fs::write(
+            vk.join(name),
+            shell::render(shell::INTERFACE, VERSION, body),
+        )
+        .unwrap();
+    }
+    // 唯讀的 update 照進度檔報 VK0023。
+    new_session(&m);
+    let peer = launcher::serve(&m.ctl, &header(1), |_: &Request| Reply::Failed(1));
+    let (code, _, stderr) = run(&m, 1, &["update"], NO_REGISTRY);
+    peer.join().unwrap();
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("error[VK0023]"), "{stderr}");
+
+    let (code, stdout, stderr) = run_second(&m, "r3", &rest, &release);
+    assert_completed(&m, code, &stdout, &stderr, &["log.sh", ".gitignore"]);
+}
+
+/// N21：鎖定行已是這一版、沒有進度檔，薄殼卻還是舊的：直接做第二段，不回「已是最新」，也不送 docker 動作。
+#[test]
+fn a_lock_line_already_at_this_engine_with_old_shell_files_does_the_second_stage() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+    fs::write(
+        vk.join("version.toml"),
+        format!(
+            "vendor_kit = \"{}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"{TOOL}\"\n",
+            self_locked()
+        ),
+    )
+    .unwrap();
+    shell::install(&m.root, "v1.0.0").unwrap();
+    let release = tmp.path().join("release");
+    shell::release(&release).unwrap();
+    let tag = format!("--engine={VERSION}");
+    let (code, stdout, stderr) = run_second(&m, "r2", &["upgrade", &tag], &release);
+    assert_completed(
+        &m,
+        code,
+        &stdout,
+        &stderr,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+    );
 }

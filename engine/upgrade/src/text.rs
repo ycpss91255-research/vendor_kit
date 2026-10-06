@@ -35,6 +35,24 @@ pub fn recovered(repo: &str, locked: &ImageRef) -> String {
     )
 }
 
+/// `upgrade --engine` 第二段重產了一個薄殼檔（同 engine/install 的字句）。
+pub fn wrote_shell(name: &str) -> String {
+    format!("Wrote .vendor_kit/{name}")
+}
+
+/// `upgrade --engine` 第二段把一個 VK 檔（安裝目錄相對路徑）從檔案版 `from` 升到 `to`。
+pub fn migrated(file: &str, from: u32, to: u32) -> String {
+    format!("Migrated {file} from schema version {from} to {to}")
+}
+
+/// `upgrade --engine` 第二段做完。
+pub fn engine_upgraded(locked: &ImageRef) -> String {
+    format!(
+        "Completed the engine upgrade to {} ({locked}).",
+        locked.tag()
+    )
+}
+
 /// 一個初始檔寫了什麼；沒有寫入的判定回 `None`。
 pub fn file_line(f: &FilePlan) -> Option<String> {
     let word = match f.verdict {

@@ -1,6 +1,6 @@
 //! `upgrade` 指令的工具那一半（04 指令表 `upgrade <repo>`、`upgrade <repo>@<tag>`；04 成對與無害的工具升版
-//! 流程、指定版本、本機覆寫）：換工具版本，做基準版合併。`upgrade --engine` 的第一段在 [`engine`]，跟這裡
-//! 共用讀設定、取鎖、線上解析與 `plan` 往返。
+//! 流程、指定版本、本機覆寫）：換工具版本，做基準版合併。`upgrade --engine` 的兩段在 [`engine`]（VK 檔格式升級
+//! 在 [`migrate`]），跟這裡共用讀設定、取鎖、線上解析與 `plan` 往返。
 //!
 //! `update` 只查（engine/update）；真正換版本在這裡。呼叫端（入口 `vendor_kit`）已解析好參數、判過安裝
 //! 目錄（VK0028），並接好執行紀錄與 `plan` 往返。這裡依序做：
@@ -139,6 +139,7 @@
 
 pub mod engine;
 mod justfile;
+pub mod migrate;
 mod source;
 pub mod text;
 mod token;
