@@ -1,9 +1,10 @@
 //! `dev <repo> -p <dir>`、`undev <repo>`（04 指令表、成對與無害、本機覆寫；03 輸出）：經假的啟動器跑。
 //! 開著覆寫與解除之後的 `sync`（04 sync、本機覆寫），以及開著覆寫時的 `upgrade`（04 本機覆寫）也在這裡。
 //!
-//! `dev`、`undev` 不碰 docker，假啟動器只收 `done`；`add` 那一段照 tests/add.rs 回 inspect 與 extract。
-//! 本機開發來源放在安裝目錄裡：引擎只看得到安裝目錄（engine/dev 的缺口）。`sync` 要判薄殼，所以安裝目錄
-//! 放好跟這一版引擎一致的薄殼，模板從 fixture 目錄讀（[`e2e::shell`]）。
+//! 本機開發來源在安裝目錄裡時，`dev`、`undev` 不送 request，假啟動器只收 `done`；在安裝目錄外時，`dev`
+//! 送 `stage-dir`，假啟動器把對應的目錄複製進 `in/<slot>`（[`stage_launcher`]）。`add` 那一段照
+//! tests/add.rs 回 inspect 與 extract。`sync` 要判薄殼，所以安裝目錄放好跟這一版引擎一致的薄殼，模板從
+//! fixture 目錄讀（[`e2e::shell`]）。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
@@ -74,6 +75,51 @@ fn add_launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
 /// 什麼 op 都回失敗的假啟動器：`dev`、`undev` 不該送任何 request。
 fn idle_launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
     launcher::serve(&m.ctl, HEADER, |_: &Request| Reply::Failed(1))
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+/// 回 `stage-dir` 的假啟動器：主機路徑 `/srv/<x>` 對到 `host/<x>`，是目錄就複製進 `in/<slot>`
+/// （launcher/launch.sh 的 vk_launch_stage_dir），否則回 failed 1；其他 op 一律失敗。
+fn stage_launcher(m: &Mounts, host: &Path) -> std::thread::JoinHandle<Seen> {
+    let (inbox, host) = (m.inbox.clone(), host.to_path_buf());
+    launcher::serve(&m.ctl, HEADER, move |req: &Request| {
+        let src = req.args[0]
+            .strip_prefix("e:/srv/")
+            .map(|rest| host.join(rest));
+        let dest = inbox.join(&req.args[1]);
+        match src {
+            Some(src) if req.op == "stage-dir" && src.is_dir() && !dest.exists() => {
+                copy_dir(&src, &dest);
+                Reply::Ok
+            }
+            _ => Reply::Failed(1),
+        }
+    })
+}
+
+/// 經 [`stage_launcher`] 跑一次，回傳結果與看到的 request。
+fn run_staged(m: &Mounts, host: &Path, rest: &[&str]) -> ((i32, String, String), Vec<String>) {
+    new_session(m);
+    let peer = stage_launcher(m, host);
+    let out = run(m, rest);
+    let seen = peer.join().unwrap();
+    assert_eq!(
+        seen.done.as_deref(),
+        Some(format!("vk-resolve/1 r1 done {}\n", out.0).as_str())
+    );
+    (out, seen.requests)
 }
 
 /// 每次執行的 session 目錄與執行紀錄是新的。
@@ -302,6 +348,98 @@ Updated .vendor_kit/gen/tools.just.
         stdout,
         snapbox::str![[r#"
 tool has no local override. No changes were made.
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
+}
+
+#[test]
+fn dev_outside_the_install_directory_stages_the_source_through_the_launcher() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+
+    let peer = add_launcher(&m);
+    let (code, _, stderr) = run(&m, &["add", "tool", "-i", IMAGE]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let after_add = locked_state(&m);
+
+    // 主機上安裝目錄（/srv/proj）旁邊的 /srv/elsewhere/tool；引擎容器看不到，經 stage-dir 取進來驗。
+    let host = tmp.path().join("host");
+    fs::create_dir_all(host.join("proj")).unwrap();
+    let src = host.join("elsewhere/tool/just");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo outside\n").unwrap();
+
+    // 絕對路徑：入口檔寫絕對路徑。
+    let ((code, stdout, stderr), requests) =
+        run_staged(&m, &host, &["dev", "tool", "-p", "/srv/elsewhere/tool/"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(requests, ["stage-dir e:/srv/elsewhere/tool dev1"]);
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+tool now uses the local source /srv/elsewhere/tool (local override).
+Updated .vendor_kit/gen/tools.just.
+
+"#]]
+    );
+    assert_data_eq!(stderr, "");
+    assert_eq!(
+        fs::read_to_string(vk.join("gen/tools.just")).unwrap(),
+        "mod? tool '/srv/elsewhere/tool/just/tool.just'\n"
+    );
+    let local = fs::read_to_string(vk.join("version.local.toml")).unwrap();
+    assert!(
+        local.contains("[tools]\ntool = \"/srv/elsewhere/tool\"\n"),
+        "{local}"
+    );
+    assert_eq!(events(&m), LANDED_EVENTS);
+
+    // undev 不讀本機開發來源，不送 request；回到 add 之後的樣子。
+    let (code, _, stderr) = run_idle(&m, &["undev", "tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(locked_state(&m), after_add);
+
+    // 以 `..` 跑出安裝目錄的相對路徑：入口檔留相對路徑，主機路徑接在 --host-root 後面。
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+    let peer = add_launcher(&m);
+    let (code, _, stderr) = run(&m, &["add", "tool", "-i", IMAGE]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let ((code, _, stderr), requests) =
+        run_staged(&m, &host, &["dev", "tool", "-p", "../elsewhere/tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(requests, ["stage-dir e:/srv/proj/../elsewhere/tool dev1"]);
+    assert_eq!(
+        fs::read_to_string(vk.join("gen/tools.just")).unwrap(),
+        "mod? tool '../../../elsewhere/tool/just/tool.just'\n"
+    );
+
+    // 啟動器複製不了（不存在）：VK0051，什麼都不寫。
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let peer = add_launcher(&m);
+    let (code, _, stderr) = run(&m, &["add", "tool", "-i", IMAGE]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let before = snapshot(&m);
+    let ((code, stdout, stderr), requests) =
+        run_staged(&m, &host, &["dev", "tool", "-p", "/srv/nowhere"]);
+    assert_eq!(code, 2);
+    assert_eq!(requests, ["stage-dir e:/srv/nowhere dev1"]);
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0051]: Cannot use local source /srv/nowhere for tool: the launcher could not copy it (exit 1): it does not exist, is not a directory, or cannot be read. The local override was not enabled.
 
 "#]]
     );

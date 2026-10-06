@@ -12,12 +12,14 @@
 //!    所以排在第 4 步之後）。
 //! 6. 判要做什麼：
 //!    - `dev <repo> -p <dir>`：已有同來源的覆寫、也沒有殘留，stdout 說明未變更；已有不同來源的覆寫回
-//!      VK0050，不取代。`<dir>` 相對於安裝目錄（見「本機目錄」），要存在、是目錄、符合交付格式（`dist/`
-//!      的形狀：`just/<ns>.just`，`<repo>.just` 必須存在，ADR-0004），否則回 VK0051。
+//!      VK0050，不取代。相對路徑以安裝目錄為準（見「本機目錄」），要存在、是目錄、符合交付格式（`dist/`
+//!      的形狀：`just/<ns>.just`，`<repo>.just` 必須存在，ADR-0004），否則回 VK0051。安裝目錄外的目錄
+//!      先請啟動器 `stage-dir` 複製進來再驗。
 //!    - `undev <repo>`、`undev --engine`：沒有覆寫、也沒有殘留，stdout 說明未變更。`undev` 不讀原來源
 //!      （04 本機覆寫）。
 //! 7. 算出新的 `gen/tools.just`（`tools_just::render_with`）：開著覆寫的工具指向本機目錄，其他工具指向
-//!    `cache/<repo>/`。`<ns>` 從各自的來源讀：其他開著覆寫的工具要讀它的本機目錄，讀不到回 VK0052（04：
+//!    `cache/<repo>/`。`<ns>` 從各自的來源讀：其他開著覆寫的工具要讀它的本機目錄（安裝目錄外的同樣經
+//!    `stage-dir`），讀不到回 VK0052（04：
 //!    覆寫來源失效只擋需讀它的動作）。`undev <repo>` 的對象回到鎖定版本，要 `cache/<repo>/` 與印記、版本
 //!    鎖定行一致才能直接指回去（見「缺口」）。`undev --engine` 不動入口檔。
 //! 8. 經 `txn` 落地：建進度檔 → 寫 `version.local.toml`（記錄檔那一步）→ 寫 `gen/tools.just` → 刪進度檔；
@@ -26,15 +28,30 @@
 //!    `undev` 在覆寫已寫好、入口檔還沒寫好時失敗，回 VK0053（訊息表：undev 解除覆寫後同步失敗）。
 //! 9. stdout 列出改了什麼與用了哪個覆寫（04 本機覆寫：每次報告用了哪個覆寫，不加診斷前綴）。
 //!
-//! 這裡不碰 docker，不用 `plan` 往返。
+//! 這裡不直接碰 docker：唯一的往返是安裝目錄外的本機開發來源的 `stage-dir`（不在 `plan::RESCUE_OPS`
+//! 裡；`dev` 不是救援路徑）。
 //!
 //! # 本機目錄
 //!
-//! 引擎容器只看得到安裝目錄（`plan::mount::ROOT`）與這次呼叫的往返目錄，所以 `-p <dir>` 只收落在安裝
-//! 目錄裡、引擎讀得到的目錄：以安裝目錄為準逐段正規化（`.` 略過，`..` 往上一層），結果寫成 `/` 分隔的
-//! 相對路徑（整個是安裝目錄本身時寫 `.`），存進 `version.local.toml`，入口檔照同一個值指過去。重複 `dev`
-//! 是不是同來源，比的是正規化後的值。絕對路徑、跑出安裝目錄、路徑上有 symlink（容器裡解不出主機上的
-//! 目標）、含放不進 just 單引號字串的字元，都見「缺口」。
+//! `-p <dir>` 只看字面逐段正規化（[`normalize`]；`.` 略過，`..` 往上一層），正規化後的值存進
+//! `version.local.toml`，入口檔照同一個值指過去（`tools_just::local_line`）。重複 `dev` 是不是同來源，比的是
+//! 正規化後的值。三種結果（[`Source`]）：
+//!
+//! - 落在安裝目錄裡：相對路徑沒跑出安裝目錄，或絕對路徑在 `--host-root` 底下。寫成 `/` 分隔的相對路徑
+//!   （整個是安裝目錄本身時寫 `.`）。引擎直接讀 `plan::mount::ROOT` 底下那個目錄；路徑上有 symlink（容器裡
+//!   解不出主機上的目標）見「缺口」。
+//! - 相對路徑以 `..` 跑出安裝目錄：寫成開頭是 `..` 的相對路徑（例如 `../tool`），照使用者給的形式留相對
+//!   路徑，安裝目錄跟它一起搬時仍指得到。
+//! - 絕對路徑、不在 `--host-root` 底下：寫成正規化後的絕對路徑。
+//!
+//! 後兩種引擎容器看不到，請啟動器 `stage-dir` 把目錄複製進 `in/<slot>`（slot 是 `dev1`、`dev2`…，每次執行
+//! 各自編號），在那份複本上驗交付格式、讀 `<ns>`。送給啟動器的主機路徑：絕對路徑原樣；相對路徑是
+//! `<--host-root>/<值>`，開頭的 `..` 不在引擎這邊消掉，跟 just 從 `.vendor_kit/gen/` 解析入口檔那一行一樣，
+//! 都由主機照實際目錄解析，驗的跟載入的是同一個目錄。啟動器回 `failed` 時分不出是不存在、不是目錄還是讀
+//! 不到，VK0051 的 `<reason>` 照實寫三者之一。
+//!
+//! 值不是 UTF-8，或含 `'`、`"`、反斜線、控制字元（放不進 just 單引號字串或 `version.local.toml` 的無跳脫
+//! 字串），或正規化後是主機的根目錄 `/`：不猜跳脫（02 不變量 12），見「缺口」。
 //!
 //! # 恢復
 //!
@@ -56,9 +73,10 @@
 //! - `dev --engine -i <image>`：本機 image 怎麼驗、舊引擎不得重產薄殼的禁令（ADR-0010；計畫 G6）、
 //!   啟動器怎麼套用引擎覆寫都沒接上。
 //! - `dev <repo>` 的工具不在版本鎖定行：VK0046 只寫 remove、undev、update（計畫 G5）。
-//! - `-p` 指到安裝目錄外（絕對路徑或 `..` 跑出去）：引擎讀不到，`plan` 協定也沒有把本機開發來源掛進
-//!   引擎的 op，驗不了「存在且符合交付格式」。路徑上有 symlink、或路徑不是 UTF-8、含 `'`、反斜線、
-//!   控制字元，也停下。
+//! - `-p` 指到安裝目錄裡、路徑上有 symlink；或路徑不是 UTF-8、含 `'`、`"`、反斜線、控制字元，或是根目錄
+//!   `/`：見「本機目錄」，停下。
+//! - 開著安裝目錄外的覆寫時，`sync`、`upgrade` 重產入口檔還讀不到它（engine/sync、engine/upgrade 的
+//!   `local` 只收安裝目錄裡的值，回 VK0052）；要先 `undev`。
 //! - `dev` 的 `<ns>` 撞名：VK0030 只寫 `add`。工具之間撞名、或交付保留名 `vendor_kit` 時停下；根
 //!   `justfile` 的 recipe 與 module 這一版不比對。
 //! - `undev <repo>` 時 `cache/<repo>/` 跟版本鎖定行對不上（印記不在、損壞、版本不同或內容不符，例如開著
@@ -78,12 +96,14 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Component, Path};
+use std::time::Duration;
 
 use config::{Config, ConfigError};
 use diagnostics::{Diagnostic, Diagnostics, Message, Sink};
 use filelock::{Lock, Mode};
 use imageref::ImageRef;
 use layout::InstallDir;
+use plan::{Channel, Field, Op, Outcome, Slot};
 use progress::Progress;
 use txn::{Disk, RecordFile, Txn};
 use version_file::{LocalFile, LockFile};
@@ -100,6 +120,8 @@ pub const PATH_KEY: &str = "path";
 pub const ENGINE_TARGET: &str = "vendor_kit";
 /// 重組指令時接在參數前面的字。
 pub const COMMAND_PREFIX: [&str; 2] = ["just", "vendor_kit"];
+/// 安裝目錄外的本機開發來源經 `stage-dir` 放進 `in/` 的 slot 名前綴，後接這次執行裡的序號（`dev1`…）。
+pub const STAGE_SLOT_PREFIX: &str = "dev";
 /// `version.local.toml` 相對於 `.vendor_kit/` 的路徑（`txn` 記錄檔那一步收這種路徑）。
 const LOCAL_FILE: &str = "version.local.toml";
 
@@ -132,12 +154,17 @@ impl Request<'_> {
     }
 }
 
-/// 這次執行的環境。`dev`、`undev` 不詢問、不碰 docker，所以沒有 stdin、終端狀態與往返通道。
+/// 這次執行的環境。`dev`、`undev` 不詢問，所以沒有 stdin 與終端狀態；往返只用來 `stage-dir`。
 pub struct Env<'a, W: Write, S: Sink, L: Write> {
     /// 容器內的安裝目錄（`plan::mount::ROOT`）。
     pub dir: &'a InstallDir,
-    /// 主機上的安裝目錄，填 `<install_dir>`。
+    /// 主機上的安裝目錄，填 `<install_dir>`；也是相對路徑的基準。
     pub host_root: &'a str,
+    /// 容器內的收件目錄（`plan::mount::IN`）。
+    pub inbox: &'a Path,
+    pub channel: &'a mut Channel,
+    /// 等 result 時多久看一次。
+    pub poll: Duration,
     /// 主機上的執行紀錄路徑，填 VK0056 的 `<path>`。
     pub run_log: &'a str,
     /// `just vendor_kit` 之後的參數原樣（第一個是 `dev` 或 `undev`）。
@@ -154,7 +181,11 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
 
 /// 跑一次 `dev` 或 `undev`，回傳結束碼。
 pub fn run<W: Write, S: Sink, L: Write>(req: &Request<'_>, env: &mut Env<'_, W, S, L>) -> u8 {
-    let mut dev = Dev { env, code: 0 };
+    let mut dev = Dev {
+        env,
+        code: 0,
+        slots: 0,
+    };
     let _ = dev.run(req);
     dev.code
 }
@@ -197,8 +228,59 @@ pub enum PathProblem {
     Gap(String),
 }
 
-/// 把 `-p <dir>` 以安裝目錄為準逐段正規化成 `/` 分隔的相對路徑（安裝目錄本身是 `.`）。只看字面，不碰檔案系統。
-pub fn normalize(given: &OsStr) -> Result<String, PathProblem> {
+/// 正規化後的本機開發來源（見模組說明「本機目錄」）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// 落在安裝目錄裡：`/` 分隔的相對路徑，安裝目錄本身是 `.`。引擎直接讀。
+    Inside(String),
+    /// 安裝目錄外：開頭是 `..` 的相對路徑，或主機上的絕對路徑。經 `stage-dir` 讀。
+    Outside(String),
+}
+
+impl Source {
+    /// 存進 `version.local.toml`、寫進入口檔的值。
+    pub fn as_str(&self) -> &str {
+        match self {
+            Source::Inside(s) | Source::Outside(s) => s,
+        }
+    }
+
+    /// 安裝目錄外的來源請啟動器複製時用的主機路徑：絕對路徑原樣，相對路徑接在 `host_root` 後面
+    /// （開頭的 `..` 留給主機解析）。安裝目錄裡的回 `None`。
+    pub fn host_path(&self, host_root: &str) -> Option<String> {
+        match self {
+            Source::Inside(_) => None,
+            Source::Outside(p) if p.starts_with('/') => Some(p.clone()),
+            Source::Outside(p) => Some(format!("{}/{p}", host_root.trim_end_matches('/'))),
+        }
+    }
+}
+
+/// 只看字面逐段正規化：`.` 略過，`..` 往上一層（根目錄的上一層還是根目錄）。回傳是不是絕對路徑、開頭
+/// 跑出起點的 `..` 層數，與剩下的一般路徑段。
+fn lexical(path: &Path) -> Option<(bool, usize, Vec<&str>)> {
+    let mut absolute = false;
+    let mut ups = 0;
+    let mut parts: Vec<&str> = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::RootDir => absolute = true,
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if parts.pop().is_none() && !absolute {
+                    ups += 1;
+                }
+            }
+            Component::Normal(seg) => parts.push(seg.to_str()?),
+            Component::Prefix(_) => return None,
+        }
+    }
+    Some((absolute, ups, parts))
+}
+
+/// 把 `-p <dir>` 正規化（模組說明「本機目錄」）：相對路徑以安裝目錄為準，絕對路徑在 `host_root` 底下時
+/// 換成相對於安裝目錄的寫法。只看字面，不碰檔案系統。
+pub fn normalize(given: &OsStr, host_root: &str) -> Result<Source, PathProblem> {
     let Some(text) = given.to_str() else {
         return Err(PathProblem::Gap(format!(
             "a local source path that is not UTF-8 ({})",
@@ -208,34 +290,40 @@ pub fn normalize(given: &OsStr) -> Result<String, PathProblem> {
     if text.is_empty() {
         return Err(PathProblem::Unusable("the path is empty".to_owned()));
     }
-    let path = Path::new(text);
-    let outside = || {
+    let unfit = || {
         PathProblem::Gap(format!(
-            "a local source outside the install directory ({text})"
+            "a local source path containing a quote, a double quote, a backslash, or a control \
+             character, or the root directory ({text})"
         ))
     };
-    let mut parts: Vec<&str> = Vec::new();
-    for c in path.components() {
-        match c {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                parts.pop().ok_or_else(outside)?;
-            }
-            Component::Normal(seg) => parts.push(seg.to_str().ok_or_else(outside)?),
-            Component::RootDir | Component::Prefix(_) => return Err(outside()),
+    let (absolute, ups, parts) = lexical(Path::new(text)).ok_or_else(unfit)?;
+    let inside = |parts: &[&str]| {
+        if parts.is_empty() {
+            ".".to_owned()
+        } else {
+            parts.join("/")
         }
-    }
-    let joined = if parts.is_empty() {
-        ".".to_owned()
-    } else {
-        parts.join("/")
     };
-    if tools_just::is_local_dir(&joined) {
-        Ok(joined)
+    let source = if absolute {
+        let root = lexical(Path::new(host_root))
+            .filter(|(abs, _, _)| *abs)
+            .map(|(_, _, root)| root);
+        match root {
+            Some(root) if parts.starts_with(&root) => Source::Inside(inside(&parts[root.len()..])),
+            _ => Source::Outside(format!("/{}", parts.join("/"))),
+        }
+    } else if ups == 0 {
+        Source::Inside(inside(&parts))
     } else {
-        Err(PathProblem::Gap(format!(
-            "a local source path containing a quote, a backslash, or a control character ({text})"
-        )))
+        let mut segs = vec![".."; ups];
+        segs.extend(parts);
+        Source::Outside(segs.join("/"))
+    };
+    let value = source.as_str();
+    if tools_just::is_local_dir(value) && !value.contains('"') {
+        Ok(source)
+    } else {
+        Err(unfit())
     }
 }
 
@@ -302,6 +390,8 @@ struct Plan {
 struct Dev<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
     code: u8,
+    /// 這次執行已用掉的 `stage-dir` slot 數。
+    slots: usize,
 }
 
 impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
@@ -479,14 +569,15 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 .arg("repo", repo)
                 .arg("reason", reason)
         };
-        let dir = match normalize(path) {
+        let source = match normalize(path, self.env.host_root) {
             Ok(d) => d,
             Err(PathProblem::Unusable(reason)) => return Err(self.stop(unusable(reason))),
             Err(PathProblem::Gap(what)) => return Err(self.gap(what)),
         };
+        let dir = source.as_str().to_owned();
         if let Some(current) = local.tool(repo) {
-            let current_norm = normalize(OsStr::new(current)).ok();
-            if current_norm.as_deref() == Some(dir.as_str()) {
+            let current_norm = normalize(OsStr::new(current), self.env.host_root).ok();
+            if current_norm.as_ref().map(Source::as_str) == Some(dir.as_str()) {
                 // 重複 `dev` 同來源：04 只要求 stdout 說明未變更，入口檔不另修。併進殘留的 `dev` 時
                 // 覆寫可能還沒寫進檔、入口檔也可能還沒指過去，照常算。
                 if !recovering {
@@ -508,7 +599,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 .arg("undev_command", undev_command(repo));
             return Err(self.stop(d));
         }
-        let ns = match check_dir(self.env.dir.root(), &dir, repo) {
+        let ns = match self.read_source(&source, repo)? {
             Ok(ns) => ns,
             Err(PathProblem::Unusable(reason)) => return Err(self.stop(unusable(reason))),
             Err(PathProblem::Gap(what)) => return Err(self.gap(what)),
@@ -608,12 +699,12 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         known: Option<BTreeMap<String, Vec<String>>>,
     ) -> Step<Option<String>> {
         let mut known = known.unwrap_or_default();
-        let mut dirs: BTreeMap<String, String> = BTreeMap::new();
+        let mut dirs: BTreeMap<String, Source> = BTreeMap::new();
         let mut blocked: Vec<Diagnostic> = Vec::new();
         for repo in lockfile.tools().keys() {
             let source = local.tool(repo);
             if let Some(source) = source {
-                match normalize(OsStr::new(source)) {
+                match normalize(OsStr::new(source), self.env.host_root) {
                     Ok(dir) => {
                         dirs.insert(repo.clone(), dir);
                     }
@@ -626,11 +717,11 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             if known.contains_key(repo) {
                 continue;
             }
-            let ns = match dirs.get(repo) {
-                Some(dir) => match check_dir(self.env.dir.root(), dir, repo) {
+            let ns = match dirs.get(repo).cloned() {
+                Some(dir) => match self.read_source(&dir, repo)? {
                     Ok(ns) => ns,
                     Err(PathProblem::Unusable(reason) | PathProblem::Gap(reason)) => {
-                        let source = source.unwrap_or(dir).to_owned();
+                        let source = source.unwrap_or(dir.as_str()).to_owned();
                         blocked.push(self.unreadable(repo, &source, reason));
                         continue;
                     }
@@ -667,6 +758,10 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 namespaces: ns,
             })
             .collect();
+        let dirs: BTreeMap<String, String> = dirs
+            .into_iter()
+            .map(|(repo, dir)| (repo, dir.as_str().to_owned()))
+            .collect();
         let entry = match tools_just::render_with(&tools, &dirs) {
             Ok(e) => e,
             Err(e @ tools_just::Error::Duplicate { .. }) => {
@@ -682,6 +777,43 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             Ok(_) => Ok(Some(entry)),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Some(entry)),
             Err(e) => Err(self.internal(format!("{}: {e}", path.display()))),
+        }
+    }
+
+    /// 讀本機開發來源交付的 `<ns>`（`check_dir`）：安裝目錄裡的直接讀；安裝目錄外的先請啟動器
+    /// `stage-dir` 複製進 `in/<slot>`，再讀那份複本。往返本身失敗是 VK 的錯，停下。
+    fn read_source(
+        &mut self,
+        source: &Source,
+        repo: &str,
+    ) -> Step<Result<Vec<String>, PathProblem>> {
+        let Some(host) = source.host_path(self.env.host_root) else {
+            return Ok(check_dir(self.env.dir.root(), source.as_str(), repo));
+        };
+        self.slots += 1;
+        let name = format!("{STAGE_SLOT_PREFIX}{}", self.slots);
+        let Some(slot) = Slot::parse(&name) else {
+            return Err(self.internal(format!("stage-dir slot {name} is not a valid slot")));
+        };
+        let field = match Field::new(host.into_bytes()) {
+            Ok(f) => f,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        let sent = self.env.channel.send(&Op::StageDir(field, slot));
+        if let Err(e) = sent {
+            return Err(self.internal(e.to_string()));
+        }
+        let reply = match self.env.channel.receive(self.env.poll) {
+            Ok(r) => r,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        match reply.outcome {
+            Outcome::Ok => Ok(check_dir(&self.env.inbox.join(&name), ".", repo)),
+            Outcome::Failed(rc) => Ok(Err(PathProblem::Unusable(format!(
+                "the launcher could not copy it (exit {rc}): it does not exist, \
+                 is not a directory, or cannot be read"
+            )))),
+            Outcome::Runner(_) => Err(self.internal("stage-dir got a runner result")),
         }
     }
 

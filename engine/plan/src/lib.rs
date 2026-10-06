@@ -35,6 +35,7 @@
 //!         / "inspect" SP ref                  ; image inspect，輸出寫 res.<seq>.out（ID、RepoDigests）
 //!         / "extract" SP imgid SP slot        ; create（入口設成不存在的檔）→ cp /dist/. 進 in/<slot> → rm
 //!         / "stage" SP fld SP slot            ; 安裝目錄外的主機檔（例如 token 檔）複製進 in/<slot>
+//!         / "stage-dir" SP fld SP slot        ; 主機上的目錄（安裝目錄外的本機開發來源）整個複製進 in/<slot>
 //!         / "ps"                              ; 本安裝目錄 label 的已停止容器，輸出寫 res.<seq>.out
 //!         / "rm-container" SP cid             ; 只收本次 ps 列出的 cid；不加 -f
 //!         / "runner" SP ref 1*( SP fld )      ; command 加 path，不經 shell
@@ -89,18 +90,19 @@ pub use wire::{
 pub const GRAMMAR: &str = "vk-resolve";
 
 /// op 的封閉集合，依文法的順序。
-pub const OPS: [&str; 8] = [
+pub const OPS: [&str; 9] = [
     "pull",
     "load",
     "inspect",
     "extract",
     "stage",
+    "stage-dir",
     "ps",
     "rm-container",
     "runner",
 ];
 
-/// 救援路徑用到的 op；文法跨介面版永久不變（見 crate 文件「救援路徑」）。
+/// 救援路徑用到的 op；文法跨介面版永久不變（見 crate 文件「救援路徑」）。`stage-dir` 只給 `dev` 用，不在這裡。
 pub const RESCUE_OPS: [&str; 5] = ["pull", "load", "inspect", "extract", "stage"];
 
 /// 引擎入口的具名選項，依啟動器傳的順序；`--` 之後是 recipe 與使用者參數原樣。救援路徑也走這一行，永久不變。
@@ -144,7 +146,7 @@ pub mod files {
     pub const TMP_SUFFIX: &str = ".tmp";
     /// `in/` 裡啟動器起引擎前寫好的檔：這次起的引擎 image 的 pinned 引用，一行、LF 結尾（N37）。
     /// 引擎 image 不可能含有自己的 index digest，救援 argv 又凍結，所以經這個檔交給引擎。
-    /// 不會跟 `tool<N>` 的 slot 撞名（stage、extract 遇到已存在的 slot 一律拒絕）。
+    /// 不會跟 `tool<N>` 的 slot 撞名（stage、stage-dir、extract 遇到已存在的 slot 一律拒絕）。
     pub const IN_ENGINE: &str = "engine";
 }
 
