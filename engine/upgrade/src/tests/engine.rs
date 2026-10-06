@@ -1,9 +1,10 @@
 //! `upgrade --engine` 的兩段（[`crate::engine`]）：第一段由假啟動器回帶 LABEL 的 inspect 與 pull，假 registry 回
-//! `tags/list` 與 HEAD manifest；第二段不送 op，薄殼模板與要問的事直接給。
+//! `tags/list` 與 HEAD manifest；第二段不送 op，薄殼模板與 `config.toml` 模板直接給。
 
 use super::online::{Registry, public};
 use super::*;
-use crate::engine::{self, ENGINE_REPO};
+use crate::engine::{self, CONFIG_TOML, ENGINE_REPO};
+use metadata::Metadata;
 use shell::Shell;
 
 /// 假 registry 裡引擎 image 的路徑（[`ENGINE_REPO`] 去掉 `ghcr.io/`）。
@@ -39,7 +40,8 @@ const TARGET: Script = Script {
 struct Opts<'a> {
     run_id: &'a str,
     templates: Option<&'a engine::ShellTemplates>,
-    questions: &'a [&'a str],
+    /// 隨引擎出貨的 `config.toml` 模板（新版）。
+    config: &'a str,
     interactive: bool,
     stdin: &'a str,
 }
@@ -47,7 +49,7 @@ struct Opts<'a> {
 const OPTS: Opts<'static> = Opts {
     run_id: "r1",
     templates: None,
-    questions: &[],
+    config: CONFIG_OLD,
     interactive: false,
     stdin: "",
 };
@@ -66,6 +68,7 @@ fn run_engine_with(fx: &Fx, argv: &[&str], registry: &Client, opts: &Opts) -> Ou
         tag,
         yes: argv.contains(&"-y"),
         shell_templates: opts.templates,
+        config_template: opts.config,
     };
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     fx.assert_fresh_session();
@@ -83,7 +86,6 @@ fn run_engine_with(fx: &Fx, argv: &[&str], registry: &Client, opts: &Opts) -> Ou
             invocation_id: opts.run_id.to_owned(),
         },
     );
-    let questions: Vec<String> = opts.questions.iter().map(|q| (*q).to_owned()).collect();
     let code = {
         let mut env = Env {
             dir: &fx.dir,
@@ -103,7 +105,7 @@ fn run_engine_with(fx: &Fx, argv: &[&str], registry: &Client, opts: &Opts) -> Ou
             diags: &mut diags,
             log: &mut log,
         };
-        engine::run_with(&req, &mut env, &|| questions.clone())
+        engine::run(&req, &mut env)
     };
     Out {
         code,
@@ -335,12 +337,20 @@ fn first_stage(fx: &Fx, argv: &[&str]) {
 
 /// 第二段做完：薄殼四檔是本引擎的、`gen/.stamp` 是鎖定行的值、介面版列表是本引擎的，沒有進度檔。
 fn assert_completed(fx: &Fx, out: &Out, wrote: &[&str]) {
+    assert_completed_with(fx, out, wrote, &[]);
+}
+
+/// 同 [`assert_completed`]，`config` 是薄殼之後、完成那一行之前的 `config.toml` 字句。
+fn assert_completed_with(fx: &Fx, out: &Out, wrote: &[&str], config: &[&str]) {
     assert_eq!(out.code, 0, "{}", out.stderr);
     assert_eq!(out.stderr, "");
     let mut expected: String = wrote
         .iter()
         .map(|n| format!("Wrote .vendor_kit/{n}\n"))
         .collect();
+    for line in config {
+        expected.push_str(&format!("{line}\n"));
+    }
     expected.push_str(&format!(
         "Completed the engine upgrade to {WRITTEN_BY} ({}).\n",
         self_locked()
@@ -488,9 +498,44 @@ fn a_lock_line_already_at_the_target_with_old_shell_files_does_the_second_stage(
     }
 }
 
+/// install 記下的 `config.toml`：目前檔、基準版副本都是 `base`，`baseline/.vendor_kit.toml` 有 `managed` 紀錄。
+fn install_config(fx: &Fx, base: &str, current: Option<&str>) {
+    let copy = fx.dir.config_baseline();
+    fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    fs::write(&copy, base).unwrap();
+    if let Some(c) = current {
+        fs::write(fx.dir.config_toml(), c).unwrap();
+    }
+    let mut md = Metadata::new();
+    let mut r = FileRecord::new(CONFIG_TOML, State::Managed);
+    r.hash = Some(FileHash::of(base.as_bytes()));
+    md.put(r).unwrap();
+    md.save(&metadata::vk_path(&fx.dir), WRITTEN_BY).unwrap();
+}
+
+fn vk_md(fx: &Fx) -> Metadata {
+    Metadata::load(&metadata::vk_path(&fx.dir)).unwrap()
+}
+
+/// 上一版引擎出貨的模板（基準版）與本引擎出貨的模板（新版）。
+const CONFIG_OLD: &str = "# settings\n# lock_timeout_seconds = 60\n# lock_enabled = true\n";
+const CONFIG_NEW: &str =
+    "# settings\n# lock_timeout_seconds = 60\n# lock_enabled = true\n# [test]\n";
+const REPLACE_Q: &str = "Replace .vendor_kit/config.toml with the new version from vendor_kit?";
+const MERGE_Q: &str = "Merge the new version of .vendor_kit/config.toml from vendor_kit?";
+
+fn config_opts<'a>(run_id: &'a str, t: &'a engine::ShellTemplates) -> Opts<'a> {
+    Opts {
+        config: CONFIG_NEW,
+        ..second_opts(run_id, t)
+    }
+}
+
+/// 04:394：未改過也先問是否換版；答否不撤回第一段（04:295），不能互動 VK0002，`-y` 全部同意。
 #[test]
 fn answering_no_keeps_the_first_stage() {
     let fx = Fx::new();
+    install_config(&fx, CONFIG_OLD, Some(CONFIG_OLD));
     let argv = ["upgrade", "--engine=v0.0.0"];
     first_stage(&fx, &argv);
     let before = fx.snapshot();
@@ -500,48 +545,317 @@ fn answering_no_keeps_the_first_stage() {
         &argv,
         &unused_registry(),
         &Opts {
-            questions: &["Replace .vendor_kit/config.toml?"],
             interactive: true,
             stdin: "n\n",
-            ..second_opts("r2", &t)
+            ..config_opts("r2", &t)
         },
     );
     assert_eq!(out.code, 0, "{}", out.stderr);
     assert_eq!(out.stdout, "No changes were made.\n");
-    assert!(out.stderr.contains("Replace .vendor_kit/config.toml?"));
+    assert!(out.stderr.contains(REPLACE_Q), "{}", out.stderr);
     // 鎖定行與第一段的進度檔都還在，沒有任何寫入。
     assert_eq!(fx.snapshot(), before);
     assert_eq!(out.log, "");
 
     // 不能互動：VK0002，同樣不寫。
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &config_opts("r3", &t));
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert!(out.stderr.contains("error[VK0002]"), "{}", out.stderr);
+    assert!(
+        out.stderr
+            .contains("just vendor_kit upgrade --engine=v0.0.0 -y"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(fx.snapshot(), before);
+
+    // -y：全部同意，換成新版，基準版與紀錄跟著推。
+    let out = run_engine_with(
+        &fx,
+        &["upgrade", "--engine=v0.0.0", "-y"],
+        &unused_registry(),
+        &config_opts("r4", &t),
+    );
+    assert_completed_with(
+        &fx,
+        &out,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+        &["Updated .vendor_kit/config.toml"],
+    );
+    assert_config_upgraded(&fx, CONFIG_NEW);
+}
+
+/// 換版寫入後：目前檔是 `now`，基準版副本推到新版，紀錄的 hash 是寫入後的，不在 `conflicts`。
+fn assert_config_upgraded(fx: &Fx, now: &str) {
+    assert_config_written(fx, now, now);
+}
+
+/// 換版或合併寫入後：目前檔是 `now`，基準版副本推到新版，紀錄的 hash 是 `hashed` 的，不在 `conflicts`。
+fn assert_config_written(fx: &Fx, now: &str, hashed: &str) {
+    assert_eq!(fs::read_to_string(fx.dir.config_toml()).unwrap(), now);
+    assert_eq!(
+        fs::read_to_string(fx.dir.config_baseline()).unwrap(),
+        CONFIG_NEW
+    );
+    let md = vk_md(fx);
+    let r = md.get(CONFIG_TOML).unwrap();
+    assert_eq!(r.state, State::Managed);
+    assert_eq!(r.hash, Some(FileHash::of(hashed.as_bytes())));
+    assert!(md.conflicts().is_empty(), "{:?}", md.conflicts());
+}
+
+/// 互動時答是：換版。
+#[test]
+fn an_unchanged_config_is_replaced_after_asking() {
+    let fx = Fx::new();
+    install_config(&fx, CONFIG_OLD, Some(CONFIG_OLD));
+    let argv = ["upgrade", "--engine=v0.0.0"];
+    first_stage(&fx, &argv);
+    let t = templates();
     let out = run_engine_with(
         &fx,
         &argv,
         &unused_registry(),
         &Opts {
-            questions: &["Replace .vendor_kit/config.toml?"],
+            interactive: true,
+            stdin: "y\n",
+            ..config_opts("r2", &t)
+        },
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.stderr.contains(REPLACE_Q), "{}", out.stderr);
+    assert!(
+        out.stdout
+            .contains("Updated .vendor_kit/config.toml\nCompleted the engine upgrade"),
+        "{}",
+        out.stdout
+    );
+    assert_config_upgraded(&fx, CONFIG_NEW);
+}
+
+/// 04:394：雙方都改過，先問是否合併；乾淨合併寫入合併結果。
+#[test]
+fn a_config_changed_on_both_sides_is_merged_after_asking() {
+    let fx = Fx::new();
+    let edited = "# settings\nlock_timeout_seconds = 30\n# lock_enabled = true\n";
+    install_config(&fx, CONFIG_OLD, Some(edited));
+    let argv = ["upgrade", "--engine=v0.0.0"];
+    first_stage(&fx, &argv);
+    let t = templates();
+
+    // 答否：什麼都不寫。
+    let before = fx.snapshot();
+    let out = run_engine_with(
+        &fx,
+        &argv,
+        &unused_registry(),
+        &Opts {
+            interactive: true,
+            stdin: "n\n",
+            ..config_opts("r2", &t)
+        },
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.stderr.contains(MERGE_Q), "{}", out.stderr);
+    assert_eq!(out.stdout, "No changes were made.\n");
+    assert_eq!(fx.snapshot(), before);
+
+    let out = run_engine_with(
+        &fx,
+        &argv,
+        &unused_registry(),
+        &Opts {
+            interactive: true,
+            stdin: "y\n",
+            ..config_opts("r3", &t)
+        },
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(out.stderr.contains(MERGE_Q), "{}", out.stderr);
+    assert!(
+        out.stdout
+            .contains("Merged .vendor_kit/config.toml\nCompleted the engine upgrade"),
+        "{}",
+        out.stdout
+    );
+    // 紀錄的 hash 只在寫入前內容跟它相符時才換（`Metadata::record_write`，同 `upgrade <repo>`）：使用者改過，
+    // 所以還是 install 寫的那一版。
+    assert_config_written(
+        &fx,
+        "# settings\nlock_timeout_seconds = 30\n# lock_enabled = true\n# [test]\n",
+        CONFIG_OLD,
+    );
+}
+
+/// 衝突標記讓 TOML 解析不過：照 scope_roadmap:32 留原檔、不問、基準版不推、記入 `conflicts`；之後換版成功
+/// 就拿掉。
+#[test]
+fn a_conflicting_config_merge_keeps_the_file_and_records_conflicts() {
+    let fx = Fx::new();
+    let edited = "# settings\nlock_timeout_seconds = 30\n# lock_enabled = true\n";
+    install_config(&fx, CONFIG_OLD, Some(edited));
+    let argv = ["upgrade", "--engine=v0.0.0"];
+    first_stage(&fx, &argv);
+    let t = templates();
+    let new = "# settings\n# lock_timeout_seconds = 60 (seconds)\n# lock_enabled = true\n";
+    // 不帶 -y、不能互動也照樣做完：沒有要問的事。
+    let out = run_engine_with(
+        &fx,
+        &argv,
+        &unused_registry(),
+        &Opts {
+            config: new,
+            ..second_opts("r2", &t)
+        },
+    );
+    assert_completed_with(
+        &fx,
+        &out,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+        &[
+            "Kept .vendor_kit/config.toml: the merged version is not valid TOML; recorded in conflicts",
+        ],
+    );
+    assert_eq!(fs::read_to_string(fx.dir.config_toml()).unwrap(), edited);
+    assert_eq!(
+        fs::read_to_string(fx.dir.config_baseline()).unwrap(),
+        CONFIG_OLD
+    );
+    let md = vk_md(&fx);
+    assert_eq!(md.conflicts(), [CONFIG_TOML]);
+    assert_eq!(
+        md.get(CONFIG_TOML).unwrap().hash,
+        Some(FileHash::of(CONFIG_OLD.as_bytes()))
+    );
+
+    // 再跑一次：都已是這一版，只說明留了原檔。
+    let before = fx.snapshot();
+    let out = run_engine_with(
+        &fx,
+        &argv,
+        &unused_registry(),
+        &Opts {
+            config: new,
             ..second_opts("r3", &t)
         },
     );
-    assert_eq!(out.code, 2, "{}", out.stderr);
-    assert!(out.stderr.contains("error[VK0002]"), "{}", out.stderr);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "Kept .vendor_kit/config.toml: the merged version is not valid TOML; recorded in conflicts\n\
+         vendor_kit is already at v0.0.0; no changes were made.\n"
+    );
     assert_eq!(fx.snapshot(), before);
 
-    // -y：全部同意。
+    // 使用者解完衝突、跟基準版一樣：換版成功，從 `conflicts` 拿掉。
+    fs::write(fx.dir.config_toml(), CONFIG_OLD).unwrap();
     let out = run_engine_with(
         &fx,
         &["upgrade", "--engine=v0.0.0", "-y"],
         &unused_registry(),
-        &Opts {
-            questions: &["Replace .vendor_kit/config.toml?"],
-            ..second_opts("r4", &t)
-        },
+        &config_opts("r4", &t),
     );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stdout.contains("Updated .vendor_kit/config.toml\n"),
+        "{}",
+        out.stdout
+    );
+    assert_config_upgraded(&fx, CONFIG_NEW);
+}
+
+/// 新版跟基準版相同（大多數引擎升級）：不問、不動 `config.toml`。
+#[test]
+fn an_unchanged_template_leaves_the_config_alone() {
+    let fx = Fx::new();
+    let edited = "lock_timeout_seconds = 5\n";
+    install_config(&fx, CONFIG_OLD, Some(edited));
+    let argv = ["upgrade", "--engine=v0.0.0"];
+    first_stage(&fx, &argv);
+    let md_before = fs::read(metadata::vk_path(&fx.dir)).unwrap();
+    let t = templates();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &second_opts("r2", &t));
     assert_completed(
         &fx,
         &out,
         &["entry.just", "vendor.just", "log.sh", ".gitignore"],
     );
+    assert_eq!(fs::read_to_string(fx.dir.config_toml()).unwrap(), edited);
+    assert_eq!(
+        fs::read_to_string(fx.dir.config_baseline()).unwrap(),
+        CONFIG_OLD
+    );
+    assert_eq!(fs::read(metadata::vk_path(&fx.dir)).unwrap(), md_before);
+}
+
+/// 使用者刪掉了：不重建，紀錄記 `deleted`，stdout 列出來。
+#[test]
+fn a_deleted_config_is_not_recreated() {
+    let fx = Fx::new();
+    install_config(&fx, CONFIG_OLD, None);
+    let argv = ["upgrade", "--engine=v0.0.0"];
+    first_stage(&fx, &argv);
+    let t = templates();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &config_opts("r2", &t));
+    assert_completed_with(
+        &fx,
+        &out,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+        &["Not recreated (deleted): .vendor_kit/config.toml"],
+    );
+    assert!(!fx.dir.config_toml().exists());
+    assert_eq!(vk_md(&fx).get(CONFIG_TOML).unwrap().state, State::Deleted);
+}
+
+/// 沒有 `config.toml` 的紀錄（使用者自己建的）：不碰。
+#[test]
+fn a_config_without_a_record_is_left_alone() {
+    let fx = Fx::new();
+    fs::write(fx.dir.config_toml(), "lock_enabled = true\n").unwrap();
+    let argv = ["upgrade", "--engine=v0.0.0"];
+    first_stage(&fx, &argv);
+    let t = templates();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &config_opts("r2", &t));
+    assert_completed(
+        &fx,
+        &out,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+    );
+    assert_eq!(
+        fs::read_to_string(fx.dir.config_toml()).unwrap(),
+        "lock_enabled = true\n"
+    );
+    assert!(!metadata::vk_path(&fx.dir).exists());
+}
+
+/// 換版寫進 `config.toml` 後、推基準版前停下：重跑時補上基準版與紀錄，不再問、不再寫 repo 檔。
+#[test]
+fn an_interrupted_config_replace_is_completed_by_the_rerun() {
+    let fx = Fx::new();
+    install_config(&fx, CONFIG_OLD, Some(CONFIG_NEW));
+    let argv = ["upgrade", "--engine=v0.0.0"];
+    first_stage(&fx, &argv);
+    let t = templates();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &config_opts("r2", &t));
+    assert_completed(
+        &fx,
+        &out,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+    );
+    assert_config_upgraded(&fx, CONFIG_NEW);
+
+    // 沒有殘留的進度檔時同一個樣子是缺口：停下、不寫。
+    let fx = Fx::new();
+    install_config(&fx, CONFIG_OLD, Some(CONFIG_NEW));
+    first_stage(&fx, &argv);
+    fs::remove_file(fx.dir.vk_dir().join(".tmp.upgrade.r1.toml")).unwrap();
+    let before = fx.snapshot();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &config_opts("r2", &t));
+    assert_gap(
+        &out,
+        ".vendor_kit/config.toml in the second stage of the engine upgrade (CurrentIsNew)",
+    );
+    assert_eq!(fx.snapshot(), before);
 }
 
 /// 第二段中途停下的樣子：第一段（`r1`）與第二段（`r2`）的進度檔都在，薄殼寫了一半，`gen/.stamp` 還沒寫。

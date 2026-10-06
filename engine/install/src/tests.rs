@@ -337,7 +337,7 @@ fn existing_config_toml_without_a_record_is_left_alone() {
     assert!(!fx.dir.config_baseline().exists());
 }
 
-/// 已納管的 `config.toml` 被使用者刪了：不重建（換版與合併歸 `upgrade`），什麼都不改。
+/// 已納管的 `config.toml` 被使用者刪了：不重建（換版與合併歸 `upgrade --engine`），什麼都不改。
 #[test]
 fn deleted_managed_config_toml_is_not_recreated() {
     let fx = Fx::new();
