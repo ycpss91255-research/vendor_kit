@@ -689,6 +689,8 @@ version = "0.0.0"
 dependencies = [
  "diagnostics",
  "messages",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

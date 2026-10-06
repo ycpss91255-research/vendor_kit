@@ -8,6 +8,8 @@ description = "執行紀錄 JSONL：事件註冊表、引擎端的里程碑事�
 [dependencies]
 diagnostics.workspace = true
 messages.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

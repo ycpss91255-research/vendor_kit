@@ -81,16 +81,46 @@ update = { path = "engine/update" }
 upgrade = { path = "engine/upgrade" }
 dev = { path = "engine/dev" }
 prune = { path = "engine/prune" }
+
+# 第三方 crate 清單（#576）：只有登記在這裡的 crate 能用，各 crate 一律以 `workspace = true` 引用。
+# 篩選標準（依序，前面的優先）：
+# 1. 穩定性：長期維護、已有 1.0 或 API 長期不變的版本，同一種功能只留一個 crate。
+# 2. 能進最終 image：musl 靜態連結，x86_64 與 aarch64 都要在 image/Dockerfile 的 test stage 編得過；
+#    要編 C 的 crate 只在沒有成熟的純 Rust 替代時才用。
+# 3. 依賴樹小：只開用得到的 feature，不引入 async runtime（引擎沒有並行 I/O 的需求）。
+# 新增或換掉 crate 時先改這份清單與理由，再用。
+
+# 連進引擎執行檔的：
+# - toml_edit：讀寫 VK 的 TOML，寫回時保留使用者的格式與未知欄位（schema、config 等）。
+# - serde_json、serde：JSON 的解析與跳脫（`docker image inspect` 的輸出、執行紀錄的正規形）。
+# - sha2：檔案的 sha256 指紋（files）。
+# - nix：std 沒包的 POSIX 呼叫（flock、檢查 close 的錯誤），只開各 crate 要的 feature。
+toml_edit = "0.25"
+serde_json = "1"
+serde = "1"
+sha2 = "0.10"
+nix = { version = "0.30", default-features = false }
+
+# 只在建置時用的：
+# - csv：msggen 與 test/reason_lint 讀訊息表 doc/contract/reason_codes.csv。
 csv = "1"
+
+# 只在測試用的：
+# - assert_cmd、snapbox：端到端測試呼叫執行檔並比對輸出（test/e2e）。
+# - tempfile：測試的暫存目錄。
+# - cargo_metadata、roxmltree：模組邊界檢查讀 workspace 依賴與架構圖（test/boundary）。
 assert_cmd = "2"
 snapbox = "1"
 tempfile = "3"
 cargo_metadata = "0.23"
 roxmltree = "0.21"
-sha2 = "0.10"
-toml_edit = "0.25"
-nix = { version = "0.30", default-features = false }
-serde_json = "1"
+
+# 已選定、等 registry crate 第一次用到時才加進上面的清單：
+# - ureq（default-features = false, features = ["rustls"]）：向 registry 發 HTTPS 請求。
+#   ureq 是同步 client，`rustls` feature 帶 rustls、ring 與 webpki-roots；CA 憑證用 webpki-roots
+#   編進執行檔，最終 image 不必裝 ca-certificates。ring 要編 C，test stage 需要 musl 的 C 編譯器
+#   （Debian 的 musl-tools），跟這個 crate 一起加進 image/Dockerfile。
+#   比較過的方案與結果見 #576。
 
 # 測試例外：各 crate 在 #[cfg(test)] 與 test/ 的測試檔以 allow 屬性放行 unwrap／expect。
 [workspace.lints.rust]
