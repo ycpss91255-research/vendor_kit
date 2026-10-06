@@ -139,16 +139,18 @@ last_finished() {
 
 # ---- in/engine：這次用的 pinned 引用 ----
 
-# 假引擎：起來時記下 in/ 的檔名與 in/engine，再試著 stage／extract 到 engine 這個 slot。
+# 假引擎：起來時記下 in/ 的檔名與 in/engine，再試著 stage／stage-dir／extract 到 engine 這個 slot。
 engine_reads_ref() {
-    local src="$BATS_TEST_TMPDIR/other"
+    local src="$BATS_TEST_TMPDIR/other" dir="$BATS_TEST_TMPDIR/otherdir"
     printf 'other\n' >"$src"
+    mkdir -p "$dir"
     engine_does "
 in=\$engine_ctl/../in
 names=(\"\$in\"/*)
 printf '%s\n' \"\${names[@]##*/}\" >\"\$VK_FAKE/in.names\"
 cp \"\$in/engine\" \"\$VK_FAKE/ref\"
 send 'stage e:$src engine'
+send 'stage-dir e:$dir engine'
 send 'extract sha256:$B engine'
 cp \"\$in/engine\" \"\$VK_FAKE/ref.after\"
 finish 0
@@ -175,9 +177,10 @@ assert_ref() {
     # 一行、LF 結尾；.tmp 不留
     assert_ref "$fake/ref"
     [ "$(<"$fake/in.names")" = engine ]
-    # 同名 slot 的 stage、extract 都被拒，內容不變
+    # 同名 slot 的 stage、stage-dir、extract 都被拒，內容不變
     assert_res 1 'failed 1'
     assert_res 2 'failed 1'
+    assert_res 3 'failed 1'
     assert_ref "$fake/ref.after"
     assert_not_called '^create --label'
     [ ! -e "$sess" ]
@@ -287,6 +290,50 @@ finish 0
     )
     [ "${got[*]}" = "${want[*]}" ]
     [ "${#got[@]}" -eq "${#want[@]}" ]
+    [ ! -e "$sess" ]
+}
+
+@test "stage-dir copies a host directory into in/<slot> and refuses what is not a directory" {
+    # 開發來源（N48）：巢狀目錄、路徑有空白；來源頂層是 symlink 時複製的是它指向的內容。
+    local src="$BATS_TEST_TMPDIR/my src" link="$BATS_TEST_TMPDIR/link"
+    mkdir -p "$src/ns/a b"
+    printf 'one\n' >"$src/ns/a b/f.txt"
+    printf 'top\n' >"$src/top"
+    ln -s "$src" "$link"
+    printf 'file\n' >"$BATS_TEST_TMPDIR/plain"
+    local esrc=${src// /\\040}
+    engine_does "
+in=\$engine_ctl/../in
+send 'stage-dir e:$esrc d1'
+cp -R \"\$in/d1\" \"\$VK_FAKE/d1\"
+send 'stage-dir e:$link d2'
+[[ -d \$in/d2 && ! -L \$in/d2 ]] && cp \"\$in/d2/top\" \"\$VK_FAKE/d2.top\"
+send 'stage-dir e:/nonexistent/dir d3'
+[[ -e \$in/d3 ]] && : >\"\$VK_FAKE/d3.exists\"
+send 'stage-dir e:$BATS_TEST_TMPDIR/plain d4'
+[[ -e \$in/d4 ]] && : >\"\$VK_FAKE/d4.exists\"
+send 'stage-dir e:$esrc d1'
+finish 0
+"
+    launch 1 add foo
+    [ "$status" -eq 0 ] || {
+        echo "$stderr" >&2
+        return 1
+    }
+    assert_res 1 ok
+    assert_res 2 ok
+    assert_res 3 'failed 1'
+    assert_res 4 'failed 1'
+    # 已存在的 slot 不覆蓋
+    assert_res 5 'failed 1'
+    [ "$(<"$fake/d1/ns/a b/f.txt")" = one ]
+    [ "$(<"$fake/d1/top")" = top ]
+    [ "$(<"$fake/d2.top")" = top ]
+    [ ! -e "$fake/d3.exists" ]
+    [ ! -e "$fake/d4.exists" ]
+    # 不經 docker
+    assert_not_called 'stage-dir'
+    assert_not_called '^cp '
     [ ! -e "$sess" ]
 }
 
