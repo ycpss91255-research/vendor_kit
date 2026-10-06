@@ -21,8 +21,10 @@
 //!    必要時 `pull`（見「線上解析」）。之後以 image ID `extract`；docker 動作失敗回 VK0055。
 //! 9. `fetch::verify`：digest、dist 格式、逐檔指紋、`<ns>` 撞名（VK0030，對象是已裝工具、根
 //!    `justfile` 的 recipe 與 module、保留名 `vendor_kit`）。
-//! 10. `initfiles` 算出每個初始檔的動作與問題，`prompt` 一次問完：答否是正常取消（stdout 說明未變更，
-//!     以 0 結束）；不能互動回 VK0002，除執行紀錄外不寫任何檔。
+//! 10. `initfiles` 算出每個初始檔的動作與問題，`prompt` 一次問完；帶 `-y` 全部同意、不問。答否是正常取消
+//!     （stdout 說明未變更，以 0 結束）；不能互動回 VK0002，除執行紀錄外不寫任何檔。`-y` 只回答
+//!     `initfiles` 收齊的詢問，不擴大授權（04 寫入既有檔的例外）：已存在、不適用 append 的檔照樣不納管、
+//!     不覆蓋（VK0018），已記成未納管的檔照樣不處理（VK0019）。
 //! 11. 重驗暫存內容（ADR-0006 第三層），再經 `txn` 依序落地：`cache/<repo>/` 與印記、repo 檔、
 //!     紀錄檔（metadata、基準版副本）、`gen/tools.just`、版本鎖定行，最後刪進度檔。
 //! 12. stdout 列出改了什麼；初始檔的警告（VK0018 等）照印。
@@ -149,7 +151,7 @@
 //! - 殘留的進度檔不是 `add` 的（其他可寫 recipe 還沒實作），或殘留的 `add` 要寫 repo 檔：寫了哪些已記在
 //!   進度檔，但重新落地要讀 `init.toml`，格式沒定（見上）。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）；dist 格式不符（G2）、指紋不符（G1）沒有代碼。
-//! - `add` 不收 `-y`（#47），但 VK0002 的下一步指令照訊息表插入 `-y`。
+//! - `-y` 照「可能詢問才接受」收（#372 N14），04 的已定組合還沒列進 `add`，待維護者確認。
 //!
 //! 這裡不直接碰 docker：docker 動作與 `stage`、`stage-dir` 一律是 `plan` 協定的 op，由啟動器代做。
 
@@ -217,6 +219,8 @@ pub struct Request<'a> {
     pub repo: &'a str,
     pub tag: Option<Tag>,
     pub image: Option<&'a OsStr>,
+    /// 有沒有帶 `-y`：全部詢問都同意（模組說明第 10 步）。
+    pub yes: bool,
     /// `--image-path` 的值（`args` 已驗過是 `ghcr.io/<路徑>`）；只在線上、沒有版本鎖定行時用。
     pub image_path: Option<&'a str>,
     /// `--registry-token-file` 的值，原樣；只在線上、不帶 tag、要列 tag 時才讀（模組說明「registry token 檔」）。
@@ -299,6 +303,7 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
     let mut add = Add {
         env,
         init,
+        yes: req.yes,
         code: 0,
         extracts: 0,
         stages: 0,
@@ -343,6 +348,8 @@ struct Installed {
 struct Add<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
     init: InitSource<'r>,
+    /// 有沒有帶 `-y`（[`Request::yes`]）。
+    yes: bool,
     code: u8,
     /// 這次執行已用掉的 slot 數。
     extracts: u32,
@@ -1225,9 +1232,14 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
             stdin: self.env.tty.stdin,
             stderr: self.env.tty.stderr,
         };
+        let consent = if self.yes {
+            Consent::AssumeYes
+        } else {
+            Consent::Ask
+        };
         let answers = prompt::ask_all(
             &questions,
-            Consent::Ask,
+            consent,
             &tty,
             &mut *self.env.stdin,
             &mut *self.env.prompt,

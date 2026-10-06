@@ -448,6 +448,7 @@ where
             repo,
             tag,
             image,
+            yes,
             image_path,
             registry_token_file,
         } => {
@@ -486,6 +487,7 @@ where
                 repo,
                 tag: *tag,
                 image: image.as_deref(),
+                yes: *yes,
                 image_path: image_path.as_deref(),
                 registry_token_file: registry_token_file.as_deref(),
             };
@@ -666,8 +668,9 @@ where
         args::Command::Install { yes } => run_install(
             *yes, inv, mounts, host_log, stdin, stdout, stderr, diags, log,
         ),
-        args::Command::Remove { repo } => run_remove(
+        args::Command::Remove { repo, yes } => run_remove(
             Some(repo),
+            *yes,
             inv,
             mounts,
             host_log,
@@ -678,8 +681,8 @@ where
             diags,
             log,
         ),
-        args::Command::Uninstall => run_remove(
-            None, inv, mounts, host_log, channel, stdin, stdout, stderr, diags, log,
+        args::Command::Uninstall { yes } => run_remove(
+            None, *yes, inv, mounts, host_log, channel, stdin, stdout, stderr, diags, log,
         ),
         args::Command::UpgradeEngine { tag, yes } => {
             let registry = match registry_client(host_log, diags) {
@@ -980,6 +983,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn run_remove<O, E>(
     repo: Option<&str>,
+    yes: bool,
     inv: &plan::Invocation,
     mounts: &Mounts,
     host_log: &str,
@@ -1024,8 +1028,8 @@ where
         log,
     };
     let code = match repo {
-        Some(repo) => remove::remove(repo, &mut env),
-        None => remove::uninstall(&mut env),
+        Some(repo) => remove::remove(repo, yes, &mut env),
+        None => remove::uninstall(yes, &mut env),
     };
     let _ = stdout.flush();
     code
@@ -1473,8 +1477,8 @@ mod tests {
                 }
             }
         }
-        // -i／--image 兩處、-y／--yes 三處、--registry-token-file 三處、-p／--path 一處、--image-path 一處。
-        assert_eq!(checked, 4 + 6 + 3 + 2 + 1);
+        // -i／--image 兩處、-y／--yes 六處、--registry-token-file 三處、-p／--path 一處、--image-path 一處。
+        assert_eq!(checked, 4 + 12 + 3 + 2 + 1);
     }
 
     #[test]

@@ -8,8 +8,11 @@
 //!
 //! - 位置參數只放 `<repo>`；`test <path>` 是例外，`test dist` 是完整指令名（04 說明與用法錯誤）。
 //! - 選項可放位置參數前或後；單獨的 `--` 是選項結束標記，之後一律當位置參數，即使以 `-` 開頭（GLOSSARY）。
-//! - `-y`／`--yes` 只收已定的組合：`upgrade <repo>`、`upgrade --engine`（含 `--engine=<tag>`）、`install`
-//!   （04 共同選項）。其餘指令收不收待 #47，先不收：之後放寬不破壞相容，收回才會（02 不變量第 10 條）。
+//! - `-y`／`--yes` 只收可能詢問的指令：`add`、`upgrade <repo>`、`upgrade --engine`（含 `--engine=<tag>`）、
+//!   `remove`、`install`、`uninstall`（04 共同選項；`add`、`remove`、`uninstall` 是 #372 N14 照「可能詢問才接受」
+//!   加的，04 的組合清單待維護者確認）。判準看指令可不可能詢問，不看這次有沒有問到：這次沒問到也收。
+//!   不會詢問的指令（`dev`、`undev`、`update`、`sync`、`prune`、`test`）不收。`-y` 只省略詢問，不擴大授權範圍
+//!   （判定在各指令，這裡不管）。
 //! - 引擎一律用 `--engine`，只有 `upgrade`、`dev`、`undev` 收；帶版本只收 `upgrade --engine=<tag>`，
 //!   `--engine <tag>` 的 `<tag>` 算多出的位置參數。工具用 `<repo>@<tag>`，只有 `add`、`upgrade` 收。
 //! - `--registry-token-file <path>` 只有 `update`、`add`、`upgrade <repo>` 收；值是單獨的 `-` 算用法錯誤。
@@ -143,11 +146,12 @@ impl Invocation {
 /// 各指令的參數值（04 指令表）。路徑與 image 保留原本的 [`OsString`]。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    /// `add <repo>[@<tag>] [-i <image>] [--image-path <registry>/<path>] [--registry-token-file <path>]`
+    /// `add <repo>[@<tag>] [-i <image>] [--image-path <registry>/<path>] [-y] [--registry-token-file <path>]`
     Add {
         repo: String,
         tag: Option<Tag>,
         image: Option<OsString>,
+        yes: bool,
         /// `--image-path` 的值，已驗過是 `ghcr.io/<路徑>`（crate 文件的規則）。
         image_path: Option<String>,
         registry_token_file: Option<OsString>,
@@ -169,8 +173,8 @@ pub enum Command {
     UndevTool { repo: String },
     /// `undev --engine`
     UndevEngine,
-    /// `remove <repo>`
-    Remove { repo: String },
+    /// `remove <repo> [-y]`
+    Remove { repo: String, yes: bool },
     /// `update [<repo>] [--registry-token-file <path>]`
     Update {
         repo: Option<String>,
@@ -180,8 +184,8 @@ pub enum Command {
     Sync,
     /// `install [-y]`
     Install { yes: bool },
-    /// `uninstall`
-    Uninstall,
+    /// `uninstall [-y]`
+    Uninstall { yes: bool },
     /// `prune`
     Prune,
     /// `test [<path>]`
@@ -382,7 +386,10 @@ fn tokenize<'a>(rest: &[&'a OsStr]) -> Vec<Token<'a>> {
 /// 指令收哪些選項（不看組合）；不收的在第一輪就算不允許。
 fn accepts(name: Name, kind: &Kind<'_>) -> bool {
     match kind {
-        Kind::Yes => matches!(name, Name::Upgrade | Name::Install),
+        Kind::Yes => matches!(
+            name,
+            Name::Add | Name::Upgrade | Name::Remove | Name::Install | Name::Uninstall
+        ),
         Kind::Engine(None) => name.takes_engine(),
         Kind::Engine(Some(_)) => name == Name::Upgrade,
         Kind::Value(Opt::Image, _) => matches!(name, Name::Add | Name::Dev),
@@ -623,6 +630,7 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
             if image.is_some() {
                 s.forbid(s.image_path, "--image-path");
             }
+            let yes = s.yes.is_some();
             let need = (name != Name::Update && target.is_none()).then_some(REPO);
             s.finish(need)?;
             match (name, repo) {
@@ -634,10 +642,11 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                     repo,
                     tag,
                     image,
+                    yes,
                     image_path,
                     registry_token_file: token_file,
                 },
-                (_, Some((repo, _))) => Command::Remove { repo },
+                (_, Some((repo, _))) => Command::Remove { repo, yes },
                 (_, None) => return Err(UsageError::Missing(REPO.to_owned())),
             }
         }
@@ -702,18 +711,20 @@ fn build(name: Name, tokens: Vec<Token<'_>>) -> Result<Invocation, UsageError> {
                 None => return Err(UsageError::Missing(REPO.to_owned())),
             }
         }
-        Name::Sync | Name::Uninstall | Name::Prune => {
+        Name::Sync | Name::Prune => {
             s.finish(None)?;
             match name {
                 Name::Sync => Command::Sync,
-                Name::Uninstall => Command::Uninstall,
                 _ => Command::Prune,
             }
         }
-        Name::Install => {
+        Name::Install | Name::Uninstall => {
             let yes = s.yes.is_some();
             s.finish(None)?;
-            Command::Install { yes }
+            match name {
+                Name::Install => Command::Install { yes },
+                _ => Command::Uninstall { yes },
+            }
         }
         Name::Test | Name::TestDist => {
             // 第一個 `dist` 讓指令成為 `test dist`，之後不收任何 path；沒有 `dist` 時只收一個 path。
@@ -854,6 +865,20 @@ mod tests {
     // ---- add ----
 
     #[test]
+    fn add_takes_yes() {
+        for args in [
+            &["add", "lint", "-y"][..],
+            &["add", "--yes", "lint@v1.2.0"],
+            &["add", "lint", "-i", "lint.tar", "-y"],
+        ] {
+            match run(args) {
+                Command::Add { yes, .. } => assert!(yes, "{args:?}"),
+                other => panic!("{args:?} → {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn add_valid() {
         assert_eq!(
             run(&["add", "lint"]),
@@ -861,6 +886,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 image: None,
+                yes: false,
                 image_path: None,
                 registry_token_file: None
             }
@@ -871,6 +897,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: Some(tag("v1.2.0")),
                 image: None,
+                yes: false,
                 image_path: None,
                 registry_token_file: None
             }
@@ -881,6 +908,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 image: Some(os("lint.tar")),
+                yes: false,
                 image_path: None,
                 registry_token_file: None
             }
@@ -891,6 +919,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 image: Some(os("ghcr.io/o/lint:v1.0.0")),
+                yes: false,
                 image_path: None,
                 registry_token_file: None
             }
@@ -901,6 +930,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: None,
                 image: None,
+                yes: false,
                 image_path: None,
                 registry_token_file: Some(os("tok"))
             }
@@ -911,6 +941,7 @@ mod tests {
                 repo: "lint".into(),
                 tag: Some(tag("v1.2.0")),
                 image: None,
+                yes: false,
                 image_path: Some("ghcr.io/acme/lint".into()),
                 registry_token_file: None
             }
@@ -928,8 +959,8 @@ mod tests {
             "--registry-token-file <path>",
         );
         bad(&["add", "lint", "base"], "base");
-        bad(&["add", "lint", "-y"], "-y");
-        bad(&["add", "lint", "--yes"], "--yes");
+        bad(&["add", "lint", "-y", "--yes"], "--yes");
+        bad(&["add", "lint", "-y", "-y"], "-y");
         bad(&["add", "--engine"], "--engine");
         bad(&["add", "lint", "-p", "d"], "-p");
         bad(&["add", "lint", "--bogus"], "--bogus");
@@ -1098,7 +1129,8 @@ mod tests {
         assert_eq!(
             run(&["remove", "li.nt"]),
             Command::Remove {
-                repo: "li.nt".into()
+                repo: "li.nt".into(),
+                yes: false
             }
         );
     }
@@ -1189,9 +1221,19 @@ mod tests {
         assert_eq!(
             run(&["remove", "lint"]),
             Command::Remove {
-                repo: "lint".into()
+                repo: "lint".into(),
+                yes: false
             }
         );
+        for yes in ["-y", "--yes"] {
+            assert_eq!(
+                run(&["remove", yes, "lint"]),
+                Command::Remove {
+                    repo: "lint".into(),
+                    yes: true
+                }
+            );
+        }
     }
 
     #[test]
@@ -1200,7 +1242,8 @@ mod tests {
         bad(&["remove", "lint", "base"], "base");
         bad(&["remove", "lint@v1.0.0"], "lint@v1.0.0");
         bad(&["remove", "--engine"], "--engine");
-        bad(&["remove", "lint", "-y"], "-y");
+        bad(&["remove", "lint", "-y", "--yes"], "--yes");
+        bad(&["remove", "lint", "--", "-y"], "-y");
         bad(
             &["remove", "lint", "--registry-token-file", "t"],
             "--registry-token-file",
@@ -1249,7 +1292,12 @@ mod tests {
         assert_eq!(run(&["install"]), Command::Install { yes: false });
         assert_eq!(run(&["install", "-y"]), Command::Install { yes: true });
         assert_eq!(run(&["install", "--yes"]), Command::Install { yes: true });
-        assert_eq!(run(&["uninstall"]), Command::Uninstall);
+        assert_eq!(run(&["uninstall"]), Command::Uninstall { yes: false });
+        assert_eq!(run(&["uninstall", "-y"]), Command::Uninstall { yes: true });
+        assert_eq!(
+            run(&["uninstall", "--yes"]),
+            Command::Uninstall { yes: true }
+        );
         assert_eq!(run(&["prune"]), Command::Prune);
         // 單獨的 `--` 後面沒東西，沒有影響。
         assert_eq!(run(&["sync", "--"]), Command::Sync);
@@ -1268,10 +1316,12 @@ mod tests {
             );
             bad(&[name, "--", "-y"], "-y");
         }
-        for name in ["sync", "uninstall", "prune"] {
+        // 不會詢問的指令不收 `-y`（crate 文件）。
+        for name in ["sync", "prune"] {
             bad(&[name, "-y"], "-y");
         }
         bad(&["install", "-y", "-y"], "-y");
+        bad(&["uninstall", "-y", "--yes"], "--yes");
         bad(&["install", "--repair"], "--repair");
     }
 
@@ -1314,7 +1364,8 @@ mod tests {
         assert_eq!(
             run(&["remove", "--", "-lint"]),
             Command::Remove {
-                repo: "-lint".into()
+                repo: "-lint".into(),
+                yes: false
             }
         );
         assert_eq!(
@@ -1408,7 +1459,10 @@ mod tests {
         // `--` 之後的 -h 是位置參數，不是說明。
         assert_eq!(
             run(&["remove", "--", "-h"]),
-            Command::Remove { repo: "-h".into() }
+            Command::Remove {
+                repo: "-h".into(),
+                yes: false
+            }
         );
         // `--` 之前有 -h 時，`--` 本身也不准並用。
         bad(&["remove", "-h", "--", "lint"], "--");

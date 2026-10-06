@@ -295,6 +295,7 @@ fn run_add(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &str) 
         repo,
         tag,
         image: value("-i").map(OsStr::new),
+        yes: argv.iter().any(|a| matches!(*a, "-y" | "--yes")),
         image_path: value("--image-path"),
         registry_token_file: None,
     };
@@ -547,6 +548,67 @@ fn no_terminal_is_vk0002_without_writes() {
         )
     );
     assert!(untouched(&fx, &before));
+}
+
+#[test]
+fn yes_answers_the_questions_without_a_terminal() {
+    // VK0002 的下一步（把 `-y` 插進原參數）照著跑就會成功。
+    let fx = Fx::new("");
+    fs::write(fx.root().join(".gitignore"), "target/\n").unwrap();
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(
+        &fx,
+        &["add", "tool", "-i", IMAGE, "-y"],
+        vec![append(".gitignore", "/.tool/\n")],
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Added tool v1.2.0 ({}).\nAppended to .gitignore\n",
+            locked()
+        )
+    );
+    assert_eq!(
+        fs::read_to_string(fx.root().join(".gitignore")).unwrap(),
+        "target/\n/.tool/\n"
+    );
+}
+
+#[test]
+fn yes_does_not_bring_an_existing_whole_file_under_management() {
+    // -y 只省略詢問，不擴大授權（04 寫入既有檔的例外）：不適用 append 的既有檔照樣 VK0018。
+    let fx = Fx::new("");
+    fs::write(fx.root().join("tool.toml"), "mine\n").unwrap();
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(
+        &fx,
+        &["add", "tool", "-i", IMAGE, "--yes"],
+        vec![whole("tool.toml", "[tool]\n")],
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 1);
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: warn[VK0018]: tool.toml already exists and is unmanaged; it was neither overwritten nor brought under management.\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fx.root().join("tool.toml")).unwrap(),
+        "mine\n"
+    );
+    let meta = Metadata::load(&metadata::tool_path(&fx.dir, "tool").unwrap()).unwrap();
+    let states: Vec<(&str, &str)> = meta
+        .files()
+        .iter()
+        .map(|r| (r.path.as_str(), r.state.as_str()))
+        .collect();
+    assert_eq!(states, [("tool.toml", "unmanaged")]);
 }
 
 #[test]
@@ -895,6 +957,7 @@ fn progress_records_the_repo_files_to_write() {
             ),
         },
         init: &|_: &Path| Ok(Vec::new()),
+        yes: false,
         code: 0,
         extracts: 0,
         stages: 0,

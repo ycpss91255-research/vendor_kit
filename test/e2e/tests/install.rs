@@ -411,6 +411,56 @@ fn install_add_remove_uninstall_returns_to_a_clean_repo() {
 }
 
 #[test]
+fn uninstall_without_a_terminal_follows_the_next_step_of_vk0002() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(&tmp.path().join("m"));
+    let rel = tmp.path().join("release");
+    release(&rel);
+    fresh(&m);
+    fs::write(m.root.join("justfile"), USER_JUSTFILE).unwrap();
+    fs::write(m.root.join(".dockerignore"), USER_DOCKERIGNORE).unwrap();
+    let peer = idle_launcher(&m);
+    let (code, _, stderr) = run(&m, Some(&rel), "000", "", &["install", "-y"]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+
+    // 沒有終端機：uninstall 要問收回根目錄的插入行，回 VK0002，除執行紀錄外不寫。
+    new_session(&m);
+    let before = vk_tree(&m);
+    let peer = idle_launcher(&m);
+    let (code, stdout, stderr) = run(&m, None, "000", "", &["uninstall"]);
+    peer.join().unwrap();
+    assert_eq!(code, 2, "stderr: {stderr}");
+    assert_eq!(stdout, "");
+    assert_eq!(
+        stderr,
+        "vendor_kit: error[VK0002]: Confirmation is required, but no terminal is available for interaction. No files were modified except the run log. Run from a terminal, or rerun with -y: just vendor_kit uninstall -y\n"
+    );
+    assert_eq!(vk_tree(&m), before);
+
+    // 照它的下一步跑（#638 發現這一步原本是用法錯誤 VK0026）。
+    let (_, next) = stderr
+        .trim_end()
+        .split_once("rerun with -y: just vendor_kit ")
+        .unwrap();
+    let next: Vec<&str> = next.split(' ').collect();
+    new_session(&m);
+    let peer = idle_launcher(&m);
+    let (code, stdout, stderr) = run(&m, None, "000", "", &next);
+    let seen = peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(stderr, "");
+    assert!(seen.requests.is_empty());
+    assert!(
+        stdout.starts_with(&format!("Uninstalled vendor_kit from {HOST_ROOT}.\n")),
+        "{stdout}"
+    );
+    assert_eq!(read(&m, "justfile"), USER_JUSTFILE);
+    assert_eq!(read(&m, ".dockerignore"), USER_DOCKERIGNORE);
+    assert_eq!(vk_tree(&m), ["config.toml"]);
+}
+
+#[test]
 fn answering_no_for_an_existing_justfile_writes_nothing() {
     let tmp = tempfile::tempdir().unwrap();
     let m = Mounts::create(&tmp.path().join("m"));
