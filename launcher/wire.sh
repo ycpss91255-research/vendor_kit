@@ -149,11 +149,11 @@ vk_wire_operands() {
     vk_req_args=()
     case $name in
     pull | inspect)
-        local want=
+        local form=
         if [[ $name == pull ]]; then
-            want=pinned
+            form=pinned
         fi
-        if ((n != 1)) || ! vk_wire_ref "$1" "$want"; then
+        if ((n != 1)) || ! vk_wire_ref "$1" "$form"; then
             return 1
         fi
         vk_req_args=("$1")
