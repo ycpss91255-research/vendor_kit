@@ -47,10 +47,12 @@ pub struct Request {
     pub args: Vec<String>,
 }
 
-/// 啟動器回的 result 行（runner 以外）。
+/// 啟動器回的 result 行：runner 以外的 op 回 `Ok`、`Failed`，runner 回 `Runner`。
 pub enum Reply {
     Ok,
     Failed(u8),
+    /// `runner` 之後那一段原文，例如 `exited 0`、`notstarted`、`stopped 130`、`stopped unavailable`。
+    Runner(&'static str),
 }
 
 /// 假啟動器跑完後看到的東西。
@@ -81,6 +83,7 @@ where
                 let result = match handle(&request) {
                     Reply::Ok => "ok".to_owned(),
                     Reply::Failed(rc) => format!("failed {rc}"),
+                    Reply::Runner(out) => format!("runner {out}"),
                 };
                 let res = ctl.join(format!("res.{seq}"));
                 let tmp = ctl.join(format!("res.{seq}.tmp"));

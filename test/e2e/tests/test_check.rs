@@ -1,7 +1,9 @@
-//! `test` 不帶 path（04 檢查 (test)、03 輸出）：經假的啟動器跑完整安裝檢查。
+//! `test` 與 `test <path>`（04 檢查 (test)、04 test 路徑與 runner、03 輸出）：經假的啟動器跑完整安裝檢查與
+//! 使用者測試。
 //!
 //! 安裝目錄先照 `sync` 的 e2e 排好全新 checkout（兩個工具、跟這一版引擎一致的薄殼），需要時先跑一次 `sync`
-//! 取件（假啟動器回 inspect 與 extract），再跑 `test`。`test` 不送任何 docker 動作、除執行紀錄外不寫任何檔。
+//! 取件（假啟動器回 inspect 與 extract），再跑 `test`。不帶 path 的 `test` 不送任何 docker 動作；`test <path>`
+//! 只送一個 `runner` op（假啟動器回測試指定的 runner result）。兩者除執行紀錄外都不寫任何檔。
 //! 檔名不叫 `test.rs`：測試 target 叫 `test` 會跟 libtest 的 `test` crate 撞名。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -62,8 +64,8 @@ fn tool_content(dir: &Path, namespaces: &[&str]) {
     fs::write(dir.join("share/readme.txt"), "tool files\n").unwrap();
 }
 
-/// 假啟動器：兩個工具的 image 都在本機；image ID 就是 digest。
-fn launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
+/// 假啟動器：兩個工具的 image 都在本機；image ID 就是 digest。`runner` op 回 `runner <runner>`。
+fn launcher(m: &Mounts, runner: &'static str) -> std::thread::JoinHandle<Seen> {
     let (ctl, inbox) = (m.ctl.clone(), m.inbox.clone());
     launcher::serve(
         &m.ctl,
@@ -87,6 +89,7 @@ fn launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
                 tool_content(&inbox.join(&req.args[1]), &["other"]);
                 Reply::Ok
             }
+            "runner" => Reply::Runner(runner),
             _ => Reply::Failed(1),
         },
     )
@@ -94,12 +97,17 @@ fn launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
 
 /// 跑一次引擎；每次執行的 session 目錄與執行紀錄都是新的（啟動器建好空的執行紀錄）。
 fn run(m: &Mounts, rest: &[&str]) -> (i32, String, String, Seen) {
+    run_with(m, rest, "notstarted")
+}
+
+/// 同 [`run`]，假啟動器的 runner 回 `runner <runner>`。
+fn run_with(m: &Mounts, rest: &[&str], runner: &'static str) -> (i32, String, String, Seen) {
     for d in [&m.ctl, &m.inbox] {
         fs::remove_dir_all(d).unwrap();
         fs::create_dir_all(d).unwrap();
     }
     fs::write(m.root.join(RUN_LOG), "").unwrap();
-    let peer = launcher(m);
+    let peer = launcher(m, runner);
     let out = Command::new(vendor_kit_bin().unwrap())
         .args([
             "--protocol",
@@ -270,19 +278,107 @@ vendor_kit: error[VK0047]: Cannot complete checks for other: required local file
     );
 }
 
-/// `test <path>` 還沒實作（PR73）：以 VK0056 停下。
+/// 已 sync、有 `[test]` 設定與使用者測試的安裝目錄。
+fn with_tests(m: &Mounts) {
+    checkout(m, true);
+    let (code, _, stderr, _) = run(m, &["sync"]);
+    assert_eq!(code, 0, "{stderr}");
+    fs::write(
+        m.root.join(".vendor_kit/config.toml"),
+        "[test]\nimage = \"ghcr.io/acme/runner:v1\"\ncommand = [\"bats\", \"--tap\"]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(m.root.join("test/unit")).unwrap();
+    fs::write(m.root.join("test/unit/a.bats"), "@test a { true; }\n").unwrap();
+}
+
+/// 跑 `test <path>`：除執行紀錄外不寫檔，`done` 帶整次的結束碼；回收到的 op 行。
+fn run_user(m: &Mounts, path: &str, runner: &'static str) -> (i32, String, String, Vec<String>) {
+    let before = contents(m);
+    let (code, stdout, stderr, seen) = run_with(m, &["test", path], runner);
+    assert_eq!(
+        seen.done.as_deref(),
+        Some(format!("vk-resolve/1 {RUN_ID} done {code}\n").as_str())
+    );
+    assert_eq!(contents(m), before, "test must not write any file");
+    (code, stdout, stderr, seen.requests)
+}
+
+/// 04 test 路徑與 runner：檢查通過後在 `[test].image` 跑 `[test].command` 加上 path。
 #[test]
-fn test_with_a_path_is_not_implemented_yet() {
+fn test_with_a_path_runs_the_runner_after_the_check() {
     let tmp = tempfile::tempdir().unwrap();
     let m = Mounts::create(tmp.path());
-    checkout(&m, false);
-    let (code, stdout, stderr, _) = run(&m, &["test", "test/unit"]);
+    with_tests(&m);
+
+    let (code, stdout, stderr, ops) = run_user(&m, "test/unit", "exited 0");
+    assert_eq!(code, 0, "{stderr}");
+    assert_data_eq!(stdout, "Install check passed.\n");
+    assert_data_eq!(stderr, "");
+    assert_eq!(
+        ops,
+        ["runner ghcr.io/acme/runner:v1 e:bats e:--tap e:test/unit"]
+    );
+}
+
+/// 啟動器回的各種 runner result 由引擎發碼（#372 N71）：自己結束且非 0 是 VK0067，起不來或被停掉是 VK0066。
+#[test]
+fn runner_results_map_to_vk0066_and_vk0067() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    with_tests(&m);
+
+    for (runner, code_line, rc) in [
+        ("exited 1", "VK0067", "1"),
+        ("exited 255", "VK0067", "255"),
+        ("notstarted", "VK0066", "unavailable"),
+        ("stopped 130", "VK0066", "130"),
+        ("stopped unavailable", "VK0066", "unavailable"),
+    ] {
+        let (code, stdout, stderr, ops) = run_user(&m, "test/unit", runner);
+        assert_eq!(code, 2, "{runner}: {stderr}");
+        assert_data_eq!(stdout, "Install check passed.\n");
+        assert!(
+            stderr.starts_with(&format!("vendor_kit: error[{code_line}]: ")),
+            "{runner}: {stderr}"
+        );
+        assert!(
+            stderr.contains(&format!("Runner exit code: {rc}.")),
+            "{runner}: {stderr}"
+        );
+        assert_eq!(ops.len(), 1, "{runner}");
+    }
+}
+
+/// path 無效（VK0063）或安裝檢查不過（VK0062，整次 max(檢查碼, 2)）：runner 不啟動。
+#[test]
+fn invalid_path_or_failing_check_does_not_start_the_runner() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    with_tests(&m);
+
+    let (code, stdout, stderr, ops) = run_user(&m, "unit", "exited 0");
     assert_eq!(code, 2);
     assert_data_eq!(stdout, "");
     assert!(
         stderr.starts_with(
-            "vendor_kit: error[VK0056]: Internal vendor_kit error: test with a path is not implemented yet."
+            "vendor_kit: error[VK0063]: Invalid test path unit: it is not written as test/...."
         ),
         "{stderr}"
     );
+    assert!(ops.is_empty(), "{ops:?}");
+
+    fs::remove_file(m.root.join(".vendor_kit/gen/tools.just")).unwrap();
+    let (code, stdout, stderr, ops) = run_user(&m, "test/unit", "exited 0");
+    assert_eq!(code, 2);
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0047]: Cannot complete checks for /srv/proj: required local files are missing: .vendor_kit/gen/tools.just (missing). Run: just vendor_kit sync
+vendor_kit: error[VK0062]: Installation checks returned 2. No tests were started for test/unit. Resolve the check diagnostics and retry.
+
+"#]]
+    );
+    assert!(ops.is_empty(), "{ops:?}");
 }
