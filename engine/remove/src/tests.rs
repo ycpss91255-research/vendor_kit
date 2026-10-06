@@ -47,7 +47,7 @@ impl Fx {
         fs::create_dir_all(dir.gen_dir()).unwrap();
         fs::write(
             dir.gen_dir().join(txn::TOOLS_JUST),
-            "mod other '../cache/other/just/other.just'\nmod tool '../cache/tool/just/tool.just'\n",
+            "mod? other '../cache/other/just/other.just'\nmod? tool '../cache/tool/just/tool.just'\n",
         )
         .unwrap();
         fs::write(dir.root().join(".gitignore"), GITIGNORE).unwrap();
@@ -220,7 +220,7 @@ fn remove_keeps_the_other_tool_and_regenerates_the_entry() {
     assert_eq!(fx.read(".gitignore"), "user-owned\n");
     assert_eq!(
         fx.read(".vendor_kit/gen/tools.just"),
-        "mod other '../cache/other/just/other.just'\n"
+        "mod? other '../cache/other/just/other.just'\n"
     );
     let lock = fx.lock();
     assert!(lock.tool("tool").is_none());

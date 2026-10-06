@@ -16,7 +16,7 @@ use super::*;
 const WRITTEN_BY: &str = "vendor_kit 0.0.0";
 const ENGINE: &str = "ghcr.io/acme/vendor_kit:v1.0.0@sha256:1111111111111111111111111111111111111111111111111111111111111111";
 const TOOL: &str = "ghcr.io/acme/tool:v1.2.3@sha256:3333333333333333333333333333333333333333333333333333333333333333";
-const TOOLS_JUST_TEXT: &[u8] = b"mod tool '../cache/tool/dist/just/tool.just'\n";
+const TOOLS_JUST_TEXT: &[u8] = b"mod? tool '../cache/tool/dist/just/tool.just'\n";
 const RECORD_PATH: &str = "baseline/tool.toml";
 const RECORD_TEXT: &[u8] = b"schema = 1\n";
 const JUSTFILE_TEXT: &[u8] = b"import '.vendor_kit/entry.just'\n";

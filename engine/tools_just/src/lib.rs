@@ -1,9 +1,12 @@
 //! 入口檔 `.vendor_kit/gen/tools.just` 的內容（ADR-0004：`gen/tools.just` 每個 `<ns>` 一行；
 //! 04 命名空間：工具 recipe 的呼叫是 `just <ns> …`）。
 //!
-//! - 一行是 `mod <ns> '../cache/<repo>/just/<ns>.just'`。`just <ns> …` 要的是 module，所以用 `mod`，
-//!   不用 `import`（`import` 會把 recipe 併進上一層，沒有 `<ns>` 這一層）。
-//! - 路徑相對於 `gen/tools.just` 本身所在的目錄：just 解析 `mod` 的路徑時以寫著那一行的檔為準，
+//! - 一行是 `mod? <ns> '../cache/<repo>/just/<ns>.just'`。`just <ns> …` 要的是 module，所以用 `mod`，
+//!   不用 `import`（`import` 會把 recipe 併進上一層，沒有 `<ns>` 這一層）。加 `?` 是因為檔不在時
+//!   `mod` 會讓 just 解析整份 justfile 失敗：`cache/<repo>/` 一缺（prune、手動刪除、sync 中斷），
+//!   連救援用的 `just vendor_kit sync` 都跑不起來（ADR-0007 救援路徑永久可用）；`mod?` 缺檔時略過那個
+//!   module，其餘照常解析。
+//! - 路徑相對於 `gen/tools.just` 本身所在的目錄：just 解析 `mod?` 的路徑時以寫著那一行的檔為準，
 //!   被 `import` 進來的檔也一樣（just 1.53.0 實測；1.33.0 待驗收層實測）。`cache/<repo>/` 是取件內容
 //!   的根目錄（`fetch` 的暫存根目錄整份換進去），所以底下是 `just/<ns>.just`，沒有 `dist/`。
 //! - `<repo>` 與 `<ns>` 都是 just 名稱（`[A-Za-z_][A-Za-z0-9_-]*`），放進單引號字串不必跳脫；
@@ -12,7 +15,7 @@
 //!   （撞名，應該在 `fetch` 就擋下）也拒絕。沒有工具時內容是空的。
 //! - 沒有檔頭或註解：檔的每一行都是一個 `<ns>`。
 //! - 工具開著本機覆寫（`dev <repo> -p <dir>`，04 本機覆寫）時，那個工具的行改指本機開發來源：
-//!   `mod <ns> '../../<dir>/just/<ns>.just'`（[`render_with`]）。`<dir>` 是相對於安裝目錄、已正規化的
+//!   `mod? <ns> '../../<dir>/just/<ns>.just'`（[`render_with`]）。`<dir>` 是相對於安裝目錄、已正規化的
 //!   路徑（只由一般路徑段組成，或整個是 `.` 表示安裝目錄本身）；`gen/tools.just` 在 `.vendor_kit/gen/`，
 //!   所以前面接兩層 `..` 回到安裝目錄。本機目錄的內容與 `dist/` 同形（04：符合交付格式），底下同樣是
 //!   `just/<ns>.just`。路徑段含 `'` 或控制字元時放不進單引號字串，拒絕（[`Error::InvalidLocalDir`]）。
@@ -78,15 +81,15 @@ fn is_name(s: &str) -> bool {
 
 /// 一個 `<ns>` 的那一行（含結尾 LF）。
 pub fn line(repo: &str, ns: &str) -> String {
-    format!("mod {ns} '../cache/{repo}/just/{ns}.just'\n")
+    format!("mod? {ns} '../cache/{repo}/just/{ns}.just'\n")
 }
 
 /// 開著本機覆寫的工具的一行（含結尾 LF）：`dir` 是相對於安裝目錄的本機開發來源。
 pub fn local_line(dir: &str, ns: &str) -> String {
     if dir == "." {
-        format!("mod {ns} '../../just/{ns}.just'\n")
+        format!("mod? {ns} '../../just/{ns}.just'\n")
     } else {
-        format!("mod {ns} '../../{dir}/just/{ns}.just'\n")
+        format!("mod? {ns} '../../{dir}/just/{ns}.just'\n")
     }
 }
 
@@ -169,9 +172,9 @@ mod tests {
         .unwrap();
         assert_eq!(
             text,
-            "mod a_tool '../cache/a_tool/just/a_tool.just'\n\
-             mod base '../cache/base/just/base.just'\n\
-             mod lint '../cache/a_tool/just/lint.just'\n"
+            "mod? a_tool '../cache/a_tool/just/a_tool.just'\n\
+             mod? base '../cache/base/just/base.just'\n\
+             mod? lint '../cache/a_tool/just/lint.just'\n"
         );
     }
 
@@ -193,13 +196,13 @@ mod tests {
         local.insert("a".to_owned(), "dev/a-tool".to_owned());
         assert_eq!(
             render_with(&tools, &local).unwrap(),
-            "mod a '../../dev/a-tool/just/a.just'\n\
-             mod b '../cache/b/just/b.just'\n"
+            "mod? a '../../dev/a-tool/just/a.just'\n\
+             mod? b '../cache/b/just/b.just'\n"
         );
         local.insert("a".to_owned(), ".".to_owned());
         assert_eq!(
             render_with(&tools[..1], &local).unwrap(),
-            "mod a '../../just/a.just'\n"
+            "mod? a '../../just/a.just'\n"
         );
         for bad in ["/abs", "../up", "a/../b", "a//b", "./a", "it's", "a\nb", ""] {
             local.insert("a".to_owned(), bad.to_owned());

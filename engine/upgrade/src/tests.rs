@@ -335,7 +335,7 @@ fn assert_landed(fx: &Fx) {
     assert_eq!(stamp.version(), new_locked());
     assert_eq!(
         fs::read_to_string(fx.dir.gen_dir().join("tools.just")).unwrap(),
-        "mod tool '../cache/tool/just/tool.just'\n"
+        "mod? tool '../cache/tool/just/tool.just'\n"
     );
     assert!(progress::find(&fx.dir).unwrap().is_empty());
 }

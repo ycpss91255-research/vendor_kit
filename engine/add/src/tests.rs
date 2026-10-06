@@ -274,7 +274,7 @@ fn success_without_init_files() {
     );
     assert_eq!(
         fs::read_to_string(fx.dir.gen_dir().join("tools.just")).unwrap(),
-        "mod tool '../cache/tool/just/tool.just'\n"
+        "mod? tool '../cache/tool/just/tool.just'\n"
     );
     let stamp = stamp::Stamp::load(&stamp_file(&fx.dir, "tool"))
         .unwrap()

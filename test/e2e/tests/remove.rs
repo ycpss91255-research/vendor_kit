@@ -66,7 +66,7 @@ fn installed_with_insert(m: &Mounts, hash_of: &str) {
     fs::create_dir_all(vk.join("gen")).unwrap();
     fs::write(
         vk.join("gen/tools.just"),
-        "mod tool '../cache/tool/just/tool.just'\n",
+        "mod? tool '../cache/tool/just/tool.just'\n",
     )
     .unwrap();
     fs::write(m.root.join(".gitignore"), GITIGNORE).unwrap();

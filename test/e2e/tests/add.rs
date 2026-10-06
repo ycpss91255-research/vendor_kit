@@ -186,8 +186,8 @@ Added tool v1.2.0 (ghcr.io/acme/tool:v1.2.0@sha256:22222222222222222222222222222
     assert_data_eq!(
         fs::read_to_string(vk.join("gen/tools.just")).unwrap(),
         snapbox::str![[r#"
-mod tool '../cache/tool/just/tool.just'
-mod tool-extra '../cache/tool/just/tool-extra.just'
+mod? tool '../cache/tool/just/tool.just'
+mod? tool-extra '../cache/tool/just/tool-extra.just'
 
 "#]]
     );
