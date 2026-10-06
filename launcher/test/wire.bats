@@ -39,6 +39,8 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
         "inspect $pinned" "inspect\n$pinned"
         "extract sha256:$B x1" "extract\nsha256:$B\nx1"
         'stage e:/srv/u/.ghcr\\040token t1' "stage\n/srv/u/.ghcr\\\\ token\nt1"
+        # stage-dir 是啟動器先認的 op（N48）：引擎端加進 OPS 時，這一條改成照 engine/plan/src/tests.rs 的 golden。
+        'stage-dir e:/srv/u/my\\040src d1' "stage-dir\n/srv/u/my\\\\ src\nd1"
         "ps" "ps"
         "rm-container $B" "rm-container\n$B"
         'runner ghcr.io/u/test:1 e:pytest e:-q e: e:tests/a\\134b.py' "runner\nghcr.io/u/test:1\npytest\n-q\n''\ntests/a\\\\\\\\b.py"
@@ -61,11 +63,35 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
 
 @test "op names are the closed set of engine/plan" {
     vk 'printf "%s\n" "${vk_wire_ops[*]}" "${vk_wire_argv[*]}" "$vk_wire_mount_root $vk_wire_mount_ctl $vk_wire_mount_in" "$vk_wire_in_engine"'
-    [ "${lines[0]}" = "pull load inspect extract stage ps rm-container runner" ]
+    [ "${lines[0]}" = "pull load inspect extract stage stage-dir ps rm-container runner" ]
     [ "${lines[1]}" = "--protocol --run-id --host-root --host-cwd --run-log --tty --no-color" ]
     [ "${lines[2]}" = "/vk/root /vk/ctl /vk/in" ]
     # 救援協定的一部分，跟引擎端讀的檔名一致
     [ "${lines[3]}" = engine ]
+}
+
+@test "the launcher knows every op of engine/plan and at most the pending stage-dir besides" {
+    # 啟動器先 merge、引擎後加 op（N48 的 stage-dir）時，兩邊有一段時間不相等：
+    # 這裡比對的是「啟動器認得的 ⊇ engine/plan 的 OPS」，多出來的只准是還沒落地的 stage-dir。
+    local src re='pub const OPS: \[&str; [0-9]+\] = \[([^]]*)\]'
+    src=$(<"$repo_root/engine/plan/src/lib.rs")
+    [[ $src =~ $re ]]
+    local -a engine_ops
+    read -r -a engine_ops <<<"$(printf '%s' "${BASH_REMATCH[1]}" | tr '\n,"' '   ')"
+    [ "${#engine_ops[@]}" -gt 0 ]
+    vk 'printf "%s\n" "${vk_wire_ops[@]}"'
+    [ "$status" -eq 0 ]
+    local o extra=()
+    for o in "${engine_ops[@]}"; do
+        printf '%s\n' "${lines[@]}" | grep -qxF -- "$o" || {
+            echo "launcher does not know engine op $o" >&2
+            return 1
+        }
+    done
+    for o in "${lines[@]}"; do
+        printf '%s\n' "${engine_ops[@]}" | grep -qxF -- "$o" || extra+=("$o")
+    done
+    [ "${extra[*]}" = "" ] || [ "${extra[*]}" = stage-dir ]
 }
 
 @test "free-text fields decode exactly like field_encoding_is_exact" {
@@ -151,6 +177,13 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
         'vk-resolve/1 r1 1\nload e:\n'
         'vk-resolve/1 r1 1\nload /srv/u/a.tar\n'
         'vk-resolve/1 r1 1\nstage e:token t1\n'
+        'vk-resolve/1 r1 1\nstage-dir e:src d1\n'
+        'vk-resolve/1 r1 1\nstage-dir e:\n'
+        'vk-resolve/1 r1 1\nstage-dir /srv/u/src d1\n'
+        'vk-resolve/1 r1 1\nstage-dir e:/srv/u/src\n'
+        'vk-resolve/1 r1 1\nstage-dir e:/srv/u/src D1\n'
+        'vk-resolve/1 r1 1\nstage-dir e:/srv/u/src d1 d2\n'
+        'vk-resolve/1 r1 1\nstage_dir e:/srv/u/src d1\n'
         "vk-resolve/1 r1 1\nrm-container ${B:0:12}\n"
         'vk-resolve/1 r1 1\nrunner ghcr.io/u/test:1\n'
         'vk-resolve/1 r1 1\nrunner ghcr.io/u/test:1 pytest\n'

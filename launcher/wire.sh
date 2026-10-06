@@ -15,8 +15,9 @@
 # inspect、extract、stage）跨介面版永久不變（#372 維護者 10/05 定救援路徑協定選 A）；改了就破壞救援，P+1 也不能改。
 
 vk_wire_grammar=vk-resolve
-# op 的封閉集合，依文法的順序（engine/plan 的 OPS）。
-vk_wire_ops=(pull load inspect extract stage ps rm-container runner)
+# op 的封閉集合，依文法的順序（engine/plan 的 OPS）。stage-dir（N48，開發來源的目錄）先在啟動器這邊認，
+# 引擎端之後才加進 OPS（同一個位置）；在那之前啟動器比引擎多認這一個，wire.bats 檢查的是 ⊇ 與差集。
+vk_wire_ops=(pull load inspect extract stage stage-dir ps rm-container runner)
 # 引擎入口的具名選項，依傳的順序（engine/plan 的 argv::ORDER），之後接 `--`。
 vk_wire_argv=(--protocol --run-id --host-root --host-cwd --run-log --tty --no-color)
 # 引擎容器內的掛載點（engine/plan 的 mount）。
@@ -25,7 +26,7 @@ vk_wire_mount_ctl=/vk/ctl
 vk_wire_mount_in=/vk/in
 # in/ 裡啟動器放的引擎引用檔（容器內 /vk/in/engine）：這次起的引擎 image 的 pinned 引用，一行、LF 結尾。
 # 引擎 image 不可能含有自己的 index digest，救援 argv 又凍結，所以由這個檔交給引擎（N37）。
-# 不會跟 tool<N> 的 slot 撞名；stage、extract 遇到已存在的 slot 一律拒絕，也蓋不掉這個檔。
+# 不會跟 tool<N> 的 slot 撞名；stage、stage-dir、extract 遇到已存在的 slot 一律拒絕，也蓋不掉這個檔。
 vk_wire_in_engine=engine
 
 # 各欄的型別（engine/plan 的 ABNF）。fld 的 0x21–0x7E 不含反斜線 0x5C；八進位只收 001–377。
@@ -171,6 +172,13 @@ vk_wire_operands() {
         vk_req_args=("$1" "$2")
         ;;
     stage)
+        if ((n != 2)) || [[ ! $2 =~ $vk_wire_re_slot ]] || ! vk_wire_field "$1" || [[ $REPLY != /* ]]; then
+            return 1
+        fi
+        vk_req_args=("$REPLY" "$2")
+        ;;
+    stage-dir)
+        # 運算元跟 stage 一樣：主機上的絕對路徑（自由文字欄）與 slot；複製的是目錄。不屬救援路徑。
         if ((n != 2)) || [[ ! $2 =~ $vk_wire_re_slot ]] || ! vk_wire_field "$1" || [[ $REPLY != /* ]]; then
             return 1
         fi

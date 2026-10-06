@@ -13,7 +13,7 @@
 # - repo 外的 session 目錄 `${TMPDIR:-/tmp}/vendor_kit.<run-id>/`，以 mkdir -m 700 排他建立；
 #   底下 ctl/ 可寫掛在 /vk/ctl、in/ 唯讀掛在 /vk/in，安裝目錄掛在 /vk/root。
 # - 起引擎之前先把這次用的 pinned 引用寫成 in/engine（wire.sh 的 vk_wire_in_engine；先 .tmp 再 mv），
-#   救援呼叫也寫。之後 stage、extract 到同名 slot 都會被拒，整次只寫這一次。
+#   救援呼叫也寫。之後 stage、stage-dir、extract 到同名 slot 都會被拒，整次只寫這一次。
 # - `docker create -i --init` 先拿到容器 ID，再以前景 `docker start -ai` 起引擎（stdin 接通、不帶 -t，
 #   stdout 與 stderr 分開）；代辦迴圈（vk_launch_serve）在背景跑，結果寫 res.<seq>（先 .tmp 再 mv）。
 # - 中斷（N49）：引擎不當 PID 1，由 --init 的 tini 把 docker CLI 轉來的 SIGINT、SIGTERM 交給引擎
@@ -402,6 +402,10 @@ vk_launch_dispatch() {
             rc=$?
         fi
         ;;
+    stage-dir)
+        vk_launch_stage_dir "${a[0]}" "$in/${a[1]}"
+        rc=$REPLY
+        ;;
     ps)
         docker ps -a --no-trunc --filter "label=$vk_label_root=$root" --filter status=exited --format '{{.ID}}' >"$out"
         rc=$?
@@ -457,6 +461,20 @@ vk_launch_extract() {
         rc=$rm_rc
     fi
     REPLY=$rc
+}
+
+# vk_launch_stage_dir <host dir> <dest>：把主機上的目錄整個複製進 dest（in/<slot>，唯讀掛進引擎；N48 的開發來源）。
+# 結束碼放進 REPLY：來源不是目錄、dest 已存在或建不出來是 1，其他是 cp 的碼。
+# 複製的是 "<host dir>/." 而不是 <host dir> 本身：來源是 symlink 時 cp -R 不跟隨命令列上的連結，
+# dest 會變成指向容器外路徑的連結；先建 dest 再複製內容就沒有這個問題。
+vk_launch_stage_dir() {
+    local src=$1 dest=$2
+    if [[ ! -d $src || -e $dest ]] || ! mkdir -- "$dest" 2>/dev/null; then
+        REPLY=1
+        return 0
+    fi
+    cp -R -- "$src/." "$dest"
+    REPLY=$?
 }
 
 # vk_launch_runner <sess> <root> <image> <command> [<arg>...]：test runner（04 test）：
