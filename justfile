@@ -33,3 +33,9 @@ bootstrap ref dest:
     docker build --target bootstrap \
         --build-arg VK_ENGINE_REF={{ quote(ref) }} --build-arg "VK_PROTOCOL_CURRENT=$proto" \
         --output type=local,dest={{ quote(dest) }} -f image/Dockerfile .
+
+# 驗收層（test/acceptance/run.sh，ADR-0010）：另起一個不連外網的 docker:dind，用剛建好的引擎 image 走公開入口
+# 跑生命週期；需要 daemon，所以不在 image/Dockerfile 的 stage 鏈裡。args 原樣轉給 bats（例如 --filter sync）。
+[positional-arguments]
+acceptance *args:
+    bash test/acceptance/run.sh "$@"
