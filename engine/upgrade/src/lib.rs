@@ -126,7 +126,12 @@
 //! - 覆寫指到不在版本鎖定行的工具：ADR-0002 說覆寫只覆蓋已存在的鎖定行，訊息表沒有代碼
 //!   （`version_file::OrphanOverrides`），停下（同 engine/sync）。
 //! - 開著覆寫的工具的本機開發來源交付保留名 `vendor_kit`：沒有代碼，停下（同 engine/sync）。
-//! - 其他已裝工具的 `cache/<repo>/` 讀不到（例如全新 checkout 還沒 `sync`）：撞名判定與入口檔都要它。
+//! - 其他已裝、沒開覆寫的工具的 `cache/<repo>/` 讀不到（N4）：撞名判定與入口檔都要它的 `<ns>`。
+//!   只在真的要換版（或恢復殘留的 `upgrade`）、要讀其他工具時才讀，在落地之前收齊全部讀不到的工具
+//!   一起報（`fetch::CacheCheck`）：
+//!   不在的合成一則、下一步 `run just vendor_kit sync first`；讀不到或損壞的各一則、保留實際原因。
+//!   兩種的草稿碼登錄前以 VK0056 停下，`<reason>` 結尾寫明草稿碼（`fetch::DRAFT_CACHE_MISSING`、
+//!   `fetch::DRAFT_CACHE_UNREADABLE`）。
 //! - 殘留的進度檔不是 `upgrade` 的；殘留的是引擎 upgrade；或殘留的工具 upgrade 寫過初始檔相關的檔（那次
 //!   寫了哪些沒有記錄，重新判定會把它自己寫的內容當成使用者改的）。
 //! - 已知偏離：恢復殘留 `upgrade` 的寫入排在這次的詢問之前，04 共同選項要先問完再寫（含恢復）。能恢復
@@ -342,6 +347,15 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
 
     fn gap(&mut self, what: impl std::fmt::Display) -> Stop {
         self.internal(format!("{what} is not supported yet"))
+    }
+
+    /// 其他已裝工具的 `cache/<repo>/` 讀不到（N4）：收齊的每則 `<reason>` 各印一則 VK0056 再停下（草稿碼
+    /// 登錄前的過渡做法，見 `fetch::CacheCheck`）。
+    fn unready(&mut self, check: &fetch::CacheCheck) -> Stop {
+        for reason in check.reasons() {
+            let _ = self.internal(reason);
+        }
+        Stop
     }
 
     /// 底層 crate 回的錯：有代碼就照代碼印（只有一個 `<file>` 占位符的代碼），否則當內部錯誤。
@@ -885,6 +899,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
     fn installed(&mut self, repo: &str, lockfile: &LockFile) -> Step<Installed> {
         let mut taken = Taken::new();
         let mut namespaces = BTreeMap::new();
+        let mut check = fetch::CacheCheck::default();
         for other in lockfile.tools().keys().filter(|r| r.as_str() != repo) {
             if let Some(l) = self.local.get(other) {
                 taken.tool(other, l.namespaces.iter().cloned());
@@ -895,18 +910,16 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                 Ok(c) => c,
                 Err(e) => return Err(self.internal(e.to_string())),
             };
-            match fetch::namespaces(&cache) {
+            match fetch::cached_namespaces(&cache) {
                 Ok(ns) => {
                     taken.tool(other, ns.iter().cloned());
                     namespaces.insert(other.clone(), ns);
                 }
-                Err(e) => {
-                    return Err(self.gap(format_args!(
-                        "upgrade while the cache of installed tool {other} is unreadable ({e}); \
-                         run just vendor_kit sync first"
-                    )));
-                }
+                Err(e) => check.push(other, e),
             }
+        }
+        if !check.is_empty() {
+            return Err(self.unready(&check));
         }
         let justfile = self.env.dir.root().join("justfile");
         match fs::read(&justfile) {

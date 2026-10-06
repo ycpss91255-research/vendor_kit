@@ -65,6 +65,51 @@ const ALLOWS: &[Allow] = &[
         code: "VK0075",
         reason: "e2e 比對 test dist 以 VK0056 停下時原因裡寫的草稿碼（N78、N24）",
     },
+    Allow {
+        path: "engine/fetch/src/lib.rs",
+        code: "VK0068",
+        reason: "其他工具的 cache/<repo>/ 不在、下一步 sync 的草稿碼（N4），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
+    },
+    Allow {
+        path: "engine/fetch/src/lib.rs",
+        code: "VK0073",
+        reason: "其他工具的 cache/<repo>/ 讀不到或損壞的草稿碼（N4），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
+    },
+    Allow {
+        path: "test/e2e/tests/add.rs",
+        code: "VK0068",
+        reason: "驗 add 遇到其他工具 cache 不在時原因寫明草稿碼（N4）；e2e 不能依賴 engine crate 的常數",
+    },
+    Allow {
+        path: "test/e2e/tests/upgrade.rs",
+        code: "VK0068",
+        reason: "驗 upgrade 遇到其他工具 cache 不在時原因寫明草稿碼（N4）；e2e 不能依賴 engine crate 的常數",
+    },
+    Allow {
+        path: "test/e2e/tests/upgrade.rs",
+        code: "VK0073",
+        reason: "驗 upgrade 遇到其他工具 cache 損壞時原因寫明草稿碼（N4）；e2e 不能依賴 engine crate 的常數",
+    },
+    Allow {
+        path: "test/e2e/tests/remove.rs",
+        code: "VK0068",
+        reason: "驗 remove 遇到其他工具 cache 不在時原因寫明草稿碼（N4）；e2e 不能依賴 engine crate 的常數",
+    },
+    Allow {
+        path: "test/e2e/tests/remove.rs",
+        code: "VK0073",
+        reason: "驗 remove 遇到其他工具 cache 損壞時原因寫明草稿碼（N4）；e2e 不能依賴 engine crate 的常數",
+    },
+    Allow {
+        path: "test/e2e/tests/dev.rs",
+        code: "VK0068",
+        reason: "驗 dev 遇到其他工具 cache 不在時原因寫明草稿碼（N4）；e2e 不能依賴 engine crate 的常數",
+    },
+    Allow {
+        path: "test/e2e/tests/dev.rs",
+        code: "VK0073",
+        reason: "驗 dev 遇到其他工具 cache 損壞時原因寫明草稿碼（N4）；e2e 不能依賴 engine crate 的常數",
+    },
 ];
 
 fn repo_root() -> PathBuf {

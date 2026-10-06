@@ -407,3 +407,58 @@ fn owner_fills_vk0030_owner() {
     assert!(Owner::RootRecipe.to_string().contains("recipe"));
     assert!(Owner::RootModule.to_string().contains("module"));
 }
+
+// ---------------------------------------------------------------------------
+// 已裝工具的 cache/<repo>/（N4）
+
+#[test]
+fn cached_namespaces_reads_an_installed_cache() {
+    let dir = staged_tree();
+    let ns = cached_namespaces(dir.path()).unwrap();
+    assert_eq!(ns, vec!["tool".to_owned(), "tool_ext".to_owned()]);
+}
+
+#[test]
+fn cached_namespaces_reports_a_missing_cache_as_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let got = cached_namespaces(&dir.path().join("cache/tool"));
+    assert!(matches!(got, Err(CacheError::Missing)), "{got:?}");
+}
+
+#[test]
+fn cached_namespaces_keeps_the_reason_of_a_broken_cache() {
+    // cache/<repo>/ 在，但 just/ 是一般檔：不是「還沒 sync」，保留實際原因。
+    let dir = tree(&[("just", b"not a dir")]);
+    let got = cached_namespaces(dir.path());
+    match got {
+        Err(CacheError::Unreadable(FormatError::NoJustDir)) => {}
+        other => panic!("{other:?}"),
+    }
+    // cache/<repo> 本身是一般檔。
+    let file = tree(&[("tool", b"x")]);
+    let got = cached_namespaces(&file.path().join("tool"));
+    assert!(matches!(got, Err(CacheError::Unreadable(_))), "{got:?}");
+}
+
+#[test]
+fn cache_check_lists_every_missing_tool_in_one_reason_and_each_broken_one_apart() {
+    let mut check = CacheCheck::default();
+    assert!(check.is_empty());
+    check.push("alpha", CacheError::Missing);
+    check.push("beta", CacheError::Unreadable(FormatError::NoJustDir));
+    check.push("gamma", CacheError::Missing);
+    assert!(!check.is_empty());
+    assert_eq!(
+        check.reasons(),
+        vec![
+            format!(
+                "the cache of installed tools is missing: .vendor_kit/cache/alpha/, \
+                 .vendor_kit/cache/gamma/; run just vendor_kit sync first; {DRAFT_CACHE_MISSING}"
+            ),
+            format!(
+                "the cache of installed tool beta (.vendor_kit/cache/beta/) cannot be read: \
+                 dist has no just/ directory; {DRAFT_CACHE_UNREADABLE}"
+            ),
+        ]
+    );
+}
