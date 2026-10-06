@@ -10,9 +10,44 @@ permissions:
 
 jobs:
   # 與本機 `just test` 同一條鏈：image/Dockerfile 的 test stage（fmt、clippy、全部測試）。
+  # just 版本矩陣（ADR-0011）：1.33.0 是主機需求的下限，用 Dockerfile 的預設、必過；latest 是提早看見上游變動的哨兵，
+  # 紅了不擋合併（continue-on-error），進 issue 討論。
   test:
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.just == 'latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        just: ['1.33.0', latest]
     steps:
       - uses: actions/checkout@v4
+      # 1.33.0：核對矩陣的版本就是 Dockerfile 的預設，不帶 build-arg。
+      # latest：查上游最新的 release，雜湊取自該版的 SHA256SUMS，以 build-arg 換掉 Dockerfile 的預設。
+      - name: just version
+        id: just
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JUST: ${{ matrix.just }}
+        run: |
+          set -euo pipefail
+          if [ "$JUST" != latest ]; then
+            grep -qx "ARG JUST_VERSION=$JUST" image/Dockerfile
+            echo "args=" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version=$(gh api repos/casey/just/releases/latest --jq .tag_name)
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          sums=$(curl -fsSL --retry 3 "https://github.com/casey/just/releases/download/$version/SHA256SUMS")
+          sum_of() {
+            awk -v f="just-$version-$1-unknown-linux-musl.tar.gz" '$2 == f { print $1 }' <<<"$sums"
+          }
+          x86_64=$(sum_of x86_64)
+          aarch64=$(sum_of aarch64)
+          [[ $x86_64 =~ ^[0-9a-f]{64}$ && $aarch64 =~ ^[0-9a-f]{64}$ ]]
+          echo "just $version"
+          echo "args=--build-arg JUST_VERSION=$version --build-arg JUST_SHA256_X86_64=$x86_64 --build-arg JUST_SHA256_AARCH64=$aarch64" >>"$GITHUB_OUTPUT"
       - name: just test
-        run: docker build --target test -f image/Dockerfile .
+        env:
+          JUST_ARGS: ${{ steps.just.outputs.args }}
+        # JUST_ARGS 不加引號：空白分開的 --build-arg，值都已在上一步核對過格式。
+        run: docker build --target test $JUST_ARGS -f image/Dockerfile .
