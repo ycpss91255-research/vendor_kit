@@ -579,15 +579,112 @@ fn stamp_schema_too_new_is_fatal_before_any_fetch() {
     );
 }
 
+/// `tool` 開著本機覆寫，指到安裝目錄裡的 `work/tool/`（交付 `tool`、`tool-extra`）。
+fn override_tool(fx: &Fx, source: &str) {
+    content(&fx.dir.root().join("work/tool"), TOOL.namespaces);
+    fs::write(
+        fx.dir.version_local_toml(),
+        format!("schema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"{source}\"\n"),
+    )
+    .unwrap();
+}
+
+const OVERRIDE_GEN: &str = "mod other '../cache/other/just/other.just'\n\
+                            mod tool '../../work/tool/just/tool.just'\n\
+                            mod tool-extra '../../work/tool/just/tool-extra.just'\n";
+
 #[test]
-fn local_tool_override_stops_as_a_gap() {
+fn local_override_uses_the_local_source_and_other_tools_sync_as_usual() {
+    let fx = Fx::new(&[&TOOL, &OTHER]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    override_tool(&fx, "./work/x/../tool");
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(out.ops, ["inspect", "extract"], "only other is fetched");
+    assert_eq!(
+        out.stdout,
+        format!(
+            "tool uses the local source work/tool (local override).\n\
+             Fetched other v1.2.0 ({}).\n\
+             Updated .vendor_kit/gen/tools.just.\n",
+            OTHER.locked()
+        )
+    );
+    assert_eq!(fx.entry().unwrap(), OVERRIDE_GEN);
+    // 覆寫的工具不取件、不寫 cache/ 與印記；其他工具照常。
+    assert!(!fx.dir.tool_cache("tool").unwrap().exists());
+    assert!(fx.stamp("tool").is_none());
+    assert_eq!(fx.stamp("other").unwrap().version(), OTHER.locked());
+    assert_eq!(fs::read(fx.dir.version_toml()).unwrap(), lock);
+    assert!(progress::find(&fx.dir).unwrap().is_empty());
+
+    // 再 sync：沒有變更，照樣報告用了哪個覆寫，什麼都不寫。
+    let again = run_sync(&fx, all_local());
+    assert_eq!(again.code, 0, "{}", again.stderr);
+    assert!(again.ops.is_empty());
+    assert_eq!(
+        again.stdout,
+        "tool uses the local source work/tool (local override).\n"
+    );
+    assert!(again.log.is_empty());
+    assert_eq!(fx.entry().unwrap(), OVERRIDE_GEN);
+}
+
+#[test]
+fn local_override_keeps_the_locked_cache_untouched() {
     let fx = Fx::new(&[&TOOL]);
+    synced(&fx);
+    let cache = fx.dir.tool_cache("tool").unwrap();
+    let stamp_before = fs::read(stamp::tool_file(&fx.dir, "tool")).unwrap();
+    // 鎖定版本的 cache 被改過：覆寫期間 sync 不看它。
+    fs::write(cache.join("share/readme.txt"), "edited\n").unwrap();
+    override_tool(&fx, "work/tool");
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert!(out.ops.is_empty());
+    assert_eq!(
+        fx.entry().unwrap(),
+        "mod tool '../../work/tool/just/tool.just'\n\
+         mod tool-extra '../../work/tool/just/tool-extra.just'\n"
+    );
+    assert_eq!(
+        fs::read_to_string(cache.join("share/readme.txt")).unwrap(),
+        "edited\n"
+    );
+    assert_eq!(
+        fs::read(stamp::tool_file(&fx.dir, "tool")).unwrap(),
+        stamp_before
+    );
+}
+
+#[test]
+fn unreadable_local_source_is_vk0052_and_writes_nothing() {
+    let fx = Fx::new(&[&TOOL, &OTHER]);
     let lock = fs::read(fx.dir.version_toml()).unwrap();
     fs::write(
         fx.dir.version_local_toml(),
-        "schema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"../tool\"\n",
+        "schema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"work/tool\"\n",
     )
     .unwrap();
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 2);
+    assert!(out.ops.is_empty(), "other is not fetched either");
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0052]: Cannot read the local override source work/tool for tool: the directory does not exist. Run: just vendor_kit undev tool\n"
+    );
+    assert!(untouched(&fx, &lock));
+    assert!(out.log.is_empty());
+}
+
+#[test]
+fn override_without_a_lock_version_line_stops_as_a_gap() {
+    let fx = Fx::new(&[&OTHER]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    override_tool(&fx, "work/tool");
     let out = run_sync(&fx, all_local());
     assert_eq!(out.code, 2);
     assert!(out.ops.is_empty());
@@ -596,8 +693,74 @@ fn local_tool_override_stops_as_a_gap() {
         "{}",
         out.stderr
     );
-    assert!(out.stderr.contains("local override"), "{}", out.stderr);
+    assert!(out.stderr.contains("tool"), "{}", out.stderr);
     assert!(untouched(&fx, &lock));
+}
+
+#[test]
+fn residual_undev_is_vk0053_and_is_left_in_place() {
+    let fx = Fx::new(&[&TOOL]);
+    synced(&fx);
+    let entry_before = fx.entry().unwrap();
+    let mut p = Progress::new(UNDEV_VERB, "old1", &["undev", "tool"]).unwrap();
+    p.document_mut()
+        .set(&[UNDEV_VERB, UNDEV_TARGET_KEY], "tool")
+        .unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    // 入口檔還指著本機目錄（undev 解除覆寫後、入口檔寫好前斷掉）。
+    fs::write(
+        fx.dir.gen_dir().join("tools.just"),
+        "mod tool '../../work/tool/just/tool.just'\n",
+    )
+    .unwrap();
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 2);
+    assert!(out.ops.is_empty());
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0053]: The undev operation for tool is incomplete. Run again: just vendor_kit undev tool\n"
+    );
+    // sync 不代替 undev 完成或清掉進度檔。
+    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
+    assert_ne!(fx.entry().unwrap(), entry_before);
+}
+
+#[test]
+fn residual_upgrade_stops_as_a_gap_with_the_original_command() {
+    let fx = Fx::new(&[&TOOL]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    let mut p = Progress::new(UPGRADE_VERB, "old1", &["upgrade", "tool@v1.3.0", "-y"]).unwrap();
+    p.document_mut()
+        .set(
+            &[progress::upgrade::TABLE, progress::upgrade::TARGET],
+            "tool",
+        )
+        .unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 2);
+    assert!(out.ops.is_empty());
+    assert!(
+        out.stderr.starts_with("vendor_kit: error[VK0056]: "),
+        "{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr
+            .contains("incomplete upgrade of tool in .vendor_kit/.tmp.upgrade.old1.toml"),
+        "{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr
+            .contains("run again: just vendor_kit upgrade tool@v1.3.0 -y"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(fs::read(fx.dir.version_toml()).unwrap(), lock);
+    assert!(!fx.dir.cache_dir().exists());
+    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
 }
 
 #[test]

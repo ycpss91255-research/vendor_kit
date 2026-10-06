@@ -1,4 +1,5 @@
-//! `sync` 指令（04 指令表 `sync`、04 sync 節）：依版本鎖定行同步全部已導入工具的 `cache/` 與 `gen/`。
+//! `sync` 指令（04 指令表 `sync`、04 sync 節、04 本機覆寫）：依版本鎖定行同步全部已導入工具的 `cache/` 與
+//! `gen/`；開著本機覆寫的工具改用本機開發來源。
 //!
 //! 呼叫端（入口 `vendor_kit`）已解析好參數、判過安裝目錄（VK0028），並接好執行紀錄與 `plan` 往返。
 //! 這裡依序做：
@@ -11,9 +12,10 @@
 //!    並列出每個原因）。這一段只讀、不取件、不寫：
 //!    - 每個讀到的 VK 檔（`version.local.toml`、進度檔、每個工具的印記）檔案版過高：VK0008。
 //!    - 殘留的進度檔：`sync` 自己的留到這次一起完成（見下面「恢復」）；`add` 的回 VK0004（`sync` 不代替
-//!      完成導入）；其他的見「缺口」。
-//!    - 每個工具的印記：不在（首次取件，不算損壞）、損壞（VK0044）或讀得到。
-//! 5. 逐工具判定要不要重取（04 sync 表）：
+//!      完成導入）；`undev` 的回 VK0053（見「本機覆寫」）；其他的見「缺口」。
+//!    - `version.local.toml` 的工具覆寫：讀本機開發來源（見「本機覆寫」），讀不到回 VK0052。
+//!    - 沒有覆寫的工具的印記：不在（首次取件，不算損壞）、損壞（VK0044）或讀得到。
+//! 5. 沒有覆寫的工具逐一判定要不要重取（04 sync 表）：
 //!    - 印記不在：取件，不警告。
 //!    - 印記損壞：重新取件並重建印記，警告 VK0044。
 //!    - 印記的版本與版本鎖定行不同（例如 `git pull` 換了鎖定行）：取件，不警告；VK0015 的情況只講檔案集合
@@ -26,12 +28,32 @@
 //!    [`plan::RESCUE_OPS`] 裡的 op：`sync` 是救援路徑（ADR-0007、ADR-0008 凍結子集）。
 //! 7. `fetch::verify`：inspect 回來的 RepoDigests 要有版本鎖定行的 digest，不符回 VK0043（不報 VK0015）；
 //!    dist 格式、逐檔指紋。一個工具失敗時其他工具照樣取件驗證，列出每個原因，但一個都不落地。
-//! 8. 用 `tools_just` 依這次的全部工具（重取的用暫存內容的 `<ns>`，沒重取的讀 `cache/<repo>/`）重產
-//!    `gen/tools.just`，與現有內容逐位元組比對。
-//! 9. 沒有要重取的工具、入口檔不變、也沒有殘留的 `sync` 進度檔：什麼都不寫，stdout 不印（[`text`]）。
+//! 8. 用 `tools_just::render_with` 依這次的全部工具（重取的用暫存內容的 `<ns>`，沒重取的讀 `cache/<repo>/`，
+//!    開著覆寫的讀本機開發來源）重產 `gen/tools.just`，與現有內容逐位元組比對。開著覆寫的工具那幾行指向
+//!    本機開發來源。
+//! 9. 沒有要重取的工具、入口檔不變、也沒有殘留的 `sync` 進度檔：什麼都不寫，stdout 只報告用了哪個覆寫
+//!    （沒有覆寫就不印，[`text`]）。
 //! 10. 否則重驗暫存內容（ADR-0006 第三層），經 `txn` 依序落地：`cache/<repo>/` 與印記、`gen/tools.just`；
 //!     不改版本鎖定行（04 成對與無害：`sync` 不改追蹤檔），最後刪進度檔。
-//! 11. stdout 列出改了什麼；VK0015、VK0044 在落地之後才印（本文是「已重新取件」）。
+//! 11. stdout 先報告用了哪個覆寫，再列出改了什麼；VK0015、VK0044 在落地之後才印（本文是「已重新取件」）。
+//!
+//! # 本機覆寫
+//!
+//! `version.local.toml` 有工具的覆寫（`dev <repo> -p <dir>`）時，那個工具在覆寫期間的內容由本機開發來源決定
+//! （02 不變量 2 的本機覆寫例外；名詞表的本機覆寫、本機開發來源），跟 engine/dev 的做法一致：
+//!
+//! - 不取件，不看也不寫那個工具的 `cache/<repo>/` 與印記（`cache/<repo>/` 留著鎖定版本，`undev` 才能不讀
+//!   原來源就回到鎖定版本）。
+//! - `<ns>` 從本機開發來源讀：值照 engine/dev 以安裝目錄為準正規化，要存在、是目錄、每一段都不是 symlink、
+//!   符合交付格式、交付 `<repo>.just`（[`local`]）；讀不到回 VK0052（04 本機覆寫：覆寫來源失效只擋需讀它的
+//!   動作；`sync` 重產入口檔要讀它），跟其他停下原因一起列出，什麼都不寫。
+//! - `gen/tools.just` 那個工具的行指向本機開發來源（`tools_just::local_line`）。
+//! - 每次報告用了哪個覆寫（04 本機覆寫：不加診斷前綴，`update` 以外到 stdout），沒有變更時也印。
+//! - 其他工具照常依版本鎖定行判定、取件、落地。引擎的覆寫與工具同步無關，不看。
+//! - 殘留的 `undev` 進度檔：04 本機覆寫說 `undev` 同步未完成時覆寫已解除、須重跑原 `undev`，`sync` 不代替
+//!   完成或清掉它；訊息表 VK0053 寫的就是這件事（「sync 不代替 undev 清掉進度檔」），所以回 VK0053，
+//!   `<target>` 讀進度檔 `[undev] target`、`<undev_command>` 由進度檔的 `command` 重組（engine/dev 寫的格式），
+//!   在逐工具處理前停下，進度檔留著。照常同步會把入口檔指回 `cache/`，等於代替 `undev` 完成。
 //!
 //! # 恢復
 //!
@@ -44,6 +66,9 @@
 //!
 //! - 印記的位置與 `add` 共用 [`stamp::tool_file`]（`.vendor_kit/cache/<repo>.stamp.toml`）。
 //! - 進度檔 `.tmp.sync.<run-id>.toml` 只有 `progress` 的共同欄位，沒有 `sync` 自己的表：恢復不需要。
+//! - 覆寫的報告字句與排在最前面（[`text::local_override`]）；`sync` 停下時只印診斷，不報告覆寫。
+//! - 本機開發來源的正規化與檢查從 engine/dev 照抄（[`local`]；指令之間互不依賴）。`<undev_command>`、
+//!   `<original_command>` 的重組從 engine/update 照抄（[`full_command`]）。
 //! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）。
 //! - docker `image inspect` 的輸出只讀 `Id` 與 `RepoDigests`（[`parse_inspect`]）。
 //!
@@ -52,14 +77,14 @@
 //! - 已知偏離：04 sync 第 2 步要在逐工具處理前判薄殼（VK0006），但薄殼模板還沒隨 image 出貨、沒有任何
 //!   crate 產得出這一版的模板（`shell::Shell::render` 要呼叫端給模板本文），所以這裡還不判薄殼。版本組合的
 //!   介面版（VK0009）由啟動器在起引擎前判，不在引擎。
-//! - 本機覆寫：`version.local.toml` 有工具的覆寫（`dev <repo> -p <dir>`）時停下。`dev` 讓 `gen/tools.just`
-//!   改指本機目錄、`cache/<repo>/` 不動（engine/dev），但 `sync` 遇到覆寫時要不要照常對齊那個工具的
-//!   `cache/`、本機目錄失效時報不報 VK0052，以及「每次報告用了哪個覆寫」（stdout）跟沒有變更時 stdout 不印
-//!   （#119）怎麼並存，都沒定。所以 `dev` 之後工具 recipe 前的自動 `sync` 也會停下。引擎的覆寫與工具同步
-//!   無關，不看。
-//! - 殘留的進度檔不是 `sync` 或 `add` 的。`undev` 的：04 本機覆寫說 `sync` 不代替完成或清掉它，VK0053 只寫
-//!   `undev` 自己同步失敗與唯讀 recipe 偵測到，`sync` 遇到時怎麼報沒定。`upgrade` 的（格式見
-//!   `progress::upgrade`）同理：VK0041 只寫唯讀 recipe 偵測到，`sync` 是可寫 recipe，又不代替完成 upgrade。
+//! - 覆寫指到不在版本鎖定行的工具（例如開著覆寫時 `git pull` 拿掉了那一行）：ADR-0002 說覆寫只覆蓋已存在
+//!   的鎖定行，訊息表沒有代碼（`version_file::OrphanOverrides`），停下。
+//! - 開著覆寫的工具交付保留名 `vendor_kit`，或跟其他工具撞名：沒有代碼，停下（同 engine/dev）。
+//! - 開著覆寫時版本鎖定行換了版（`cache/<repo>/` 跟鎖定行對不上）：這一版不對齊那個工具的 `cache/`，
+//!   `undev` 會在寫任何檔之前停下（engine/dev 的缺口）。
+//! - 殘留的 `upgrade` 進度檔（格式見 `progress::upgrade`）：VK0041 只寫唯讀 recipe 偵測到，`sync` 是可寫
+//!   recipe，又不代替完成 upgrade，訊息表沒有對應的碼。停下時說明裡帶進度檔的對象與原指令。
+//! - 殘留的進度檔是其他 verb 的（`dev`、`remove`、`install` 等）：`sync` 遇到時怎麼報沒定。
 //! - 基準版落後（VK0014）：`metadata` 沒有記基準版是哪一版，判不出來；工具有 metadata 時停下。目前
 //!   `add` 只在有初始檔時才寫 metadata，而 `init.toml` 格式未定，所以實際上碰不到。
 //! - 取到的內容與同一版本的既有印記不符（計畫 G1：印記被改過，或同一 digest 取出不同內容），沒有代碼。
@@ -69,12 +94,14 @@
 //!
 //! 這裡不直接碰 docker：docker 動作一律是 `plan` 協定的 op，由啟動器代做。
 
+pub mod local;
 pub mod text;
 
 #[cfg(test)]
 mod tests;
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -90,12 +117,19 @@ use plan::{Channel, ImageId, Op, Outcome, Slot};
 use progress::Progress;
 use stamp::Stamp;
 use txn::{Disk, ToolContent, Txn};
-use version_file::{LocalFile, LockFile};
+use version_file::{LocalFile, LockFile, Versions};
 
 /// 進度檔的 `<verb>`。
 pub const VERB: &str = "sync";
 /// `add` 的進度檔 `<verb>` 與它記 `<repo>` 的表（engine/add 的 `VERB`、`PROGRESS_TABLE`；指令之間互不依賴，照抄）。
 pub const ADD_VERB: &str = "add";
+/// `undev` 的進度檔 `<verb>` 與它記 `<target>` 的鍵（engine/dev 的 `UNDEV_VERB`、`TARGET_KEY`；照抄）。
+pub const UNDEV_VERB: &str = "undev";
+pub const UNDEV_TARGET_KEY: &str = "target";
+/// `upgrade` 的進度檔 `<verb>`（格式見 `progress::upgrade`）。
+pub const UPGRADE_VERB: &str = progress::upgrade::VERB;
+/// 重組指令時接在參數前面的字。
+pub const COMMAND_PREFIX: [&str; 2] = ["just", "vendor_kit"];
 /// 取件的 slot 名前綴，後面接這次執行裡的序號（從 1 起）。
 pub const SLOT_PREFIX: &str = "tool";
 
@@ -178,6 +212,26 @@ pub fn parse_inspect(bytes: &[u8]) -> Result<Inspected, String> {
     Ok(Inspected { id, repo_digests })
 }
 
+/// POSIX shell 引號：只含安全字元的字原樣留下；其他（含空字串）包單引號，`'` 換成 `'\''`
+/// （engine/update 的 `shell_quote`；指令之間互不依賴，照抄）。
+pub fn shell_quote(s: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c);
+    if !s.is_empty() && s.chars().all(safe) {
+        return s.to_owned();
+    }
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// 由進度檔的 `command`（`just vendor_kit` 之後的參數）重組完整指令。
+pub fn full_command<S: AsRef<str>>(command: &[S]) -> String {
+    COMMAND_PREFIX
+        .iter()
+        .map(|w| (*w).to_owned())
+        .chain(command.iter().map(|w| shell_quote(w.as_ref())))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// 診斷已印、這次執行停下。
 struct Stop;
 
@@ -201,6 +255,22 @@ enum Need {
         warn: Option<&'static Message>,
         previous: Option<Box<Stamp>>,
     },
+}
+
+/// 開著本機覆寫的一個工具：正規化後的本機開發來源與它交付的 `<ns>`。
+struct Local {
+    dir: String,
+    namespaces: Vec<String>,
+}
+
+/// 逐工具處理前判定的結果。
+struct Judged {
+    /// 殘留的 `sync` 進度檔。
+    residual: Vec<progress::Entry>,
+    /// 沒有覆寫的工具的印記。
+    stamps: BTreeMap<String, StampState>,
+    /// 開著覆寫的工具。
+    local: BTreeMap<String, Local>,
 }
 
 /// 取到、驗過的一個工具。
@@ -292,12 +362,20 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
         let lockfile = self.lockfile()?;
-        let (residual, mut stamps) = self.judge(&lockfile)?;
+        let Judged {
+            residual,
+            mut stamps,
+            local,
+        } = self.judge(&lockfile)?;
 
         let mut keep: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut fetched: Vec<Fetched> = Vec::new();
         let mut failed = false;
         for (repo, locked) in lockfile.tools() {
+            if local.contains_key(repo) {
+                // 開著覆寫：不取件，不看也不寫 `cache/<repo>/` 與印記（模組說明「本機覆寫」）。
+                continue;
+            }
             let state = stamps.remove(repo).unwrap_or(StampState::Absent);
             match self.need(repo, locked, state)? {
                 Need::Keep(ns) => {
@@ -315,7 +393,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             return Err(Stop);
         }
 
-        let entry = self.render_entry(&keep, &fetched)?;
+        let entry = self.render_entry(&keep, &fetched, &local)?;
         let path = self.env.dir.gen_dir().join(txn::TOOLS_JUST);
         let current = match fs::read(&path) {
             Ok(b) => Some(b),
@@ -324,6 +402,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         };
         let entry_changed = current.as_deref() != Some(entry.as_bytes());
         if fetched.is_empty() && !entry_changed && residual.is_empty() {
+            self.report_overrides(&local);
             return Ok(());
         }
 
@@ -341,6 +420,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             }
         }
 
+        self.report_overrides(&local);
         for f in &fetched {
             self.say(&text::fetched(f.candidate.repo(), f.candidate.locked()));
         }
@@ -358,6 +438,13 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             }
         }
         Ok(())
+    }
+
+    /// 每次報告用了哪個覆寫（04 本機覆寫）。
+    fn report_overrides(&mut self, local: &BTreeMap<String, Local>) {
+        for (repo, l) in local {
+            self.say(&text::local_override(repo, &l.dir));
+        }
     }
 
     fn config(&mut self) -> Step<Config> {
@@ -409,22 +496,26 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
     }
 
     /// 逐工具處理前的判定（模組說明第 4 步）：只讀。有任何一項不能做就把每一項都印出來再停下。
-    /// 回傳殘留的 `sync` 進度檔與每個工具的印記。
-    #[allow(clippy::type_complexity)]
-    fn judge(
-        &mut self,
-        lockfile: &LockFile,
-    ) -> Step<(Vec<progress::Entry>, BTreeMap<String, StampState>)> {
+    fn judge(&mut self, lockfile: &LockFile) -> Step<Judged> {
         let mut blocked: Vec<Diagnostic> = Vec::new();
 
+        let mut local = BTreeMap::new();
         match LocalFile::load_from(self.env.dir) {
-            Ok(Some(local)) => {
-                if let Some(repo) = local.tools().keys().next() {
-                    blocked.push(self.gap_diag(format_args!(
-                        "sync while {repo} has a local override in .vendor_kit/version.local.toml"
-                    )));
+            Ok(Some(file)) => match Versions::new(lockfile, Some(&file)) {
+                Ok(_) => {
+                    for (repo, source) in file.tools() {
+                        match self.local_source(repo, source) {
+                            Ok(l) => {
+                                local.insert(repo.clone(), l);
+                            }
+                            Err(d) => blocked.push(d),
+                        }
+                    }
                 }
-            }
+                Err(orphan) => {
+                    blocked.push(self.gap_diag(format_args!("{orphan} (no reason code)")))
+                }
+            },
             Ok(None) => {}
             Err(version_file::Error::Parse {
                 file,
@@ -450,6 +541,9 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         for repo in lockfile.tools().keys() {
             if !fetch::is_namespace(repo) {
                 blocked.push(self.gap_diag(format_args!("tool name {repo:?} (not a just name)")));
+                continue;
+            }
+            if local.contains_key(repo) {
                 continue;
             }
             let file = stamp::tool_file(self.env.dir, repo);
@@ -478,13 +572,37 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         }
 
         if blocked.is_empty() {
-            Ok((residual, stamps))
+            Ok(Judged {
+                residual,
+                stamps,
+                local,
+            })
         } else {
             for d in blocked {
                 self.emit(d);
             }
             Err(Stop)
         }
+    }
+
+    /// 一個工具的本機開發來源（模組說明「本機覆寫」）：讀不到回 VK0052。
+    fn local_source(&self, repo: &str, source: &str) -> Result<Local, Diagnostic> {
+        let unreadable = |reason: String| {
+            Diagnostic::new(&messages::VK0052)
+                .arg("target", repo)
+                .arg("source", source)
+                .arg("reason", reason)
+                .arg("undev_command", full_command(&["undev", repo]))
+        };
+        let dir = local::normalize(OsStr::new(source)).map_err(unreadable)?;
+        let namespaces = local::check_dir(self.env.dir.root(), &dir, repo).map_err(unreadable)?;
+        if namespaces.iter().any(|n| n == fetch::RESERVED) {
+            return Err(self.gap_diag(format_args!(
+                "sync of {repo} whose local source delivers the reserved namespace {} (no reason code)",
+                fetch::RESERVED
+            )));
+        }
+        Ok(Local { dir, namespaces })
     }
 
     /// 一份殘留的進度檔：`sync` 的回 `Ok`（這次一起完成），其他的回要印的診斷。
@@ -512,6 +630,32 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
                         self.rel(&entry.path)
                     ))),
                 }
+            }
+            UNDEV_VERB => {
+                let target = loaded
+                    .document()
+                    .get(&[UNDEV_VERB, UNDEV_TARGET_KEY])
+                    .and_then(|i| i.as_str())
+                    .map(str::to_owned);
+                match target {
+                    Some(target) => Err(Diagnostic::new(&messages::VK0053)
+                        .arg("target", target)
+                        .arg("undev_command", full_command(loaded.command()))),
+                    None => Err(self.gap_diag(format_args!(
+                        "reporting the incomplete undev in {} without its [undev] {UNDEV_TARGET_KEY} field",
+                        self.rel(&entry.path)
+                    ))),
+                }
+            }
+            UPGRADE_VERB => {
+                let target = progress::upgrade::field(&loaded, progress::upgrade::TARGET)
+                    .unwrap_or("an unknown target");
+                Err(self.gap_diag(format_args!(
+                    "sync while the incomplete upgrade of {target} in {} remains \
+                     (no reason code for sync; run again: {})",
+                    self.rel(&entry.path),
+                    full_command(loaded.command())
+                )))
             }
             other => Err(self.gap_diag(format_args!(
                 "sync while the incomplete {other} operation in {} remains",
@@ -694,10 +838,16 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         &mut self,
         keep: &BTreeMap<String, Vec<String>>,
         fetched: &[Fetched],
+        local: &BTreeMap<String, Local>,
     ) -> Step<String> {
         let mut all: BTreeMap<&str, &[String]> = BTreeMap::new();
         for (repo, ns) in keep {
             all.insert(repo, ns);
+        }
+        let mut dirs: BTreeMap<String, String> = BTreeMap::new();
+        for (repo, l) in local {
+            all.insert(repo, &l.namespaces);
+            dirs.insert(repo.clone(), l.dir.clone());
         }
         for f in fetched {
             all.insert(f.candidate.repo(), f.candidate.namespaces());
@@ -706,7 +856,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             .iter()
             .map(|(repo, namespaces)| tools_just::Tool { repo, namespaces })
             .collect();
-        match tools_just::render(&tools) {
+        match tools_just::render_with(&tools, &dirs) {
             Ok(t) => Ok(t),
             Err(e @ tools_just::Error::Duplicate { .. }) => {
                 Err(self.gap(format_args!("sync of tools whose namespaces collide ({e})")))
