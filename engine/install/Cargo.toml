@@ -3,7 +3,7 @@ name = "install"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "install 指令：讀設定、持排他鎖、併入殘留進度、產生版本鎖定行與薄殼、以 initfiles 判根目錄檔、一次問完、經 txn 落地"
+description = "install 指令：讀設定、持排他鎖、併入殘留進度、產生版本鎖定行與薄殼、以 initfiles 判根目錄檔、照模板新建 config.toml 並記基準版、一次問完、經 txn 落地"
 
 [dependencies]
 compat.workspace = true

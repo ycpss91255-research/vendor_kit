@@ -199,10 +199,13 @@ fn read(m: &Mounts, rel: &str) -> String {
     fs::read_to_string(m.root.join(rel)).unwrap()
 }
 
-const INSTALLED_TREE: [&str; 9] = [
+const INSTALLED_TREE: [&str; 12] = [
     ".gitignore",
     "baseline",
+    "baseline/.vendor_kit",
     "baseline/.vendor_kit.toml",
+    "baseline/.vendor_kit/config.toml",
+    "config.toml",
     "entry.just",
     "gen",
     "gen/.stamp",
@@ -231,7 +234,7 @@ fn install_in_an_empty_repo_writes_everything_without_asking() {
             "Locked the engine to {VERSION} ({engine}).\n\
              Wrote .vendor_kit/entry.just\nWrote .vendor_kit/vendor.just\n\
              Wrote .vendor_kit/log.sh\nWrote .vendor_kit/.gitignore\n\
-             Created justfile\nCreated .dockerignore\n\
+             Created justfile\nCreated .dockerignore\nCreated .vendor_kit/config.toml\n\
              Installed vendor_kit {VERSION} in {HOST_ROOT}.\n"
         )
     );
@@ -255,6 +258,22 @@ fn install_in_an_empty_repo_writes_everything_without_asking() {
     );
     // `gen/.stamp`：產生薄殼的引擎 ref。
     assert_eq!(read(&m, ".vendor_kit/gen/.stamp"), format!("{engine}\n"));
+    // `config.toml`：引擎出貨的模板，欄位全部註解掉；基準版副本是同一份，紀錄記成 `managed`。
+    let config = read(&m, ".vendor_kit/config.toml");
+    assert!(
+        config.contains("# lock_timeout_seconds = 60\n")
+            && config.lines().all(|l| l.is_empty() || l.starts_with('#')),
+        "{config}"
+    );
+    assert_eq!(
+        read(&m, ".vendor_kit/baseline/.vendor_kit/config.toml"),
+        config
+    );
+    let record = read(&m, ".vendor_kit/baseline/.vendor_kit.toml");
+    assert!(
+        record.contains("path = \".vendor_kit/config.toml\"\nstate = \"managed\"\n"),
+        "{record}"
+    );
 }
 
 /// `install` 寫的薄殼就是 `sync` 判薄殼時用的同一份模板產生的：接著跑 `sync` 不報 VK0006。
@@ -375,10 +394,17 @@ fn install_add_remove_uninstall_returns_to_a_clean_repo() {
         "{stdout}"
     );
 
-    // 使用者的檔回到 install 之前，`.vendor_kit/` 只剩執行紀錄。
+    // `config.toml` 是使用者維護的檔（04 uninstall 保留），stdout 列一次。
+    assert_eq!(
+        stdout.matches("Kept .vendor_kit/config.toml\n").count(),
+        1,
+        "{stdout}"
+    );
+
+    // 使用者的檔回到 install 之前，`.vendor_kit/` 只剩執行紀錄與 `config.toml`。
     assert_eq!(read(&m, "justfile"), USER_JUSTFILE);
     assert_eq!(read(&m, ".dockerignore"), USER_DOCKERIGNORE);
-    assert!(vk_tree(&m).is_empty(), "{:?}", vk_tree(&m));
+    assert_eq!(vk_tree(&m), ["config.toml"]);
 }
 
 #[test]

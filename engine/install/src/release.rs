@@ -6,6 +6,9 @@
 //! - 根 `justfile` 的那一行 `import`（[`JUSTFILE_IMPORT`]）、根 `justfile` 不存在時建檔附的 `default`
 //!   （[`JUSTFILE_DEFAULT`]，04 寫入既有檔的例外），與根 `.dockerignore` 的四行（[`DOCKERIGNORE_LINES`]）。
 //!   逐字內容是這裡定的，04 的草稿之後照這裡寫。
+//! - `.vendor_kit/config.toml` 的模板（[`CONFIG_TEMPLATE`]）：寫成引擎常數，就是隨 image 出貨（N42）。
+//!   04 設定的每個欄位都註解掉、寫出未設定時的值，所以新建的檔跟沒有檔時的設定相同。逐字內容同樣是
+//!   這裡定的，04 的草稿之後照這裡寫。
 //! - 薄殼四檔的模板本文（`shell::Shell::render` 要呼叫端給，ADR-0007 說模板隨 image 出貨）：image 建置時由
 //!   `launcher/shell/assemble.sh` 組好，放在 [`SHIPPED_DIR`] 的 [`SHELL_DIR`] 下（image/Dockerfile），
 //!   [`Release::shipped`] 從那裡讀。讀不到（四檔不齊）時 `shell` 是 `None`，`install` 與 `sync` 以 VK0056 停下
@@ -31,6 +34,28 @@ pub const DOCKERIGNORE_LINES: [&str; 4] = [
     ".vendor_kit/log/",
     ".vendor_kit/version.local.toml",
 ];
+/// `install` 新建 `.vendor_kit/config.toml` 用的模板（整份，LF 行尾）。04 設定的欄位全部註解掉，
+/// `config::Config::parse` 讀它得到的是預設值。
+pub const CONFIG_TEMPLATE: &str = "\
+# vendor_kit settings for this install directory.
+# Every setting is commented out; an unset setting uses the value shown.
+# An invalid value stops every vendor_kit command; the default is not used instead.
+
+# How long to wait for the install directory lock, in seconds:
+# a positive number waits that long, 0 does not wait, -1 waits forever.
+# lock_timeout_seconds = 60
+
+# File locking. Set to false only on file systems without file lock support;
+# every run then prints a warning.
+# lock_enabled = true
+
+# Runner for `test <path>`. There is no default runner: `test <path>` stops
+# and names the missing setting; `test` without a path does not need it.
+# image is a non-empty string; command is a non-empty array of non-empty strings.
+# [test]
+# image = \"<image>\"
+# command = [\"<program>\", \"<argument>\"]
+";
 /// 引擎 image 裡隨 image 出貨的輸入所在的目錄（image/Dockerfile 的最終 stage 把薄殼模板 COPY 到這裡的
 /// [`SHELL_DIR`] 下）。
 pub const SHIPPED_DIR: &str = "/usr/share/vendor_kit";
@@ -48,21 +73,24 @@ pub struct Release {
     pub justfile_default: String,
     /// 根 `.dockerignore` 的行，不含行尾。
     pub dockerignore: Vec<String>,
+    /// `.vendor_kit/config.toml` 的模板（整份）。
+    pub config: String,
 }
 
 impl Release {
-    /// 這一版引擎隨 image 出貨的輸入：根目錄檔的內容，加上從 [`SHIPPED_DIR`] 讀進的薄殼模板。
+    /// 這一版引擎隨 image 出貨的輸入：根目錄檔與 `config.toml` 模板的內容，加上從 [`SHIPPED_DIR`] 讀進的薄殼模板。
     pub fn shipped() -> io::Result<Release> {
         Release::from_dir(Path::new(SHIPPED_DIR))
     }
 
-    /// 只有根目錄檔的內容、沒有薄殼模板的出貨輸入。
+    /// 只有根目錄檔與 `config.toml` 模板的內容、沒有薄殼模板的出貨輸入。
     pub fn without_shell() -> Release {
         Release {
             shell: None,
             justfile_import: JUSTFILE_IMPORT.to_owned(),
             justfile_default: JUSTFILE_DEFAULT.to_owned(),
             dockerignore: DOCKERIGNORE_LINES.map(str::to_owned).to_vec(),
+            config: CONFIG_TEMPLATE.to_owned(),
         }
     }
 

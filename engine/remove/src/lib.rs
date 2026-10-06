@@ -34,7 +34,8 @@
 //! 4. 落地：收回插入行 → 刪 `gen/tools.just` → 刪 `cache/`、`baseline/`、`gen/`、`version.local.toml`
 //!    （解除覆寫紀錄，本機開發來源不動）、薄殼四檔 → 刪 `version.toml`（全部版本鎖定行）→ 刪進度檔。
 //!    `config.toml`、`log/`、`.vendor_kit/` 目錄與 `.vendor_kit/` 下其他的項目都不碰。
-//! 5. stdout 列出改了什麼與留下的內容：初始檔、本機開發來源，與 `.vendor_kit/` 裡還在的每一項。
+//! 5. stdout 列出改了什麼與留下的內容：初始檔、本機開發來源，與 `.vendor_kit/` 裡還在的每一項（`install`
+//!    建的 `config.toml` 記在 `baseline/.vendor_kit.toml`，已在初始檔那段列過的不重複列）。
 //!
 //! # 恢復
 //!
@@ -476,19 +477,21 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
     }
 
     /// 收回了哪些檔、保留哪些初始檔。
-    fn report_files(&mut self, plan: &Plan) {
+    /// 收回的檔與保留清單；回傳列過的保留路徑。
+    fn report_files(&mut self, plan: &Plan) -> BTreeSet<String> {
         for e in &plan.edits {
             self.say(&text::retracted(&e.path));
         }
-        let kept: BTreeSet<&str> = plan
+        let kept: BTreeSet<String> = plan
             .records
             .iter()
             .filter(|r| matches!(r.state, State::Managed | State::Appended))
-            .map(|r| r.path.as_str())
+            .map(|r| r.path.clone())
             .collect();
-        for path in kept {
+        for path in &kept {
             self.say(&text::kept(path));
         }
+        kept
     }
 
     /// 只列不刪的每一行一則 VK0061（落地之後才印）。
@@ -739,13 +742,13 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
 
         let host_root = self.env.host_root;
         self.say(&text::uninstalled(host_root));
-        self.report_files(&plan);
+        let listed = self.report_files(&plan);
         if let Some(local) = &local {
             for (repo, dir) in local.tools() {
                 self.say(&text::kept_local_source(repo, dir));
             }
         }
-        self.report_left()?;
+        self.report_left(&listed)?;
         self.report_unretracted(&plan);
         Ok(())
     }
@@ -798,8 +801,8 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         Ok(records)
     }
 
-    /// `.vendor_kit/` 裡還留著的每一項。
-    fn report_left(&mut self) -> Step<()> {
+    /// `.vendor_kit/` 裡還留著的每一項；保留清單已列過的（例如納管的 `config.toml`）不重複列。
+    fn report_left(&mut self, listed: &BTreeSet<String>) -> Step<()> {
         let vk = self.env.dir.vk_dir();
         let entries =
             fs::read_dir(&vk).map_err(|e| self.internal(format!("{}: {e}", vk.display())))?;
@@ -810,7 +813,9 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 shown.push('/');
             }
-            left.push(shown);
+            if !listed.contains(&shown) {
+                left.push(shown);
+            }
         }
         left.sort();
         for path in left {

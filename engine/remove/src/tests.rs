@@ -429,6 +429,36 @@ fn uninstall_retracts_vk_state_and_keeps_user_files() {
     assert_eq!(left, ["config.toml", "log", "notes.txt"]);
 }
 
+/// `install` 建的 `config.toml` 記成 `managed`：保留清單只列一次，基準版副本跟著 `baseline/` 刪掉。
+#[test]
+fn uninstall_lists_a_managed_config_toml_once() {
+    let fx = Fx::new();
+    let config = "# lock_timeout_seconds = 60\n";
+    fs::write(fx.dir.config_toml(), config).unwrap();
+    let copy = fx.dir.config_baseline();
+    fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    fs::write(&copy, config).unwrap();
+    fs::write(
+        fx.dir.baseline_vk(),
+        format!(
+            "schema = 1\nwritten_by = \"v0.0.0\"\n\n[[file]]\npath = \".vendor_kit/config.toml\"\nstate = \"managed\"\nhash = \"{}\"\n",
+            FileHash::of(config.as_bytes())
+        ),
+    )
+    .unwrap();
+
+    let out = run(&fx, &["uninstall"], true, "y\n");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout.matches("Kept .vendor_kit/config.toml\n").count(),
+        1,
+        "{}",
+        out.stdout
+    );
+    assert_eq!(fx.read(".vendor_kit/config.toml"), config);
+    assert!(!fx.dir.baseline_dir().exists());
+}
+
 #[test]
 fn uninstall_answering_no_changes_nothing() {
     let fx = Fx::new();
