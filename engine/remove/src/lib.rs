@@ -1238,7 +1238,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                         entry.map_err(|e| self.internal(format!("{}: {e}", dir.display())))?;
                     let name = entry.file_name().to_string_lossy().into_owned();
                     let is_file = entry.file_type().map(|t| t.is_file()).unwrap_or(false);
-                    if is_file && name.ends_with(".toml") {
+                    if is_file && name.ends_with(layout::METADATA_SUFFIX) {
                         names.push(name);
                     }
                 }
@@ -1256,7 +1256,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             let owner = if name == vk_name {
                 Owner::Vk
             } else {
-                match name.strip_suffix(".toml") {
+                match name.strip_suffix(layout::METADATA_SUFFIX) {
                     Some(repo) if !repo.starts_with('.') => Owner::Tool(repo.to_owned()),
                     _ => {
                         let shown = self.rel(&dir.join(&name));

@@ -25,7 +25,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use files::Fingerprint;
-use layout::{InstallDir, InvalidName, NameKind};
+use layout::{InstallDir, InvalidName};
 use messages::Message;
 use schema::{Document, ReadError, TooNew, WriteError};
 use toml_edit::{Array, Item, Table};
@@ -45,17 +45,11 @@ pub const DECLINED_HASH_KEY: &str = "declined_hash";
 /// 根層：合併結果解析不過、留原檔且基準版沒推的初始檔（scope_roadmap:32）。
 pub const CONFLICTS_KEY: &str = "conflicts";
 
-/// `baseline/<repo>.toml`：工具 `<repo>` 的逐檔紀錄。
+/// `baseline/<repo>.toml`：工具 `<repo>` 的逐檔紀錄（[`InstallDir::tool_metadata`]）。
 ///
 /// `<repo>` 必須是單一路徑段，且不以 `.` 開頭，才不會跟 `baseline/.vendor_kit.toml` 撞名。
 pub fn tool_path(dir: &InstallDir, repo: &str) -> Result<PathBuf, InvalidName> {
-    if repo.is_empty() || repo.starts_with('.') || repo.contains(['/', '\0']) {
-        return Err(InvalidName {
-            kind: NameKind::Repo,
-            name: repo.to_owned(),
-        });
-    }
-    Ok(dir.baseline_dir().join(format!("{repo}.toml")))
+    dir.tool_metadata(repo)
 }
 
 /// `baseline/.vendor_kit.toml`：不屬於任何工具的紀錄（根 `.dockerignore` 的四行）。
