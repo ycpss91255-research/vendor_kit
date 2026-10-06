@@ -95,6 +95,11 @@ struct Peer {
 
 impl Peer {
     fn start(fx: &Fx, namespaces: &'static [&'static str], fail: Option<&'static str>) -> Peer {
+        Peer::start_each(fx, vec![namespaces], fail)
+    }
+
+    /// 第 k 次 extract 放 `each[k]` 的 `<ns>`（超過的沿用最後一組）。
+    fn start_each(fx: &Fx, each: Vec<&'static [&'static str]>, fail: Option<&'static str>) -> Peer {
         // 先清 ctl/ 再起執行緒：新的假啟動器不能讀到上一次的 req.1。
         fx.new_session();
         let (ctl, inbox) = (fx.ctl.clone(), fx.inbox.clone());
@@ -104,6 +109,7 @@ impl Peer {
             let header = header();
             let mut seen = Vec::new();
             let mut seq = 1u16;
+            let mut extracts = 0usize;
             while !flag.load(Ordering::SeqCst) {
                 let Ok(bytes) = fs::read(ctl.join(format!("req.{seq}"))) else {
                     thread::sleep(Duration::from_millis(2));
@@ -129,6 +135,8 @@ impl Peer {
                         Op::Extract(_, slot) => {
                             let just = inbox.join(slot.as_str()).join("just");
                             fs::create_dir_all(&just).unwrap();
+                            let namespaces = each[extracts.min(each.len() - 1)];
+                            extracts += 1;
                             for ns in namespaces {
                                 fs::write(just.join(format!("{ns}.just")), "x:\n").unwrap();
                             }
@@ -738,6 +746,101 @@ fn leftover_add_is_completed_before_the_new_one() {
     assert!(fx.lock_text().contains(&locked()));
 }
 
+/// 殘留的 `add`：上一次以 [`locked`] 導入 `repo`、沒有 repo 檔要寫，建了進度檔就中斷。
+fn leftover(fx: &Fx, repo: &str) {
+    let mut p = Progress::new(VERB, "old", &["add", repo, "-i", IMAGE]).unwrap();
+    let doc = p.document_mut();
+    doc.set(&[PROGRESS_TABLE, "repo"], repo).unwrap();
+    doc.set(&[PROGRESS_TABLE, "image"], locked()).unwrap();
+    doc.set(&[PROGRESS_TABLE, "repo_files"], false).unwrap();
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+}
+
+#[test]
+fn leftover_add_waits_for_the_answers_of_this_add() {
+    // 恢復跟這次的詢問一起問完，全部同意才一起落地（04 共同選項，#372 N65）：答否時恢復也不寫。
+    let fx = Fx::new("");
+    fs::write(fx.root().join(".gitignore"), "target/\n").unwrap();
+    let before = fx.lock_text();
+    leftover(&fx, "other");
+    let peer = Peer::start_each(&fx, vec![&["other"], &["tool"]], None);
+    let out = run_add(
+        &fx,
+        &ADD,
+        vec![append(".gitignore", "/.tool/\n")],
+        tty(true),
+        "\n",
+    );
+    assert_eq!(peer.finish(), ["inspect", "extract", "inspect", "extract"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stdout, "No changes were made.\n");
+    assert_eq!(
+        out.stderr,
+        "Append the lines from tool to the existing .gitignore? [y/N] "
+    );
+    assert_eq!(fx.lock_text(), before);
+    assert!(!fx.dir.cache_dir().exists() && !fx.dir.gen_dir().exists());
+    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
+    assert_eq!(out.log, "");
+
+    // 不能互動：VK0002，恢復也不寫，殘留的進度檔照留。每次 session 的 in/ 是新的。
+    fs::remove_dir_all(&fx.inbox).unwrap();
+    fs::create_dir_all(&fx.inbox).unwrap();
+    let peer = Peer::start_each(&fx, vec![&["other"], &["tool"]], None);
+    let out = run_add(
+        &fx,
+        &ADD,
+        vec![append(".gitignore", "/.tool/\n")],
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("error[VK0002]"), "{}", out.stderr);
+    assert_eq!(out.stdout, "");
+    assert_eq!(fx.lock_text(), before);
+    assert!(!fx.dir.cache_dir().exists() && !fx.dir.gen_dir().exists());
+    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
+}
+
+#[test]
+fn leftover_add_lands_before_this_add_once_everything_is_agreed() {
+    let fx = Fx::new("");
+    fs::write(fx.root().join(".gitignore"), "target/\n").unwrap();
+    leftover(&fx, "other");
+    let peer = Peer::start_each(&fx, vec![&["other"], &["tool"]], None);
+    let out = run_add(
+        &fx,
+        &ADD,
+        vec![append(".gitignore", "/.tool/\n")],
+        tty(true),
+        "y\n",
+    );
+    assert_eq!(peer.finish(), ["inspect", "extract", "inspect", "extract"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stdout.starts_with(&format!(
+            "Completed the interrupted add of other v1.2.0 ({0}).\nAdded tool v1.2.0 ({0}).\n",
+            locked()
+        )),
+        "{}",
+        out.stdout
+    );
+    let lock = fx.lock_text();
+    assert!(
+        lock.contains(&format!("other = \"{}\"", locked()))
+            && lock.contains(&format!("tool = \"{}\"", locked())),
+        "{lock}"
+    );
+    // 這次的撞名判定與入口檔以恢復的暫存內容為準（cache/other/ 在判定時還沒換）。
+    assert_eq!(
+        fs::read_to_string(fx.dir.gen_dir().join("tools.just")).unwrap(),
+        "mod? other '../cache/other/just/other.just'\n\
+         mod? tool '../cache/tool/just/tool.just'\n"
+    );
+    assert!(progress::find(&fx.dir).unwrap().is_empty());
+}
+
 #[test]
 fn two_leftover_adds_each_get_their_own_slot() {
     let fx = Fx::new("");
@@ -796,6 +899,7 @@ fn progress_records_the_repo_files_to_write() {
         extracts: 0,
         stages: 0,
         local: BTreeMap::new(),
+        pending: Vec::new(),
     };
     let locked = ImageRef::parse(&locked()).unwrap();
     let files = [

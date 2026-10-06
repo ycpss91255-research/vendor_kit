@@ -1248,6 +1248,89 @@ fn residual_upgrade_pulls_by_digest_when_the_image_is_not_local() {
     assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
 }
 
+/// 殘留的 `upgrade` 換到 v1.1.0（digest 跟 v1.2.0 同一個假 image）。
+fn residual_v1_1(fx: &Fx) -> String {
+    let mid = format!("ghcr.io/acme/tool:v1.1.0@{DIGEST}");
+    residual(fx, "tool", &mid, false);
+    mid
+}
+
+#[test]
+fn residual_upgrade_waits_for_the_answers_of_this_upgrade() {
+    // 恢復跟這次的詢問一起問完，全部同意才一起落地（04 共同選項，#372 N65）：答否時恢復也不寫。
+    let fx = Fx::new();
+    fx.managed("tool.toml", "v = 1\n", "v = 1\n");
+    residual_v1_1(&fx);
+    let before = fx.snapshot();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(
+        &fx,
+        &UPGRADE,
+        vec![whole("tool.toml", "v = 2\n")],
+        tty(true),
+        "n\n",
+    );
+    assert_eq!(
+        peer.finish(),
+        [
+            format!("inspect ghcr.io/acme/tool@{DIGEST}"),
+            format!("extract {IMAGE_ID} tool1"),
+            format!("inspect {NEW_REF}"),
+            format!("extract {IMAGE_ID} tool2"),
+        ]
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stdout, "No changes were made.\n");
+    assert_eq!(fx.snapshot(), before);
+    assert_eq!(out.log, "");
+
+    // 不能互動：VK0002，恢復也不寫，殘留的進度檔照留。每次 session 的 in/ 是新的。
+    fs::remove_dir_all(&fx.inbox).unwrap();
+    fs::create_dir_all(&fx.inbox).unwrap();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(
+        &fx,
+        &UPGRADE,
+        vec![whole("tool.toml", "v = 2\n")],
+        tty(false),
+        "",
+    );
+    peer.finish();
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("error[VK0002]"), "{}", out.stderr);
+    assert_eq!(out.stdout, "");
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn residual_upgrade_lands_before_this_upgrade_once_everything_is_agreed() {
+    let fx = Fx::new();
+    fx.managed("tool.toml", "v = 1\n", "v = 1\n");
+    let mid = residual_v1_1(&fx);
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(
+        &fx,
+        &UPGRADE,
+        vec![whole("tool.toml", "v = 2\n")],
+        tty(true),
+        "y\n",
+    );
+    peer.finish();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    // 判定看恢復之後的樣子：這次是從 v1.1.0 換到 v1.2.0。
+    assert!(
+        out.stdout.starts_with(&format!(
+            "Completed the interrupted upgrade of tool to v1.1.0 ({mid}).\n\
+             Upgraded tool from v1.1.0 to v1.2.0 ({}).\n",
+            new_locked()
+        )),
+        "{}",
+        out.stdout
+    );
+    assert_eq!(fx.read("tool.toml"), "v = 2\n");
+    assert_landed(&fx);
+}
+
 #[test]
 fn residuals_that_cannot_be_recovered_are_gaps() {
     let fx = Fx::new();
@@ -1305,6 +1388,7 @@ fn progress_records_the_upgrade_table_while_landing() {
         extracts: 0,
         stages: 0,
         local: BTreeMap::new(),
+        pending: Vec::new(),
         engine: false,
     };
     let locked = ImageRef::parse(&new_locked()).unwrap();
