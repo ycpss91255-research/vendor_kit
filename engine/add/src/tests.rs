@@ -157,6 +157,110 @@ impl Peer {
     }
 }
 
+/// image tar 的假啟動器怎麼回：`digest` 是旁檔內容（`None`＝旁檔不在，`stage` 回 failed 1）；`load` 是
+/// `docker load -q` 的 stdout（`None`＝load 回 failed 1）；`tags` 是 inspect 的 RepoTags。RepoDigests 一律
+/// 是空的（classic image store 載入 tar 的樣子）。
+#[derive(Clone, Copy)]
+struct TarImage {
+    digest: Option<&'static str>,
+    load: Option<&'static str>,
+    tags: &'static [&'static str],
+}
+
+const TAR_DIGEST: &str = "sha256:4444444444444444444444444444444444444444444444444444444444444444";
+const TAR: TarImage = TarImage {
+    digest: Some("sha256:4444444444444444444444444444444444444444444444444444444444444444\n"),
+    load: Some("Loaded image: ghcr.io/acme/tool:v1.2.0\n"),
+    tags: &["ghcr.io/acme/tool:v1.2.0"],
+};
+
+/// image tar 的假啟動器；回傳依序的請求（`stage`、`load` 帶主機路徑，`inspect` 帶引用）。
+struct TarPeer {
+    stop: Arc<AtomicBool>,
+    handle: JoinHandle<Vec<String>>,
+}
+
+impl TarPeer {
+    fn start(fx: &Fx, image: TarImage) -> TarPeer {
+        // 每次 session 的 in/ 也是新的：上一次 stage 的旁檔留著，啟動器不收已存在的 slot。
+        fx.new_session();
+        fs::remove_dir_all(&fx.inbox).unwrap();
+        fs::create_dir_all(&fx.inbox).unwrap();
+        let (ctl, inbox) = (fx.ctl.clone(), fx.inbox.clone());
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&stop);
+        let handle = thread::spawn(move || {
+            let header = header();
+            let mut seen = Vec::new();
+            let mut seq = 1u16;
+            while !flag.load(Ordering::SeqCst) {
+                let Ok(bytes) = fs::read(ctl.join(format!("req.{seq}"))) else {
+                    thread::sleep(Duration::from_millis(2));
+                    continue;
+                };
+                let (s, op) = Op::parse_request(&bytes, &header).unwrap();
+                let out = ctl.join(format!("res.{s}.out"));
+                let ok = match &op {
+                    Op::Stage(f, slot) => {
+                        seen.push(format!("stage {}", String::from_utf8_lossy(f.as_bytes())));
+                        match image.digest {
+                            Some(d) if !inbox.join(slot.as_str()).exists() => {
+                                fs::write(inbox.join(slot.as_str()), d).unwrap();
+                                true
+                            }
+                            _ => false,
+                        }
+                    }
+                    Op::Load(f) => {
+                        seen.push(format!("load {}", String::from_utf8_lossy(f.as_bytes())));
+                        match image.load {
+                            Some(text) => {
+                                fs::write(&out, text).unwrap();
+                                true
+                            }
+                            None => false,
+                        }
+                    }
+                    Op::Inspect(r) => {
+                        seen.push(format!("inspect {}", r.as_str()));
+                        let tags: Vec<String> =
+                            image.tags.iter().map(|t| format!("\"{t}\"")).collect();
+                        let json = format!(
+                            "[{{\"Id\":\"{IMAGE_ID}\",\"RepoTags\":[{}],\"RepoDigests\":[]}}]",
+                            tags.join(",")
+                        );
+                        fs::write(&out, json).unwrap();
+                        true
+                    }
+                    Op::Extract(id, slot) => {
+                        seen.push(format!("extract {}", id.as_str()));
+                        let just = inbox.join(slot.as_str()).join("just");
+                        fs::create_dir_all(&just).unwrap();
+                        fs::write(just.join("tool.just"), "x:\n").unwrap();
+                        true
+                    }
+                    other => {
+                        seen.push(other.kind().name().to_owned());
+                        false
+                    }
+                };
+                let outcome = if ok { Outcome::Ok } else { Outcome::Failed(1) };
+                let tmp = ctl.join(format!("res.{s}.tmp"));
+                fs::write(&tmp, outcome.encode_response(&header, s)).unwrap();
+                fs::rename(&tmp, ctl.join(format!("res.{s}"))).unwrap();
+                seq += 1;
+            }
+            seen
+        });
+        TarPeer { stop, handle }
+    }
+
+    fn finish(self) -> Vec<String> {
+        self.stop.store(true, Ordering::SeqCst);
+        self.handle.join().unwrap()
+    }
+}
+
 struct Out {
     code: u8,
     stdout: String,
@@ -483,14 +587,6 @@ fn reserved_name_and_online_add_without_image_path_stop_before_fetching() {
         out.stderr,
         "vendor_kit: error[VK0025]: Required argument is missing: --image-path.\n"
     );
-    let out = run_add(
-        &fx,
-        &["add", "tool", "-i", "./tool.tar"],
-        Vec::new(),
-        tty(false),
-        "",
-    );
-    assert!(out.stderr.contains("image tar"), "{}", out.stderr);
     assert!(peer.finish().is_empty());
     assert!(untouched(&fx, &before));
 }
@@ -681,4 +777,166 @@ fn leftover_of_another_verb_stops() {
     );
     assert_eq!(fx.lock_text(), before);
     assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
+}
+
+// ---- image tar（ADR-0009） ----
+
+const ADD_TAR: [&str; 4] = ["add", "tool", "-i", "dist/tool.tar"];
+
+fn tar_locked() -> String {
+    format!("{IMAGE}@{TAR_DIGEST}")
+}
+
+#[test]
+fn image_tar_pins_the_sidecar_digest() {
+    let fx = Fx::new("");
+    let peer = TarPeer::start(&fx, TAR);
+    let out = run_add(&fx, &ADD_TAR, Vec::new(), tty(false), "");
+    assert_eq!(
+        peer.finish(),
+        [
+            "stage /h/proj/dist/tool.digest".to_owned(),
+            "load /h/proj/dist/tool.tar".to_owned(),
+            format!("inspect {IMAGE}"),
+            format!("extract {IMAGE_ID}"),
+        ]
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!("Added tool v1.2.0 ({}).\n", tar_locked())
+    );
+    assert!(
+        fx.lock_text()
+            .ends_with(&format!("[tools]\ntool = \"{}\"\n", tar_locked()))
+    );
+    // 同一個 tar 再跑一次：已導入，未變更。
+    let peer = TarPeer::start(&fx, TAR);
+    let out = run_add(&fx, &ADD_TAR, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish().len(), 3);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "tool v1.2.0 is already added; no changes were made.\n"
+    );
+}
+
+#[test]
+fn unnamed_image_tar_takes_the_name_from_repo_tags() {
+    let fx = Fx::new("");
+    let image = TarImage {
+        digest: Some("sha256:4444444444444444444444444444444444444444444444444444444444444444\r\n"),
+        load: Some(
+            "Loaded image ID: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        ),
+        tags: &["tool:dev", IMAGE],
+    };
+    let peer = TarPeer::start(&fx, image);
+    let out = run_add(
+        &fx,
+        &["add", "tool", "-i", "/srv/img/tool.tar"],
+        Vec::new(),
+        tty(false),
+        "",
+    );
+    assert_eq!(
+        peer.finish(),
+        [
+            "stage /srv/img/tool.digest".to_owned(),
+            "load /srv/img/tool.tar".to_owned(),
+            format!("inspect {IMAGE_ID}"),
+            format!("extract {IMAGE_ID}"),
+        ]
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(fx.lock_text().contains(&tar_locked()));
+}
+
+#[test]
+fn image_tar_without_a_usable_digest_is_vk0031_before_loading() {
+    for digest in [None, Some("sha256:XYZ\n"), Some("")] {
+        let fx = Fx::new("");
+        let before = fx.lock_text();
+        let peer = TarPeer::start(&fx, TarImage { digest, ..TAR });
+        let out = run_add(&fx, &ADD_TAR, Vec::new(), tty(false), "");
+        assert_eq!(peer.finish(), ["stage /h/proj/dist/tool.digest"]);
+        assert_eq!(out.code, 2);
+        assert_eq!(out.stdout, "");
+        assert_eq!(
+            out.stderr,
+            "vendor_kit: error[VK0031]: Cannot use image dist/tool.tar: required digest information is missing. The supplied image was not used.\n"
+        );
+        assert!(untouched(&fx, &before));
+    }
+}
+
+#[test]
+fn image_tar_load_failures_and_names_stop_before_writing() {
+    let fx = Fx::new("");
+    let before = fx.lock_text();
+    let peer = TarPeer::start(&fx, TarImage { load: None, ..TAR });
+    let out = run_add(&fx, &ADD_TAR, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish().len(), 2);
+    assert_eq!(out.code, 2);
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0055]: Cannot access dist/tool.tar for tool: docker load exited with 1. The requested operation did not complete.\n"
+    );
+    assert!(untouched(&fx, &before));
+
+    // load 報了兩個 image、無名 tar 沒有可用的名稱、或有兩個：缺口（VK0056），不寫檔。
+    let cases = [
+        TarImage {
+            load: Some(
+                "Loaded image: ghcr.io/acme/tool:v1.2.0\nLoaded image: ghcr.io/acme/x:v1.0.0\n",
+            ),
+            ..TAR
+        },
+        TarImage {
+            load: Some(
+                "Loaded image ID: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+            ),
+            tags: &[],
+            ..TAR
+        },
+        TarImage {
+            load: Some(
+                "Loaded image ID: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+            ),
+            tags: &[IMAGE, "ghcr.io/acme/tool:v1.3.0"],
+            ..TAR
+        },
+    ];
+    for (image, what) in
+        cases
+            .into_iter()
+            .zip(["exactly one image", "no ghcr.io", "more than one name"])
+    {
+        let peer = TarPeer::start(&fx, image);
+        let out = run_add(&fx, &ADD_TAR, Vec::new(), tty(false), "");
+        peer.finish();
+        assert_eq!(out.code, 2);
+        assert!(
+            out.stderr.starts_with("vendor_kit: error[VK0056]") && out.stderr.contains(what),
+            "{}",
+            out.stderr
+        );
+        assert!(untouched(&fx, &before));
+    }
+}
+
+#[test]
+fn image_tar_of_another_tag_points_to_upgrade() {
+    let other = "ghcr.io/acme/tool:v1.0.0@sha256:3333333333333333333333333333333333333333333333333333333333333333";
+    let fx = Fx::new(&format!("tool = \"{other}\"\n"));
+    let before = fx.lock_text();
+    let peer = TarPeer::start(&fx, TAR);
+    let out = run_add(&fx, &ADD_TAR, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish().len(), 3);
+    assert_eq!(out.code, 2);
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0045]: Cannot add tool at v1.2.0: it is already imported at v1.0.0. Run: just vendor_kit upgrade tool@v1.2.0\n"
+    );
+    assert_eq!(fx.lock_text(), before);
 }

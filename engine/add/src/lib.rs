@@ -9,11 +9,12 @@
 //! 4. 讀 `version.toml`。
 //! 5. 恢復殘留的進度檔（04 成對與無害：可寫 recipe 先恢復再判是否重複）。恢復本身不寫 repo 檔，
 //!    沒有要問的事；做法見 `Add::recover`。
-//! 6. 判來源：`-i <本機 image 引用>`，或不帶 `-i` 的線上 `add`（見「線上解析」）。
+//! 6. 判來源：`-i <本機 image 引用>`、`-i <path>.tar`（見「image tar」），或不帶 `-i` 的線上 `add`（見「線上解析」）。
 //! 7. 已在版本鎖定行：tag 不同回 VK0045；完全相同 stdout 說明未變更，以 0 結束。線上 `add` 已在版本鎖定行
 //!    而不帶 tag 也是未變更（已完整導入，04 成對與無害），不連 registry、不送 docker 動作。
-//! 8. `-i`：經 `plan` 協定請啟動器 `inspect`（讀 Id 與 RepoDigests；沒有對應的 digest 回 VK0031）。線上：
-//!    解析 tag 與 digest，必要時 `pull`（見「線上解析」）。之後以 image ID `extract`；docker 動作失敗回 VK0055。
+//! 8. `-i <本機 image 引用>`：經 `plan` 協定請啟動器 `inspect`（讀 Id 與 RepoDigests；沒有對應的 digest 回
+//!    VK0031）。`-i <path>.tar`：`stage` 旁檔、`load`、`inspect`（見「image tar」）。線上：解析 tag 與 digest，
+//!    必要時 `pull`（見「線上解析」）。之後以 image ID `extract`；docker 動作失敗回 VK0055。
 //! 9. `fetch::verify`：digest、dist 格式、逐檔指紋、`<ns>` 撞名（VK0030，對象是已裝工具、根
 //!    `justfile` 的 recipe 與 module、保留名 `vendor_kit`）。
 //! 10. `initfiles` 算出每個初始檔的動作與問題，`prompt` 一次問完：答否是正常取消（stdout 說明未變更，
@@ -49,6 +50,23 @@
 //! - 同一個 tag 指向不同 digest（本機 RepoDigests 有兩個以上不同的 digest，或本機的跟 registry 的不同）：
 //!   拒絕。草稿碼 VK0078 還沒登錄，先以 VK0056 停下，`<reason>` 寫明各個 digest，結尾是 [`DRAFT_TAG_DIGESTS`]。
 //!
+//! # image tar（ADR-0009、N43）
+//!
+//! `-i` 的值以 [`TAR_SUFFIX`] 結尾就當 image tar，其他當 image 引用（同 `launcher/bootstrap_main.sh`）。相對路徑
+//! 以安裝目錄為準（`add` 只在安裝目錄執行，VK0028），換成主機上的絕對路徑交給啟動器。依序：
+//!
+//! 1. 同名旁檔 `<path>.digest`（`foo.tar` → `foo.digest`，[`digest_sidecar`]）以 `stage` 複製進
+//!    `in/`[`DIGEST_SLOT`] 再讀。旁檔要是一行多架構 index digest（[`parse_digest`]，規則同 bootstrap.sh）；
+//!    `stage` 失敗（含旁檔不存在）或格式不合回 VK0031，`<image>` 是使用者給的值，`<reason>` 是
+//!    [`text::DIGEST_MISSING`]。這一步在 `load` 之前，旁檔缺就不載入、不寫任何檔（ADR-0009 驗收）。
+//! 2. `load` 載入；失敗回 VK0055。從 `res.<seq>.out`（`docker load -q` 的 stdout）拿 image：要剛好一行
+//!    `Loaded image ID: <id>` 或 `Loaded image: <ref>`（[`parse_load`]）。
+//! 3. inspect 那個 ID 或引用，取 Id；`<registry>/<路徑>:<tag>` 取自 load 報告的引用，報告的是 ID 時取自
+//!    inspect 的 RepoTags（[`tar_tags`]：`-i <本機 image 引用>` 收得下的、不重複的要剛好一個）。
+//! 4. 版本鎖定行的值是 `<registry>/<路徑>:<tag>@<旁檔的 digest>`。digest 只取自旁檔、不跟 RepoDigests 比對：
+//!    單一平台的 tar 本來就沒有 index digest（ADR-0009）。之後的 VK0045、未變更判定、取件、驗證、詢問、落地
+//!    跟 `-i <本機 image 引用>` 相同。
+//!
 //! # registry token 檔（04 registry token 檔案）
 //!
 //! `--registry-token-file <path>` 只在線上、不帶 tag、真的要列 tag 時才讀，一次執行只讀一次；`@<tag>`、`-i`
@@ -74,7 +92,8 @@
 //! - 進度檔 `.tmp.add.<run-id>.toml` 另記 `[add]` 表的 `repo`、`image`（版本鎖定行的值）與
 //!   `repo_files`（這次有沒有要寫 repo 檔）。
 //! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）：啟動器不收已存在的
-//!   slot，恢復好幾份殘留時每次取件都要一個新的。token 檔 `stage` 的 slot 是 [`TOKEN_SLOT`]。
+//!   slot，恢復好幾份殘留時每次取件都要一個新的。token 檔 `stage` 的 slot 是 [`TOKEN_SLOT`]，image tar 的
+//!   `.digest` 旁檔是 [`DIGEST_SLOT`]。
 //! - 同一個 tag 指向不同 digest 的 `<reason>` 字句（[`text::tag_digests`]）。
 //! - stdout 的字句與詢問文字（英文）見 [`text`]。
 //!
@@ -85,8 +104,12 @@
 //! - 取 digest 時不檢查 manifest 的 media type 是不是多架構 index（`registry` 把判斷交給呼叫端，契約沒定）。
 //! - `@<tag>` 而本機沒有、package 又是私有的：04 規定指定 tag 不讀 token 檔，匿名取 digest 會被拒，報 VK0055；
 //!   pull 本身用的是主機的 Docker 認證。帶 token 的流程還沒對私有 package 手動測過（`registry` 的缺口）。
-//! - `-i` 給 image tar：啟動器丟掉 `docker load` 的輸出，引擎不知道載入了哪個 image；`.digest` 檔的格式也沒定。
 //! - `-i` 的引用沒有 tag、tag 不是 `vX.Y.Z`、已帶 digest、不在 ghcr.io，或 `-i` 與 `@<tag>` 並用。
+//! - image tar：`docker load` 沒報告剛好一個 image；載入的 image 沒有、或有好幾個 `ghcr.io/<路徑>:vX.Y.Z`
+//!   的名稱（無名 tar 的 RepoTags 只剩本機原有的名稱，可能對不到）。
+//! - image tar 導入之後（同 bootstrap.sh 首次導入的已知缺口）：classic image store 載入 tar 後沒有 RepoDigests，
+//!   之後的 recipe 以版本鎖定行的 `<路徑>@<digest>` 找不到 image、改去 pull，離線時失敗；恢復中斷的 `add`
+//!   也以同一個引用 inspect，找不到回 VK0055。containerd image store 載入保留 index 的 tar 時才找得到。
 //! - 工具交付 `init.toml`：初始檔的清單與 `strategy` 寫在哪裡、什麼格式都沒定（ADR-0003 只提到
 //!   `strategy = "append"`），所以讀不出初始檔；沒有 `init.toml` 的工具就沒有初始檔、沒有詢問。
 //! - 根 `justfile` 的 recipe 與 module 只做保守的逐行掃描（引擎 image 沒有 just），限制見 `justfile` 模組。
@@ -112,6 +135,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, BufRead, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -132,7 +156,8 @@ use txn::{Disk, RecordFile, RepoFile, ToolContent, Txn};
 use version_file::LockFile;
 
 pub use source::{
-    Inspected, LocalRef, RepoDigest, digest_for, parse_inspect, parse_local, repo_digest,
+    DIGEST_SUFFIX, Inspected, Loaded, LocalRef, RepoDigest, TAR_SUFFIX, digest_for, digest_sidecar,
+    is_tar, parse_digest, parse_inspect, parse_load, parse_local, repo_digest, tar_tags,
 };
 pub use token::{TokenPath, locate};
 
@@ -146,6 +171,8 @@ pub const SLOT_PREFIX: &str = "tool";
 pub const INIT_TOML: &str = "init.toml";
 /// token 檔在安裝目錄外時，`stage` 放進 `in/` 的 slot 名（同 engine/update）。
 pub const TOKEN_SLOT: &str = "token";
+/// image tar 的 `.digest` 旁檔 `stage` 放進 `in/` 的 slot 名（模組說明「image tar」）。
+pub const DIGEST_SLOT: &str = "digest";
 /// VK0001 的 `<cmd>`（訊息表：add 時印 add）。
 pub const VK0001_CMD: &str = "add";
 /// 線上 `add` 沒有版本鎖定行又沒給 `--image-path`：VK0025 的 `<argument>`（選項名稱暫定，N2b）。
@@ -347,6 +374,9 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let local = match (req.image, req.tag) {
             (None, _) => return self.online(req, lockfile),
             (Some(_), Some(_)) => return Err(self.gap("add -i together with <repo>@<tag>")),
+            (Some(image), None) if is_tar(image) => {
+                return self.add_tar(req.repo, image, lockfile);
+            }
             (Some(image), None) => {
                 let given = image.to_string_lossy();
                 parse_local(&given).map_err(|reason| self.gap(reason))?
@@ -360,18 +390,137 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         }
 
         let pinned = self.inspect(req.repo, &local)?;
-        if let Some(current) = lockfile.tool(req.repo) {
-            if *current == pinned.0 {
-                self.say(&text::unchanged(req.repo, &pinned.0));
+        self.settle(req.repo, local.tag, pinned, lockfile)
+    }
+
+    /// `-i` 已定出版本鎖定行的值與 image ID：比對版本鎖定行（不同 tag 回 VK0045；完全相同是未變更；同 tag
+    /// 不同 digest 是缺口），之後取件與落地。
+    fn settle(
+        &mut self,
+        repo: &str,
+        tag: Tag,
+        (locked, id): (ImageRef, ImageId),
+        lockfile: LockFile,
+    ) -> Step<()> {
+        if let Some(current) = lockfile.tool(repo).cloned() {
+            if current.tag() != tag {
+                return Err(self.already_at(repo, tag, &current));
+            }
+            if current == locked {
+                self.say(&text::unchanged(repo, &locked));
                 return Ok(());
             }
             return Err(self.gap(format_args!(
-                "add with tag {} whose digest differs from the lock version line",
-                local.tag
+                "add with tag {tag} whose digest differs from the lock version line"
             )));
         }
-        let candidate = self.fetch(req.repo, &pinned.1, &pinned.0, &lockfile)?;
-        self.import(req.repo, &pinned.0, candidate, lockfile)
+        let candidate = self.fetch(repo, &id, &locked, &lockfile)?;
+        self.import(repo, &locked, candidate, lockfile)
+    }
+
+    /// `-i <path>.tar`（模組說明「image tar」）。
+    fn add_tar(&mut self, repo: &str, given: &OsStr, lockfile: LockFile) -> Step<()> {
+        let shown = given.to_string_lossy().into_owned();
+        let host = match locate(given, self.env.host_root) {
+            TokenPath::Inside(rel) => {
+                let mut h = self.env.host_root.trim_end_matches('/').as_bytes().to_vec();
+                if !rel.as_os_str().is_empty() {
+                    h.push(b'/');
+                    h.extend_from_slice(rel.as_os_str().as_bytes());
+                }
+                h
+            }
+            TokenPath::Outside(h) => h,
+        };
+        let digest = self.tar_digest(&digest_sidecar(&host), &shown)?;
+        let loaded = self.load(host, &shown, repo)?;
+        let (wire, named) = match &loaded {
+            Loaded::Id(id) => (
+                ImageId::parse(id).and_then(|i| plan::ImageRef::parse(i.as_str())),
+                None,
+            ),
+            Loaded::Ref(r) => (plan::ImageRef::parse(r), Some(r.clone())),
+        };
+        let Some(wire) = wire else {
+            return Err(self.gap(format_args!(
+                "add -i with an image tar whose loaded image is reported as {loaded:?}"
+            )));
+        };
+        let inspected = self.inspect_ref(wire, &shown, repo)?;
+        let candidates = named.map_or_else(|| inspected.repo_tags.clone(), |r| vec![r]);
+        let local = match tar_tags(&candidates).as_slice() {
+            [one] => one.clone(),
+            [] => {
+                return Err(self.gap(format_args!(
+                    "add -i with an image tar whose image has no ghcr.io/<path>:vX.Y.Z name \
+                     (names: {candidates:?})"
+                )));
+            }
+            many => {
+                let names: Vec<&str> = many.iter().map(|r| r.given.as_str()).collect();
+                return Err(self.gap(format_args!(
+                    "add -i with an image tar whose image has more than one name ({})",
+                    names.join(", ")
+                )));
+            }
+        };
+        let Some(locked) = local.pin(&digest) else {
+            return Err(self.internal(format!("cannot pin {} to {digest}", local.given)));
+        };
+        let Some(id) = ImageId::parse(&inspected.id) else {
+            return Err(self.internal(format!("image inspect returned Id {:?}", inspected.id)));
+        };
+        self.settle(repo, local.tag, (locked, id), lockfile)
+    }
+
+    /// image tar 的 `.digest` 旁檔：`stage` 進 `in/`[`DIGEST_SLOT`] 再讀。`stage` 失敗或格式不合回 VK0031。
+    fn tar_digest(&mut self, sidecar: &[u8], shown: &str) -> Step<String> {
+        let Some(slot) = Slot::parse(DIGEST_SLOT) else {
+            return Err(self.internal(format!("stage slot {DIGEST_SLOT} is not a valid slot")));
+        };
+        let field = Field::new(sidecar.to_vec()).map_err(|e| self.internal(e.to_string()))?;
+        let (_, outcome) = self.request(&Op::Stage(field, slot))?;
+        let staged = match outcome {
+            Outcome::Ok => {
+                let path = self.env.inbox.join(DIGEST_SLOT);
+                let bytes = fs::read(&path);
+                bytes.map_err(|e| self.internal(format!("{}: {e}", path.display())))?
+            }
+            Outcome::Failed(_) => Vec::new(),
+            Outcome::Runner(_) => return Err(self.internal("stage returned a runner result")),
+        };
+        match parse_digest(&staged) {
+            Some(d) => Ok(d),
+            None => {
+                let d = Diagnostic::new(&messages::VK0031)
+                    .arg("image", shown)
+                    .arg("reason", text::DIGEST_MISSING);
+                Err(self.stop(d))
+            }
+        }
+    }
+
+    /// `load` image tar，回 `docker load -q` 報告的 image；失敗回 VK0055。
+    fn load(&mut self, host: Vec<u8>, shown: &str, repo: &str) -> Step<Loaded> {
+        let field = Field::new(host).map_err(|e| self.internal(e.to_string()))?;
+        let (seq, outcome) = self.request(&Op::Load(field))?;
+        match outcome {
+            Outcome::Ok => {}
+            Outcome::Failed(rc) => {
+                return Err(self.access_failed(shown, repo, text::docker_failed("load", rc)));
+            }
+            Outcome::Runner(_) => return Err(self.internal("load returned a runner result")),
+        }
+        let out = self.env.channel.output_path(seq);
+        let bytes = fs::read(&out).map_err(|e| self.internal(format!("{}: {e}", out.display())))?;
+        match parse_load(&bytes) {
+            Some(l) => Ok(l),
+            None => Err(self.gap(format_args!(
+                "add -i with an image tar for which docker load did not report exactly one image \
+                 ({:?})",
+                String::from_utf8_lossy(&bytes).trim_end()
+            ))),
+        }
     }
 
     /// VK0045：已以別的 tag 導入，改用 `upgrade`。

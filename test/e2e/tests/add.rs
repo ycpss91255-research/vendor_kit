@@ -671,3 +671,139 @@ fn local_image_without_a_repo_digest_is_vk0031() {
     assert_eq!(seen.requests, [format!("inspect {IMAGE}")]);
     assert_eq!(vk_tree(&m), before);
 }
+
+// ---- image tar（ADR-0009） ----
+
+/// image tar 的 index digest（只在旁檔裡；載入的 image 沒有 RepoDigests）。
+const TAR_DIGEST: &str = "sha256:6666666666666666666666666666666666666666666666666666666666666666";
+
+/// image tar 的假啟動器：主機路徑 `e:/srv/proj/<x>` 對到安裝目錄的 `<x>`，`stage` 是檔就複製進 `in/<slot>`；
+/// `load` 回 `Loaded image: <IMAGE>`；inspect 回 RepoTags 有 `IMAGE`、沒有 RepoDigests（classic image store
+/// 載入 tar 的樣子）；extract 放進工具內容。
+fn tar_launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
+    let (ctl, inbox, root) = (m.ctl.clone(), m.inbox.clone(), m.root.clone());
+    launcher::serve(&m.ctl, HEADER, move |req: &Request| match req.op.as_str() {
+        "stage" => {
+            let src = req.args[0]
+                .strip_prefix("e:/srv/proj/")
+                .map(|rest| root.join(rest));
+            let dest = inbox.join(&req.args[1]);
+            match src {
+                Some(src) if src.is_file() && !dest.exists() => {
+                    fs::copy(&src, &dest).unwrap();
+                    Reply::Ok
+                }
+                _ => Reply::Failed(1),
+            }
+        }
+        "load" => {
+            fs::write(
+                ctl.join(format!("res.{}.out", req.seq)),
+                format!("Loaded image: {IMAGE}\n"),
+            )
+            .unwrap();
+            Reply::Ok
+        }
+        "inspect" => {
+            fs::write(
+                ctl.join(format!("res.{}.out", req.seq)),
+                format!(
+                    "[\n    {{\n        \"Id\": \"{IMAGE_ID}\",\n        \"RepoTags\": [\"{IMAGE}\"],\n        \"RepoDigests\": []\n    }}\n]\n"
+                ),
+            )
+            .unwrap();
+            Reply::Ok
+        }
+        "extract" if inbox.join(&req.args[1]).exists() => Reply::Failed(1),
+        "extract" => {
+            tool_content(&inbox.join(&req.args[1]), &["tool"]);
+            Reply::Ok
+        }
+        _ => Reply::Failed(1),
+    })
+}
+
+/// 安裝目錄裡的 `dist/tool.tar`，`digest` 有給就放同名旁檔 `dist/tool.digest`。
+fn tar_files(m: &Mounts, digest: Option<&str>) {
+    let dist = m.root.join("dist");
+    fs::create_dir_all(&dist).unwrap();
+    fs::write(dist.join("tool.tar"), "tar\n").unwrap();
+    if let Some(d) = digest {
+        fs::write(dist.join("tool.digest"), d).unwrap();
+    }
+}
+
+#[test]
+fn add_from_an_image_tar_pins_the_sidecar_digest() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m, "");
+    tar_files(&m, Some(&format!("{TAR_DIGEST}\n")));
+    let peer = tar_launcher(&m);
+
+    let (code, stdout, stderr) = run(
+        &m,
+        HOST_ROOT,
+        "000",
+        &["add", "tool", "-i", "dist/tool.tar"],
+    );
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(
+        stdout,
+        format!("Added tool v1.2.0 ({IMAGE}@{TAR_DIGEST}).\n")
+    );
+    assert_data_eq!(stderr, "");
+    assert_eq!(
+        seen.requests,
+        [
+            "stage e:/srv/proj/dist/tool.digest digest".to_owned(),
+            "load e:/srv/proj/dist/tool.tar".to_owned(),
+            format!("inspect {IMAGE}"),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+    let lock = fs::read_to_string(m.root.join(".vendor_kit/version.toml")).unwrap();
+    assert!(
+        lock.ends_with(&format!("[tools]\ntool = \"{IMAGE}@{TAR_DIGEST}\"\n")),
+        "{lock}"
+    );
+}
+
+/// ADR-0009 驗收：拿掉旁檔跑 `add <repo> -i <image tar>`，結束碼 2，版本鎖定行不動、不載入。
+#[test]
+fn image_tar_without_its_digest_sidecar_exits_2_and_leaves_the_lock_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m, "");
+    tar_files(&m, None);
+    let before = vk_tree(&m);
+    let lock_before = fs::read_to_string(m.root.join(".vendor_kit/version.toml")).unwrap();
+    let peer = tar_launcher(&m);
+
+    let (code, stdout, stderr) = run(
+        &m,
+        HOST_ROOT,
+        "000",
+        &["add", "tool", "-i", "dist/tool.tar"],
+    );
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 2);
+    assert_data_eq!(stdout, "");
+    assert!(
+        stderr.starts_with(
+            "vendor_kit: error[VK0031]: Cannot use image dist/tool.tar: required digest information is missing. The supplied image was not used."
+        ),
+        "{stderr}"
+    );
+    assert_eq!(seen.requests, ["stage e:/srv/proj/dist/tool.digest digest"]);
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 2\n"));
+    assert_eq!(vk_tree(&m), before);
+    assert_eq!(
+        fs::read_to_string(m.root.join(".vendor_kit/version.toml")).unwrap(),
+        lock_before
+    );
+}
