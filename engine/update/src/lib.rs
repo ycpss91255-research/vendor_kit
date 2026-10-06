@@ -15,7 +15,9 @@
 //!    - 殘留的進度檔（04 成對與無害：唯讀 recipe 只偵測，不恢復、不刪）：`add` 的回 VK0004；`undev` 的回
 //!      VK0053，`<target>` 讀進度檔 `[undev]` 表的 `target`（engine/dev 寫的），`<undev_command>` 由進度檔
 //!      的 `command` 重組；工具 `upgrade` 的回 VK0041，`<repo>` 讀進度檔 `[upgrade]` 表的 `target`（格式見
-//!      `progress::upgrade`），`<original_command>` 由進度檔的 `command` 重組；引擎 `upgrade` 的見「缺口」；
+//!      `progress::upgrade`），`<original_command>` 由進度檔的 `command` 重組；引擎 `upgrade`（`[upgrade]` 的
+//!      `target` 是 `progress::upgrade::ENGINE_TARGET`）的回 VK0023，`<vY>` 是 `[upgrade]` 的 `image`（engine/upgrade
+//!      換上的引擎版本鎖定行值）的 tag，`<original_command>` 由進度檔的 `command` 重組；
 //!      其他可寫 recipe（`remove`、`install`、
 //!      `uninstall`、`dev` 等）回 VK0054，`<original_command>` 由進度檔的 `command` 重組、各參數依 POSIX
 //!      shell 規則加引號。
@@ -72,10 +74,8 @@
 //! - registry 列得到、但一個 tag 都沒有（200、清單是空的）：VK0058 只寫「有 tag 卻沒有合法 vX.Y.Z」，04 只寫
 //!   查詢失敗印 `latest: none`。這裡當查詢失敗，該行印 `latest: none` 並報 VK0055，`<reason>` 寫
 //!   [`text::NO_TAGS`]；之後訊息表定了再改。
-//! - 殘留的引擎 `upgrade` 進度檔（`[upgrade] target` 是引擎）：VK0023 的 `<vY>` 要從進度檔讀，
-//!   `upgrade --engine` 還沒實作、它的欄位沒定，以 VK0056 停下。
 //! - 殘留的 `add` 進度檔沒有 `[add]` 的 `repo` 欄位；殘留的 `undev` 進度檔沒有 `[undev]` 的 `target` 欄位；
-//!   殘留的 `upgrade` 進度檔沒有 `[upgrade]` 的 `target` 欄位：以 VK0056 停下。
+//!   殘留的 `upgrade` 進度檔沒有 `[upgrade]` 的 `target` 欄位，或引擎的沒有可解析的 `image` 欄位：以 VK0056 停下。
 //! - 帶 token 的流程還沒對私有 package 手動測過（`registry` 的缺口）。
 
 pub mod text;
@@ -561,10 +561,20 @@ impl<W: Write, S: Sink> Update<'_, '_, W, S> {
                 }
             }
             UPGRADE_VERB => match progress::upgrade::field(&loaded, progress::upgrade::TARGET) {
-                Some(progress::upgrade::ENGINE_TARGET) => self.gap_diag(format_args!(
-                    "reporting the incomplete engine upgrade in {}",
-                    self.rel(&entry.path)
-                )),
+                Some(progress::upgrade::ENGINE_TARGET) => {
+                    let image = progress::upgrade::field(&loaded, progress::upgrade::IMAGE)
+                        .and_then(|i| imageref::ImageRef::parse(i).ok());
+                    match image {
+                        Some(image) => Diagnostic::new(&messages::VK0023)
+                            .arg("vY", image.tag().to_string())
+                            .arg("original_command", original_command(loaded.command())),
+                        None => self.gap_diag(format_args!(
+                            "reporting the incomplete engine upgrade in {} without its [upgrade] \
+                             image field",
+                            self.rel(&entry.path)
+                        )),
+                    }
+                }
                 Some(repo) => Diagnostic::new(&messages::VK0041)
                     .arg("repo", repo)
                     .arg("original_command", original_command(loaded.command())),

@@ -1,5 +1,6 @@
 //! `upgrade` 指令的工具那一半（04 指令表 `upgrade <repo>`、`upgrade <repo>@<tag>`；04 成對與無害的工具升版
-//! 流程、指定版本、本機覆寫）：換工具版本，做基準版合併。`upgrade --engine` 不在這裡。
+//! 流程、指定版本、本機覆寫）：換工具版本，做基準版合併。`upgrade --engine` 的第一段在 [`engine`]，跟這裡
+//! 共用讀設定、取鎖、線上解析與 `plan` 往返。
 //!
 //! `update` 只查（engine/update）；真正換版本在這裡。呼叫端（入口 `vendor_kit`）已解析好參數、判過安裝
 //! 目錄（VK0028），並接好執行紀錄與 `plan` 往返。這裡依序做：
@@ -136,6 +137,7 @@
 //!
 //! 這裡不直接碰 docker：docker 動作與 `stage`、`stage-dir` 一律是 `plan` 協定的 op，由啟動器代做。
 
+pub mod engine;
 mod justfile;
 mod source;
 pub mod text;
@@ -270,6 +272,7 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
         extracts: 0,
         stages: 0,
         local: BTreeMap::new(),
+        engine: false,
     };
     let _ = upgrade.run(req);
     upgrade.code
@@ -293,11 +296,12 @@ struct Local {
     namespaces: Vec<String>,
 }
 
-/// 一個工具這次要換上的版本：版本鎖定行的值與 image ID。
+/// 一個工具（或引擎）這次要換上的版本：版本鎖定行的值、image ID 與 inspect 讀到的 LABEL。
 struct Resolved {
     locked: ImageRef,
     id: ImageId,
     repo_digests: Vec<String>,
+    labels: BTreeMap<String, String>,
 }
 
 struct Upgrade<'r, 'a, W: Write, S: Sink, L: Write> {
@@ -310,6 +314,8 @@ struct Upgrade<'r, 'a, W: Write, S: Sink, L: Write> {
     stages: u32,
     /// 開著覆寫的工具（模組說明「本機覆寫」）。
     local: BTreeMap<String, Local>,
+    /// 這次是 `upgrade --engine`（[`engine`]）：列 tag 要求認證時不報 VK0001（見 [`engine`] 的「查詢失敗」）。
+    engine: bool,
 }
 
 impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
@@ -452,7 +458,8 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             return Ok(());
         }
 
-        let resolved = self.resolve(&current, tag, listed.as_mut(), req.repo)?;
+        let name = format!("{}/{}", current.registry(), current.path());
+        let resolved = self.resolve(&name, tag, listed.as_mut(), req.repo)?;
         let fetched = self.fetch(req.repo, &resolved, &lockfile)?;
         self.apply(req, &current, &resolved.locked, fetched, lockfile)
     }
@@ -644,12 +651,11 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
     /// registry 取 digest（沒有 `listed` 就匿名開一個查詢），pull 之後再 inspect。
     fn resolve(
         &mut self,
-        current: &ImageRef,
+        name: &str,
         tag: Tag,
         listed: Option<&mut Repository<'_>>,
         repo: &str,
     ) -> Step<Resolved> {
-        let name = format!("{}/{}", current.registry(), current.path());
         let given = format!("{name}:{tag}");
         let Some(wire) = plan::ImageRef::parse(&given) else {
             return Err(self.internal(format!("cannot inspect {given}")));
@@ -658,19 +664,19 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             Ok(i) => i,
             Err(_) => {
                 return match listed {
-                    Some(online) => self.pull(online, &name, tag, repo),
+                    Some(online) => self.pull(online, name, tag, repo),
                     None => {
                         let registry = self.env.registry;
-                        let mut online = match registry.repository(&name, None) {
+                        let mut online = match registry.repository(name, None) {
                             Ok(r) => r,
                             Err(e) => return Err(self.digest_failed(&e, &given, repo)),
                         };
-                        self.pull(&mut online, &name, tag, repo)
+                        self.pull(&mut online, name, tag, repo)
                     }
                 };
             }
         };
-        let digest = match repo_digest(&name, &inspected.repo_digests) {
+        let digest = match repo_digest(name, &inspected.repo_digests) {
             RepoDigest::One(d) => d,
             RepoDigest::Missing => {
                 let d = Diagnostic::new(&messages::VK0031)
@@ -701,6 +707,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             locked,
             id,
             repo_digests: inspected.repo_digests,
+            labels: inspected.labels,
         })
     }
 
@@ -774,16 +781,18 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         }
     }
 
-    /// 列 tag 失敗：要求認證而沒帶 token 是 VK0001，其他是 VK0055。
+    /// 列 tag 失敗：要求認證而沒帶 token 是 VK0001，其他是 VK0055。`upgrade --engine` 不收 token 檔，
+    /// VK0001 的下一步用不上，要求認證也報 VK0055（[`engine`] 的「查詢失敗」）。
     fn list_failed(&mut self, e: &registry::Error, name: &str, repo: &str) -> Stop {
         match e.kind() {
-            ErrorKind::AuthRequired => {
+            ErrorKind::AuthRequired if !self.engine => {
                 let d = Diagnostic::new(&messages::VK0001)
                     .arg("repo", repo)
                     .arg("cmd", VK0001_CMD);
                 self.stop(d)
             }
-            ErrorKind::TokenRejected
+            ErrorKind::AuthRequired
+            | ErrorKind::TokenRejected
             | ErrorKind::Network
             | ErrorKind::NotFound
             | ErrorKind::Protocol => self.access_failed(name, repo, e.detail().to_owned()),
@@ -1332,6 +1341,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             locked,
             id,
             repo_digests: inspected.repo_digests,
+            labels: inspected.labels,
         };
         let (candidate, installed) = self.fetch(&repo, &resolved, lockfile)?;
         if let Err(e) = candidate.recheck() {

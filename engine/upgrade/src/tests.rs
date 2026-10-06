@@ -3,6 +3,7 @@
 //! `-y`；另驗恢復殘留進度與各個停下點。向假 registry 線上解析 tag 與 digest 的測試在 [`online`]。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod engine;
 mod online;
 
 use std::io::Cursor;
@@ -167,6 +168,8 @@ struct Script {
     /// 本機有 `<registry>/<路徑>:<tag>`；`false` 時不帶 digest 的 inspect 回 failed 1（帶 digest 的照常，
     /// 當成 pull 進來了）。
     local: bool,
+    /// inspect 回的 `Config.Labels`（JSON 物件的內容，不含大括號）；空的就不帶 `Config`。
+    labels: &'static str,
 }
 
 const NEW: Script = Script {
@@ -176,6 +179,7 @@ const NEW: Script = Script {
         "ghcr.io/acme/tool@sha256:2222222222222222222222222222222222222222222222222222222222222222",
     ],
     local: true,
+    labels: "",
 };
 
 /// 假啟動器：inspect 回 RepoDigests，extract 放進 `just/<ns>.just`；`stage` 與 `stage-dir` 把主機路徑
@@ -246,8 +250,13 @@ impl Peer {
                         Op::Inspect(_) => {
                             let ds: Vec<String> =
                                 script.digests.iter().map(|d| format!("\"{d}\"")).collect();
+                            let config = if script.labels.is_empty() {
+                                String::new()
+                            } else {
+                                format!(",\"Config\":{{\"Labels\":{{{}}}}}", script.labels)
+                            };
                             let json = format!(
-                                "[{{\"Id\":\"{IMAGE_ID}\",\"RepoDigests\":[{}]}}]",
+                                "[{{\"Id\":\"{IMAGE_ID}\",\"RepoDigests\":[{}]{config}}}]",
                                 ds.join(",")
                             );
                             fs::write(ctl.join(format!("res.{s}.out")), json).unwrap();
@@ -1263,6 +1272,7 @@ fn progress_records_the_upgrade_table_while_landing() {
         extracts: 0,
         stages: 0,
         local: BTreeMap::new(),
+        engine: false,
     };
     let locked = ImageRef::parse(&new_locked()).unwrap();
     let Ok(mut p) = up.progress(&["upgrade", "tool@v1.2.0"], "tool", &locked, true) else {

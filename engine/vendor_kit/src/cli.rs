@@ -18,9 +18,10 @@
 //! 剛好只有那一個參數才算，在 `args` 之前認出來，交給 `shell_check`；其餘一律照 `args` 解析，所以保留入口帶了
 //! 其他參數就是 VK0026。保留入口屬救援路徑，介面版不在區間內也照常執行（[`gate`]），執行位置照樣檢查（VK0028）。
 //!
-//! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`dev`、`undev`、`prune`
+//! 目前實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`upgrade --engine` 的第一段
+//! （engine/upgrade 的 `engine` 模組；第二段還沒做，以 VK0056 停下）、`dev`、`undev`、`prune`
 //! 與 `test`、`test <path>`、`test dist`（安裝檢查、使用者測試與交付內容檢查，engine/check）。04 說明與用法
-//! 錯誤：不認得的名稱由 just 擋下、到不了引擎；還沒實作的 `upgrade --engine` 以 VK0056 停下（#372 N62）。
+//! 錯誤：不認得的名稱由 just 擋下、到不了引擎。
 //! `-h`／`--help` 把 [`output::Help`] 的用法印到 stdout、以 0 結束（03 輸出），不看執行位置；救援呼叫的 `-h`
 //! 在介面版不合時也照印，其餘的 `-h` 跟一般呼叫一樣先報版本（[`gate`]）。
 
@@ -48,7 +49,7 @@ pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";
 /// 起引擎容器時不帶任何環境變數）；e2e 在主機上直接跑執行檔，沒有 image 裡的模板，用它給 fixture 模板。
 pub const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
 
-/// 測試用：設了這個環境變數，`update`、`add` 與 `upgrade <repo>` 的 registry client 改連這個 base URL（`registry::Client::with_base_url`），
+/// 測試用：設了這個環境變數，`update`、`add`、`upgrade <repo>` 與 `upgrade --engine` 的 registry client 改連這個 base URL（`registry::Client::with_base_url`），
 /// 不連 `registry::BASE_URL`；image 名稱仍只收 ghcr.io。正式執行時一定不設（啟動器起引擎容器時不帶任何環境
 /// 變數）；e2e 用它接假 registry，不連外網。
 pub const REGISTRY_URL_ENV: &str = "VK_TEST_REGISTRY_URL";
@@ -679,26 +680,52 @@ where
         args::Command::Uninstall => run_remove(
             None, inv, mounts, host_log, stdin, stdout, stderr, diags, log,
         ),
-        args::Command::UpgradeEngine { .. } => not_implemented("upgrade --engine", host_log, diags),
+        args::Command::UpgradeEngine { tag, yes } => {
+            let registry = match registry_client(host_log, diags) {
+                Ok(c) => c,
+                Err(code) => return code,
+            };
+            let dir = layout::InstallDir::new(&mounts.root);
+            let argv: Vec<String> = inv
+                .rest
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            let host_root = inv.host_root.display().to_string();
+            let mut stdout = stdout;
+            let mut prompt = stderr.clone();
+            let mut env = upgrade::Env {
+                dir: &dir,
+                host_root: &host_root,
+                run_log: host_log,
+                inbox: &mounts.inbox,
+                channel,
+                poll: POLL,
+                registry: &registry,
+                tty: inv.tty,
+                argv: &argv,
+                run_id: inv.run_id.as_str(),
+                written_by: VERSION,
+                stdin,
+                stdout: &mut stdout,
+                prompt: &mut prompt,
+                diags,
+                log,
+            };
+            let req = upgrade::engine::Request {
+                tag: *tag,
+                yes: *yes,
+            };
+            let code = upgrade::engine::run(&req, &mut env);
+            let _ = stdout.flush();
+            code
+        }
         args::Command::Test { path: None } => run_check(inv, mounts, host_log, stdout, diags),
         args::Command::Test { path: Some(path) } => {
             run_user_test(path, inv, mounts, host_log, channel, stdout, diags)
         }
         args::Command::TestDist => run_dist(inv, mounts, host_log, stdout, diags),
     }
-}
-
-/// 還沒實作的指令（#372 N62）：是 VK 自己的缺，不是使用者打錯，以 VK0056 停下、不印用法。
-fn not_implemented<E: Write>(
-    what: &str,
-    host_log: &str,
-    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
-) -> u8 {
-    let d = Diagnostic::new(&messages::VK0056)
-        .arg("reason", format!("{what} is not implemented yet"))
-        .arg("path", host_log);
-    let _ = diags.emit(&d);
-    2
 }
 
 /// `test` 不帶 path：完整安裝檢查（engine/check）。
@@ -1025,6 +1052,7 @@ mod tests {
     #[test]
     fn update_and_install_agree_on_the_engine_repo() {
         assert_eq!(update::ENGINE_REPO, install::release::ENGINE_REPO);
+        assert_eq!(upgrade::engine::ENGINE_REPO, install::release::ENGINE_REPO);
     }
 
     fn call(args: &[&str]) -> (u8, String, String) {
@@ -1462,18 +1490,22 @@ mod tests {
     }
 
     #[test]
-    fn unimplemented_commands_are_internal_errors_not_usage_errors() {
-        let s = Scratch::new("unimplemented");
-        let (code, stdout, stderr) = launch(&s, &compat::THIS, 1, &["upgrade", "--engine"]);
-        assert_eq!(code, 2);
-        assert_eq!(stdout, "");
-        assert!(
-            stderr.starts_with(
-                "vendor_kit: error[VK0056]: Internal vendor_kit error: upgrade --engine is not implemented yet."
-            ),
-            "{stderr}"
-        );
-        assert!(!stderr.contains(SHORT_USAGE), "{stderr}");
+    fn upgrade_engine_is_dispatched_even_outside_the_range() {
+        // 交給 engine/upgrade 的 `engine` 模組：這裡沒有安裝目錄的檔，停在讀 version.toml，不報未實作。
+        // 介面版不在區間內也照常執行（救援路徑）。
+        for (compat, protocol) in [(&compat::THIS, 1), (&NEWER, 1)] {
+            let s = Scratch::new("upgrade-engine");
+            let (code, stdout, stderr) = launch(&s, compat, protocol, &["upgrade", "--engine"]);
+            assert_eq!(code, 2);
+            assert_eq!(stdout, "");
+            assert!(
+                stderr.starts_with(
+                    "vendor_kit: error[VK0056]: Internal vendor_kit error: .vendor_kit/version.toml does not exist."
+                ),
+                "{stderr}"
+            );
+            assert_eq!(s.done(), "vk-resolve/1 r1 done 2\n");
+        }
     }
 
     #[test]
