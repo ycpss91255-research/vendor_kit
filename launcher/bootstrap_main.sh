@@ -2,8 +2,8 @@
 # bootstrap.sh 的入口（#372 的 N39、N41、N93）：參數、模式判定、主機檢查、首次導入、只檢查與 --repair
 # （04 bootstrap.sh）。
 #
-# - 成品 bootstrap.sh 之後組裝：訊息片段，接著 launcher/ 的 diag、host、log、wire、launch 與這個檔，
-#   前面再放內嵌引擎的引用 vk_bootstrap_engine（pinned 引用，tag 是 vX.Y.Z）。
+# - 成品 bootstrap.sh 由 image/bootstrap/assemble.sh 組裝：開頭放內嵌引擎的引用 vk_bootstrap_engine（pinned 引用，
+#   tag 是 vX.Y.Z）與介面版 vk_bootstrap_proto，接著訊息片段、launcher/ 的 diag、host、log、wire、launch 與這個檔。
 # - 判定順序照 04 bootstrap.sh 的判定順序：
 #   1. 看目前目錄的 `.vendor_kit/` 與有效鎖定行；讀不出有效鎖定行時，依最近一筆執行紀錄判定是不是
 #      未完成的首次導入（vk_bootstrap_incomplete），以決定收不收 -y。
