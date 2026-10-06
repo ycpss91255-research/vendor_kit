@@ -192,7 +192,7 @@ fn add_then_dev_uses_the_local_source_and_undev_returns_to_the_locked_version() 
     let after_add = locked_state(&m);
     assert_eq!(
         fs::read_to_string(vk.join("gen/tools.just")).unwrap(),
-        "mod tool '../cache/tool/just/tool.just'\n"
+        "mod? tool '../cache/tool/just/tool.just'\n"
     );
 
     // 本機開發來源：安裝目錄裡的 work/tool/，另多交付一個 <ns>。
@@ -214,8 +214,8 @@ Updated .vendor_kit/gen/tools.just.
     assert_data_eq!(stderr, "");
     assert_eq!(
         fs::read_to_string(vk.join("gen/tools.just")).unwrap(),
-        "mod tool '../../work/tool/just/tool.just'\n\
-         mod tool-extra '../../work/tool/just/tool-extra.just'\n"
+        "mod? tool '../../work/tool/just/tool.just'\n\
+         mod? tool-extra '../../work/tool/just/tool-extra.just'\n"
     );
     let local = fs::read_to_string(vk.join("version.local.toml")).unwrap();
     assert!(local.contains("[tools]\ntool = \"work/tool\"\n"), "{local}");
@@ -315,7 +315,7 @@ fn sync_uses_the_local_source_during_dev_and_the_locked_version_after_undev() {
     fs::write(src.join("tool.just"), "hello:\n    echo local\n").unwrap();
     let (code, _, stderr) = run_idle(&m, &["dev", "tool", "-p", "work/tool"]);
     assert_eq!(code, 0, "stderr: {stderr}");
-    let local_entry = "mod tool '../../work/tool/just/tool.just'\n";
+    let local_entry = "mod? tool '../../work/tool/just/tool.just'\n";
     assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
 
     // 開著覆寫時 sync 重產入口檔：指向本機開發來源，不取件（沒有 request），cache/、印記、版本鎖定行不動。
@@ -369,7 +369,7 @@ tool uses the local source work/tool (local override).
     assert_eq!(locked_state(&m), after_add);
     assert_eq!(
         fs::read_to_string(&entry).unwrap(),
-        "mod tool '../cache/tool/just/tool.just'\n"
+        "mod? tool '../cache/tool/just/tool.just'\n"
     );
     assert_eq!(events(&m), ["engine_started", "engine_finished"]);
 }

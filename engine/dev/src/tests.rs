@@ -14,10 +14,10 @@ const ENGINE: &str = "ghcr.io/acme/vendor_kit:v1.4.0@sha256:11111111111111111111
 const TOOL: &str = "ghcr.io/acme/tool:v1.2.0@sha256:2222222222222222222222222222222222222222222222222222222222222222";
 const OTHER: &str = "ghcr.io/acme/other:v1.0.0@sha256:3333333333333333333333333333333333333333333333333333333333333333";
 const GEN: &str =
-    "mod other '../cache/other/just/other.just'\nmod tool '../cache/tool/just/tool.just'\n";
-const DEV_GEN: &str = "mod other '../cache/other/just/other.just'\n\
-                       mod tool '../../dev/tool/just/tool.just'\n\
-                       mod tool-extra '../../dev/tool/just/tool-extra.just'\n";
+    "mod? other '../cache/other/just/other.just'\nmod? tool '../cache/tool/just/tool.just'\n";
+const DEV_GEN: &str = "mod? other '../cache/other/just/other.just'\n\
+                       mod? tool '../../dev/tool/just/tool.just'\n\
+                       mod? tool-extra '../../dev/tool/just/tool-extra.just'\n";
 
 struct Fx {
     _tmp: tempfile::TempDir,

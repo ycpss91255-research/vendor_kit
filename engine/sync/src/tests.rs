@@ -280,9 +280,9 @@ fn run_sync(fx: &Fx, behavior: Behavior) -> Out {
     }
 }
 
-const BOTH_GEN: &str = "mod other '../cache/other/just/other.just'\n\
-                        mod tool '../cache/tool/just/tool.just'\n\
-                        mod tool-extra '../cache/tool/just/tool-extra.just'\n";
+const BOTH_GEN: &str = "mod? other '../cache/other/just/other.just'\n\
+                        mod? tool '../cache/tool/just/tool.just'\n\
+                        mod? tool-extra '../cache/tool/just/tool-extra.just'\n";
 
 /// 先同步一次，回傳之後要比對的 `version.toml`。
 fn synced(fx: &Fx) -> Vec<u8> {
@@ -589,9 +589,9 @@ fn override_tool(fx: &Fx, source: &str) {
     .unwrap();
 }
 
-const OVERRIDE_GEN: &str = "mod other '../cache/other/just/other.just'\n\
-                            mod tool '../../work/tool/just/tool.just'\n\
-                            mod tool-extra '../../work/tool/just/tool-extra.just'\n";
+const OVERRIDE_GEN: &str = "mod? other '../cache/other/just/other.just'\n\
+                            mod? tool '../../work/tool/just/tool.just'\n\
+                            mod? tool-extra '../../work/tool/just/tool-extra.just'\n";
 
 #[test]
 fn local_override_uses_the_local_source_and_other_tools_sync_as_usual() {
@@ -646,8 +646,8 @@ fn local_override_keeps_the_locked_cache_untouched() {
     assert!(out.ops.is_empty());
     assert_eq!(
         fx.entry().unwrap(),
-        "mod tool '../../work/tool/just/tool.just'\n\
-         mod tool-extra '../../work/tool/just/tool-extra.just'\n"
+        "mod? tool '../../work/tool/just/tool.just'\n\
+         mod? tool-extra '../../work/tool/just/tool-extra.just'\n"
     );
     assert_eq!(
         fs::read_to_string(cache.join("share/readme.txt")).unwrap(),
@@ -710,7 +710,7 @@ fn residual_undev_is_vk0053_and_is_left_in_place() {
     // 入口檔還指著本機目錄（undev 解除覆寫後、入口檔寫好前斷掉）。
     fs::write(
         fx.dir.gen_dir().join("tools.just"),
-        "mod tool '../../work/tool/just/tool.just'\n",
+        "mod? tool '../../work/tool/just/tool.just'\n",
     )
     .unwrap();
     let out = run_sync(&fx, all_local());

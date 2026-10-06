@@ -44,7 +44,7 @@ fn install(m: &Mounts) {
     fs::create_dir_all(vk.join("gen")).unwrap();
     fs::write(
         vk.join("gen/tools.just"),
-        "mod tool '../cache/tool/just/tool.just'\n",
+        "mod? tool '../cache/tool/just/tool.just'\n",
     )
     .unwrap();
     fs::write(m.root.join(RUN_LOG), "").unwrap();
@@ -181,7 +181,7 @@ fn assert_upgraded(m: &Mounts) {
     assert_data_eq!(
         fs::read_to_string(vk.join("gen/tools.just")).unwrap(),
         snapbox::str![[r#"
-mod tool '../cache/tool/just/tool.just'
+mod? tool '../cache/tool/just/tool.just'
 
 "#]]
     );

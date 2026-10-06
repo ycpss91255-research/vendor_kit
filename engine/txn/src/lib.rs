@@ -43,7 +43,7 @@
 //!     .swap_cache(&[])?
 //!     .write_repo_files(&[])?
 //!     .write_records(&[])?
-//!     .write_tools_just(Some(b"mod x '../cache/x/just/x.just'\n"))?
+//!     .write_tools_just(Some(b"mod? x '../cache/x/just/x.just'\n"))?
 //!     .write_lock_line(lock, runlog::Target::Tool)?
 //!     .complete()?;
 //! # Ok(()) }

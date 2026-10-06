@@ -241,9 +241,9 @@ Updated .vendor_kit/gen/tools.just.
     assert_data_eq!(
         fs::read_to_string(vk.join("gen/tools.just")).unwrap(),
         snapbox::str![[r#"
-mod other '../cache/other/just/other.just'
-mod tool '../cache/tool/just/tool.just'
-mod tool-extra '../cache/tool/just/tool-extra.just'
+mod? other '../cache/other/just/other.just'
+mod? tool '../cache/tool/just/tool.just'
+mod? tool-extra '../cache/tool/just/tool-extra.just'
 
 "#]]
     );
@@ -334,4 +334,54 @@ vendor_kit: warn[VK0015]: The file set or per-file digests in cache/ for tool di
             "engine_finished",
         ]
     );
+}
+
+/// `cache/<repo>/` 不在時（prune、手動刪除、sync 中斷），`gen/tools.just` 每行都是 `mod?`，just 仍解析得了，
+/// 救援用的 `just vendor_kit sync` 跑得起來（ADR-0007）。主機有 `just` 就實際解析一次；
+/// image 的 test stage 不帶 `just`，那裡只比對字面內容（各版 just 的實測在驗收矩陣，ADR-0011）。
+#[test]
+fn entry_file_still_parses_when_a_tool_cache_is_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    checkout(&m);
+    let local = Arc::new(Mutex::new(BTreeSet::from([other_pinned()])));
+    let (code, _, stderr, _) = run(&m, &local);
+    assert_eq!(code, 0, "stderr: {stderr}");
+
+    let vk = m.root.join(".vendor_kit");
+    fs::remove_dir_all(vk.join("cache/tool")).unwrap();
+    let gen_file = vk.join("gen/tools.just");
+    let text = fs::read_to_string(&gen_file).unwrap();
+    assert_data_eq!(
+        text.as_str(),
+        snapbox::str![[r#"
+mod? other '../cache/other/just/other.just'
+mod? tool '../cache/tool/just/tool.just'
+mod? tool-extra '../cache/tool/just/tool-extra.just'
+
+"#]]
+    );
+    assert!(text.lines().all(|l| l.starts_with("mod? ")), "{text}");
+
+    let parsed = match std::process::Command::new("just")
+        .arg("--justfile")
+        .arg(&gen_file)
+        .arg("--working-directory")
+        .arg(vk.join("gen"))
+        .arg("--summary")
+        .output()
+    {
+        Ok(out) => out,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("just not on PATH; checked the literal content only");
+            return;
+        }
+        Err(e) => panic!("{e}"),
+    };
+    assert!(
+        parsed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parsed.stderr)
+    );
+    assert_eq!(String::from_utf8(parsed.stdout).unwrap(), "other::hello\n");
 }
