@@ -8,6 +8,31 @@ WORKDIR /src
 COPY rust-toolchain.toml ./
 RUN rustup toolchain install && rustc --version
 
+# just：test stage 用真的 just 解析薄殼模板（test/e2e/tests/entry.rs）。下載官方 release 的 musl 靜態執行檔並核對 SHA256。
+# 預設是主機需求的下限 1.33.0（launcher/host.sh 的 vk_just_min、ADR-0011 的 CI 矩陣）；1.33.0 的 release 沒附
+# SHA256SUMS，兩個雜湊是下載官方資產後算出的。CI 的 latest 那格以 build-arg 換版本與兩個雜湊（取自該版的 SHA256SUMS）。
+# 獨立成一個 stage、在 test stage 的 cargo 之後才 COPY：換 just 版本不必重跑 Rust 的建置與測試。
+FROM toolchain AS just
+ARG JUST_VERSION=1.33.0
+ARG JUST_SHA256_X86_64=7e6480ee1c1b1c906f7f1933cc1a1b9f281812341f997b78dcd166430f5ea500
+ARG JUST_SHA256_AARCH64=222eac28769adc65ea2cff037d0531bef12ddda8d2fa2cc06b564c962ab62875
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    arch=$(uname -m); \
+    case $arch in \
+        x86_64) sum=$JUST_SHA256_X86_64 ;; \
+        aarch64) sum=$JUST_SHA256_AARCH64 ;; \
+        *) echo "just: unsupported architecture $arch" >&2; exit 1 ;; \
+    esac; \
+    file="just-$JUST_VERSION-$arch-unknown-linux-musl.tar.gz"; \
+    curl -fsSL --retry 3 -o "/tmp/$file" "https://github.com/casey/just/releases/download/$JUST_VERSION/$file"; \
+    echo "$sum  /tmp/$file" | sha256sum -c -; \
+    tar -xzf "/tmp/$file" -C /usr/local/bin just; \
+    rm -f "/tmp/$file"; \
+    /usr/local/bin/just --version | grep -qx "just $JUST_VERSION"
+
 FROM toolchain AS source
 COPY Cargo.toml Cargo.lock ./
 COPY engine engine
@@ -50,6 +75,11 @@ RUN set -eu; \
     shellcheck -x launcher/*.sh launcher/lint/check_commands.sh; \
     launcher/lint/check_commands.sh; \
     VK_MESSAGES=/out/bootstrap_messages.sh bats launcher/test
+# 薄殼入口（test/e2e/tests/entry.rs）：真的 just 解析 launcher/shell/assemble.sh 組好的模板，經 log.sh 走到啟動器，
+# docker 用 bats 的假 docker。要 just 與 launcher/，所以不在上面工作區的 cargo test 跑（那裡標成 ignored）。
+COPY --from=just /usr/local/bin/just /usr/local/bin/just
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    VK_MESSAGES=/out/bootstrap_messages.sh cargo test --locked -p e2e --test entry -- --ignored
 # bootstrap.sh 的組裝（image/bootstrap/assemble.sh）：用固定的假引用與介面版 1 組一份，跑「內嵌清單 ⊆ 真本」檢查
 # （msggen --embedded：內嵌片段跟訊息表一致，入口走得到的代碼都是 source 含 bootstrap 的 active 代碼）、
 # shellcheck 與 bats 的 smoke。發佈用的那份由下面的 bootstrap stage 以同一支腳本組。
