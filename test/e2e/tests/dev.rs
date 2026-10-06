@@ -1,4 +1,5 @@
 //! `dev <repo> -p <dir>`、`undev <repo>`（04 指令表、成對與無害、本機覆寫；03 輸出）：經假的啟動器跑。
+//! 開著覆寫與解除之後的 `sync`（04 sync、本機覆寫）也在這裡。
 //!
 //! `dev`、`undev` 不碰 docker，假啟動器只收 `done`；`add` 那一段照 tests/add.rs 回 inspect 與 extract。
 //! 本機開發來源放在安裝目錄裡：引擎只看得到安裝目錄（engine/dev 的缺口）。
@@ -293,6 +294,84 @@ tool has no local override. No changes were made.
 "#]]
     );
     assert_eq!(snapshot(&m), before);
+}
+
+#[test]
+fn sync_uses_the_local_source_during_dev_and_the_locked_version_after_undev() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+    let entry = vk.join("gen/tools.just");
+
+    let peer = add_launcher(&m);
+    let (code, _, stderr) = run(&m, &["add", "tool", "-i", IMAGE]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let after_add = locked_state(&m);
+
+    let src = m.root.join("work/tool/just");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo local\n").unwrap();
+    let (code, _, stderr) = run_idle(&m, &["dev", "tool", "-p", "work/tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let local_entry = "mod tool '../../work/tool/just/tool.just'\n";
+    assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
+
+    // 開著覆寫時 sync 重產入口檔：指向本機開發來源，不取件（沒有 request），cache/、印記、版本鎖定行不動。
+    fs::remove_file(&entry).unwrap();
+    let (code, stdout, stderr) = run_idle(&m, &["sync"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+tool uses the local source work/tool (local override).
+Updated .vendor_kit/gen/tools.just.
+
+"#]]
+    );
+    assert_data_eq!(stderr, "");
+    assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
+    assert_eq!(events(&m), LANDED_EVENTS);
+    let vk_gen = vk.join("gen");
+    let without_gen = |state: Vec<(PathBuf, Vec<u8>)>| -> Vec<(PathBuf, Vec<u8>)> {
+        state
+            .into_iter()
+            .filter(|(p, _)| !p.starts_with(&vk_gen))
+            .collect()
+    };
+    assert_eq!(
+        without_gen(locked_state(&m)),
+        without_gen(after_add.clone())
+    );
+
+    // 再 sync：沒有變更，照樣報告用了哪個覆寫。
+    let before = snapshot(&m);
+    let (code, stdout, _) = run_idle(&m, &["sync"]);
+    assert_eq!(code, 0);
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+tool uses the local source work/tool (local override).
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
+    assert_eq!(events(&m), ["engine_started", "engine_finished"]);
+
+    // undev 之後 sync：回到鎖定版本，什麼都不改、不印。
+    let (code, _, stderr) = run_idle(&m, &["undev", "tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let (code, stdout, stderr) = run_idle(&m, &["sync"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(stderr, "");
+    assert_eq!(locked_state(&m), after_add);
+    assert_eq!(
+        fs::read_to_string(&entry).unwrap(),
+        "mod tool '../cache/tool/just/tool.just'\n"
+    );
+    assert_eq!(events(&m), ["engine_started", "engine_finished"]);
 }
 
 #[test]
