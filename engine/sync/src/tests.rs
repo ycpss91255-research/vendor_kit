@@ -1,5 +1,6 @@
-//! 單元測試：以背景的假啟動器回 inspect、pull 與 extract，跑整段 `sync`。驗各種印記與 `cache/` 狀態的
-//! 判定、逐工具處理前的停下點、殘留進度檔，以及只用救援路徑的 op。
+//! 單元測試：以背景的假啟動器回 inspect、pull、extract 與 `stage-dir`，跑整段 `sync`。驗各種印記與
+//! `cache/` 狀態的判定、逐工具處理前的停下點、殘留進度檔、安裝目錄外的本機開發來源，以及取件只用救援
+//! 路徑的 op。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;
@@ -140,6 +141,8 @@ struct Behavior {
     fail: Option<&'static str>,
     /// inspect 回的 RepoDigests 換成這個 digest（digest 不符）。
     wrong_digest: Option<String>,
+    /// `stage-dir` 的主機路徑 `/h/<x>` 對到這個目錄底下的 `<x>`；`None` 時一律 failed 1。
+    host: Option<PathBuf>,
 }
 
 /// 假啟動器：認得 [`TOOL`] 與 [`OTHER`]；image ID 就是 digest。
@@ -164,11 +167,34 @@ impl Peer {
                     continue;
                 };
                 let (s, op) = Op::parse_request(&bytes, &header).unwrap();
-                seen.push(op.kind().name().to_owned());
+                match &op {
+                    Op::StageDir(path, slot) => seen.push(format!(
+                        "stage-dir {} {}",
+                        String::from_utf8_lossy(path.as_bytes()),
+                        slot.as_str()
+                    )),
+                    _ => seen.push(op.kind().name().to_owned()),
+                }
                 let outcome = if Some(op.kind().name()) == behavior.fail {
                     Outcome::Failed(1)
                 } else {
                     match &op {
+                        // launcher/launch.sh 的 vk_launch_stage_dir：來源不是目錄或 slot 已存在回 failed 1。
+                        Op::StageDir(path, slot) => {
+                            let path = String::from_utf8(path.as_bytes().to_vec()).unwrap();
+                            let src = path
+                                .strip_prefix("/h/")
+                                .zip(behavior.host.as_ref())
+                                .map(|(rest, host)| host.join(rest));
+                            let dest = inbox.join(slot.as_str());
+                            match src {
+                                Some(src) if src.is_dir() && !dest.exists() => {
+                                    copy_dir(&src, &dest);
+                                    Outcome::Ok
+                                }
+                                _ => Outcome::Failed(1),
+                            }
+                        }
                         Op::Inspect(r) if !local.lock().unwrap().contains(r.as_str()) => {
                             Outcome::Failed(1)
                         }
@@ -216,6 +242,19 @@ impl Peer {
     }
 }
 
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
 fn header() -> Header {
     Header::new(1, RunId::parse("r1").unwrap()).unwrap()
 }
@@ -253,9 +292,22 @@ fn run_sync(fx: &Fx, behavior: Behavior) -> Out {
 }
 
 fn run_sync_with(fx: &Fx, behavior: Behavior, shell_templates: Option<&[Vec<u8>; 4]>) -> Out {
+    run_sync_full(fx, behavior, shell_templates, false)
+}
+
+/// `rescue`：照救援路徑跑（介面版不在區間內，往返只准救援 op）。
+fn run_sync_full(
+    fx: &Fx,
+    behavior: Behavior,
+    shell_templates: Option<&[Vec<u8>; 4]>,
+    rescue: bool,
+) -> Out {
     fx.new_session();
     let peer = Peer::start(fx, behavior);
     let mut channel = Channel::new(&fx.ctl, header());
+    if rescue {
+        channel.restrict_to_rescue();
+    }
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let mut diags = Diagnostics::with_sink(&mut stderr, NoSink);
@@ -805,6 +857,140 @@ fn unreadable_local_source_is_vk0052_and_writes_nothing() {
     );
     assert!(untouched(&fx, &lock));
     assert!(out.log.is_empty());
+}
+
+/// 主機上安裝目錄（`/h/proj`）外的 `/h/elsewhere/tool`（交付 `tool`、`tool-extra`），`tool` 的覆寫指到 `source`。
+fn override_outside(fx: &Fx, source: &str) -> PathBuf {
+    let host = fx._tmp.path().join("host");
+    fs::create_dir_all(host.join("proj")).unwrap();
+    content(&host.join("elsewhere/tool"), TOOL.namespaces);
+    fs::write(
+        fx.dir.version_local_toml(),
+        format!("schema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"{source}\"\n"),
+    )
+    .unwrap();
+    host
+}
+
+#[test]
+fn outside_local_source_is_staged_and_the_install_directory_is_only_read() {
+    let fx = Fx::new(&[&TOOL, &OTHER]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    let host = override_outside(&fx, "/h/elsewhere/tool");
+    let behavior = Behavior {
+        host: Some(host.clone()),
+        ..all_local()
+    };
+    let out = run_sync(&fx, behavior.clone());
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.ops,
+        ["stage-dir /h/elsewhere/tool dev1", "inspect", "extract"],
+        "the override is staged before other tools are fetched"
+    );
+    assert_eq!(
+        out.stdout,
+        format!(
+            "tool uses the local source /h/elsewhere/tool (local override).\n\
+             Fetched other v1.2.0 ({}).\n\
+             Updated .vendor_kit/gen/tools.just.\n",
+            OTHER.locked()
+        )
+    );
+    assert_eq!(
+        fx.entry().unwrap(),
+        "mod? other '../cache/other/just/other.just'\n\
+         mod? tool '/h/elsewhere/tool/just/tool.just'\n\
+         mod? tool-extra '/h/elsewhere/tool/just/tool-extra.just'\n"
+    );
+    // 複本只在 session 目錄：覆寫的工具不取件、不寫 cache/ 與印記，追蹤檔不動。
+    assert!(fx.inbox.join("dev1/just/tool.just").is_file());
+    assert!(!fx.dir.tool_cache("tool").unwrap().exists());
+    assert!(fx.stamp("tool").is_none());
+    assert_eq!(fs::read(fx.dir.version_toml()).unwrap(), lock);
+    assert!(progress::find(&fx.dir).unwrap().is_empty());
+
+    // 再 sync：照樣經 stage-dir 讀，沒有變更就什麼都不寫。
+    let again = run_sync(&fx, behavior);
+    assert_eq!(again.code, 0, "{}", again.stderr);
+    assert_eq!(again.ops, ["stage-dir /h/elsewhere/tool dev1"]);
+    assert_eq!(
+        again.stdout,
+        "tool uses the local source /h/elsewhere/tool (local override).\n"
+    );
+    assert!(again.log.is_empty());
+}
+
+#[test]
+fn relative_outside_local_source_is_staged_from_under_the_host_root() {
+    let fx = Fx::new(&[&TOOL]);
+    let host = override_outside(&fx, "../elsewhere/tool");
+    let out = run_sync(
+        &fx,
+        Behavior {
+            host: Some(host),
+            ..all_local()
+        },
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.ops, ["stage-dir /h/proj/../elsewhere/tool dev1"]);
+    assert_eq!(
+        fx.entry().unwrap(),
+        "mod? tool '../../../elsewhere/tool/just/tool.just'\n\
+         mod? tool-extra '../../../elsewhere/tool/just/tool-extra.just'\n"
+    );
+}
+
+#[test]
+fn outside_local_source_that_cannot_be_copied_is_vk0052_and_writes_nothing() {
+    let fx = Fx::new(&[&TOOL, &OTHER]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    let host = override_outside(&fx, "/h/nowhere");
+    let out = run_sync(
+        &fx,
+        Behavior {
+            host: Some(host),
+            ..all_local()
+        },
+    );
+    assert_eq!(out.code, 2);
+    assert_eq!(
+        out.ops,
+        ["stage-dir /h/nowhere dev1"],
+        "other is not fetched"
+    );
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0052]: Cannot read the local override source /h/nowhere for tool: the launcher could not copy it (exit 1): it does not exist, is not a directory, or cannot be read. Run: just vendor_kit undev tool\n"
+    );
+    assert!(untouched(&fx, &lock));
+    assert!(out.log.is_empty());
+}
+
+#[test]
+fn outside_local_source_on_the_rescue_path_is_vk0052_without_a_request() {
+    // stage-dir 不在救援子集（ADR-0008），救援路徑送不出，照讀不到處理。
+    let fx = Fx::new(&[&TOOL]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    let host = override_outside(&fx, "/h/elsewhere/tool");
+    let behavior = Behavior {
+        host: Some(host),
+        ..all_local()
+    };
+    let out = run_sync_full(&fx, behavior, Some(&templates()), true);
+    assert_eq!(out.code, 2);
+    assert!(out.ops.is_empty());
+    assert_eq!(out.stdout, "");
+    assert!(
+        out.stderr.starts_with(
+            "vendor_kit: error[VK0052]: Cannot read the local override source /h/elsewhere/tool for tool: it is outside the install directory, and the launcher cannot copy it on the rescue path"
+        ),
+        "{}",
+        out.stderr
+    );
+    assert!(untouched(&fx, &lock));
 }
 
 #[test]

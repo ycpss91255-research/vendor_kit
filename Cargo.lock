@@ -351,6 +351,7 @@ dependencies = [
  "messages",
  "stamp",
  "tempfile",
+ "tools_just",
 ]
 
 [[package]]

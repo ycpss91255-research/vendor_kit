@@ -282,7 +282,7 @@ pub enum Op {
     Extract(ImageId, Slot),
     /// 把主機檔複製進 `in/<slot>`。
     Stage(Field, Slot),
-    /// 把主機上的目錄整個複製進 `in/<slot>`（`dev` 驗安裝目錄外的本機開發來源）。
+    /// 把主機上的目錄整個複製進 `in/<slot>`（`dev`、`sync`、`upgrade` 讀安裝目錄外的本機開發來源）。
     StageDir(Field, Slot),
     /// 列本安裝目錄 label 的已停止容器，輸出寫 `res.<seq>.out`。
     Ps,

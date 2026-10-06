@@ -3,12 +3,13 @@ name = "fetch"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "取件內容的驗證：暫存內容 → 驗過的候選（digest、逐檔指紋、dist 格式、<ns> 撞名），不寫檔、不呼叫 docker"
+description = "取件內容的驗證：暫存內容 → 驗過的候選（digest、逐檔指紋、dist 格式、<ns> 撞名），與本機開發來源的正規化與檢查；不寫檔、不呼叫 docker"
 
 [dependencies]
 imageref.workspace = true
 messages.workspace = true
 stamp.workspace = true
+tools_just.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

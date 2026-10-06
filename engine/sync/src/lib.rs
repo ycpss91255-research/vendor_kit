@@ -9,7 +9,8 @@
 //!    屬寫入端（04 鎖與逾時）。`sync` 仍是唯讀 recipe（名詞表、ADR-0007）：不動追蹤檔，也不動進度檔。
 //! 3. 讀 `version.toml`（檔案版過高回 VK0008）。
 //! 4. 逐工具處理前先判（04 sync 第 2 步；02 不變量 4：動到任何工具之前判定有工具不能做，就一個都不動，
-//!    並列出每個原因）。這一段只讀、不取件、不寫：
+//!    並列出每個原因）。這一段只讀、不取件、不寫（安裝目錄外的本機開發來源經 `stage-dir` 複製進 session
+//!    目錄，不寫安裝目錄，見「本機覆寫」）：
 //!    - 薄殼：以 `compat` 的介面版、本引擎版與隨 image 出貨的模板本文（呼叫端給，跟 `install` 寫薄殼用的
 //!      是同一份）產生這一版的薄殼，跑 `shell::Shell::check`；任一檔不符回 VK0006，`<files>` 逐檔標出是哪一種。
 //!      `sync` 不重產薄殼（ADR-0007：只有 `install`、`upgrade --engine`、`bootstrap.sh --repair` 重產）。
@@ -30,8 +31,9 @@
 //!      重新取件，警告 VK0015。一致就不動，`<ns>` 從 `cache/<repo>/` 讀。
 //!    - 未列在版本鎖定行的工具目錄不看，留給 `prune`；初始檔不動（基準版落後見「缺口」）。
 //! 6. 要取件的工具，經 `plan` 協定請啟動器 `inspect` 帶 digest 的引用 `<registry>/<路徑>@<digest>`；本機沒有
-//!    就 `pull` 同一個引用再 `inspect`，再以 image ID `extract`。docker 動作失敗回 VK0055。只用
-//!    [`plan::RESCUE_OPS`] 裡的 op：`sync` 是救援路徑（ADR-0007、ADR-0008 凍結子集）。
+//!    就 `pull` 同一個引用再 `inspect`，再以 image ID `extract`。docker 動作失敗回 VK0055。取件只用
+//!    [`plan::RESCUE_OPS`] 裡的 op：`sync` 是救援路徑（ADR-0007、ADR-0008 凍結子集）。本機覆寫的
+//!    `stage-dir` 不在這個子集裡，救援路徑送不出（見「本機覆寫」）。
 //! 7. `fetch::verify`：inspect 回來的 RepoDigests 要有版本鎖定行的 digest，不符回 VK0043（不報 VK0015）；
 //!    dist 格式、逐檔指紋。一個工具失敗時其他工具照樣取件驗證，列出每個原因，但一個都不落地。
 //! 8. 用 `tools_just::render_with` 依這次的全部工具（重取的用暫存內容的 `<ns>`，沒重取的讀 `cache/<repo>/`，
@@ -50,10 +52,12 @@
 //! - 不取件，不看也不寫那個工具的 `cache/<repo>/` 與印記（`cache/<repo>/` 留著鎖定版本，`undev` 才能不讀
 //!   原來源就回到鎖定版本）。開著覆寫時版本鎖定行換了版（`cache/<repo>/` 跟鎖定行對不上），`sync` 也不對齊
 //!   它；`undev` 解除覆寫時才依鎖定行取件（engine/dev）。
-//! - `<ns>` 從本機開發來源讀：值照 engine/dev 以安裝目錄為準正規化（只收安裝目錄裡的值，見「缺口」），
-//!   要存在、是目錄、每一段都不是 symlink、
-//!   符合交付格式、交付 `<repo>.just`（[`local`]）；讀不到回 VK0052（04 本機覆寫：覆寫來源失效只擋需讀它的
-//!   動作；`sync` 重產入口檔要讀它），跟其他停下原因一起列出，什麼都不寫。
+//! - `<ns>` 從本機開發來源讀：值照 engine/dev 以安裝目錄為準正規化，要存在、是目錄、每一段都不是
+//!   symlink、符合交付格式、交付 `<repo>.just`（`fetch::local`）。安裝目錄外的（`dev` 收的絕對路徑，或開頭
+//!   是 `..` 的相對路徑）引擎看不到，照 engine/dev 請啟動器 `stage-dir` 複製進 session 目錄的 `in/<slot>`，
+//!   再讀那份複本：只複製進 session 目錄，不寫安裝目錄，`sync` 照樣唯讀於追蹤檔。救援路徑（介面版不在區間內）
+//!   送不出 `stage-dir`，照讀不到處理。讀不到回 VK0052（04 本機覆寫：覆寫來源失效只擋需讀它的動作；`sync`
+//!   重產入口檔要讀它），跟其他停下原因一起列出，什麼都不寫。
 //! - `gen/tools.just` 那個工具的行指向本機開發來源（`tools_just::local_line`）。
 //! - 每次報告用了哪個覆寫（04 本機覆寫：不加診斷前綴，`update` 以外到 stdout），沒有變更時也印。
 //! - 其他工具照常依版本鎖定行判定、取件、落地。引擎的覆寫與工具同步無關，不看。
@@ -85,10 +89,11 @@
 //!
 //! - 印記的位置與 `add` 共用 [`stamp::tool_file`]（`.vendor_kit/cache/<repo>.stamp.toml`）。
 //! - 覆寫的報告字句與排在最前面（[`text::local_override`]）；`sync` 停下時只印診斷，不報告覆寫。
-//! - 本機開發來源的正規化與檢查從 engine/dev 照抄（[`local`]；指令之間互不依賴）。`<undev_command>`、
-//!   `<original_command>` 的重組從 engine/update 照抄（[`full_command`]）。
+//! - 本機開發來源的正規化與檢查跟 engine/dev、engine/upgrade 共用 `fetch::local`。`<undev_command>`、
+//!   `<original_command>` 的重組從 engine/update 照抄（[`full_command`]；指令之間互不依賴）。
 //! - VK0006 的 `<files>` 寫成 `.vendor_kit/<檔名> (<哪一種>)`，以 `, ` 分隔，順序同 `layout::SHELL_FILES`。
-//! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）。
+//! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）；`stage-dir` 的另外編號
+//!   （`fetch::local::STAGE_SLOT_PREFIX`，`dev1`、`dev2`…）。
 //! - docker `image inspect` 的輸出只讀 `Id` 與 `RepoDigests`（[`parse_inspect`]）。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
@@ -96,8 +101,6 @@
 //! - 覆寫指到不在版本鎖定行的工具（例如開著覆寫時 `git pull` 拿掉了那一行）：ADR-0002 說覆寫只覆蓋已存在
 //!   的鎖定行，訊息表沒有代碼（`version_file::OrphanOverrides`），停下。
 //! - 開著覆寫的工具交付保留名 `vendor_kit`，或跟其他工具撞名：沒有代碼，停下（同 engine/dev）。
-//! - 覆寫的本機開發來源在安裝目錄外（`dev` 經 `stage-dir` 收的絕對路徑，或開頭是 `..` 的相對路徑）：
-//!   `sync` 這一版不經 `stage-dir` 取，引擎看不到那個目錄，照讀不到回 VK0052，要先 `undev`。
 //! - 殘留的引擎 `upgrade` 進度檔：VK0023 要填新引擎的 `<vY>`，`progress::upgrade` 還沒記引擎 upgrade 的
 //!   欄位（`upgrade --engine` 還沒實作），停下時說明裡帶進度檔與原指令（同 engine/update）。
 //! - 殘留的 `sync` 進度檔：`sync` 不寫進度檔，正常的引擎不會留下；報 VK0054 會叫使用者重跑 `sync`、
@@ -109,9 +112,8 @@
 //! - 中途寫檔失敗沒有代碼（G4）。
 //! - 工具 recipe 前的自動 `sync`：引擎分不出這次是不是自動觸發，警告後本體跑不跑、整次回碼見 #120。
 //!
-//! 這裡不直接碰 docker：docker 動作一律是 `plan` 協定的 op，由啟動器代做。
+//! 這裡不直接碰 docker：docker 動作與 `stage-dir` 一律是 `plan` 協定的 op，由啟動器代做。
 
-pub mod local;
 pub mod text;
 
 #[cfg(test)]
@@ -130,7 +132,7 @@ use fetch::{Candidate, Staged, Taken};
 use filelock::{Lock, Mode};
 use imageref::ImageRef;
 use layout::InstallDir;
-use plan::{Channel, ImageId, Op, Outcome, Slot};
+use plan::{Channel, ChannelError, Field, ImageId, Op, Outcome, Slot};
 use shell::Shell;
 use stamp::Stamp;
 use txn::{Disk, ToolContent};
@@ -179,6 +181,7 @@ pub fn run<W: Write, S: Sink, L: Write>(env: &mut Env<'_, W, S, L>) -> u8 {
         env,
         code: 0,
         extracts: 0,
+        stages: 0,
     };
     let _ = sync.run();
     sync.code
@@ -295,8 +298,10 @@ struct Fetched {
 struct Sync<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
     code: u8,
-    /// 這次執行已用掉的 slot 數。
+    /// 這次執行已用掉的取件 slot 數。
     extracts: u32,
+    /// 這次執行已用掉的 `stage-dir` slot 數。
+    stages: u32,
 }
 
 impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
@@ -532,7 +537,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             Ok(Some(file)) => match Versions::new(lockfile, Some(&file)) {
                 Ok(_) => {
                     for (repo, source) in file.tools() {
-                        match self.local_source(repo, source) {
+                        match self.local_source(repo, source)? {
                             Ok(l) => {
                                 local.insert(repo.clone(), l);
                             }
@@ -605,8 +610,8 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         }
     }
 
-    /// 一個工具的本機開發來源（模組說明「本機覆寫」）：讀不到回 VK0052。
-    fn local_source(&self, repo: &str, source: &str) -> Result<Local, Diagnostic> {
+    /// 一個工具的本機開發來源（模組說明「本機覆寫」）：讀不到回 `Ok(Err(VK0052))`，交付保留名是缺口。
+    fn local_source(&mut self, repo: &str, source: &str) -> Step<Result<Local, Diagnostic>> {
         let unreadable = |reason: String| {
             Diagnostic::new(&messages::VK0052)
                 .arg("target", repo)
@@ -614,15 +619,74 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
                 .arg("reason", reason)
                 .arg("undev_command", full_command(&["undev", repo]))
         };
-        let dir = local::normalize(OsStr::new(source)).map_err(unreadable)?;
-        let namespaces = local::check_dir(self.env.dir.root(), &dir, repo).map_err(unreadable)?;
+        let dir = match fetch::local::normalize(OsStr::new(source), self.env.host_root) {
+            Ok(d) => d,
+            Err(p) => return Ok(Err(unreadable(p.reason()))),
+        };
+        let namespaces = match self.read_source(&dir, repo)? {
+            Ok(ns) => ns,
+            Err(p) => return Ok(Err(unreadable(p.reason()))),
+        };
         if namespaces.iter().any(|n| n == fetch::RESERVED) {
-            return Err(self.gap_diag(format_args!(
+            return Ok(Err(self.gap_diag(format_args!(
                 "sync of {repo} whose local source delivers the reserved namespace {} (no reason code)",
                 fetch::RESERVED
-            )));
+            ))));
         }
-        Ok(Local { dir, namespaces })
+        Ok(Ok(Local {
+            dir: dir.as_str().to_owned(),
+            namespaces,
+        }))
+    }
+
+    /// 讀本機開發來源交付的 `<ns>`（`fetch::local::check_dir`）：安裝目錄裡的直接讀；安裝目錄外的先請
+    /// 啟動器 `stage-dir` 複製進 `in/<slot>`（session 目錄，不寫安裝目錄），再讀那份複本。救援路徑送不出
+    /// `stage-dir`，照讀不到處理；往返本身失敗是 VK 的錯，停下。
+    fn read_source(
+        &mut self,
+        source: &fetch::local::Source,
+        repo: &str,
+    ) -> Step<Result<Vec<String>, fetch::local::PathProblem>> {
+        let Some(host) = source.host_path(self.env.host_root) else {
+            return Ok(fetch::local::check_dir(
+                self.env.dir.root(),
+                source.as_str(),
+                repo,
+            ));
+        };
+        self.stages += 1;
+        let name = format!("{}{}", fetch::local::STAGE_SLOT_PREFIX, self.stages);
+        let Some(slot) = Slot::parse(&name) else {
+            return Err(self.internal(format!("stage-dir slot {name} is not a valid slot")));
+        };
+        let field = match Field::new(host.into_bytes()) {
+            Ok(f) => f,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        match self.env.channel.send(&Op::StageDir(field, slot)) {
+            Ok(_) => {}
+            Err(ChannelError::NotRescue(_)) => {
+                return Ok(Err(fetch::local::PathProblem::Unusable(
+                    "it is outside the install directory, and the launcher cannot copy it on \
+                     the rescue path (the interface version is not supported)"
+                        .to_owned(),
+                )));
+            }
+            Err(e) => return Err(self.internal(e.to_string())),
+        }
+        let reply = match self.env.channel.receive(self.env.poll) {
+            Ok(r) => r,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        match reply.outcome {
+            Outcome::Ok => Ok(fetch::local::check_dir(
+                &self.env.inbox.join(&name),
+                ".",
+                repo,
+            )),
+            Outcome::Failed(rc) => Ok(Err(fetch::local::copy_failed(rc))),
+            Outcome::Runner(_) => Err(self.internal("stage-dir got a runner result")),
+        }
     }
 
     /// 一份殘留的進度檔要印的診斷（模組說明「殘留的進度檔」）：一律停下，不恢復、不刪。

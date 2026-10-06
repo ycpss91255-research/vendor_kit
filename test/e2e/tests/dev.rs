@@ -1,8 +1,9 @@
 //! `dev <repo> -p <dir>`、`undev <repo>`（04 指令表、成對與無害、本機覆寫；03 輸出）：經假的啟動器跑。
 //! 開著覆寫與解除之後的 `sync`（04 sync、本機覆寫），以及開著覆寫時的 `upgrade`（04 本機覆寫）也在這裡。
 //!
-//! 本機開發來源在安裝目錄裡時，`dev`、`undev` 不送 request，假啟動器只收 `done`；在安裝目錄外時，`dev`
-//! 送 `stage-dir`，假啟動器把對應的目錄複製進 `in/<slot>`（[`stage_launcher`]）。`undev` 的對象 `cache/`
+//! 本機開發來源在安裝目錄裡時，`dev`、`undev` 不送 request，假啟動器只收 `done`；在安裝目錄外時，`dev`、
+//! `sync`、`upgrade` 送 `stage-dir`，假啟動器把對應的目錄複製進 `in/<slot>`（[`stage_launcher`]；`upgrade`
+//! 另要取件，用 [`stage_add_launcher`]）。`undev` 的對象 `cache/`
 //! 跟版本鎖定行對不上時，`undev` 送 `inspect`、`pull`、`extract` 取件（[`fetch_launcher`]）。`add` 那一段照
 //! tests/add.rs 回 inspect 與 extract。`sync` 要判薄殼，所以安裝目錄放好跟這一版引擎一致的薄殼，模板從
 //! fixture 目錄讀（[`e2e::shell`]）。
@@ -54,7 +55,14 @@ fn tool_content(dir: &Path) {
 /// 回 inspect 與 extract 的假啟動器（給 `add`）；其他 op 一律失敗。
 fn add_launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
     let (ctl, inbox) = (m.ctl.clone(), m.inbox.clone());
-    launcher::serve(&m.ctl, HEADER, move |req: &Request| match req.op.as_str() {
+    launcher::serve(&m.ctl, HEADER, move |req: &Request| {
+        add_reply(&ctl, &inbox, req)
+    })
+}
+
+/// [`add_launcher`] 對一個 request 的回應。
+fn add_reply(ctl: &Path, inbox: &Path, req: &Request) -> Reply {
+    match req.op.as_str() {
         "inspect" => {
             let digests = [format!("ghcr.io/acme/tool@{DIGEST}")];
             let digests: Vec<&str> = digests.iter().map(String::as_str).collect();
@@ -70,7 +78,7 @@ fn add_launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
             Reply::Ok
         }
         _ => Reply::Failed(1),
-    })
+    }
 }
 
 /// 開著覆寫時 `git pull` 換上的新版本與它的 digest。
@@ -129,16 +137,34 @@ fn copy_dir(from: &Path, to: &Path) {
 fn stage_launcher(m: &Mounts, host: &Path) -> std::thread::JoinHandle<Seen> {
     let (inbox, host) = (m.inbox.clone(), host.to_path_buf());
     launcher::serve(&m.ctl, HEADER, move |req: &Request| {
-        let src = req.args[0]
-            .strip_prefix("e:/srv/")
-            .map(|rest| host.join(rest));
-        let dest = inbox.join(&req.args[1]);
-        match src {
-            Some(src) if req.op == "stage-dir" && src.is_dir() && !dest.exists() => {
-                copy_dir(&src, &dest);
-                Reply::Ok
-            }
-            _ => Reply::Failed(1),
+        stage_reply(&inbox, &host, req)
+    })
+}
+
+/// [`stage_launcher`] 對一個 request 的回應。
+fn stage_reply(inbox: &Path, host: &Path, req: &Request) -> Reply {
+    let src = req.args[0]
+        .strip_prefix("e:/srv/")
+        .map(|rest| host.join(rest));
+    let dest = inbox.join(&req.args[1]);
+    match src {
+        Some(src) if req.op == "stage-dir" && src.is_dir() && !dest.exists() => {
+            copy_dir(&src, &dest);
+            Reply::Ok
+        }
+        _ => Reply::Failed(1),
+    }
+}
+
+/// `stage-dir` 照 [`stage_launcher`]，inspect 與 extract 照 [`add_launcher`]（給開著安裝目錄外覆寫的
+/// `upgrade`）。
+fn stage_add_launcher(m: &Mounts, host: &Path) -> std::thread::JoinHandle<Seen> {
+    let (ctl, inbox, host) = (m.ctl.clone(), m.inbox.clone(), host.to_path_buf());
+    launcher::serve(&m.ctl, HEADER, move |req: &Request| {
+        if req.op == "stage-dir" {
+            stage_reply(&inbox, &host, req)
+        } else {
+            add_reply(&ctl, &inbox, req)
         }
     })
 }
@@ -697,6 +723,123 @@ Upgraded tool from v1.2.0 to v1.3.0 (ghcr.io/acme/tool:v1.3.0@sha256:22222222222
     );
     let local = fs::read_to_string(vk.join("version.local.toml")).unwrap();
     assert!(!local.contains("tool ="), "{local}");
+}
+
+#[test]
+fn sync_and_upgrade_stage_an_outside_local_source_through_the_launcher() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+    let entry = vk.join("gen/tools.just");
+
+    let peer = add_launcher(&m);
+    let (code, _, stderr) = run(&m, &["add", "tool", "-i", IMAGE]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let after_add = locked_state(&m);
+
+    // 主機上安裝目錄（/srv/proj）外的 /srv/elsewhere/tool。
+    let host = tmp.path().join("host");
+    fs::create_dir_all(host.join("proj")).unwrap();
+    let src = host.join("elsewhere/tool/just");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo outside\n").unwrap();
+    let ((code, _, stderr), _) =
+        run_staged(&m, &host, &["dev", "tool", "-p", "/srv/elsewhere/tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let local_entry = "mod? tool '/srv/elsewhere/tool/just/tool.just'\n";
+    assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
+
+    // sync 經 stage-dir 讀覆寫、重產入口檔；只複製進 session 目錄，cache/、印記、版本鎖定行不動。
+    fs::remove_file(&entry).unwrap();
+    let ((code, stdout, stderr), requests) = run_staged(&m, &host, &["sync"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(requests, ["stage-dir e:/srv/elsewhere/tool dev1"]);
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+tool uses the local source /srv/elsewhere/tool (local override).
+Updated .vendor_kit/gen/tools.just.
+
+"#]]
+    );
+    assert_data_eq!(stderr, "");
+    assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
+    assert_eq!(events(&m), SYNC_LANDED_EVENTS);
+    let vk_gen = vk.join("gen");
+    let without_gen = |state: Vec<(PathBuf, Vec<u8>)>| -> Vec<(PathBuf, Vec<u8>)> {
+        state
+            .into_iter()
+            .filter(|(p, _)| !p.starts_with(&vk_gen))
+            .collect()
+    };
+    assert_eq!(
+        without_gen(locked_state(&m)),
+        without_gen(after_add.clone())
+    );
+
+    // 再 sync：照樣經 stage-dir 讀，沒有變更就什麼都不寫。
+    let before = snapshot(&m);
+    let ((code, stdout, _), requests) = run_staged(&m, &host, &["sync"]);
+    assert_eq!(code, 0);
+    assert_eq!(requests, ["stage-dir e:/srv/elsewhere/tool dev1"]);
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+tool uses the local source /srv/elsewhere/tool (local override).
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
+
+    // 主機上的來源不見了：sync 照讀不到回 VK0052，什麼都不寫。
+    fs::remove_dir_all(host.join("elsewhere")).unwrap();
+    let ((code, stdout, stderr), requests) = run_staged(&m, &host, &["sync"]);
+    assert_eq!(code, 2);
+    assert_eq!(requests, ["stage-dir e:/srv/elsewhere/tool dev1"]);
+    assert_data_eq!(stdout, "");
+    assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+vendor_kit: error[VK0052]: Cannot read the local override source /srv/elsewhere/tool for tool: the launcher could not copy it (exit 1): it does not exist, is not a directory, or cannot be read. Run: just vendor_kit undev tool
+
+"#]]
+    );
+    assert_eq!(snapshot(&m), before);
+
+    // upgrade 先經 stage-dir 讀覆寫，再照常取件換版；入口檔仍指主機上的本機開發來源。
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo outside\n").unwrap();
+    new_session(&m);
+    let peer = stage_add_launcher(&m, &host);
+    let (code, stdout, stderr) = run(&m, &["upgrade", "tool@v1.3.0"]);
+    let seen = peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_eq!(
+        seen.requests,
+        [
+            "stage-dir e:/srv/elsewhere/tool dev1".to_owned(),
+            "inspect ghcr.io/acme/tool:v1.3.0".to_owned(),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+tool uses the local source /srv/elsewhere/tool (local override).
+Upgraded tool from v1.2.0 to v1.3.0 (ghcr.io/acme/tool:v1.3.0@sha256:2222222222222222222222222222222222222222222222222222222222222222).
+
+"#]]
+    );
+    assert_data_eq!(stderr, "");
+    let lock = fs::read_to_string(vk.join("version.toml")).unwrap();
+    assert!(
+        lock.ends_with(&format!("tool = \"ghcr.io/acme/tool:v1.3.0@{DIGEST}\"\n")),
+        "{lock}"
+    );
+    assert_eq!(fs::read_to_string(&entry).unwrap(), local_entry);
 }
 
 #[test]

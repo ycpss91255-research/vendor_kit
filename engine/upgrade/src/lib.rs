@@ -36,10 +36,10 @@
 //!
 //! - 對象工具開著覆寫也照常取件、換 `cache/<repo>/`、印記與版本鎖定行：覆寫期間的內容由本機開發來源決定，
 //!   `cache/<repo>/` 與鎖定行記的是鎖定版本，`undev` 之後回到換好的新版。
-//! - 每個覆寫的 `<ns>` 從本機開發來源讀（[`local`]，值照 engine/dev 以安裝目錄為準正規化，只收安裝目錄裡的
-//!   值，見「缺口」）；讀不到回 VK0052
-//!   （04 本機覆寫：覆寫來源失效只擋需讀它的動作；重產 `gen/tools.just` 要讀它），列出每個讀不到的覆寫，
-//!   在任何 docker 動作與寫入之前停下。
+//! - 每個覆寫的 `<ns>` 從本機開發來源讀（`fetch::local`，值照 engine/dev 以安裝目錄為準正規化）。安裝目錄外
+//!   的（`dev` 收的絕對路徑，或開頭是 `..` 的相對路徑）引擎看不到，照 engine/dev 請啟動器 `stage-dir` 複製
+//!   進 session 目錄的 `in/<slot>`，再讀那份複本。讀不到回 VK0052（04 本機覆寫：覆寫來源失效只擋需讀它的
+//!   動作；重產 `gen/tools.just` 要讀它），列出每個讀不到的覆寫，在任何 docker 動作與寫入之前停下。
 //! - `gen/tools.just` 裡開著覆寫的工具（對象或其他工具）那幾行指向本機開發來源（`tools_just::render_with`）；
 //!   撞名判定裡開著覆寫的其他工具也以本機開發來源的 `<ns>` 為準（入口檔裡生效的是它）。
 //! - 每次以 0 結束時（換好、已是該版、答否取消）都在 stdout 報告用了哪個覆寫，排在那條路徑的字句前面
@@ -55,9 +55,10 @@
 //!   等唯讀 recipe 也讀得到（VK0041 的 `<repo>`）。
 //! - 新版不再提供的初始檔：`initfiles` 判成缺口（紀錄記成什麼 state 契約沒寫），但 04 只要求不刪、只列
 //!   清單，所以這裡照列、不改它的紀錄，不因此停下。
-//! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）。
+//! - 取件的 slot 名是 [`SLOT_PREFIX`] 加這次執行裡的序號（`tool1`、`tool2`…）；`stage-dir` 的另外編號
+//!   （`fetch::local::STAGE_SLOT_PREFIX`，`dev1`、`dev2`…）。
 //! - stdout 的字句與詢問文字（英文）見 [`text`]；覆寫的報告字句跟 engine/sync 相同（[`text::local_override`]）。
-//! - 本機開發來源的正規化與檢查從 engine/dev 照抄（[`local`]，engine/sync 也照抄同一份）。
+//! - 本機開發來源的正規化與檢查跟 engine/dev、engine/sync 共用 `fetch::local`。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
@@ -75,8 +76,6 @@
 //! - 覆寫指到不在版本鎖定行的工具：ADR-0002 說覆寫只覆蓋已存在的鎖定行，訊息表沒有代碼
 //!   （`version_file::OrphanOverrides`），停下（同 engine/sync）。
 //! - 開著覆寫的工具的本機開發來源交付保留名 `vendor_kit`：沒有代碼，停下（同 engine/sync）。
-//! - 覆寫的本機開發來源在安裝目錄外（`dev` 經 `stage-dir` 收的絕對路徑，或開頭是 `..` 的相對路徑）：
-//!   這一版不經 `stage-dir` 取，引擎看不到那個目錄，照讀不到回 VK0052，要先 `undev`（同 engine/sync）。
 //! - 其他已裝工具的 `cache/<repo>/` 讀不到（例如全新 checkout 還沒 `sync`）：撞名判定與入口檔都要它。
 //! - 殘留的進度檔不是 `upgrade` 的；殘留的是引擎 upgrade；或殘留的工具 upgrade 寫過初始檔相關的檔（那次
 //!   寫了哪些沒有記錄，重新判定會把它自己寫的內容當成使用者改的）。
@@ -86,10 +85,9 @@
 //! - 合併結果解析不過、留了原檔的初始檔沒有訊息表代碼，對外結束碼也沒定（VK0021 說檔裡含有衝突，
 //!   不能借用）：這一版只在 stdout 說明，照常以 0 結束（ADR-0003 的補寫待定）。
 //!
-//! 這裡不直接碰 docker：docker 動作一律是 `plan` 協定的 op，由啟動器代做。
+//! 這裡不直接碰 docker：docker 動作與 `stage-dir` 一律是 `plan` 協定的 op，由啟動器代做。
 
 mod justfile;
-pub mod local;
 mod source;
 pub mod text;
 
@@ -111,7 +109,7 @@ use imageref::{ImageRef, Tag};
 use initfiles::{Gap, InitFile, Strategy};
 use layout::InstallDir;
 use metadata::Metadata;
-use plan::{Channel, ImageId, Op, Outcome, Slot, Tty};
+use plan::{Channel, Field, ImageId, Op, Outcome, Slot, Tty};
 use progress::Progress;
 use progress::upgrade as table;
 use prompt::{Consent, PromptError, TtyState};
@@ -209,6 +207,7 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
         init,
         code: 0,
         extracts: 0,
+        stages: 0,
         local: BTreeMap::new(),
     };
     let _ = upgrade.run(req);
@@ -244,8 +243,10 @@ struct Upgrade<'r, 'a, W: Write, S: Sink, L: Write> {
     env: &'r mut Env<'a, W, S, L>,
     init: InitSource<'r>,
     code: u8,
-    /// 這次執行已用掉的 slot 數。
+    /// 這次執行已用掉的取件 slot 數。
     extracts: u32,
+    /// 這次執行已用掉的 `stage-dir` slot 數。
+    stages: u32,
     /// 開著覆寫的工具（模組說明「本機覆寫」）。
     local: BTreeMap<String, Local>,
 }
@@ -459,13 +460,13 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                 .arg("reason", reason)
                 .arg("undev_command", format!("just vendor_kit undev {repo}"))
         };
-        let dir = match local::normalize(OsStr::new(source)) {
+        let dir = match fetch::local::normalize(OsStr::new(source), self.env.host_root) {
             Ok(d) => d,
-            Err(reason) => return Ok(Err(unreadable(reason))),
+            Err(p) => return Ok(Err(unreadable(p.reason()))),
         };
-        let namespaces = match local::check_dir(self.env.dir.root(), &dir, repo) {
+        let namespaces = match self.read_source(&dir, repo)? {
             Ok(ns) => ns,
-            Err(reason) => return Ok(Err(unreadable(reason))),
+            Err(p) => return Ok(Err(unreadable(p.reason()))),
         };
         if namespaces.iter().any(|n| n == fetch::RESERVED) {
             return Err(self.gap(format_args!(
@@ -474,7 +475,45 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                 fetch::RESERVED
             )));
         }
-        Ok(Ok(Local { dir, namespaces }))
+        Ok(Ok(Local {
+            dir: dir.as_str().to_owned(),
+            namespaces,
+        }))
+    }
+
+    /// 讀本機開發來源交付的 `<ns>`（`fetch::local::check_dir`）：安裝目錄裡的直接讀；安裝目錄外的先請
+    /// 啟動器 `stage-dir` 複製進 `in/<slot>`（session 目錄），再讀那份複本。往返本身失敗是 VK 的錯，停下。
+    fn read_source(
+        &mut self,
+        source: &fetch::local::Source,
+        repo: &str,
+    ) -> Step<Result<Vec<String>, fetch::local::PathProblem>> {
+        let Some(host) = source.host_path(self.env.host_root) else {
+            return Ok(fetch::local::check_dir(
+                self.env.dir.root(),
+                source.as_str(),
+                repo,
+            ));
+        };
+        self.stages += 1;
+        let name = format!("{}{}", fetch::local::STAGE_SLOT_PREFIX, self.stages);
+        let Some(slot) = Slot::parse(&name) else {
+            return Err(self.internal(format!("stage-dir slot {name} is not a valid slot")));
+        };
+        let field = match Field::new(host.into_bytes()) {
+            Ok(f) => f,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        let (_, outcome) = self.request(&Op::StageDir(field, slot))?;
+        match outcome {
+            Outcome::Ok => Ok(fetch::local::check_dir(
+                &self.env.inbox.join(&name),
+                ".",
+                repo,
+            )),
+            Outcome::Failed(rc) => Ok(Err(fetch::local::copy_failed(rc))),
+            Outcome::Runner(_) => Err(self.internal("stage-dir got a runner result")),
+        }
     }
 
     fn meta_path(&mut self, repo: &str) -> Step<PathBuf> {
