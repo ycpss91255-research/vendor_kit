@@ -14,6 +14,16 @@ pub fn dev_unchanged(repo: &str, dir: &str) -> String {
     format!("{repo} already uses the local source {dir}. No changes were made.")
 }
 
+/// `dev --engine -i <image>` 開好覆寫。
+pub fn dev_engine_enabled(image: &str) -> String {
+    format!("The engine now uses the local image {image} (local override).")
+}
+
+/// 重複 `dev --engine` 同一個 image。
+pub fn dev_engine_unchanged(image: &str) -> String {
+    format!("The engine already uses the local image {image}. No changes were made.")
+}
+
 /// `undev <repo>` 解除覆寫，回到鎖定版本。
 pub fn undev_tool(repo: &str, locked: &ImageRef) -> String {
     format!(

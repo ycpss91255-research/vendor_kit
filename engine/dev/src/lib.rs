@@ -16,6 +16,9 @@
 //!      VK0050，不取代。相對路徑以安裝目錄為準（見「本機目錄」），要存在、是目錄、符合交付格式（`dist/`
 //!      的形狀：`just/<ns>.just`，`<repo>.just` 必須存在，ADR-0004），否則回 VK0051。安裝目錄外的目錄
 //!      先請啟動器 `stage-dir` 複製進來再驗。
+//!    - `dev --engine -i <image>`：已有同一個 image 的覆寫、也沒有殘留，stdout 說明未變更；已有不同 image 的
+//!      覆寫回 VK0050，不取代。否則請啟動器 `inspect` 那個 image，讀 LABEL 的介面版區間，要含薄殼的介面版
+//!      才寫（見「本機引擎」）。
 //!    - `undev <repo>`、`undev --engine`：沒有覆寫、也沒有殘留，stdout 說明未變更。`undev` 不讀原來源
 //!      （04 本機覆寫）。
 //! 7. 算出新的 `gen/tools.just`（`tools_just::render_with`）：開著覆寫的工具指向本機目錄，其他工具指向
@@ -24,7 +27,8 @@
 //!    覆寫來源失效只擋需讀它的動作）。`dev <repo>` 的本機開發來源交付的 `<ns>` 撞到保留名 `vendor_kit` 或其他
 //!    工具（開著覆寫的以本機開發來源為準）的，每個撞到的名字各回一則 VK0030（#372 N79 擴的情境，契約文字
 //!    待補），在任何寫入之前停下。`undev <repo>` 的對象回到鎖定版本：`cache/<repo>/` 與印記、版本
-//!    鎖定行一致就直接指回去；對不上就取件（見「取件」），入口檔照取到的內容算。`undev --engine` 不動入口檔。
+//!    鎖定行一致就直接指回去；對不上就取件（見「取件」），入口檔照取到的內容算。`dev --engine`、
+//!    `undev --engine` 不動入口檔。
 //! 8. 經 `txn` 的本機覆寫順序落地：建進度檔 → 寫 `version.local.toml`（記錄檔那一步）→ 換 `cache/<repo>/` 與
 //!    印記（`undev` 要取件時；其他情況是空的）→ 寫 `gen/tools.just` → 刪進度檔；不改版本鎖定行
 //!    （`keep_lock_line`）。覆寫的增減排在 `cache/` 與入口檔之前：04 本機覆寫「`undev` 解除覆寫，隨即同步到
@@ -33,7 +37,22 @@
 //! 9. stdout 列出改了什麼與用了哪個覆寫（04 本機覆寫：每次報告用了哪個覆寫，不加診斷前綴）。
 //!
 //! 這裡不直接碰 docker：往返只有安裝目錄外的本機開發來源的 `stage-dir`（不在 `plan::RESCUE_OPS`
-//! 裡；`dev` 不是救援路徑），與 `undev` 取件的 `inspect`、`pull`、`extract`。
+//! 裡；`dev` 不是救援路徑）、`dev --engine` 的 `inspect`，與 `undev` 取件的 `inspect`、`pull`、`extract`。
+//!
+//! # 本機引擎
+//!
+//! `dev --engine -i <image>` 的 `<image>` 要是啟動器收的 image 引用（`plan::ImageRef`：小寫字母或數字開頭，
+//! 之後是小寫字母、數字與 `._/:@-`，例如 `vendor_kit:dev` 或 image ID），否則以 VK0056 停下，不送任何 op。
+//! 本機 image 不 `pull`：請啟動器 `inspect` 原樣的引用，失敗（本機沒有或 docker 出錯）以 VK0056 停下。
+//! 讀 LABEL 的 [`LABEL_FLOOR`]、[`LABEL_CURRENT`]（[`protocol_range`]），缺或值不合以 VK0056 停下。
+//! 區間要含這次呼叫的薄殼介面版（`plan` header 的 P，就是啟動器轉來的薄殼的 P）：
+//!
+//! - 區間上限低於薄殼的 P：比薄殼舊的引擎，不得用它重產進 git 的薄殼（ADR-0010），草稿碼 VK0076 登錄前以
+//!   VK0056 停下，`<reason>` 結尾是 [`DRAFT_ENGINE_TOO_OLD`]。區間含薄殼的 P 的較舊引擎照樣接受（ADR-0010：
+//!   允許跑，退得回）；重產薄殼的 `upgrade --engine` 第二段開著引擎覆寫時停下（engine/upgrade）。
+//! - 區間下限高於薄殼的 P：見「缺口」。
+//!
+//! 通過才把原樣的引用寫進 `version.local.toml` 的引擎行，stdout 報告用了哪個覆寫。
 //!
 //! # 取件
 //!
@@ -74,8 +93,9 @@
 //!
 //! # 恢復
 //!
-//! 殘留的 `dev`、`undev` 進度檔記了對象（`[<verb>] target`；`dev` 另記正規化後的 `path`）。對象跟這次相同
-//! 的併進這次：先照殘留的那次把覆寫在記憶體裡補成做完的樣子（`dev` 設成它的 `path`，`undev` 拿掉），再照
+//! 殘留的 `dev`、`undev` 進度檔記了對象（`[<verb>] target`；工具的 `dev` 另記正規化後的 `path`，引擎的
+//! `dev` 另記 `image`）。對象跟這次相同的併進這次：先照殘留的那次把覆寫在記憶體裡補成做完的樣子（`dev`
+//! 設成它的 `path` 或 `image`，`undev` 拿掉），再照
 //! 這次的參數判定，落地時一起寫，這次落地完成之後才刪殘留的那幾份，中途再斷也還認得出來。有殘留時即使沒有
 //! 要改的，也走一次 `txn`，讓刪除排在 `writes_started` 之後。
 //!
@@ -89,16 +109,17 @@
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
-//! - 進度檔 `.tmp.<verb>.<run-id>.toml` 另記 `[<verb>]` 表的 `target`（工具名，引擎是 [`ENGINE_TARGET`]）與
-//!   `dev` 的 `path`。`update` 偵測到殘留的 `undev` 時，VK0053 的 `<target>` 讀這個欄位。
+//! - 進度檔 `.tmp.<verb>.<run-id>.toml` 另記 `[<verb>]` 表的 `target`（工具名，引擎是 [`ENGINE_TARGET`]）、
+//!   工具 `dev` 的 `path` 與引擎 `dev` 的 [`IMAGE_KEY`]。`update` 偵測到殘留的 `undev` 時，VK0053 的 `<target>` 讀這個欄位。
 //! - VK0050、VK0052、VK0053 的 `<target>`：工具填 `<repo>`，引擎填 [`ENGINE_TARGET`]。
 //! - 覆寫全部解除後 `version.local.toml` 照留（只剩檔案版與寫入者），不刪。
 //! - stdout 的字句見 [`text`]。
 //!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
-//! - `dev --engine -i <image>`：本機 image 怎麼驗、舊引擎不得重產薄殼的禁令（ADR-0010；計畫 G6）、
-//!   啟動器怎麼套用引擎覆寫都沒接上。
+//! - `dev --engine -i <image>`：引用不合法、`inspect` 失敗、LABEL 缺或值不合都沒有代碼；本機 image 的介面版
+//!   區間下限高於薄殼的 P（比薄殼新一個 X 的引擎）沒定要怎麼報，訊息表 VK0009 的下一步與 `<vY>` 不適用。
+//!   比薄殼舊的引擎見「本機引擎」。啟動器套用引擎覆寫（讀 `version.local.toml` 的引擎行）不在這裡。
 //! - `-p` 指到安裝目錄裡、路徑上有 symlink；或路徑不是 UTF-8、含 `'`、`"`、反斜線、控制字元，或是根目錄
 //!   `/`：見「本機目錄」，停下。
 //! - `dev` 的 `<ns>` 撞名不比對根 `justfile` 的 recipe 與 module。其他工具之間本來就撞名（跟這次開覆寫的
@@ -148,6 +169,16 @@ pub const UNDEV_VERB: &str = "undev";
 pub const TARGET_KEY: &str = "target";
 /// `dev` 的進度檔 `[dev]` 表裡記正規化後本機目錄的鍵。
 pub const PATH_KEY: &str = "path";
+/// `dev --engine` 的進度檔 `[dev]` 表裡記本機 image 的鍵。
+pub const IMAGE_KEY: &str = "image";
+/// 引擎 image 公告最低介面版的 LABEL（engine/compat 的 `image_build_args`、image/Dockerfile；照抄
+/// engine/upgrade 的同名常數，指令之間互不依賴）。
+pub const LABEL_FLOOR: &str = "vendor_kit.protocol.floor";
+/// 引擎 image 公告目前介面版的 LABEL。
+pub const LABEL_CURRENT: &str = "vendor_kit.protocol.current";
+/// 本機 image 的介面版區間上限低於薄殼的介面版（比薄殼舊的引擎，ADR-0010）時 VK0056 的 `<reason>` 結尾：
+/// 訊息表草稿 VK0076（薄殼介面版比引擎新）登錄前的過渡做法。
+pub const DRAFT_ENGINE_TOO_OLD: &str = "reason code pending (draft VK0076, N55)";
 /// 引擎當對象時的 `<target>`（與 `update` 結果行的引擎名欄相同）。
 pub const ENGINE_TARGET: &str = "vendor_kit";
 /// 重組指令時接在參數前面的字。
@@ -234,6 +265,8 @@ struct Inspected {
     id: String,
     /// `RepoDigests`：每筆 `<registry>/<路徑>@sha256:<digest>`。
     repo_digests: Vec<String>,
+    /// `Config.Labels`；沒有或是 `null` 時是空的。
+    labels: BTreeMap<String, String>,
 }
 
 /// 解析 `docker image inspect <ref>` 的 JSON：一個陣列，剛好一個物件（engine/sync 的 `parse_inspect`；
@@ -268,7 +301,51 @@ fn parse_inspect(bytes: &[u8]) -> Result<Inspected, String> {
             })
             .collect::<Result<_, _>>()?,
     };
-    Ok(Inspected { id, repo_digests })
+    let labels = match item.get("Config").and_then(|c| c.get("Labels")) {
+        None | Some(serde_json::Value::Null) => BTreeMap::new(),
+        Some(v) => v
+            .as_object()
+            .ok_or("image inspect Config.Labels is not an object")?
+            .iter()
+            .map(|(k, v)| {
+                v.as_str()
+                    .map(|v| (k.clone(), v.to_owned()))
+                    .ok_or("image inspect Config.Labels has a non-string value")
+            })
+            .collect::<Result<_, _>>()?,
+    };
+    Ok(Inspected {
+        id,
+        repo_digests,
+        labels,
+    })
+}
+
+/// 本機引擎 image 的 LABEL 公告的介面版區間 `(floor, current)`；缺 LABEL 或值不合回說明（判法照抄
+/// engine/upgrade 的 `target_compat`：十進位、不帶前導零、floor 不高於 current）。不看
+/// `org.opencontainers.image.version`：本機 build 的 image 沒有對應的 tag。
+pub fn protocol_range(
+    image: &str,
+    labels: &BTreeMap<String, String>,
+) -> Result<(u32, u32), String> {
+    let number = |key: &str| -> Result<u32, String> {
+        let value = labels
+            .get(key)
+            .ok_or_else(|| format!("the local engine image {image} has no {key} label"))?;
+        let ok = !value.is_empty()
+            && value.bytes().all(|b| b.is_ascii_digit())
+            && !value.starts_with('0');
+        let n = ok.then(|| value.parse::<u32>().ok()).flatten();
+        n.ok_or_else(|| format!("the local engine image {image} has {key}={value:?}"))
+    };
+    let floor = number(LABEL_FLOOR)?;
+    let current = number(LABEL_CURRENT)?;
+    if floor > current {
+        return Err(format!(
+            "the local engine image {image} has {LABEL_FLOOR}={floor} above {LABEL_CURRENT}={current}"
+        ));
+    }
+    Ok((floor, current))
 }
 
 /// POSIX shell 引號：只含安全字元的字原樣留下；其他（含空字串）包單引號，`'` 換成 `'\''`
@@ -310,8 +387,8 @@ type Step<T> = Result<T, Stop>;
 /// 併進這次的一份殘留進度檔。
 struct Residual {
     entry: progress::Entry,
-    /// `dev` 記的正規化後本機目錄；`undev` 是 `None`。
-    path: Option<String>,
+    /// `dev` 記的值：工具是正規化後的本機目錄，引擎是本機 image；`undev` 是 `None`。
+    value: Option<String>,
 }
 
 /// `undev <repo>` 的對象 `cache/<repo>/` 跟版本鎖定行比的結果。
@@ -416,12 +493,6 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
     // ---- 流程 ----
 
     fn run(&mut self, req: &Request<'_>) -> Step<()> {
-        if let Request::DevEngine { image } = req {
-            let image = image.to_string_lossy().into_owned();
-            return Err(self.gap(format_args!(
-                "dev --engine -i {image} (validating the local engine image and applying the engine override)"
-            )));
-        }
         let config = self.config()?;
         let _lock = self.lock(&config)?;
         let lockfile = self.lockfile()?;
@@ -430,7 +501,8 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
 
         let mut local = disk.clone().unwrap_or_default();
         for r in &residual {
-            let applied = match (&r.path, req.target()) {
+            let applied = match (&r.value, req.target()) {
+                (Some(image), ENGINE_TARGET) => local.set_engine(image),
                 (Some(path), target) => local.set_tool(target, path),
                 (None, ENGINE_TARGET) => local.remove_engine().map(|_| ()),
                 (None, target) => local.remove_tool(target).map(|_| ()),
@@ -465,7 +537,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                     said,
                 }
             }
-            Request::DevEngine { .. } => return Err(self.internal("dev --engine reached planning")),
+            Request::DevEngine { image } => self.dev_engine(&mut local, image, recovering)?,
         };
 
         // 覆寫的實際內容跟檔上一樣就不寫（殘留併進來時，記憶體裡的可能已經跟檔上不同）。
@@ -576,6 +648,73 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             entry,
             fetched: None,
             said: vec![text::dev_enabled(repo, &dir)],
+        })
+    }
+
+    /// `dev --engine -i <image>` 的判定（模組說明第 6 步與「本機引擎」）。
+    fn dev_engine(&mut self, local: &mut LocalFile, image: &OsStr, recovering: bool) -> Step<Plan> {
+        let Some(wire) = image.to_str().and_then(plan::ImageRef::parse) else {
+            let shown = image.to_string_lossy().into_owned();
+            return Err(self.internal(format!(
+                "the local engine image {shown:?} is not a valid image reference"
+            )));
+        };
+        let image = wire.as_str().to_owned();
+        if let Some(current) = local.engine() {
+            if current == image {
+                if !recovering {
+                    return Ok(Plan {
+                        local: None,
+                        entry: None,
+                        fetched: None,
+                        said: vec![text::dev_engine_unchanged(&image)],
+                    });
+                }
+                return Ok(Plan {
+                    local: Some(local.clone()),
+                    entry: None,
+                    fetched: None,
+                    said: vec![text::dev_engine_enabled(&image)],
+                });
+            }
+            let d = Diagnostic::new(&messages::VK0050)
+                .arg("target", ENGINE_TARGET)
+                .arg("undev_command", undev_command(ENGINE_TARGET));
+            return Err(self.stop(d));
+        }
+        let inspected = match self.inspect(&wire)? {
+            Ok(i) => i,
+            Err(rc) => {
+                return Err(self.internal(format!(
+                    "the launcher could not inspect the local engine image {image} (exit {rc}): \
+                     it does not exist locally or docker failed"
+                )));
+            }
+        };
+        let (floor, current) =
+            protocol_range(&image, &inspected.labels).map_err(|r| self.internal(r))?;
+        let shell = self.env.channel.header().protocol();
+        if shell > current {
+            return Err(self.internal(format!(
+                "the local engine image {image} accepts interface versions [{floor}, {current}], \
+                 older than the shell interface version {shell}, and must not regenerate the shell; \
+                 {DRAFT_ENGINE_TOO_OLD}"
+            )));
+        }
+        if shell < floor {
+            return Err(self.gap(format_args!(
+                "dev --engine with the local engine image {image} whose interface versions \
+                 [{floor}, {current}] are all newer than the shell interface version {shell}"
+            )));
+        }
+        if let Err(e) = local.set_engine(&image) {
+            return Err(self.internal(e.to_string()));
+        }
+        Ok(Plan {
+            local: Some(local.clone()),
+            entry: None,
+            fetched: None,
+            said: vec![text::dev_engine_enabled(&image)],
         })
     }
 
@@ -931,6 +1070,11 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         {
             fields.push((PATH_KEY, dir.to_owned()));
         }
+        if let Request::DevEngine { .. } = req
+            && let Some(image) = local.as_ref().and_then(LocalFile::engine)
+        {
+            fields.push((IMAGE_KEY, image.to_owned()));
+        }
         for (key, value) in fields {
             if let Err(e) = progress.document_mut().set(&[req.verb(), key], value) {
                 return Err(self.internal(e.to_string()));
@@ -1051,19 +1195,24 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             }
             return Err(self.other_operation(verb, &loaded));
         }
-        let path = if verb == DEV_VERB {
-            match field(PATH_KEY) {
-                Some(p) if target != ENGINE_TARGET => Some(p),
-                _ => {
+        let value = if verb == DEV_VERB {
+            let key = if target == ENGINE_TARGET {
+                IMAGE_KEY
+            } else {
+                PATH_KEY
+            };
+            match field(key) {
+                Some(v) => Some(v),
+                None => {
                     return Err(self.gap_diag(format_args!(
-                        "recovering the incomplete dev in {shown} without its [dev] {PATH_KEY} field"
+                        "recovering the incomplete dev in {shown} without its [dev] {key} field"
                     )));
                 }
             }
         } else {
             None
         };
-        Ok(Residual { entry, path })
+        Ok(Residual { entry, value })
     }
 
     /// VK0054：不能併進這次的殘留（其他可寫 recipe 的，或對象不同的 `dev`），下一步是重跑原指令。

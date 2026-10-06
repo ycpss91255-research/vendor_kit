@@ -115,6 +115,11 @@ const ALLOWS: &[Allow] = &[
         code: "VK0073",
         reason: "驗 dev 遇到其他工具 cache 損壞時原因寫明草稿碼（N4）；e2e 不能依賴 engine crate 的常數",
     },
+    Allow {
+        path: "engine/dev/src/lib.rs",
+        code: "VK0076",
+        reason: "dev --engine 的本機 image 比薄殼舊的草稿碼（N55），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
+    },
 ];
 
 fn repo_root() -> PathBuf {
