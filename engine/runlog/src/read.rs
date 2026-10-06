@@ -325,6 +325,11 @@ fn decode(value: &Value) -> Option<Entry> {
                 return None;
             }
             while let Some(k) = attrs.peek_key() {
+                // 占位符之後可有可無的下一步指令；還沒寫這個鍵的行（啟動器）照舊讀得進來
+                if k == key::NEXT_STEP_COMMAND {
+                    (!attrs.str(k)?.is_empty()).then_some(())?;
+                    break;
+                }
                 let placeholder = k.strip_prefix(key::PLACEHOLDER_PREFIX)?;
                 if placeholder.is_empty() {
                     return None;

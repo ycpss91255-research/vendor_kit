@@ -123,12 +123,41 @@ fn golden_engine_started() {
     );
 }
 
+/// 啟動器還沒寫 `vendor_kit.next_step.command`（launcher/log.sh 的鏡射另一個 PR 補）：
+/// launcher/test/log.bats 與 bootstrap.bats 的 `rust_golden golden_diagnostic_emitted` 取這個函式裡
+/// 第一個 `r#"…"#`，所以那一行先留著不帶下一步。這裡驗證引擎寫的行剛好是它在占位符之後補上下一步；
+/// launcher 端補上後 bats 改取 [`golden_diagnostic_emitted_next_step`]，這個函式就刪掉。
 #[test]
 fn golden_diagnostic_emitted() {
+    let launcher = r#"{"timestamp":"2026-10-05T01:02:03.000004Z","severity_text":"error","severity_number":17,"event_name":"diagnostic_emitted","body":"Confirmation is required, but no terminal is available for interaction. No files were modified except the run log. Run from a terminal, or rerun with -y: ./bootstrap.sh -y","resource":{"service.name":"vendor_kit","service.version":"0.0.0"},"attributes":{"vendor_kit.log_format":"1","vendor_kit.component":"engine","vendor_kit.invocation_id":"inv-1","vendor_kit.reason_code":"VK0002","vendor_kit.placeholder.command_with_y":"./bootstrap.sh -y"}}"#;
+    let engine = launcher.replacen(
+        "}}",
+        r#","vendor_kit.next_step.command":"./bootstrap.sh -y"}}"#,
+        1,
+    );
+    assert_eq!(
+        written(Component::Engine, &Event::DiagnosticEmitted(&prompt_diag())),
+        format!("{engine}\n")
+    );
+    // 沒有下一步的行（啟動器目前寫的樣子）照樣讀得進來
+    let text = String::from_utf8(stopped_at_prompt(&prompt_diag())).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[2], engine);
+    let mut without = lines.clone();
+    without[2] = launcher;
+    let without = format!("{}\n", without.join("\n"));
+    assert_eq!(
+        assess(without.as_bytes(), false),
+        Verdict::Applies(Condition::StoppedAtPrompt)
+    );
+}
+
+#[test]
+fn golden_diagnostic_emitted_next_step() {
     assert_eq!(
         written(Component::Engine, &Event::DiagnosticEmitted(&prompt_diag())),
         concat!(
-            r#"{"timestamp":"2026-10-05T01:02:03.000004Z","severity_text":"error","severity_number":17,"event_name":"diagnostic_emitted","body":"Confirmation is required, but no terminal is available for interaction. No files were modified except the run log. Run from a terminal, or rerun with -y: ./bootstrap.sh -y","resource":{"service.name":"vendor_kit","service.version":"0.0.0"},"attributes":{"vendor_kit.log_format":"1","vendor_kit.component":"engine","vendor_kit.invocation_id":"inv-1","vendor_kit.reason_code":"VK0002","vendor_kit.placeholder.command_with_y":"./bootstrap.sh -y"}}"#,
+            r#"{"timestamp":"2026-10-05T01:02:03.000004Z","severity_text":"error","severity_number":17,"event_name":"diagnostic_emitted","body":"Confirmation is required, but no terminal is available for interaction. No files were modified except the run log. Run from a terminal, or rerun with -y: ./bootstrap.sh -y","resource":{"service.name":"vendor_kit","service.version":"0.0.0"},"attributes":{"vendor_kit.log_format":"1","vendor_kit.component":"engine","vendor_kit.invocation_id":"inv-1","vendor_kit.reason_code":"VK0002","vendor_kit.placeholder.command_with_y":"./bootstrap.sh -y","vendor_kit.next_step.command":"./bootstrap.sh -y"}}"#,
             "\n"
         )
     );
@@ -575,7 +604,7 @@ fn with_line(n: usize, f: impl Fn(&str) -> String) -> Verdict {
 
 #[test]
 fn malformed_lines_are_invalid() {
-    let cases: [(usize, Edit); 12] = [
+    let cases: [(usize, Edit); 14] = [
         // CRLF
         (1, |l| l.replace('\n', "\r\n")),
         // 多了空白
@@ -609,6 +638,20 @@ fn malformed_lines_are_invalid() {
         (2, |l| l.replace(".000004Z", ".0004Z")),
         // 不是 UTF-8 文字也不是 JSON
         (4, |_| "not json\n".to_owned()),
+        // 下一步指令是空字串
+        (3, |l| {
+            l.replace(
+                "\"vendor_kit.next_step.command\":\"./bootstrap.sh -y\"",
+                "\"vendor_kit.next_step.command\":\"\"",
+            )
+        }),
+        // 下一步指令之後還有占位符
+        (3, |l| {
+            l.replace(
+                "\"vendor_kit.next_step.command\":\"./bootstrap.sh -y\"",
+                "\"vendor_kit.next_step.command\":\"./bootstrap.sh -y\",\"vendor_kit.placeholder.x\":\"y\"",
+            )
+        }),
         // 多一個未知 attribute
         (4, |l| {
             l.replace(

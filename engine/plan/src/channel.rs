@@ -109,7 +109,7 @@ impl Channel {
         self.dir.join(format!("{}{seq}", files::RES_PREFIX))
     }
 
-    /// `res.<seq>.out` 的路徑：inspect、ps 的原始輸出。
+    /// `res.<seq>.out` 的路徑：inspect、ps、load 的原始輸出。load 的是 #589 起才寫的，讀的一端要容許檔不存在。
     pub fn output_path(&self, seq: Seq) -> PathBuf {
         self.dir
             .join(format!("{}{seq}{}", files::RES_PREFIX, files::OUT_SUFFIX))

@@ -243,6 +243,8 @@ pub mod key {
     pub const REASON_CODE: &str = "vendor_kit.reason_code";
     /// 診斷占位符的鍵是這個前綴加占位符名，例如 `vendor_kit.placeholder.repo`。
     pub const PLACEHOLDER_PREFIX: &str = "vendor_kit.placeholder.";
+    /// 診斷本文結尾的下一步指令，換好占位符；本文沒有結尾指令就不寫這個鍵（#118）。
+    pub const NEXT_STEP_COMMAND: &str = "vendor_kit.next_step.command";
     pub const TARGET: &str = "vendor_kit.target";
     pub const PROGRESS_FILE: &str = "vendor_kit.progress_file";
     pub const EXIT_CODE: &str = "vendor_kit.exit_code";
@@ -257,7 +259,8 @@ pub enum Event<'a> {
     RunStarted { mode: Mode, argv: &'a [String] },
     /// 引擎開始（flow-launch e1）。
     EngineStarted,
-    /// 每印一條診斷寫一筆：`vendor_kit.reason_code`，再依序放 `vendor_kit.placeholder.<name>`。
+    /// 每印一條診斷寫一筆：`vendor_kit.reason_code`，再依序放 `vendor_kit.placeholder.<name>`；
+    /// 本文以指令結尾時最後放 `vendor_kit.next_step.command`（[`Diagnostic::next_step`]）。
     DiagnosticEmitted(&'a Diagnostic),
     /// 第一筆非紀錄檔寫入（建進度檔，ADR-0004:33）之前。
     WritesStarted,
@@ -323,6 +326,9 @@ impl Event<'_> {
                 let mut attrs = vec![s(key::REASON_CODE, d.message().code)];
                 for (name, value) in d.args() {
                     attrs.push(s(&format!("{}{name}", key::PLACEHOLDER_PREFIX), value));
+                }
+                if let Some(command) = d.next_step() {
+                    attrs.push(s(key::NEXT_STEP_COMMAND, &command));
                 }
                 attrs
             }
