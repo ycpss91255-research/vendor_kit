@@ -51,7 +51,7 @@ pub struct Invocation {
 /// 入口 argv 不合。除了 [`ArgvError::NoProtocol`]，都是啟動器與引擎不合，屬 VK 的 bug（VK0056）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgvError {
-    /// 第一個參數不是 `--protocol`：不是經啟動器的呼叫。怎麼處理待決議（#457）。
+    /// 第一個參數不是 `--protocol`：不是經啟動器的呼叫，由入口 crate 當直接呼叫處理（#372 N108）。
     NoProtocol,
     /// 這個位置應該是這個選項（或它的值），但沒有或順序不對。
     Expected(&'static str),
@@ -63,7 +63,7 @@ pub enum ArgvError {
 }
 
 impl ArgvError {
-    /// 對應的訊息表條目：經啟動器的呼叫卻不合，是 VK0056；沒有 `--protocol` 時待 #457，回 `None`。
+    /// 對應的訊息表條目：經啟動器的呼叫卻不合，是 VK0056；沒有 `--protocol` 不是錯誤，回 `None`。
     pub fn message(&self) -> Option<&'static Message> {
         match self {
             ArgvError::NoProtocol => None,

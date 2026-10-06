@@ -4,7 +4,8 @@
 //!
 //! - 經啟動器（第一個參數是 `--protocol`）：照 `plan` 的入口 argv 取上下文，接上執行紀錄與往返通道，
 //!   判介面版、用法與安裝目錄，再分派到指令；結束前寫 `engine_finished` 與 `done`。
-//! - 直接呼叫（其他）：沒有執行紀錄與往返，只處理不帶指令的用法；其餘以 VK0026 回報，待決議（#457）。
+//! - 直接呼叫（其他）：沒有執行紀錄與往返，只處理不帶指令的用法；其餘一律以 VK0026 回報並附簡短用法
+//!   （#372 N108）。契約沒定直接呼叫，這是引擎自訂的行為。
 //!
 //! 介面版（ADR-0008:26、#372 N61、N19）：救援路徑的入口 argv、`hdr`、`done` 與救援 op 跨介面版不變，
 //! 所以呼叫方的 P 不論在不在 [`compat::Compat`] 的區間內，引擎都以那個 P 回應、照常寫 `done`。
@@ -15,7 +16,8 @@
 //!
 //! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`dev`、`undev` 與 `prune`。
 //! 04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；還沒實作的 `upgrade --engine`、`test`、`test dist`
-//! 以 VK0056 停下（#372 N62），`-h`／`--help` 的用法文字還沒定，也以 VK0056 停下。
+//! 以 VK0056 停下（#372 N62）。`-h`／`--help` 把 [`output::Help`] 的用法印到 stdout、以 0 結束（03 輸出），
+//! 不看執行位置；救援呼叫的 `-h` 在介面版不合時也照印，其餘的 `-h` 跟一般呼叫一樣先報版本（[`gate`]）。
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -107,7 +109,7 @@ where
         no_command(&mut out, &mut diags);
         return diags.exit_code();
     };
-    // 直接呼叫引擎時沒有契約定的診斷，暫以 VK0026（不認得的參數）回報並附用法，待決議（#457）。
+    // 直接呼叫引擎時沒有契約定的診斷：以 VK0026（不認得的參數）回報並附用法（#372 N108）。
     let _ = diags.emit(&Diagnostic::new(&messages::VK0026).arg("value", first.to_string_lossy()));
     let _ = out.stderr_line(SHORT_USAGE);
     let _ = out.flush();
@@ -276,15 +278,9 @@ where
             let _ = out.stderr_line(SHORT_USAGE);
             2
         }
-        Ok(args::Invocation::Help { name, .. }) => {
-            let d = Diagnostic::new(&messages::VK0056)
-                .arg(
-                    "reason",
-                    format!("help text for {name} is not specified yet"),
-                )
-                .arg("path", host_log);
-            let _ = diags.emit(&d);
-            2
+        Ok(args::Invocation::Help { name, engine }) => {
+            let _ = out.help(help_for(name, engine));
+            0
         }
         Ok(args::Invocation::Run(command)) => {
             let in_root = layout::is_install_dir(&mounts.root).unwrap_or(false);
@@ -304,6 +300,29 @@ where
     };
     let code = code.max(diags.exit_code());
     finish_log(&mut out, &mut log, host_log, stderr, code)
+}
+
+/// `-h`／`--help` 要印哪一份用法。`engine` 只有 `upgrade`、`dev`、`undev` 會是真（`args` 擋掉其餘）。
+fn help_for(name: args::Name, engine: bool) -> output::Help {
+    use args::Name;
+    use output::Help;
+    match (name, engine) {
+        (Name::Add, _) => Help::Add,
+        (Name::Upgrade, false) => Help::UpgradeTool,
+        (Name::Upgrade, true) => Help::UpgradeEngine,
+        (Name::Dev, false) => Help::DevTool,
+        (Name::Dev, true) => Help::DevEngine,
+        (Name::Undev, false) => Help::UndevTool,
+        (Name::Undev, true) => Help::UndevEngine,
+        (Name::Remove, _) => Help::Remove,
+        (Name::Update, _) => Help::Update,
+        (Name::Sync, _) => Help::Sync,
+        (Name::Install, _) => Help::Install,
+        (Name::Uninstall, _) => Help::Uninstall,
+        (Name::Prune, _) => Help::Prune,
+        (Name::Test, _) => Help::Test,
+        (Name::TestDist, _) => Help::TestDist,
+    }
 }
 
 /// flush 輸出、寫 `engine_finished`，回傳整次的結束碼。
@@ -991,12 +1010,113 @@ mod tests {
         assert_eq!(code, 2);
         assert!(stderr.contains("error[VK0024]"), "{stderr}");
         assert_eq!(s.done(), "vk-resolve/1 r1 done 2\n");
-        // 救援呼叫的 -h 照常（用法文字還沒定，VK0056），不報版本。
-        let s = Scratch::new("old-help");
-        let (code, _, stderr) = launch(&s, &NEWER, 1, &["sync", "-h"]);
-        assert_eq!(code, 2);
-        assert!(stderr.contains("help text for sync"), "{stderr}");
-        assert_eq!(s.done(), "vk-resolve/1 r1 done 2\n");
+        // 救援呼叫的 -h 照常印用法，不報版本。
+        for (rest, help) in [
+            (&["sync", "-h"][..], output::Help::Sync),
+            (&["install", "--help"], output::Help::Install),
+            (&["upgrade", "--engine", "-h"], output::Help::UpgradeEngine),
+        ] {
+            let s = Scratch::new("old-help");
+            let (code, stdout, stderr) = launch(&s, &NEWER, 1, rest);
+            assert_eq!(code, 0, "{rest:?}");
+            assert_eq!(stdout, help.text(), "{rest:?}");
+            assert_eq!(stderr, "", "{rest:?}");
+            assert_eq!(s.done(), "vk-resolve/1 r1 done 0\n");
+        }
+    }
+
+    #[test]
+    fn non_rescue_help_outside_the_range_reports_the_version() {
+        let s = Scratch::new("old-add-help");
+        let (code, stdout, stderr) = launch(&s, &NEWER, 1, &["add", "-h"]);
+        assert_eq!(code, 3);
+        assert_eq!(stdout, "");
+        assert!(
+            stderr.starts_with("vendor_kit: fatal[VK0009]: "),
+            "{stderr}"
+        );
+        assert_eq!(s.done(), "vk-resolve/1 r1 done 3\n");
+    }
+
+    /// 用法裡列的每個選項（`-h` 除外），`args` 這一版都收：help 是唯一來源，不能列還沒有的選項。
+    #[test]
+    fn every_option_in_the_help_is_accepted() {
+        use output::Help;
+        let base: [(Help, &[&str]); 15] = [
+            (Help::Add, &["add", "lint"]),
+            (Help::UpgradeTool, &["upgrade", "lint"]),
+            (Help::UpgradeEngine, &["upgrade", "--engine"]),
+            (Help::DevTool, &["dev", "lint"]),
+            (Help::DevEngine, &["dev", "--engine"]),
+            (Help::UndevTool, &["undev", "lint"]),
+            (Help::UndevEngine, &["undev", "--engine"]),
+            (Help::Remove, &["remove", "lint"]),
+            (Help::Update, &["update"]),
+            (Help::Sync, &["sync"]),
+            (Help::Install, &["install"]),
+            (Help::Uninstall, &["uninstall"]),
+            (Help::Prune, &["prune"]),
+            (Help::Test, &["test"]),
+            (Help::TestDist, &["test", "dist"]),
+        ];
+        let mut checked = 0;
+        for (help, base) in base {
+            for line in help
+                .text()
+                .lines()
+                .filter(|l| l.starts_with("  ") && l.trim_start().starts_with('-'))
+            {
+                let spec = line.trim_start().split("  ").next().unwrap();
+                let takes_value = spec.contains('<');
+                for opt in spec.split(", ").map(|f| f.split(' ').next().unwrap()) {
+                    if opt == "-h" || opt == "--help" {
+                        continue;
+                    }
+                    let mut argv: Vec<&str> = base.to_vec();
+                    argv.push(opt);
+                    if takes_value {
+                        argv.push("x");
+                    }
+                    assert!(
+                        matches!(args::parse(&argv), Ok(args::Invocation::Run(_))),
+                        "{help:?}: {argv:?} -> {:?}",
+                        args::parse(&argv)
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        // -i／--image 兩處、-y／--yes 三處、--registry-token-file 三處、-p／--path 一處。
+        assert_eq!(checked, 4 + 6 + 3 + 2);
+    }
+
+    #[test]
+    fn help_prints_the_usage_on_stdout_and_exits_0() {
+        for (rest, help) in [
+            (&["add", "-h"][..], output::Help::Add),
+            (&["upgrade", "--help"], output::Help::UpgradeTool),
+            (&["upgrade", "--engine", "-h"], output::Help::UpgradeEngine),
+            (&["dev", "-h"], output::Help::DevTool),
+            (&["dev", "--engine", "-h"], output::Help::DevEngine),
+            (&["undev", "-h"], output::Help::UndevTool),
+            (&["undev", "--engine", "-h"], output::Help::UndevEngine),
+            (&["remove", "-h"], output::Help::Remove),
+            (&["update", "-h"], output::Help::Update),
+            (&["sync", "-h"], output::Help::Sync),
+            (&["install", "-h"], output::Help::Install),
+            (&["uninstall", "-h"], output::Help::Uninstall),
+            (&["prune", "-h"], output::Help::Prune),
+            (&["test", "-h"], output::Help::Test),
+            (&["test", "dist", "-h"], output::Help::TestDist),
+        ] {
+            let s = Scratch::new("help");
+            let (code, stdout, stderr) = launch(&s, &compat::THIS, 1, rest);
+            assert_eq!(code, 0, "{rest:?}");
+            assert_eq!(stdout, help.text(), "{rest:?}");
+            assert_eq!(stderr, "", "{rest:?}");
+            assert_eq!(s.done(), "vk-resolve/1 r1 done 0\n");
+            assert!(s.written().is_empty(), "{:?}", s.written());
+        }
     }
 
     #[test]
