@@ -1252,7 +1252,6 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         if let Err(e) = candidate.recheck() {
             return Err(self.internal(format!("staged content of {repo} changed: {e}")));
         }
-        self.land_recoveries()?;
 
         // 紀錄檔：這個工具的 metadata 與基準版副本。
         let mut repo_writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
@@ -1295,6 +1294,8 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let entry = self.entry(&all_ns)?;
 
         let progress = self.progress(repo, locked, &written)?;
+        // 恢復排在這次第一個寫入之前、所有可能停下的判定之後（停下時恢復也不寫）。
+        self.land_recoveries()?;
         self.land(
             &candidate,
             progress,

@@ -1064,7 +1064,6 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         if let Err(e) = candidate.recheck() {
             return Err(self.internal(format!("staged content of {repo} changed: {e}")));
         }
-        self.land_recoveries()?;
 
         let mut repo_writes: Vec<(PathBuf, Vec<u8>)> = Vec::new();
         let mut written: Vec<WrittenFile> = Vec::new();
@@ -1131,6 +1130,8 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
         let init_files = !repo_writes.is_empty() || !records.is_empty();
         let argv = self.env.argv;
         let progress = self.progress(argv, repo, locked, init_files, &written)?;
+        // 恢復排在這次第一個寫入之前、所有可能停下的判定之後（停下時恢復也不寫）。
+        self.land_recoveries()?;
         self.land(
             &candidate,
             progress,
