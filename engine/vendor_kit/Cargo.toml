@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 add.workspace = true
 args.workspace = true
+check.workspace = true
 compat.workspace = true
 dev.workspace = true
 diagnostics.workspace = true

@@ -25,6 +25,16 @@ const ALLOWS: &[Allow] = &[
         code: "VK0070",
         reason: "介面版列表缺少或格式錯的草稿碼（N13），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
     },
+    Allow {
+        path: "engine/check/src/lib.rs",
+        code: "VK0070",
+        reason: "test 讀到不合正規形的版本檔的草稿碼（N76），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
+    },
+    Allow {
+        path: "engine/check/src/lib.rs",
+        code: "VK0071",
+        reason: "test 讀到指向不存在鎖定行的本機覆寫的草稿碼（N76），定案登錄前原因先寫明草稿碼、以 VK0056 停下",
+    },
 ];
 
 fn repo_root() -> PathBuf {
