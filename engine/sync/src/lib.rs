@@ -6,13 +6,14 @@
 //!
 //! 1. 讀 `.vendor_kit/config.toml`（VK0059），在第一次取鎖之前（04 設定）。
 //! 2. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束：會取件的 `sync`
-//!    屬寫入端（04 鎖與逾時）。
+//!    屬寫入端（04 鎖與逾時）。`sync` 仍是唯讀 recipe（名詞表、ADR-0007）：不動追蹤檔，也不動進度檔。
 //! 3. 讀 `version.toml`（檔案版過高回 VK0008）。
 //! 4. 逐工具處理前先判（04 sync 第 2 步；02 不變量 4：動到任何工具之前判定有工具不能做，就一個都不動，
 //!    並列出每個原因）。這一段只讀、不取件、不寫：
 //!    - 每個讀到的 VK 檔（`version.local.toml`、進度檔、每個工具的印記）檔案版過高：VK0008。
-//!    - 殘留的進度檔：`sync` 自己的留到這次一起完成（見下面「恢復」）；`add` 的回 VK0004（`sync` 不代替
-//!      完成導入）；`undev` 的回 VK0053（見「本機覆寫」）；其他的見「缺口」。
+//!    - 殘留的進度檔（04 成對與無害：唯讀 recipe 只偵測，不恢復、不刪；見「殘留的進度檔」）：`add` 的回
+//!      VK0004；工具 `upgrade` 的回 VK0041；`undev` 的回 VK0053（見「本機覆寫」）；其他可寫 recipe 的回
+//!      VK0054；引擎 `upgrade` 的見「缺口」。
 //!    - `version.local.toml` 的工具覆寫：讀本機開發來源（見「本機覆寫」），讀不到回 VK0052。
 //!    - 沒有覆寫的工具的印記：不在（首次取件，不算損壞）、損壞（VK0044）或讀得到。
 //! 5. 沒有覆寫的工具逐一判定要不要重取（04 sync 表）：
@@ -31,10 +32,9 @@
 //! 8. 用 `tools_just::render_with` 依這次的全部工具（重取的用暫存內容的 `<ns>`，沒重取的讀 `cache/<repo>/`，
 //!    開著覆寫的讀本機開發來源）重產 `gen/tools.just`，與現有內容逐位元組比對。開著覆寫的工具那幾行指向
 //!    本機開發來源。
-//! 9. 沒有要重取的工具、入口檔不變、也沒有殘留的 `sync` 進度檔：什麼都不寫，stdout 只報告用了哪個覆寫
-//!    （沒有覆寫就不印，[`text`]）。
-//! 10. 否則重驗暫存內容（ADR-0006 第三層），經 `txn` 依序落地：`cache/<repo>/` 與印記、`gen/tools.just`；
-//!     不改版本鎖定行（04 成對與無害：`sync` 不改追蹤檔），最後刪進度檔。
+//! 9. 沒有要重取的工具、入口檔也不變：什麼都不寫，stdout 只報告用了哪個覆寫（沒有覆寫就不印，[`text`]）。
+//! 10. 否則重驗暫存內容（ADR-0006 第三層），經 [`txn::refresh`] 依序落地：`cache/<repo>/` 與印記、
+//!     `gen/tools.just`；不建進度檔、不改版本鎖定行（04 成對與無害：`sync` 不改追蹤檔）。
 //! 11. stdout 先報告用了哪個覆寫，再列出改了什麼；VK0015、VK0044 在落地之後才印（本文是「已重新取件」）。
 //!
 //! # 本機覆寫
@@ -55,17 +55,28 @@
 //!   `<target>` 讀進度檔 `[undev] target`、`<undev_command>` 由進度檔的 `command` 重組（engine/dev 寫的格式），
 //!   在逐工具處理前停下，進度檔留著。照常同步會把入口檔指回 `cache/`，等於代替 `undev` 完成。
 //!
-//! # 恢復
+//! # 中斷
 //!
-//! 殘留的 `sync` 進度檔表示上一次 `sync` 中途停了。`sync` 本身就是「把 `cache/`、`gen/` 對齊版本鎖定行」，
-//! 所以恢復就是照常做一次：換到一半的 `cache/<repo>/` 會在第 5 步被判成不一致而重取。這次的落地完成之後
-//! 才刪殘留的那幾份，中途再斷也還認得出來；有殘留時即使沒有要重取的工具，也走一次 `txn`，讓刪除排在
-//! `writes_started` 之後。
+//! `sync` 不寫進度檔，中途停了也不留下要恢復的東西：`sync` 本身就是「把 `cache/`、`gen/` 對齊版本鎖定行」，
+//! 再跑一次就是恢復。`txn::refresh` 先換 `cache/` 與印記、最後才寫入口檔：換到一半的 `cache/<repo>/` 會在
+//! 第 5 步被印記判成不一致而重取；入口檔與 `cache/` 一新一舊時，第 8 步重產的入口檔與現有內容不同而重寫
+//! （02 不變量 4：混合狀態可辨識）。
+//!
+//! # 殘留的進度檔
+//!
+//! 進度檔是可寫 recipe 未完成的操作。`sync` 不代替完成、也不清掉，在逐工具處理前停下，依訊息表報出下一步，
+//! 進度檔留著（跟 engine/update 的判法一致）：
+//!
+//! - `add`：VK0004，`<repo>` 讀進度檔 `[add] repo`（`sync` 不代替完成導入）。
+//! - 工具 `upgrade`：VK0041，`<repo>` 讀進度檔 `[upgrade] target`（格式見 `progress::upgrade`），
+//!   `<original_command>` 由進度檔的 `command` 重組。
+//! - `undev`：VK0053，見「本機覆寫」。
+//! - 其他可寫 recipe（`remove`、`install`、`uninstall`、`dev`、`prune` 等）：VK0054，`<operation>` 是進度檔的
+//!   `<verb>`，`<original_command>` 由進度檔的 `command` 重組。
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
 //! - 印記的位置與 `add` 共用 [`stamp::tool_file`]（`.vendor_kit/cache/<repo>.stamp.toml`）。
-//! - 進度檔 `.tmp.sync.<run-id>.toml` 只有 `progress` 的共同欄位，沒有 `sync` 自己的表：恢復不需要。
 //! - 覆寫的報告字句與排在最前面（[`text::local_override`]）；`sync` 停下時只印診斷，不報告覆寫。
 //! - 本機開發來源的正規化與檢查從 engine/dev 照抄（[`local`]；指令之間互不依賴）。`<undev_command>`、
 //!   `<original_command>` 的重組從 engine/update 照抄（[`full_command`]）。
@@ -82,9 +93,10 @@
 //! - 開著覆寫的工具交付保留名 `vendor_kit`，或跟其他工具撞名：沒有代碼，停下（同 engine/dev）。
 //! - 開著覆寫時版本鎖定行換了版（`cache/<repo>/` 跟鎖定行對不上）：這一版不對齊那個工具的 `cache/`，
 //!   `undev` 會在寫任何檔之前停下（engine/dev 的缺口）。
-//! - 殘留的 `upgrade` 進度檔（格式見 `progress::upgrade`）：VK0041 只寫唯讀 recipe 偵測到，`sync` 是可寫
-//!   recipe，又不代替完成 upgrade，訊息表沒有對應的碼。停下時說明裡帶進度檔的對象與原指令。
-//! - 殘留的進度檔是其他 verb 的（`dev`、`remove`、`install` 等）：`sync` 遇到時怎麼報沒定。
+//! - 殘留的引擎 `upgrade` 進度檔：VK0023 要填新引擎的 `<vY>`，`progress::upgrade` 還沒記引擎 upgrade 的
+//!   欄位（`upgrade --engine` 還沒實作），停下時說明裡帶進度檔與原指令（同 engine/update）。
+//! - 殘留的 `sync` 進度檔：`sync` 不寫進度檔，正常的引擎不會留下；報 VK0054 會叫使用者重跑 `sync`、
+//!   而 `sync` 又清不掉它，所以停下時寫明是哪一份。
 //! - 基準版落後（VK0014）：`metadata` 沒有記基準版是哪一版，判不出來；工具有 metadata 時停下。目前
 //!   `add` 只在有初始檔時才寫 metadata，而 `init.toml` 格式未定，所以實際上碰不到。
 //! - 取到的內容與同一版本的既有印記不符（計畫 G1：印記被改過，或同一 digest 取出不同內容），沒有代碼。
@@ -114,12 +126,11 @@ use filelock::{Lock, Mode};
 use imageref::ImageRef;
 use layout::InstallDir;
 use plan::{Channel, ImageId, Op, Outcome, Slot};
-use progress::Progress;
 use stamp::Stamp;
-use txn::{Disk, ToolContent, Txn};
+use txn::{Disk, ToolContent};
 use version_file::{LocalFile, LockFile, Versions};
 
-/// 進度檔的 `<verb>`。
+/// 這個指令的名稱；`sync` 不寫進度檔，殘留的 `sync` 進度檔見模組說明「缺口」。
 pub const VERB: &str = "sync";
 /// `add` 的進度檔 `<verb>` 與它記 `<repo>` 的表（engine/add 的 `VERB`、`PROGRESS_TABLE`；指令之間互不依賴，照抄）。
 pub const ADD_VERB: &str = "add";
@@ -146,10 +157,6 @@ pub struct Env<'a, W: Write, S: Sink, L: Write> {
     pub channel: &'a mut Channel,
     /// 等 result 時多久看一次。
     pub poll: Duration,
-    /// `just vendor_kit` 之後的參數原樣（第一個是 `sync`）。
-    pub argv: &'a [String],
-    /// 這次執行的 run-id，也是進度檔的 `<id>`。
-    pub run_id: &'a str,
     /// 蓋在 VK 檔上的寫入者。
     pub written_by: &'a str,
     pub stdout: &'a mut dyn Write,
@@ -265,8 +272,6 @@ struct Local {
 
 /// 逐工具處理前判定的結果。
 struct Judged {
-    /// 殘留的 `sync` 進度檔。
-    residual: Vec<progress::Entry>,
     /// 沒有覆寫的工具的印記。
     stamps: BTreeMap<String, StampState>,
     /// 開著覆寫的工具。
@@ -362,11 +367,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
         let lockfile = self.lockfile()?;
-        let Judged {
-            residual,
-            mut stamps,
-            local,
-        } = self.judge(&lockfile)?;
+        let Judged { mut stamps, local } = self.judge(&lockfile)?;
 
         let mut keep: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut fetched: Vec<Fetched> = Vec::new();
@@ -401,7 +402,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             Err(e) => return Err(self.internal(format!("{}: {e}", path.display()))),
         };
         let entry_changed = current.as_deref() != Some(entry.as_bytes());
-        if fetched.is_empty() && !entry_changed && residual.is_empty() {
+        if fetched.is_empty() && !entry_changed {
             self.report_overrides(&local);
             return Ok(());
         }
@@ -413,12 +414,6 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             }
         }
         self.land(&fetched, entry_changed.then_some(entry.as_bytes()))?;
-        for e in &residual {
-            if let Err(err) = progress::delete(self.env.dir, &e.verb, &e.id) {
-                let d = self.failed_diag(&e.path, err.message(), err.to_string());
-                return Err(self.stop(d));
-            }
-        }
 
         self.report_overrides(&local);
         for f in &fetched {
@@ -426,10 +421,6 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         }
         if entry_changed {
             self.say(text::TOOLS_JUST_UPDATED);
-        }
-        for e in &residual {
-            let shown = self.rel(&e.path);
-            self.say(&text::recovered(&shown));
         }
         for f in &fetched {
             if let Some(m) = f.warn {
@@ -524,14 +515,10 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             Err(e) => blocked.push(self.internal_diag(e.to_string())),
         }
 
-        let mut residual = Vec::new();
         match progress::find(self.env.dir) {
             Ok(entries) => {
                 for entry in entries {
-                    match self.residual(&entry) {
-                        Ok(()) => residual.push(entry),
-                        Err(d) => blocked.push(d),
-                    }
+                    blocked.push(self.residual(&entry));
                 }
             }
             Err(e) => blocked.push(self.internal_diag(e.to_string())),
@@ -572,11 +559,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         }
 
         if blocked.is_empty() {
-            Ok(Judged {
-                residual,
-                stamps,
-                local,
-            })
+            Ok(Judged { stamps, local })
         } else {
             for d in blocked {
                 self.emit(d);
@@ -605,18 +588,17 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         Ok(Local { dir, namespaces })
     }
 
-    /// 一份殘留的進度檔：`sync` 的回 `Ok`（這次一起完成），其他的回要印的診斷。
-    fn residual(&self, entry: &progress::Entry) -> Result<(), Diagnostic> {
+    /// 一份殘留的進度檔要印的診斷（模組說明「殘留的進度檔」）：一律停下，不恢復、不刪。
+    fn residual(&self, entry: &progress::Entry) -> Diagnostic {
         let loaded = match entry.load() {
             Ok(p) => p,
             Err(progress::Error::Parse {
                 file,
                 source: progress::ParseError::Read(schema::ReadError::TooNew(t)),
-            }) => return Err(self.too_new_diag(&file, &t)),
-            Err(e) => return Err(self.failed_diag(&entry.path, e.message(), e.to_string())),
+            }) => return self.too_new_diag(&file, &t),
+            Err(e) => return self.failed_diag(&entry.path, e.message(), e.to_string()),
         };
         match entry.verb.as_str() {
-            VERB => Ok(()),
             ADD_VERB => {
                 let repo = loaded
                     .document()
@@ -624,11 +606,11 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
                     .and_then(|i| i.as_str())
                     .map(str::to_owned);
                 match repo {
-                    Some(repo) => Err(Diagnostic::new(&messages::VK0004).arg("repo", repo)),
-                    None => Err(self.gap_diag(format_args!(
+                    Some(repo) => Diagnostic::new(&messages::VK0004).arg("repo", repo),
+                    None => self.gap_diag(format_args!(
                         "reporting the incomplete add in {} without its [add] repo field",
                         self.rel(&entry.path)
-                    ))),
+                    )),
                 }
             }
             UNDEV_VERB => {
@@ -638,29 +620,37 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
                     .and_then(|i| i.as_str())
                     .map(str::to_owned);
                 match target {
-                    Some(target) => Err(Diagnostic::new(&messages::VK0053)
+                    Some(target) => Diagnostic::new(&messages::VK0053)
                         .arg("target", target)
-                        .arg("undev_command", full_command(loaded.command()))),
-                    None => Err(self.gap_diag(format_args!(
+                        .arg("undev_command", full_command(loaded.command())),
+                    None => self.gap_diag(format_args!(
                         "reporting the incomplete undev in {} without its [undev] {UNDEV_TARGET_KEY} field",
                         self.rel(&entry.path)
-                    ))),
+                    )),
                 }
             }
-            UPGRADE_VERB => {
-                let target = progress::upgrade::field(&loaded, progress::upgrade::TARGET)
-                    .unwrap_or("an unknown target");
-                Err(self.gap_diag(format_args!(
-                    "sync while the incomplete upgrade of {target} in {} remains \
-                     (no reason code for sync; run again: {})",
+            UPGRADE_VERB => match progress::upgrade::field(&loaded, progress::upgrade::TARGET) {
+                Some(progress::upgrade::ENGINE_TARGET) => self.gap_diag(format_args!(
+                    "reporting the incomplete engine upgrade in {} (run again: {})",
                     self.rel(&entry.path),
                     full_command(loaded.command())
-                )))
-            }
-            other => Err(self.gap_diag(format_args!(
-                "sync while the incomplete {other} operation in {} remains",
+                )),
+                Some(repo) => Diagnostic::new(&messages::VK0041)
+                    .arg("repo", repo)
+                    .arg("original_command", full_command(loaded.command())),
+                None => self.gap_diag(format_args!(
+                    "reporting the incomplete upgrade in {} without its [upgrade] target field",
+                    self.rel(&entry.path)
+                )),
+            },
+            VERB => self.gap_diag(format_args!(
+                "sync while {} remains; sync no longer writes progress files",
                 self.rel(&entry.path)
-            ))),
+            )),
+            other => Diagnostic::new(&messages::VK0054)
+                .arg("install_dir", self.env.host_root)
+                .arg("operation", other)
+                .arg("original_command", full_command(loaded.command())),
         }
     }
 
@@ -865,12 +855,8 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         }
     }
 
-    /// 依序落地（`txn`）：`cache/` 與印記、入口檔；版本鎖定行不動。
-    fn land(&mut self, fetched: &[Fetched], entry: Option<&[u8]>) -> Step<txn::Done> {
-        let progress = match Progress::new(VERB, self.env.run_id, self.env.argv) {
-            Ok(p) => p,
-            Err(e) => return Err(self.internal(e.to_string())),
-        };
+    /// 依序落地（[`txn::refresh`]）：`cache/` 與印記、入口檔；不建進度檔、版本鎖定行不動。
+    fn land(&mut self, fetched: &[Fetched], entry: Option<&[u8]>) -> Step<()> {
         let stamps: Vec<PathBuf> = fetched
             .iter()
             .map(|f| stamp::tool_file(self.env.dir, f.candidate.repo()))
@@ -887,14 +873,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
             .collect();
         let result = {
             let mut fx = Disk::new(self.env.dir, self.env.log, self.env.written_by);
-            Txn::begin(&mut fx, progress).and_then(|t| {
-                t.swap_cache(&tools)?
-                    .write_repo_files(&[])?
-                    .write_records(&[])?
-                    .write_tools_just(entry)?
-                    .keep_lock_line()
-                    .complete()
-            })
+            txn::refresh(&mut fx, &tools, entry)
         };
         result.map_err(|f| self.internal(f.to_string()))
     }

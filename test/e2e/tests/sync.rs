@@ -258,16 +258,12 @@ mod? tool-extra '../cache/tool/just/tool-extra.just'
         )),
         "{stamp}"
     );
-    // sync 不改追蹤檔：版本鎖定行逐位元組不變，也沒有鎖定行的事件。
+    // sync 不改追蹤檔：版本鎖定行逐位元組不變，也沒有鎖定行的事件。sync 是唯讀 recipe，不建進度檔，
+    // 所以沒有 progress_removed（SYNCED_TREE 裡也沒有 .tmp.sync.*）。
     assert_eq!(fs::read(vk.join("version.toml")).unwrap(), lock_before);
     assert_eq!(
         events(&m),
-        [
-            "engine_started",
-            "writes_started",
-            "progress_removed",
-            "engine_finished",
-        ]
+        ["engine_started", "writes_started", "engine_finished",]
     );
 
     // 已同步再 sync：不取件、不寫檔、stdout 不印。
@@ -329,7 +325,6 @@ vendor_kit: warn[VK0015]: The file set or per-file digests in cache/ for tool di
         [
             "engine_started",
             "writes_started",
-            "progress_removed",
             "diagnostic_emitted",
             "engine_finished",
         ]

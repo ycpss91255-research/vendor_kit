@@ -9,6 +9,7 @@ use std::thread::{self, JoinHandle};
 
 use diagnostics::NoSink;
 use plan::{Header, RunId};
+use progress::Progress;
 
 use super::*;
 
@@ -240,7 +241,6 @@ impl Out {
 fn run_sync(fx: &Fx, behavior: Behavior) -> Out {
     fx.new_session();
     let peer = Peer::start(fx, behavior);
-    let argv = vec!["sync".to_owned()];
     let mut channel = Channel::new(&fx.ctl, header());
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -261,8 +261,6 @@ fn run_sync(fx: &Fx, behavior: Behavior) -> Out {
             inbox: &fx.inbox,
             channel: &mut channel,
             poll: Duration::from_millis(1),
-            argv: &argv,
-            run_id: "r1",
             written_by: WRITTEN_BY,
             stdout: &mut stdout,
             diags: &mut diags,
@@ -322,11 +320,7 @@ fn fresh_checkout_fetches_every_tool_and_writes_gen() {
     // 版本鎖定行不動（sync 不改追蹤檔）。
     assert_eq!(fs::read(fx.dir.version_toml()).unwrap(), lock_before);
     assert!(progress::find(&fx.dir).unwrap().is_empty());
-    assert_eq!(
-        out.events(),
-        ["writes_started", "progress_removed"],
-        "no lock line events"
-    );
+    assert_eq!(out.events(), ["writes_started"], "no lock line events");
 }
 
 #[test]
@@ -454,20 +448,23 @@ fn lock_line_changed_since_the_stamp_refetches_without_warning() {
 }
 
 #[test]
-fn residual_sync_progress_is_completed_and_removed() {
+fn landing_writes_no_progress_file() {
     let fx = Fx::new(&[&TOOL]);
     synced(&fx);
-    let mut p = Progress::new(VERB, "old1", &["sync"]).unwrap();
-    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    // 換到一半斷掉的樣子：cache/ 少了一個檔。重跑就是恢復，照樣不建進度檔。
+    let cache = fx.dir.tool_cache("tool").unwrap();
+    fs::remove_file(cache.join("share/readme.txt")).unwrap();
     let out = run_sync(&fx, all_local());
-    assert_eq!(out.code, 0, "{}", out.stderr);
-    assert!(out.ops.is_empty());
-    assert_eq!(
-        out.stdout,
-        "Completed the interrupted sync recorded in .vendor_kit/.tmp.sync.old1.toml.\n"
-    );
+    // VK0015 是警告：結束碼 1。
+    assert_eq!(out.code, 1, "{}", out.stderr);
+    assert!(out.stderr.contains("warn[VK0015]"), "{}", out.stderr);
     assert!(progress::find(&fx.dir).unwrap().is_empty());
-    assert_eq!(out.events(), ["writes_started", "progress_removed"]);
+    let names: Vec<String> = fs::read_dir(fx.dir.vk_dir())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(names.iter().all(|n| !n.starts_with(".tmp.")), "{names:?}");
+    assert_eq!(out.events(), ["writes_started"]);
 }
 
 // ---- 停下 ----
@@ -726,21 +723,59 @@ fn residual_undev_is_vk0053_and_is_left_in_place() {
     assert_ne!(fx.entry().unwrap(), entry_before);
 }
 
+/// 留一份 `verb` 的進度檔，`[<table>] <key>` 填 `value`（`table` 是 `None` 就只有共同欄位）。
+fn residual(fx: &Fx, verb: &str, command: &[&str], field: Option<(&str, &str, &str)>) {
+    let mut p = Progress::new(verb, "old1", command).unwrap();
+    if let Some((table, key, value)) = field {
+        p.document_mut().set(&[table, key], value).unwrap();
+    }
+    p.create(&fx.dir, WRITTEN_BY).unwrap();
+}
+
+/// 殘留的進度檔讓 `sync` 在取件前停下：版本鎖定行與 `cache/` 不動，進度檔留著。
+fn stopped_by_residual(fx: &Fx, lock: &[u8], out: &Out) {
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert!(out.ops.is_empty());
+    assert_eq!(out.stdout, "");
+    assert!(out.events().is_empty(), "{:?}", out.events());
+    assert_eq!(fs::read(fx.dir.version_toml()).unwrap(), lock);
+    assert!(!fx.dir.cache_dir().exists());
+    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
+}
+
 #[test]
-fn residual_upgrade_stops_as_a_gap_with_the_original_command() {
+fn residual_tool_upgrade_is_vk0041_with_the_original_command() {
     let fx = Fx::new(&[&TOOL]);
     let lock = fs::read(fx.dir.version_toml()).unwrap();
-    let mut p = Progress::new(UPGRADE_VERB, "old1", &["upgrade", "tool@v1.3.0", "-y"]).unwrap();
-    p.document_mut()
-        .set(
-            &[progress::upgrade::TABLE, progress::upgrade::TARGET],
-            "tool",
-        )
-        .unwrap();
-    p.create(&fx.dir, WRITTEN_BY).unwrap();
+    residual(
+        &fx,
+        UPGRADE_VERB,
+        &["upgrade", "tool@v1.3.0", "-y"],
+        Some((progress::upgrade::TABLE, progress::upgrade::TARGET, "tool")),
+    );
     let out = run_sync(&fx, all_local());
-    assert_eq!(out.code, 2);
-    assert!(out.ops.is_empty());
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0041]: Upgrade of tool is incomplete. Run again: just vendor_kit upgrade tool@v1.3.0 -y\n"
+    );
+    stopped_by_residual(&fx, &lock, &out);
+}
+
+#[test]
+fn residual_engine_upgrade_stops_as_a_gap_with_the_original_command() {
+    let fx = Fx::new(&[&TOOL]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    residual(
+        &fx,
+        UPGRADE_VERB,
+        &["upgrade", "--engine", "-y"],
+        Some((
+            progress::upgrade::TABLE,
+            progress::upgrade::TARGET,
+            progress::upgrade::ENGINE_TARGET,
+        )),
+    );
+    let out = run_sync(&fx, all_local());
     assert!(
         out.stderr.starts_with("vendor_kit: error[VK0056]: "),
         "{}",
@@ -748,19 +783,59 @@ fn residual_upgrade_stops_as_a_gap_with_the_original_command() {
     );
     assert!(
         out.stderr
-            .contains("incomplete upgrade of tool in .vendor_kit/.tmp.upgrade.old1.toml"),
+            .contains("incomplete engine upgrade in .vendor_kit/.tmp.upgrade.old1.toml"),
         "{}",
         out.stderr
     );
     assert!(
         out.stderr
-            .contains("run again: just vendor_kit upgrade tool@v1.3.0 -y"),
+            .contains("run again: just vendor_kit upgrade --engine -y"),
         "{}",
         out.stderr
     );
-    assert_eq!(fs::read(fx.dir.version_toml()).unwrap(), lock);
-    assert!(!fx.dir.cache_dir().exists());
-    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
+    stopped_by_residual(&fx, &lock, &out);
+}
+
+#[test]
+fn residual_of_another_writing_recipe_is_vk0054_with_the_original_command() {
+    for (verb, command) in [
+        ("remove", &["remove", "tool"][..]),
+        ("install", &["install", "-y"][..]),
+        ("dev", &["dev", "tool", "-p", "my dir"][..]),
+    ] {
+        let fx = Fx::new(&[&TOOL]);
+        let lock = fs::read(fx.dir.version_toml()).unwrap();
+        residual(&fx, verb, command, None);
+        let out = run_sync(&fx, all_local());
+        let shown = full_command(command);
+        assert_eq!(
+            out.stderr,
+            format!(
+                "vendor_kit: error[VK0054]: Operation {verb} in /h/proj is incomplete. Run again: {shown}\n"
+            ),
+            "{verb}"
+        );
+        stopped_by_residual(&fx, &lock, &out);
+    }
+}
+
+#[test]
+fn residual_sync_progress_stops_as_a_gap_instead_of_asking_to_rerun_sync() {
+    let fx = Fx::new(&[&TOOL]);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    residual(&fx, VERB, &["sync"], None);
+    let out = run_sync(&fx, all_local());
+    assert!(
+        out.stderr.starts_with("vendor_kit: error[VK0056]: "),
+        "{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains(".vendor_kit/.tmp.sync.old1.toml"),
+        "{}",
+        out.stderr
+    );
+    stopped_by_residual(&fx, &lock, &out);
 }
 
 #[test]

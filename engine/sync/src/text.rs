@@ -20,11 +20,6 @@ pub fn fetched(repo: &str, locked: &ImageRef) -> String {
 /// 重產了入口檔。
 pub const TOOLS_JUST_UPDATED: &str = "Updated .vendor_kit/gen/tools.just.";
 
-/// 完成了殘留的 `sync`（進度檔已刪）。
-pub fn recovered(file: &str) -> String {
-    format!("Completed the interrupted sync recorded in {file}.")
-}
-
 /// VK0055 的 `<reason>`：啟動器代做的 docker 動作失敗。
 pub fn docker_failed(op: &str, rc: u8) -> String {
     format!("docker {op} exited with {rc}")

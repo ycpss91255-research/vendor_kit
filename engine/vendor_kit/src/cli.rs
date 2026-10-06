@@ -310,11 +310,6 @@ where
         }
         args::Command::Sync => {
             let dir = layout::InstallDir::new(&mounts.root);
-            let argv: Vec<String> = inv
-                .rest
-                .iter()
-                .map(|a| a.to_string_lossy().into_owned())
-                .collect();
             let host_root = inv.host_root.display().to_string();
             let mut stdout = stdout;
             let mut env = sync::Env {
@@ -324,8 +319,6 @@ where
                 inbox: &mounts.inbox,
                 channel,
                 poll: POLL,
-                argv: &argv,
-                run_id: inv.run_id.as_str(),
                 written_by: VERSION,
                 stdout: &mut stdout,
                 diags,
