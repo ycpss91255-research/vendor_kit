@@ -3,7 +3,7 @@ name = "upgrade"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "upgrade <repo> 與 upgrade --engine 第一段：讀設定、持排他鎖、恢復殘留進度、向 registry 解析 tag 與 digest、經 plan 協定取件、驗證與撞名、基準版合併、一次問完、依序落地"
+description = "upgrade <repo> 與 upgrade --engine 兩段（換引擎；重產薄殼、VK 檔格式升級）：讀設定、持排他鎖、恢復殘留進度、向 registry 解析 tag 與 digest、經 plan 協定取件、驗證與撞名、基準版合併、一次問完、依序落地"
 
 [dependencies]
 compat.workspace = true
@@ -23,6 +23,7 @@ registry.workspace = true
 runlog.workspace = true
 schema.workspace = true
 serde_json.workspace = true
+shell.workspace = true
 stamp.workspace = true
 tools_just.workspace = true
 txn.workspace = true

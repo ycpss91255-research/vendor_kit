@@ -18,8 +18,8 @@
 //! 剛好只有那一個參數才算，在 `args` 之前認出來，交給 `shell_check`；其餘一律照 `args` 解析，所以保留入口帶了
 //! 其他參數就是 VK0026。保留入口屬救援路徑，介面版不在區間內也照常執行（[`gate`]），執行位置照樣檢查（VK0028）。
 //!
-//! 目前實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`upgrade --engine` 的第一段
-//! （engine/upgrade 的 `engine` 模組；第二段還沒做，以 VK0056 停下）、`dev`、`undev`、`prune`
+//! 目前實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`upgrade --engine` 的兩段
+//! （engine/upgrade 的 `engine` 模組；第二段要薄殼模板，同 `install` 讀出貨輸入）、`dev`、`undev`、`prune`
 //! 與 `test`、`test <path>`、`test dist`（安裝檢查、使用者測試與交付內容檢查，engine/check）。04 說明與用法
 //! 錯誤：不認得的名稱由 just 擋下、到不了引擎。
 //! `-h`／`--help` 把 [`output::Help`] 的用法印到 stdout、以 0 結束（03 輸出），不看執行位置；救援呼叫的 `-h`
@@ -44,7 +44,7 @@ const POLL: Duration = Duration::from_millis(20);
 /// 啟動器起引擎容器時不帶任何環境變數，正式執行時一定不設；e2e 在主機上直接跑執行檔時用它。
 pub const MOUNT_PREFIX_ENV: &str = "VK_TEST_MOUNT_PREFIX";
 
-/// 測試用：設了這個環境變數，`install` 與 `sync` 的薄殼模板改從這個目錄讀（`install::Release::from_dir`），
+/// 測試用：設了這個環境變數，`install`、`sync`、`upgrade --engine` 等指令的薄殼模板改從這個目錄讀（`install::Release::from_dir`），
 /// 不讀 image 裡的 `install::release::SHIPPED_DIR`（`install::Release::shipped`）。正式執行時一定不設（啟動器
 /// 起引擎容器時不帶任何環境變數）；e2e 在主機上直接跑執行檔，沒有 image 裡的模板，用它給 fixture 模板。
 pub const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
@@ -685,6 +685,10 @@ where
                 Ok(c) => c,
                 Err(code) => return code,
             };
+            let release = match release(host_log, diags) {
+                Ok(r) => r,
+                Err(code) => return code,
+            };
             let dir = layout::InstallDir::new(&mounts.root);
             let argv: Vec<String> = inv
                 .rest
@@ -715,6 +719,7 @@ where
             let req = upgrade::engine::Request {
                 tag: *tag,
                 yes: *yes,
+                shell_templates: release.shell.as_ref(),
             };
             let code = upgrade::engine::run(&req, &mut env);
             let _ = stdout.flush();

@@ -1,9 +1,10 @@
-//! `upgrade --engine` 第一段（[`crate::engine`]）：假啟動器回帶 LABEL 的 inspect 與 pull，假 registry 回
-//! `tags/list` 與 HEAD manifest。
+//! `upgrade --engine` 的兩段（[`crate::engine`]）：第一段由假啟動器回帶 LABEL 的 inspect 與 pull，假 registry 回
+//! `tags/list` 與 HEAD manifest；第二段不送 op，薄殼模板與要問的事直接給。
 
 use super::online::{Registry, public};
 use super::*;
 use crate::engine::{self, ENGINE_REPO};
+use shell::Shell;
 
 /// 假 registry 裡引擎 image 的路徑（[`ENGINE_REPO`] 去掉 `ghcr.io/`）。
 const ENGINE_PATH: &str = "ycpss91255-research/vendor_kit";
@@ -34,8 +35,29 @@ const TARGET: Script = Script {
     labels: LABELS,
 };
 
+/// 一次執行的其餘輸入。
+struct Opts<'a> {
+    run_id: &'a str,
+    templates: Option<&'a engine::ShellTemplates>,
+    questions: &'a [&'a str],
+    interactive: bool,
+    stdin: &'a str,
+}
+
+const OPTS: Opts<'static> = Opts {
+    run_id: "r1",
+    templates: None,
+    questions: &[],
+    interactive: false,
+    stdin: "",
+};
+
 /// 跑一次 `upgrade --engine`：`argv` 是 `just vendor_kit` 之後的參數，tag 與 `-y` 從裡面取。
 fn run_engine(fx: &Fx, argv: &[&str], registry: &Client) -> Out {
+    run_engine_with(fx, argv, registry, &OPTS)
+}
+
+fn run_engine_with(fx: &Fx, argv: &[&str], registry: &Client, opts: &Opts) -> Out {
     let tag = argv
         .iter()
         .find_map(|a| a.strip_prefix("--engine="))
@@ -43,11 +65,12 @@ fn run_engine(fx: &Fx, argv: &[&str], registry: &Client) -> Out {
     let req = engine::Request {
         tag,
         yes: argv.contains(&"-y"),
+        shell_templates: opts.templates,
     };
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     fx.assert_fresh_session();
     let mut channel = Channel::new(&fx.ctl, header());
-    let mut stdin = Cursor::new(Vec::new());
+    let mut stdin = Cursor::new(opts.stdin.as_bytes().to_vec());
     let mut stdout = Vec::new();
     let shared = Shared::default();
     let mut prompt = shared.clone();
@@ -57,9 +80,10 @@ fn run_engine(fx: &Fx, argv: &[&str], registry: &Client) -> Out {
         runlog::Header {
             version: WRITTEN_BY.to_owned(),
             component: runlog::Component::Engine,
-            invocation_id: "r1".to_owned(),
+            invocation_id: opts.run_id.to_owned(),
         },
     );
+    let questions: Vec<String> = opts.questions.iter().map(|q| (*q).to_owned()).collect();
     let code = {
         let mut env = Env {
             dir: &fx.dir,
@@ -69,9 +93,9 @@ fn run_engine(fx: &Fx, argv: &[&str], registry: &Client) -> Out {
             channel: &mut channel,
             poll: Duration::from_millis(1),
             registry,
-            tty: tty(false),
+            tty: tty(opts.interactive),
             argv: &argv,
-            run_id: "r1",
+            run_id: opts.run_id,
             written_by: WRITTEN_BY,
             stdin: &mut stdin,
             stdout: &mut stdout,
@@ -79,7 +103,7 @@ fn run_engine(fx: &Fx, argv: &[&str], registry: &Client) -> Out {
             diags: &mut diags,
             log: &mut log,
         };
-        engine::run(&req, &mut env)
+        engine::run_with(&req, &mut env, &|| questions.clone())
     };
     Out {
         code,
@@ -264,18 +288,336 @@ fn a_target_that_cannot_read_the_existing_files_is_vk0007_without_writes() {
     assert_eq!(out.log, "");
 }
 
+// ---- 第二段 ----
+
+/// 第二段的引擎就是這個測試的引擎（[`WRITTEN_BY`]）：目標 tag 與它的 LABEL。
+const SELF_LABELS: &str = r#""vendor_kit.protocol.floor":"1","vendor_kit.protocol.current":"1","vendor_kit.schema.max":"1","org.opencontainers.image.version":"v0.0.0""#;
+
+const SELF_TARGET: Script = Script {
+    labels: SELF_LABELS,
+    ..TARGET
+};
+
+fn self_locked() -> String {
+    format!("{ENGINE_REPO}:{WRITTEN_BY}@{DIGEST}")
+}
+
+/// 測試用的薄殼模板（順序同 `layout::SHELL_FILES`）。
+fn templates() -> engine::ShellTemplates {
+    [
+        b"# entry\n".to_vec(),
+        b"# vendor\n".to_vec(),
+        b"# log\n".to_vec(),
+        b"cache/\n".to_vec(),
+    ]
+}
+
+/// 本引擎產生的薄殼四檔。
+fn rendered() -> Shell {
+    let t = templates();
+    Shell::render(
+        compat::THIS.current_protocol,
+        WRITTEN_BY,
+        [&t[0][..], &t[1][..], &t[2][..], &t[3][..]],
+    )
+    .unwrap()
+}
+
+/// 第一段換到本引擎（v1.0.0 → v0.0.0，檔案版上限相同，降版照樣過），以 `argv` 停在 VK0023。
+fn first_stage(fx: &Fx, argv: &[&str]) {
+    let peer = Peer::start(fx, SELF_TARGET);
+    let out = run_engine(fx, argv, &unused_registry());
+    peer.finish();
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert!(out.stderr.contains("error[VK0023]"), "{}", out.stderr);
+    fx.new_session();
+}
+
+/// 第二段做完：薄殼四檔是本引擎的、`gen/.stamp` 是鎖定行的值、介面版列表是本引擎的，沒有進度檔。
+fn assert_completed(fx: &Fx, out: &Out, wrote: &[&str]) {
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    let mut expected: String = wrote
+        .iter()
+        .map(|n| format!("Wrote .vendor_kit/{n}\n"))
+        .collect();
+    expected.push_str(&format!(
+        "Completed the engine upgrade to {WRITTEN_BY} ({}).\n",
+        self_locked()
+    ));
+    assert_eq!(out.stdout, expected);
+    let report = rendered().check(&fx.dir).unwrap();
+    assert!(report.is_consistent(), "{report:?}");
+    assert_eq!(
+        fs::read_to_string(fx.dir.stamp()).unwrap(),
+        format!("{}\n", self_locked())
+    );
+    assert_eq!(
+        fx.lock_text(),
+        format!(
+            "vendor_kit = \"{}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"{WRITTEN_BY}\"\n\n[tools]\ntool = \"{OLD}\"\n",
+            self_locked()
+        )
+    );
+    assert!(progress::find(&fx.dir).unwrap().is_empty());
+    assert_eq!(
+        events(out),
+        [
+            "writes_started",
+            "lock_line_write_started",
+            "lock_line_written",
+            "progress_removed",
+        ]
+    );
+}
+
+fn second_opts<'a>(run_id: &'a str, t: &'a engine::ShellTemplates) -> Opts<'a> {
+    Opts {
+        run_id,
+        templates: Some(t),
+        ..OPTS
+    }
+}
+
 #[test]
-fn the_same_tag_as_the_lock_line_is_the_second_stage_gap() {
+fn the_rerun_completes_the_second_stage_without_any_docker_action() {
     let fx = Fx::new();
+    let argv = ["upgrade", "--engine=v0.0.0", "-y"];
+    first_stage(&fx, &argv);
+    let t = templates();
+    // 沒有假啟動器：第二段送任何 op 都會卡住。
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &second_opts("r2", &t));
+    assert_completed(
+        &fx,
+        &out,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+    );
+    // 工具內容與入口檔都不動。
+    assert_eq!(
+        fs::read_to_string(fx.dir.cache_dir().join("tool/just/tool.just")).unwrap(),
+        "old:\n"
+    );
+    assert!(!fx.dir.gen_dir().join("tools.just").exists());
+
+    // 再跑一次：都已是這一版，說明未變更，不建進度檔、不寫任何檔。
     let before = fx.snapshot();
-    let out = run_engine(&fx, &["upgrade", "--engine=v1.0.0"], &unused_registry());
-    assert_gap(&out, "which the engine lock version line already names");
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &second_opts("r3", &t));
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "vendor_kit is already at v0.0.0; no changes were made.\n"
+    );
+    assert_eq!(out.log, "");
     assert_eq!(fx.snapshot(), before);
 }
 
 #[test]
-fn residual_progress_files_stop_before_any_docker_action() {
-    // 第一段做完再跑一次：第二段還沒做，停下，不再建第二份進度檔。
+fn without_a_tag_the_rerun_does_not_ask_the_registry() {
+    let fx = Fx::new();
+    first_stage(&fx, &["upgrade", "--engine=v0.0.0"]);
+    let t = templates();
+    let out = run_engine_with(
+        &fx,
+        &["upgrade", "--engine"],
+        &unused_registry(),
+        &second_opts("r2", &t),
+    );
+    assert_completed(
+        &fx,
+        &out,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+    );
+}
+
+#[test]
+fn only_mismatched_shell_files_are_rewritten() {
+    let fx = Fx::new();
+    let shell = rendered();
+    shell.write(&fx.dir).unwrap();
+    // log.sh 是別版引擎的模板，.gitignore 被改過。
+    let t = templates();
+    let other = Shell::render(
+        compat::THIS.current_protocol,
+        "v9.9.9",
+        [&t[0][..], &t[1][..], &t[2][..], &t[3][..]],
+    )
+    .unwrap();
+    fs::write(
+        fx.dir.vk_dir().join("log.sh"),
+        other.file("log.sh").unwrap(),
+    )
+    .unwrap();
+    fs::write(fx.dir.vk_dir().join(".gitignore"), "edited\n").unwrap();
+    let argv = ["upgrade", "--engine=v0.0.0", "-y"];
+    first_stage(&fx, &argv);
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &second_opts("r2", &t));
+    assert_completed(&fx, &out, &["log.sh", ".gitignore"]);
+}
+
+/// N21：鎖定行已是目標版、沒有進度檔，但薄殼還是舊的：直接做第二段，不回「已是最新」。
+#[test]
+fn a_lock_line_already_at_the_target_with_old_shell_files_does_the_second_stage() {
+    for argv in [
+        &["upgrade", "--engine=v0.0.0"][..],
+        &["upgrade", "--engine"][..],
+    ] {
+        let fx = Fx::new();
+        fs::write(
+            fx.dir.version_toml(),
+            format!(
+                "vendor_kit = \"{}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"{OLD}\"\n",
+                self_locked()
+            ),
+        )
+        .unwrap();
+        let registry = Registry::start(ENGINE_PATH, public(&["v0.0.0"]));
+        let t = templates();
+        let out = run_engine_with(&fx, argv, &registry.client(), &second_opts("r2", &t));
+        assert_completed(
+            &fx,
+            &out,
+            &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+        );
+        // 帶 tag 不連 registry；不帶 tag 只列 tag，不取 digest。
+        let listed: Vec<String> = if argv.len() == 2 && argv[1] == "--engine" {
+            vec![format!("GET /v2/{ENGINE_PATH}/tags/list?n=100")]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(registry.requests(), listed);
+    }
+}
+
+#[test]
+fn answering_no_keeps_the_first_stage() {
+    let fx = Fx::new();
+    let argv = ["upgrade", "--engine=v0.0.0"];
+    first_stage(&fx, &argv);
+    let before = fx.snapshot();
+    let t = templates();
+    let out = run_engine_with(
+        &fx,
+        &argv,
+        &unused_registry(),
+        &Opts {
+            questions: &["Replace .vendor_kit/config.toml?"],
+            interactive: true,
+            stdin: "n\n",
+            ..second_opts("r2", &t)
+        },
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stdout, "No changes were made.\n");
+    assert!(out.stderr.contains("Replace .vendor_kit/config.toml?"));
+    // 鎖定行與第一段的進度檔都還在，沒有任何寫入。
+    assert_eq!(fx.snapshot(), before);
+    assert_eq!(out.log, "");
+
+    // 不能互動：VK0002，同樣不寫。
+    let out = run_engine_with(
+        &fx,
+        &argv,
+        &unused_registry(),
+        &Opts {
+            questions: &["Replace .vendor_kit/config.toml?"],
+            ..second_opts("r3", &t)
+        },
+    );
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert!(out.stderr.contains("error[VK0002]"), "{}", out.stderr);
+    assert_eq!(fx.snapshot(), before);
+
+    // -y：全部同意。
+    let out = run_engine_with(
+        &fx,
+        &["upgrade", "--engine=v0.0.0", "-y"],
+        &unused_registry(),
+        &Opts {
+            questions: &["Replace .vendor_kit/config.toml?"],
+            ..second_opts("r4", &t)
+        },
+    );
+    assert_completed(
+        &fx,
+        &out,
+        &["entry.just", "vendor.just", "log.sh", ".gitignore"],
+    );
+}
+
+/// 第二段中途停下的樣子：第一段（`r1`）與第二段（`r2`）的進度檔都在，薄殼寫了一半，`gen/.stamp` 還沒寫。
+#[test]
+fn an_interrupted_second_stage_is_completed_by_the_rerun() {
+    let fx = Fx::new();
+    let argv = ["upgrade", "--engine=v0.0.0", "-y"];
+    first_stage(&fx, &argv);
+    let vk = fx.dir.vk_dir();
+    fs::copy(
+        vk.join(".tmp.upgrade.r1.toml"),
+        vk.join(".tmp.upgrade.r2.toml"),
+    )
+    .unwrap();
+    let shell = rendered();
+    for name in ["entry.just", "vendor.just"] {
+        fs::write(vk.join(name), shell.file(name).unwrap()).unwrap();
+    }
+    let t = templates();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &second_opts("r3", &t));
+    assert_completed(&fx, &out, &["log.sh", ".gitignore"]);
+}
+
+#[test]
+fn the_second_stage_stops_where_it_cannot_tell_what_to_do() {
+    let t = templates();
+    let argv = ["upgrade", "--engine=v0.0.0"];
+
+    // 沒有薄殼模板。
+    let fx = Fx::new();
+    first_stage(&fx, &argv);
+    let before = fx.snapshot();
+    let out = run_engine_with(
+        &fx,
+        &argv,
+        &unused_registry(),
+        &Opts {
+            run_id: "r2",
+            ..OPTS
+        },
+    );
+    assert_gap(&out, "without the shell templates");
+    assert_eq!(fx.snapshot(), before);
+
+    // 帶的 tag 跟版本鎖定行不同。
+    let out = run_engine_with(
+        &fx,
+        &["upgrade", "--engine=v1.2.0"],
+        &unused_registry(),
+        &second_opts("r2", &t),
+    );
+    assert_gap(
+        &out,
+        "upgrade --engine=v1.2.0 while the engine upgrade to v0.0.0 recorded in .vendor_kit/.tmp.upgrade.r1.toml is incomplete",
+    );
+
+    // 引擎開著本機覆寫。
+    fs::write(
+        fx.dir.version_local_toml(),
+        "vendor_kit = \"vendor_kit:dev\"\nschema = 1\nwritten_by = \"v0.0.0\"\n",
+    )
+    .unwrap();
+    let before = fx.snapshot();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &second_opts("r2", &t));
+    assert_gap(&out, "while the engine has a local override");
+    assert_eq!(fx.snapshot(), before);
+
+    // 這次的 run-id 跟殘留的進度檔撞名。
+    fs::remove_file(fx.dir.version_local_toml()).unwrap();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &second_opts("r1", &t));
+    assert_gap_or_internal(&out, "has this run's id r1");
+}
+
+#[test]
+fn the_second_stage_runs_only_on_the_engine_the_lock_line_names() {
+    // 第一段換到 v1.2.0，重跑時起的還是本引擎（v0.0.0）：停下，不寫任何檔。
     let fx = Fx::new();
     let peer = Peer::start(&fx, TARGET);
     let argv = ["upgrade", "--engine=v1.2.0"];
@@ -283,13 +625,32 @@ fn residual_progress_files_stop_before_any_docker_action() {
     peer.finish();
     let before = fx.snapshot();
     fx.new_session();
-    let out = run_engine(&fx, &argv, &unused_registry());
-    assert_gap(
+    let t = templates();
+    let out = run_engine_with(&fx, &argv, &unused_registry(), &second_opts("r2", &t));
+    assert_gap_or_internal(
         &out,
-        "completing the engine upgrade recorded in .vendor_kit/.tmp.upgrade.r1.toml",
+        "this engine is v0.0.0, but the engine lock version line names v1.2.0",
     );
     assert_eq!(fx.snapshot(), before);
 
+    // 鎖定行跟目標同 tag、但不是本引擎：同樣停下。
+    let fx = Fx::new();
+    let out = run_engine_with(
+        &fx,
+        &["upgrade", "--engine=v1.0.0"],
+        &unused_registry(),
+        &second_opts("r2", &t),
+    );
+    assert_gap_or_internal(
+        &out,
+        "this engine is v0.0.0, but the engine lock version line names v1.0.0",
+    );
+}
+
+#[test]
+fn residual_progress_files_that_are_not_this_engine_upgrade_stop() {
+    let argv = ["upgrade", "--engine=v1.2.0"];
+    // 工具的 upgrade。
     let fx = Fx::new();
     residual(&fx, "tool", &new_locked(), false);
     let out = run_engine(&fx, &argv, &unused_registry());
@@ -297,6 +658,14 @@ fn residual_progress_files_stop_before_any_docker_action() {
         &out,
         "upgrade --engine while the incomplete upgrade operation",
     );
+
+    // 引擎升級記的目標不是版本鎖定行（鎖定行之後被手改過）。
+    let fx = Fx::new();
+    residual(&fx, table::ENGINE_TARGET, &target_locked(), false);
+    let before = fx.snapshot();
+    let out = run_engine(&fx, &argv, &unused_registry());
+    assert_gap(&out, "whose target is not the engine lock version line");
+    assert_eq!(fx.snapshot(), before);
 }
 
 #[test]
