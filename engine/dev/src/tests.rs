@@ -1,8 +1,11 @@
 //! 單元測試：直接在暫存的安裝目錄跑 `dev`、`undev`。驗覆寫與入口檔的寫入、未變更、各拒絕結果與缺口
 //! （每個都不寫檔）、殘留進度的恢復，以及路徑正規化。安裝目錄外的本機開發來源由背景的假啟動器回
-//! `stage-dir`：主機路徑的 `/h/` 對到暫存的「主機」目錄。
+//! `stage-dir`：主機路徑的 `/h/` 對到暫存的「主機」目錄。`undev` 取件時，假啟動器照 [`Registry`] 回
+//! `inspect`、`pull`、`extract`。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,6 +29,45 @@ const DEV_GEN: &str = "mod? other '../cache/other/just/other.just'\n\
 
 /// 測試用的主機上的安裝目錄（`--host-root`）。
 const HOST_ROOT: &str = "/h/proj";
+/// 開著覆寫時 `git pull` 換上的新鎖定行。
+const NEW_TOOL: &str = "ghcr.io/acme/tool:v1.3.0@sha256:4444444444444444444444444444444444444444444444444444444444444444";
+const NEW_PINNED: &str =
+    "ghcr.io/acme/tool@sha256:4444444444444444444444444444444444444444444444444444444444444444";
+const PINNED: &str =
+    "ghcr.io/acme/tool@sha256:2222222222222222222222222222222222222222222222222222222222222222";
+const IMAGE_ID: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+/// `Fx::new` 放進 `cache/<repo>/just/<repo>.just` 的本文。
+const CACHED_TEXT: &str = "x:\n    echo x\n";
+
+/// 假啟動器回 `inspect`、`pull`、`extract` 用的一個 image。
+#[derive(Debug, Clone)]
+struct Image {
+    /// 帶 digest 的引用，`inspect`、`pull` 收的就是它。
+    pinned: String,
+    /// inspect 回的 RepoDigests 那一筆。
+    repo_digest: String,
+    /// 一開始就在本機（不用 `pull`）。
+    local: bool,
+    /// `extract` 放進 `in/<slot>` 的檔：相對路徑與本文。
+    files: Vec<(String, String)>,
+}
+
+impl Image {
+    fn new(pinned: &str, local: bool, tool_text: &str) -> Image {
+        Image {
+            pinned: pinned.to_owned(),
+            repo_digest: pinned.to_owned(),
+            local,
+            files: vec![("just/tool.just".to_owned(), tool_text.to_owned())],
+        }
+    }
+}
+
+/// 假啟動器看得到的 registry：沒列的引用 `inspect`、`pull` 都失敗。
+#[derive(Debug, Clone, Default)]
+struct Registry {
+    images: Vec<Image>,
+}
 
 struct Fx {
     _tmp: tempfile::TempDir,
@@ -36,6 +78,8 @@ struct Fx {
     inbox: PathBuf,
     /// 主機路徑 `/h/<x>` 對到這裡的 `<x>`。
     host: PathBuf,
+    /// 假啟動器回取件 op 用的 image。
+    registry: RefCell<Registry>,
 }
 
 impl Fx {
@@ -79,7 +123,28 @@ impl Fx {
             ctl,
             inbox,
             host,
+            registry: RefCell::new(Registry::default()),
         }
+    }
+
+    /// 把工具的版本鎖定行換成 `version`（開著覆寫時 `git pull` 換了鎖定行）。
+    fn set_lock_line(&self, version: &str) {
+        let mut lock = LockFile::load_from(&self.dir).unwrap().unwrap();
+        lock.set_tool("tool", &ImageRef::parse(version).unwrap())
+            .unwrap();
+        lock.save_to(&self.dir, WRITTEN_BY).unwrap();
+    }
+
+    fn cached_text(&self) -> String {
+        fs::read_to_string(self.dir.tool_cache("tool").unwrap().join("just/tool.just")).unwrap()
+    }
+
+    fn stamp_version(&self) -> String {
+        stamp::Stamp::load(&stamp::tool_file(&self.dir, "tool"))
+            .unwrap()
+            .unwrap()
+            .version()
+            .to_owned()
     }
 
     /// 在「主機」上（安裝目錄外）放一份本機開發來源：`/h/<at>/just/<ns>.just`。
@@ -193,11 +258,14 @@ impl Peer {
             fs::create_dir_all(d).unwrap();
         }
         let (ctl, inbox, host) = (fx.ctl.clone(), fx.inbox.clone(), fx.host.clone());
+        let registry = fx.registry.borrow().clone();
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
         let handle = thread::spawn(move || {
             let header = header();
             let mut seen = Vec::new();
+            let mut pulled: BTreeSet<String> = BTreeSet::new();
+            let find = |r: &str| registry.images.iter().find(|i| i.pinned == r).cloned();
             let mut seq = 1u16;
             while !flag.load(Ordering::SeqCst) {
                 let Ok(bytes) = fs::read(ctl.join(format!("req.{seq}"))) else {
@@ -217,6 +285,49 @@ impl Peer {
                                 Outcome::Ok
                             }
                             _ => Outcome::Failed(1),
+                        }
+                    }
+                    Op::Inspect(r) => {
+                        seen.push(format!("inspect {}", r.as_str()));
+                        match find(r.as_str()) {
+                            Some(i) if i.local || pulled.contains(&i.pinned) => {
+                                let json = format!(
+                                    "[{{\"Id\":\"{IMAGE_ID}\",\"RepoDigests\":[\"{}\"]}}]",
+                                    i.repo_digest
+                                );
+                                fs::write(ctl.join(format!("res.{s}.out")), json).unwrap();
+                                Outcome::Ok
+                            }
+                            _ => Outcome::Failed(1),
+                        }
+                    }
+                    Op::Pull(r) => {
+                        seen.push(format!("pull {}", r.as_str()));
+                        match find(r.as_str()) {
+                            Some(i) => {
+                                pulled.insert(i.pinned);
+                                Outcome::Ok
+                            }
+                            None => Outcome::Failed(1),
+                        }
+                    }
+                    Op::Extract(id, slot) => {
+                        seen.push(format!("extract {} {}", id.as_str(), slot.as_str()));
+                        let image = registry
+                            .images
+                            .iter()
+                            .find(|i| i.local || pulled.contains(&i.pinned));
+                        match image {
+                            Some(i) => {
+                                let dest = inbox.join(slot.as_str());
+                                for (rel, text) in &i.files {
+                                    let path = dest.join(rel);
+                                    fs::create_dir_all(path.parent().unwrap()).unwrap();
+                                    fs::write(path, text).unwrap();
+                                }
+                                Outcome::Ok
+                            }
+                            None => Outcome::Failed(1),
                         }
                     }
                     other => {
@@ -253,6 +364,11 @@ impl Out {
 }
 
 fn run_with(fx: &Fx, req: &Request<'_>, argv: &[&str]) -> Out {
+    run_as(fx, req, argv, "r1")
+}
+
+/// 以 `run_id` 跑一次（重跑時進度檔的 `<id>` 跟殘留的不同）。
+fn run_as(fx: &Fx, req: &Request<'_>, argv: &[&str], run_id: &str) -> Out {
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -276,7 +392,7 @@ fn run_with(fx: &Fx, req: &Request<'_>, argv: &[&str]) -> Out {
             poll: Duration::from_millis(2),
             run_log: "/h/proj/.vendor_kit/log/r1.jsonl",
             argv: &argv,
-            run_id: "r1",
+            run_id,
             written_by: WRITTEN_BY,
             stdout: &mut stdout,
             diags: &mut diags,
@@ -722,8 +838,113 @@ fn dev_namespace_collision_is_a_gap() {
     assert_eq!(fx.snapshot(), before);
 }
 
+// ---- undev 取件 ----
+
+const VK0053_TOOL: &str = "vendor_kit: error[VK0053]: The undev operation for tool is incomplete. Run again: just vendor_kit undev tool\n";
+
 #[test]
-fn undev_when_the_cache_does_not_match_the_lock_line_is_a_gap() {
+fn undev_after_the_lock_line_changed_fetches_after_removing_the_override() {
+    let fx = Fx::new();
+    assert_eq!(dev(&fx, "tool", "dev/tool").code, 0);
+    fx.set_lock_line(NEW_TOOL);
+    let lock = fs::read(fx.dir.version_toml()).unwrap();
+    fx.registry
+        .borrow_mut()
+        .images
+        .push(Image::new(NEW_PINNED, false, "new:\n    echo new\n"));
+
+    let out = undev(&fx, "tool");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Removed the local override of tool; tool uses v1.3.0 ({NEW_TOOL}).\n\
+             Fetched tool v1.3.0 ({NEW_TOOL}).\n\
+             Updated .vendor_kit/gen/tools.just.\n"
+        )
+    );
+    // 本機沒有：以帶 digest 的引用 pull 再 inspect，再以 image ID extract。
+    assert_eq!(
+        out.ops,
+        [
+            format!("inspect {NEW_PINNED}"),
+            format!("pull {NEW_PINNED}"),
+            format!("inspect {NEW_PINNED}"),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(fx.cached_text(), "new:\n    echo new\n");
+    assert_eq!(fx.stamp_version(), NEW_TOOL);
+    assert_eq!(fx.entry(), GEN);
+    assert_eq!(fx.local().unwrap().tool("tool"), None);
+    assert_eq!(out.events(), LANDED);
+    assert!(fx.progress_files().is_empty());
+    // 版本鎖定行不動。
+    assert_eq!(fs::read(fx.dir.version_toml()).unwrap(), lock);
+}
+
+#[test]
+fn undev_refetches_a_cache_that_does_not_match_its_stamp_or_has_no_stamp() {
+    for what in ["content changed", "stamp missing"] {
+        let fx = Fx::new();
+        assert_eq!(dev(&fx, "tool", "dev/tool").code, 0, "{what}");
+        if what == "content changed" {
+            fs::write(
+                fx.dir.tool_cache("tool").unwrap().join("just/tool.just"),
+                "changed\n",
+            )
+            .unwrap();
+        } else {
+            fs::remove_file(stamp::tool_file(&fx.dir, "tool")).unwrap();
+        }
+        fx.registry
+            .borrow_mut()
+            .images
+            .push(Image::new(PINNED, true, CACHED_TEXT));
+        let out = undev(&fx, "tool");
+        assert_eq!(out.code, 0, "{what}: {}", out.stderr);
+        assert_eq!(
+            out.ops,
+            [
+                format!("inspect {PINNED}"),
+                format!("extract {IMAGE_ID} tool1")
+            ],
+            "{what}"
+        );
+        assert_eq!(fx.cached_text(), CACHED_TEXT, "{what}");
+        assert_eq!(fx.stamp_version(), TOOL, "{what}");
+        assert_eq!(fx.entry(), GEN, "{what}");
+        assert_eq!(fx.local().unwrap().tool("tool"), None, "{what}");
+        assert!(fx.progress_files().is_empty(), "{what}");
+    }
+}
+
+#[test]
+fn undev_whose_fetch_fails_is_vk0053_without_writing() {
+    for what in ["docker fails", "digest mismatch"] {
+        let fx = Fx::new();
+        assert_eq!(dev(&fx, "tool", "dev/tool").code, 0, "{what}");
+        fx.set_lock_line(NEW_TOOL);
+        if what == "digest mismatch" {
+            let mut image = Image::new(NEW_PINNED, true, "new:\n    echo new\n");
+            image.repo_digest = PINNED.to_owned();
+            fx.registry.borrow_mut().images.push(image);
+        }
+        let before = fx.snapshot();
+        let out = undev(&fx, "tool");
+        assert_eq!(out.code, 2, "{what}");
+        assert_eq!(out.stderr, VK0053_TOOL, "{what}");
+        assert_eq!(out.stdout, "", "{what}");
+        // 取件在寫任何檔之前：覆寫照留、沒有進度檔，重跑同一個 undev 就是從頭再做。
+        assert_eq!(fx.snapshot(), before, "{what}");
+        assert!(out.events().is_empty(), "{what}: {:?}", out.events());
+        assert_eq!(fx.local().unwrap().tool("tool"), Some("dev/tool"), "{what}");
+    }
+}
+
+#[test]
+fn undev_whose_fetched_content_does_not_match_the_stamp_is_a_gap() {
     let fx = Fx::new();
     assert_eq!(dev(&fx, "tool", "dev/tool").code, 0);
     fs::write(
@@ -731,16 +952,66 @@ fn undev_when_the_cache_does_not_match_the_lock_line_is_a_gap() {
         "changed\n",
     )
     .unwrap();
+    // 同一個版本取到的內容跟既有印記不符：重跑也補不好。
+    fx.registry
+        .borrow_mut()
+        .images
+        .push(Image::new(PINNED, true, "other:\n    echo other\n"));
     let before = fx.snapshot();
     let out = undev(&fx, "tool");
     assert_eq!(out.code, 2);
     assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
     assert!(
-        out.stderr.contains("cache/tool/ does not match"),
+        out.stderr.contains("does not match its existing stamp"),
         "{}",
         out.stderr
     );
     assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn undev_interrupted_after_removing_the_override_is_vk0053_and_a_rerun_completes() {
+    let fx = Fx::new();
+    assert_eq!(dev(&fx, "tool", "dev/tool").code, 0);
+    fx.set_lock_line(NEW_TOOL);
+    fx.registry
+        .borrow_mut()
+        .images
+        .push(Image::new(NEW_PINNED, true, "new:\n    echo new\n"));
+    // 換 cache/ 那一步失敗：txn 先清掉的暫存目錄位置被一般檔占住。
+    let blocker = fx.dir.cache_dir().join(".tmp.tool.new");
+    fs::write(&blocker, "x").unwrap();
+
+    let out = undev(&fx, "tool");
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stderr, VK0053_TOOL);
+    // 覆寫已解除，cache/、印記、入口檔還沒同步，進度檔留著。
+    assert_eq!(fx.local().unwrap().tool("tool"), None);
+    assert_eq!(fx.cached_text(), CACHED_TEXT);
+    assert_eq!(fx.stamp_version(), TOOL);
+    assert_eq!(fx.entry(), DEV_GEN);
+    assert_eq!(fx.progress_files(), ["undev.r1"]);
+
+    // 重跑原 undev：併進殘留的那次，取件、換 cache/、指回去。
+    fs::remove_file(&blocker).unwrap();
+    let out = run_as(
+        &fx,
+        &Request::UndevTool { repo: "tool" },
+        &["undev", "tool"],
+        "r2",
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(fx.cached_text(), "new:\n    echo new\n");
+    assert_eq!(fx.stamp_version(), NEW_TOOL);
+    assert_eq!(fx.entry(), GEN);
+    assert!(fx.progress_files().is_empty());
+    assert!(
+        out.stdout.ends_with(
+            "Completed the interrupted undev recorded in .vendor_kit/.tmp.undev.r1.toml.\n"
+        ),
+        "{}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -794,6 +1065,18 @@ fn normalize_resolves_against_the_install_directory() {
         Some("/h/proj/../b")
     );
     assert_eq!(inside("b").host_path(HOST_ROOT), None);
+}
+
+#[test]
+fn inspect_output_reads_the_id_and_repo_digests() {
+    let json = format!("[{{\"Id\":\"{IMAGE_ID}\",\"RepoDigests\":[\"{PINNED}\"],\"Size\":1}}]");
+    let i = parse_inspect(json.as_bytes()).unwrap();
+    assert_eq!(i.id, IMAGE_ID);
+    assert_eq!(i.repo_digests, [PINNED]);
+    let none = parse_inspect(br#"[{"Id":"sha256:1","RepoDigests":null}]"#).unwrap();
+    assert!(none.repo_digests.is_empty());
+    assert!(parse_inspect(b"[]").is_err());
+    assert!(parse_inspect(b"{}").is_err());
 }
 
 #[test]

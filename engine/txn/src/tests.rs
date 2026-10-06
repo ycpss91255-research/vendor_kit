@@ -810,6 +810,111 @@ fn removed_paths_must_stay_inside_the_vk_dir() {
     assert!(fs::symlink_metadata(f.dir.vk_dir().join("link")).is_err());
 }
 
+// ---- 本機覆寫的順序 ----
+
+/// 本機覆寫的紀錄檔。
+const OVERRIDE_RECORD: &str = "version.local.toml";
+const OVERRIDE_TEXT: &[u8] = b"schema = 1\nwritten_by = \"x\"\n";
+
+/// 本機覆寫的順序走一次（`undev` 的對象要重取時）：寫覆寫紀錄、換 `cache/tool/`、寫入口檔，不改版本鎖定行。
+fn override_sequence<E: Effects>(fx: &mut E, f: &Fixture) -> Result<Done, Failed> {
+    let records = [RecordFile {
+        path: Path::new(OVERRIDE_RECORD),
+        contents: OVERRIDE_TEXT,
+    }];
+    Txn::begin(
+        fx,
+        Progress::new("undev", "inv-1", &["undev", "tool"]).unwrap(),
+    )?
+    .write_overrides(&records)?
+    .swap_cache(&[f.tool()])?
+    .write_tools_just(Some(TOOLS_JUST_TEXT))?
+    .keep_lock_line()
+    .complete()
+}
+
+fn run_override(f: &Fixture, fail_at: Option<usize>) -> (Result<Done, Failed>, Vec<u8>, usize) {
+    let mut w = Writer::new(Vec::new(), header(Component::Engine)).with_clock(fixed_time);
+    let (result, calls) = {
+        let mut fx = Faulty::new(Disk::new(&f.dir, &mut w, WRITTEN_BY), fail_at);
+        let result = override_sequence(&mut fx, f);
+        (result, fx.calls)
+    };
+    (result, w.into_inner(), calls)
+}
+
+/// 本機覆寫的順序略過版本鎖定行那三步時，實際的每一次呼叫。
+fn override_calls() -> Vec<Step> {
+    let lock = [
+        Step::LockLineWriteStarted,
+        Step::LockLine,
+        Step::LockLineWritten,
+    ];
+    Step::OVERRIDE
+        .into_iter()
+        .filter(|s| !lock.contains(s))
+        .collect()
+}
+
+#[test]
+fn override_sequence_writes_the_override_then_the_cache_then_the_entry() {
+    let f = Fixture::new();
+    let before = f.lock_text();
+    let (result, log, calls) = run_override(&f, None);
+    assert_eq!(result.unwrap().progress_file, ".tmp.undev.inv-1.toml");
+    assert_eq!(events(&log), ["writes_started", "progress_removed"]);
+    assert_eq!(calls, override_calls().len());
+    assert!(!f.progress_left());
+    assert_eq!(
+        fs::read(f.dir.vk_dir().join(OVERRIDE_RECORD)).unwrap(),
+        OVERRIDE_TEXT
+    );
+    assert!(f.cache_is_new());
+    let stamp = Stamp::load(&f.stamp_file).unwrap().unwrap();
+    assert_eq!(stamp.version(), TOOL);
+    assert_eq!(fs::read(f.tools_just()).unwrap(), TOOLS_JUST_TEXT);
+    assert_eq!(f.lock_text(), before);
+}
+
+#[test]
+fn a_fault_at_each_override_step_leaves_a_recognizable_state() {
+    let position = |s: Step| s.position(&Step::OVERRIDE).unwrap();
+    for (n, step) in override_calls().into_iter().enumerate() {
+        let f = Fixture::new();
+        let before = f.lock_text();
+        let (result, log, _) = run_override(&f, Some(n));
+        let failed = result.err().unwrap_or_else(|| panic!("call {n}"));
+        assert_eq!(failed.step, step, "call {n}");
+        assert!(failed.message().is_none(), "{step}");
+        let after = |s: Step| position(step) > position(s);
+
+        let progress_left = after(Step::CreateProgress) && !after(Step::DeleteProgress);
+        assert_eq!(f.progress_left(), progress_left, "{step}");
+        let record = f.dir.vk_dir().join(OVERRIDE_RECORD).exists();
+        assert_eq!(record, after(Step::Records), "{step}");
+        assert_eq!(f.cache_is_new(), after(Step::SwapCache), "{step}");
+        assert_eq!(f.tools_just().exists(), after(Step::ToolsJust), "{step}");
+        // 覆寫先解除才換 cache/：cache/ 換好時覆寫紀錄一定已寫好。
+        if f.cache_is_new() {
+            assert!(record, "{step}");
+        }
+        assert_eq!(f.lock_text(), before, "{step}");
+        assert!(
+            !events(&log).contains(&"progress_removed".to_owned()),
+            "{step}"
+        );
+        assert_eq!(failed.step.completed(), step == Step::ProgressRemoved);
+    }
+}
+
+#[test]
+fn override_positions_follow_their_own_order() {
+    // 宣告順序（導入的順序）裡 SwapCache 在 Records 之前，本機覆寫的順序相反：要用 position 比。
+    assert!(Step::SwapCache < Step::Records);
+    assert!(Step::SwapCache.position(&Step::OVERRIDE) > Step::Records.position(&Step::OVERRIDE));
+    assert_eq!(Step::RepoFile.position(&Step::OVERRIDE), None);
+}
+
 // ---- 唯讀 recipe 的順序 ----
 
 fn run_refresh(f: &Fixture, fail_at: Option<usize>) -> (Result<(), Failed>, Vec<u8>, usize) {

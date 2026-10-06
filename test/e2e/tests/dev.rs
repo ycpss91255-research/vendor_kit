@@ -2,7 +2,8 @@
 //! 開著覆寫與解除之後的 `sync`（04 sync、本機覆寫），以及開著覆寫時的 `upgrade`（04 本機覆寫）也在這裡。
 //!
 //! 本機開發來源在安裝目錄裡時，`dev`、`undev` 不送 request，假啟動器只收 `done`；在安裝目錄外時，`dev`
-//! 送 `stage-dir`，假啟動器把對應的目錄複製進 `in/<slot>`（[`stage_launcher`]）。`add` 那一段照
+//! 送 `stage-dir`，假啟動器把對應的目錄複製進 `in/<slot>`（[`stage_launcher`]）。`undev` 的對象 `cache/`
+//! 跟版本鎖定行對不上時，`undev` 送 `inspect`、`pull`、`extract` 取件（[`fetch_launcher`]）。`add` 那一段照
 //! tests/add.rs 回 inspect 與 extract。`sync` 要判薄殼，所以安裝目錄放好跟這一版引擎一致的薄殼，模板從
 //! fixture 目錄讀（[`e2e::shell`]）。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -66,6 +67,39 @@ fn add_launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
         }
         "extract" => {
             tool_content(&inbox.join(&req.args[1]));
+            Reply::Ok
+        }
+        _ => Reply::Failed(1),
+    })
+}
+
+/// 開著覆寫時 `git pull` 換上的新版本與它的 digest。
+const NEW_DIGEST: &str = "sha256:5555555555555555555555555555555555555555555555555555555555555555";
+
+/// `undev` 取件用的假啟動器：本機沒有 image（第一次 inspect 失敗），pull 之後 inspect 回 `NEW_DIGEST`，
+/// extract 放新版的內容；其他 op 一律失敗。
+fn fetch_launcher(m: &Mounts) -> std::thread::JoinHandle<Seen> {
+    let (ctl, inbox) = (m.ctl.clone(), m.inbox.clone());
+    let mut pulled = false;
+    launcher::serve(&m.ctl, HEADER, move |req: &Request| match req.op.as_str() {
+        "inspect" if pulled => {
+            let digests = [format!("ghcr.io/acme/tool@{NEW_DIGEST}")];
+            let digests: Vec<&str> = digests.iter().map(String::as_str).collect();
+            fs::write(
+                ctl.join(format!("res.{}.out", req.seq)),
+                launcher::inspect_json(IMAGE_ID, &digests),
+            )
+            .unwrap();
+            Reply::Ok
+        }
+        "pull" => {
+            pulled = true;
+            Reply::Ok
+        }
+        "extract" => {
+            let dir = inbox.join(&req.args[1]);
+            fs::create_dir_all(dir.join("just")).unwrap();
+            fs::write(dir.join("just/tool.just"), "hello:\n    echo new\n").unwrap();
             Reply::Ok
         }
         _ => Reply::Failed(1),
@@ -352,6 +386,80 @@ tool has no local override. No changes were made.
 "#]]
     );
     assert_eq!(snapshot(&m), before);
+}
+
+#[test]
+fn undev_after_the_lock_line_changed_fetches_the_locked_version() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    install(&m);
+    let vk = m.root.join(".vendor_kit");
+
+    let peer = add_launcher(&m);
+    let (code, _, stderr) = run(&m, &["add", "tool", "-i", IMAGE]);
+    peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let src = m.root.join("work/tool/just");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("tool.just"), "hello:\n    echo local\n").unwrap();
+    let (code, _, stderr) = run_idle(&m, &["dev", "tool", "-p", "work/tool"]);
+    assert_eq!(code, 0, "stderr: {stderr}");
+
+    // 開著覆寫時 git pull 換了版本鎖定行：cache/ 與印記還是舊版。
+    let lock_path = vk.join("version.toml");
+    let lock = fs::read_to_string(&lock_path).unwrap();
+    let old_line = format!("tool = \"{IMAGE}@{DIGEST}\"\n");
+    let new_ref = format!("ghcr.io/acme/tool:v1.3.0@{NEW_DIGEST}");
+    assert!(lock.contains(&old_line), "{lock}");
+    let lock = lock.replace(&old_line, &format!("tool = \"{new_ref}\"\n"));
+    fs::write(&lock_path, &lock).unwrap();
+
+    // undev：解除覆寫，不叫使用者先 sync，依鎖定行取件、換 cache/、指回去。
+    new_session(&m);
+    let peer = fetch_launcher(&m);
+    let (code, stdout, stderr) = run(&m, &["undev", "tool"]);
+    let seen = peer.join().unwrap();
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(stderr, "");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+Removed the local override of tool; tool uses v1.3.0 (ghcr.io/acme/tool:v1.3.0@sha256:5555555555555555555555555555555555555555555555555555555555555555).
+Fetched tool v1.3.0 (ghcr.io/acme/tool:v1.3.0@sha256:5555555555555555555555555555555555555555555555555555555555555555).
+Updated .vendor_kit/gen/tools.just.
+
+"#]]
+    );
+    let pinned = format!("ghcr.io/acme/tool@{NEW_DIGEST}");
+    assert_eq!(
+        seen.requests,
+        [
+            format!("inspect {pinned}"),
+            format!("pull {pinned}"),
+            format!("inspect {pinned}"),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+    assert_eq!(events(&m), LANDED_EVENTS);
+    assert_eq!(
+        fs::read_to_string(vk.join("cache/tool/just/tool.just")).unwrap(),
+        "hello:\n    echo new\n"
+    );
+    let stamp = fs::read_to_string(vk.join("cache/tool.stamp.toml")).unwrap();
+    assert!(stamp.contains(&new_ref), "{stamp}");
+    assert_eq!(
+        fs::read_to_string(vk.join("gen/tools.just")).unwrap(),
+        "mod? tool '../cache/tool/just/tool.just'\n"
+    );
+    let local = fs::read_to_string(vk.join("version.local.toml")).unwrap();
+    assert!(!local.contains("tool ="), "{local}");
+    // 版本鎖定行不動，本機開發來源不動。
+    assert_eq!(fs::read_to_string(&lock_path).unwrap(), lock);
+    assert_eq!(
+        fs::read_to_string(src.join("tool.just")).unwrap(),
+        "hello:\n    echo local\n"
+    );
 }
 
 #[test]

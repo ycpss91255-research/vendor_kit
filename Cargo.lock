@@ -280,6 +280,7 @@ dependencies = [
  "progress",
  "runlog",
  "schema",
+ "serde_json",
  "stamp",
  "tempfile",
  "tools_just",
