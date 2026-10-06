@@ -333,16 +333,142 @@ fn residuals_that_cannot_be_folded_in_stop_before_any_write() {
     }
 }
 
-#[test]
-fn a_local_override_of_the_target_stops_with_a_gap() {
-    let fx = Fx::new();
+/// 寫 `version.local.toml`：`tools` 是 `(repo, 本機開發來源)`。
+fn write_local(fx: &Fx, tools: &[(&str, &str)]) {
     let mut local = LocalFile::new();
-    local.set_tool("tool", "../tool").unwrap();
+    for (repo, dir) in tools {
+        local.set_tool(repo, dir).unwrap();
+    }
     local.save_to(&fx.dir, WRITTEN_BY).unwrap();
+}
+
+fn local_tools(fx: &Fx) -> Vec<(String, String)> {
+    let local = LocalFile::load_from(&fx.dir).unwrap().unwrap();
+    local
+        .tools()
+        .iter()
+        .map(|(r, d)| (r.clone(), d.clone()))
+        .collect()
+}
+
+#[test]
+fn a_local_override_of_the_target_is_lifted_and_its_source_is_kept() {
+    let fx = Fx::new();
+    // 對象的來源不存在（覆寫來源失效）也不擋；其他工具的覆寫照留。
+    write_local(&fx, &[("tool", "../gone"), ("other", "../other")]);
+    let out = run(&fx, &["remove", "tool"], true, "y\n");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Removed tool v1.2.0 ({TOOL}).\n\
+             Removed the local override of tool (../gone).\n\
+             Kept the local development source of tool: ../gone\n\
+             Removed inserted lines from .gitignore\nKept .gitignore\n"
+        )
+    );
+    assert_eq!(out.events(), LANDED);
+    assert_eq!(
+        local_tools(&fx),
+        [("other".to_owned(), "../other".to_owned())]
+    );
+    assert!(fx.lock().tool("tool").is_none());
+    assert!(!fx.vk().join("cache/tool").exists());
+    assert!(fx.progress_left().is_empty());
+}
+
+#[test]
+fn lifting_the_last_override_keeps_version_local_toml() {
+    let fx = Fx::new();
+    write_local(&fx, &[("tool", "../tool")]);
+    let out = run(&fx, &["remove", "tool"], true, "y\n");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(fx.dir.version_local_toml().is_file());
+    assert!(local_tools(&fx).is_empty());
+}
+
+#[test]
+fn an_override_of_another_tool_leaves_version_local_toml_untouched() {
+    let fx = Fx::new();
+    write_local(&fx, &[("other", "../other")]);
+    let before = fs::read(fx.dir.version_local_toml()).unwrap();
+    let out = run(&fx, &["remove", "tool"], true, "y\n");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(!out.stdout.contains("local override"), "{}", out.stdout);
+    assert_eq!(fs::read(fx.dir.version_local_toml()).unwrap(), before);
+}
+
+#[test]
+fn answering_no_keeps_the_override() {
+    let fx = Fx::new();
+    write_local(&fx, &[("tool", "../tool")]);
+    let before = fs::read(fx.dir.version_local_toml()).unwrap();
+    let out = run(&fx, &["remove", "tool"], true, "n\n");
+    assert_eq!(out.code, 0);
+    assert_eq!(out.stdout, "No changes were made.\n");
+    assert_eq!(fs::read(fx.dir.version_local_toml()).unwrap(), before);
+    assert!(out.events().is_empty());
+}
+
+#[test]
+fn recovery_after_the_override_was_lifted_removes_the_lock_line() {
+    // 半套一：上一次停在紀錄檔之後、版本鎖定行之前：覆寫已解除，鎖定行還在。
+    let fx = Fx::new();
+    write_local(&fx, &[]);
+    fs::remove_dir_all(fx.vk().join("cache/tool")).unwrap();
+    fx.residual(REMOVE_VERB, "r0", &["tool"], false);
+    fs::remove_file(fx.vk().join("baseline/tool.toml")).unwrap();
+
+    let out = run(&fx, &["remove", "tool"], false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stdout, format!("Removed tool v1.2.0 ({TOOL}).\n"));
+    assert!(fx.lock().tool("tool").is_none());
+    assert!(local_tools(&fx).is_empty());
+    assert!(fx.progress_left().is_empty());
+}
+
+#[test]
+fn recovery_after_the_lock_line_was_removed_lifts_the_override() {
+    // 半套二：鎖定行已拿掉、覆寫還在，殘留的 remove 記著對象。
+    let fx = Fx::new();
+    let mut lock = fx.lock();
+    lock.remove_tool("tool").unwrap();
+    lock.save_to(&fx.dir, WRITTEN_BY).unwrap();
+    fs::remove_file(fx.vk().join("baseline/tool.toml")).unwrap();
+    write_local(&fx, &[("tool", "../tool"), ("other", "../other")]);
+    fx.residual(REMOVE_VERB, "r0", &["tool"], false);
+
+    let out = run(&fx, &["remove", "tool"], false, "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "Completed the interrupted remove of tool.\n\
+         Removed the local override of tool (../tool).\n\
+         Kept the local development source of tool: ../tool\n"
+    );
+    assert_eq!(
+        local_tools(&fx),
+        [("other".to_owned(), "../other".to_owned())]
+    );
+    assert!(!fx.vk().join("cache/tool").exists());
+    // 版本鎖定行沒有要改的：不記鎖定行的事件。
+    assert_eq!(out.events(), ["writes_started", "progress_removed"]);
+    assert!(fx.progress_left().is_empty());
+}
+
+#[test]
+fn an_orphan_override_without_a_residual_is_vk0046() {
+    let fx = Fx::new();
+    let mut lock = fx.lock();
+    lock.remove_tool("tool").unwrap();
+    lock.save_to(&fx.dir, WRITTEN_BY).unwrap();
+    write_local(&fx, &[("tool", "../tool")]);
+    let before = fs::read(fx.dir.version_local_toml()).unwrap();
     let out = run(&fx, &["remove", "tool"], true, "y\n");
     assert_eq!(out.code, 2);
-    assert!(out.stderr.contains("local override"), "{}", out.stderr);
-    assert!(fx.lock().tool("tool").is_some());
+    assert!(out.stderr.contains("error[VK0046]"), "{}", out.stderr);
+    assert_eq!(fs::read(fx.dir.version_local_toml()).unwrap(), before);
+    assert!(out.events().is_empty());
 }
 
 #[test]

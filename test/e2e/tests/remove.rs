@@ -431,3 +431,53 @@ vendor_kit: error[VK0002]: Confirmation is required, but no terminal is availabl
     );
     assert_eq!(vk_tree(&m), before);
 }
+
+#[test]
+fn a_local_override_of_the_target_is_lifted_even_when_its_source_is_gone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let m = Mounts::create(tmp.path());
+    installed_with_insert(&m, GITIGNORE);
+    let vk = m.root.join(".vendor_kit");
+    // 對象的本機開發來源不存在（覆寫來源失效）；remove 照樣完成，只解除覆寫紀錄。
+    fs::write(
+        vk.join("version.local.toml"),
+        "schema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"../gone/tool\"\n",
+    )
+    .unwrap();
+    let peer = idle_launcher(&m);
+
+    let (code, stdout, stderr) = run(&m, "111", "y\n", &["remove", "tool"]);
+    let seen = peer.join().unwrap();
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    assert_data_eq!(
+        stdout,
+        snapbox::str![[r#"
+Removed tool v1.2.0 (ghcr.io/acme/tool:v1.2.0@sha256:2222222222222222222222222222222222222222222222222222222222222222).
+Removed the local override of tool (../gone/tool).
+Kept the local development source of tool: ../gone/tool
+Removed inserted lines from .gitignore
+Kept .gitignore
+
+"#]]
+    );
+    assert!(seen.requests.is_empty());
+    assert_eq!(seen.done.as_deref(), Some("vk-resolve/1 r1 done 0\n"));
+    let local = fs::read_to_string(vk.join("version.local.toml")).unwrap();
+    assert!(!local.contains("tool ="), "{local}");
+    assert!(local.starts_with("schema = 1\n"), "{local}");
+    let lock = fs::read_to_string(vk.join("version.toml")).unwrap();
+    assert!(!lock.contains("tool ="), "{lock}");
+    assert_eq!(
+        vk_tree(&m),
+        [
+            "baseline",
+            "cache",
+            "gen",
+            "gen/tools.just",
+            "version.local.toml",
+            "version.toml"
+        ]
+    );
+    assert_eq!(events(&m), REMOVED_EVENTS);
+}
