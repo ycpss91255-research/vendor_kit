@@ -731,17 +731,184 @@ fn namespace_collision_is_a_gap() {
     assert_eq!(fx.snapshot(), before);
 }
 
-#[test]
-fn local_override_is_a_gap() {
-    let fx = Fx::new();
+// ---- 本機覆寫 ----
+
+/// `version.local.toml` 的工具覆寫（`<repo>` → 本機開發來源）。
+fn overrides(fx: &Fx, tools: &[(&str, &str)]) {
+    let lines: Vec<String> = tools
+        .iter()
+        .map(|(r, d)| format!("{r} = \"{d}\"\n"))
+        .collect();
     fs::write(
         fx.dir.version_local_toml(),
-        "schema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\ntool = \"../tool\"\n",
+        format!(
+            "schema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\n{}",
+            lines.concat()
+        ),
     )
     .unwrap();
+}
+
+/// 安裝目錄裡的本機開發來源 `dir`，交付 `just/<ns>.just`。
+fn local_source(fx: &Fx, dir: &str, namespaces: &[&str]) {
+    let just = fx.root().join(dir).join("just");
+    fs::create_dir_all(&just).unwrap();
+    for ns in namespaces {
+        fs::write(just.join(format!("{ns}.just")), "local:\n").unwrap();
+    }
+}
+
+#[test]
+fn local_override_of_the_target_upgrades_and_keeps_the_entry_on_the_local_source() {
+    let fx = Fx::new();
+    local_source(&fx, "work/tool", &["tool", "extra"]);
+    overrides(&fx, &[("tool", "./work/tool")]);
+    let local_toml = fs::read(fx.dir.version_local_toml()).unwrap();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    assert_eq!(
+        peer.finish(),
+        [
+            format!("inspect {NEW_REF}"),
+            format!("extract {IMAGE_ID} tool1")
+        ]
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "tool uses the local source work/tool (local override).\n{}",
+            upgraded_line()
+        )
+    );
+    assert_eq!(out.stderr, "");
+    // 版本鎖定行、`cache/`、印記照常換；入口檔用本機開發來源的 `<ns>`，指向本機目錄。
+    assert!(
+        fx.lock_text()
+            .ends_with(&format!("tool = \"{}\"\n", new_locked()))
+    );
+    assert_eq!(
+        fs::read_to_string(fx.dir.cache_dir().join("tool/just/tool.just")).unwrap(),
+        "new:\n"
+    );
+    let stamp = stamp::Stamp::load(&stamp::tool_file(&fx.dir, "tool"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stamp.version(), new_locked());
+    assert_eq!(
+        fs::read_to_string(fx.dir.gen_dir().join("tools.just")).unwrap(),
+        "mod? extra '../../work/tool/just/extra.just'\nmod? tool '../../work/tool/just/tool.just'\n"
+    );
+    assert_eq!(fs::read(fx.dir.version_local_toml()).unwrap(), local_toml);
+    assert!(progress::find(&fx.dir).unwrap().is_empty());
+
+    // 已是該版：照樣報告覆寫。
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        "tool uses the local source work/tool (local override).\ntool is already at v1.2.0; no changes were made.\n"
+    );
+}
+
+#[test]
+fn local_override_of_another_tool_keeps_its_entry_lines_and_namespaces() {
+    let fx = Fx::new();
+    fs::write(
+        fx.dir.version_toml(),
+        format!(
+            "vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\nother = \"ghcr.io/acme/other:v1.0.0@{DIGEST}\"\ntool = \"{OLD}\"\n"
+        ),
+    )
+    .unwrap();
+    let cache = fx.dir.cache_dir().join("other/just");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("other.just"), "x:\n").unwrap();
+    // 本機開發來源多交付 `shared`：撞名判定以生效的本機開發來源為準。
+    local_source(&fx, "dev/other", &["other", "shared"]);
+    overrides(&fx, &[("other", "dev/other")]);
+    let before = fx.snapshot();
+    let peer = Peer::start(
+        &fx,
+        Script {
+            namespaces: &["tool", "shared"],
+            ..NEW
+        },
+    );
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    peer.finish();
+    assert_gap(&out, "colliding namespaces: shared (used by other)");
+    assert_eq!(fx.snapshot(), before);
+
+    // 每次執行的收件目錄是新的。
+    fs::remove_dir_all(&fx.inbox).unwrap();
+    fs::create_dir_all(&fx.inbox).unwrap();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    peer.finish();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "other uses the local source dev/other (local override).\n{}",
+            upgraded_line()
+        )
+    );
+    assert_eq!(
+        fs::read_to_string(fx.dir.gen_dir().join("tools.just")).unwrap(),
+        "mod? other '../../dev/other/just/other.just'\nmod? shared '../../dev/other/just/shared.just'\nmod? tool '../cache/tool/just/tool.just'\n"
+    );
+}
+
+#[test]
+fn unreadable_local_source_is_vk0052_before_any_docker_action() {
+    let fx = Fx::new();
+    overrides(&fx, &[("tool", "work/missing")]);
+    let before = fx.snapshot();
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    assert!(peer.finish().is_empty());
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0052]: Cannot read the local override source work/missing for tool: the directory does not exist. Run: just vendor_kit undev tool\n"
+    );
+    assert_eq!(fx.snapshot(), before);
+}
+
+#[test]
+fn recovering_a_residual_upgrade_keeps_the_override_in_the_entry() {
+    let fx = Fx::new();
+    local_source(&fx, "work/tool", &["tool"]);
+    overrides(&fx, &[("tool", "work/tool")]);
+    residual(&fx, "tool", &new_locked(), false);
+    let peer = Peer::start(&fx, NEW);
+    let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
+    peer.finish();
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Completed the interrupted upgrade of tool to v1.2.0 ({}).\ntool uses the local source work/tool (local override).\ntool is already at v1.2.0; no changes were made.\n",
+            new_locked()
+        )
+    );
+    assert_eq!(
+        fs::read_to_string(fx.dir.gen_dir().join("tools.just")).unwrap(),
+        "mod? tool '../../work/tool/just/tool.just'\n"
+    );
+    assert!(progress::find(&fx.dir).unwrap().is_empty());
+}
+
+#[test]
+fn override_of_a_tool_without_a_lock_line_is_a_gap() {
+    let fx = Fx::new();
+    local_source(&fx, "work/ghost", &["ghost"]);
+    overrides(&fx, &[("ghost", "work/ghost")]);
     let before = fx.snapshot();
     let out = run_upgrade(&fx, &UPGRADE, Vec::new(), tty(false), "");
-    assert_gap(&out, "upgrade while tool has a local override");
+    assert_gap(&out, "(no reason code)");
     assert_eq!(fx.snapshot(), before);
 }
 
@@ -868,6 +1035,7 @@ fn progress_records_the_upgrade_table_while_landing() {
         init: &|_: &Path| Ok(Vec::new()),
         code: 0,
         extracts: 0,
+        local: BTreeMap::new(),
     };
     let locked = ImageRef::parse(&new_locked()).unwrap();
     let Ok(mut p) = up.progress(&["upgrade", "tool@v1.2.0"], "tool", &locked, true) else {
