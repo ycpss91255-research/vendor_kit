@@ -56,10 +56,11 @@ python3 script/git/commit_push.py --repo <worktree> --branch <分支> --message-
 
 [rebase_push.py](rebase_push.py) 把自己的分支 rebase 到 `origin/main`，再用 `--force-with-lease` 推回自己的分支，取代 pr、pr-fix workflow 裡 PR 跟 main 衝突時照文字做的「`git fetch` → `git rebase origin/main` → `git push --force-with-lease`」。解衝突要判斷，留給子代理；腳本只停在衝突、列出檔：
 
-1. 開始：檢查 `--branch` 不是 main、`--repo` 是 worktree 根目錄、目前分支等於 `--branch`、沒有進行中的 rebase、worktree 乾淨。接著 `git fetch origin`，記下 `origin/<分支>` 的 sha 當 lease（遠端還沒有這個分支就要求推的時候仍然沒有），寫進 git dir 的 `rebase_push.lease`。
-2. 已經包含 `--onto`（merge-base 等於 `--onto`）就回 `up_to_date`，不 rebase、不 push；否則 `git rebase <onto>`。
+0. 同一個 worktree 的 rebase_push.py 依序執行：開始、`--continue`、`--abort` 都先拿 git dir 的 `rebase_push.lock` 排他鎖，拿不到就等。不加鎖時兩次同時開始會互相干擾：後一次在前一次 rebase 到一半時比對，誤報 `up_to_date`，還刪掉前一次的 `rebase_push.lease`（#626 收尾時發生過）。
+1. 開始：檢查 `--branch` 不是 main、`--repo` 是 worktree 根目錄。已經有同一個分支的 rebase 停在衝突、`rebase_push.lease` 也在，就直接回 `conflict` 與衝突檔（結束碼 3），不重來、不動 lease；其他進行中的 rebase 都是失敗。接著檢查目前分支等於 `--branch`、worktree 乾淨，`git fetch origin`，記下 `origin/<分支>` 的 sha 當 lease（遠端還沒有這個分支就要求推的時候仍然沒有），寫進 git dir 的 `rebase_push.lease`。
+2. 已經包含 `--onto`（merge-base 等於 `--onto`），而且再確認一次分支與 HEAD 沒變、沒有進行中的 rebase，才回 `up_to_date`，不 rebase、不 push、不動 lease；否則 `git rebase <onto>`。
 3. 衝突時不 abort：回 `conflict`，`conflicts` 列出未合併的檔，結束碼 3。子代理解完、`git add` 後，同一行指令加 `--continue` 接著做；還有衝突就再回 3。要放棄用 `--abort`。
-4. push 經 `script/workflow/hook_rules.py` 的 `guarded_run`，lease 一律用開始時記下的 sha，所以衝突停下期間別人推了同一個分支，push 會失敗、不會蓋掉。push 之後刪掉 `rebase_push.lease`；`--no-push` 時只 rebase。push 用 cwd 而不用 `git -C`，因為 `guard.py` 只認得字面的 `git push`。
+4. push 經 `script/workflow/hook_rules.py` 的 `guarded_run`，lease 一律用開始時記下的 sha，所以衝突停下期間別人推了同一個分支，push 會失敗、不會蓋掉。push 之後刪掉 `rebase_push.lease`；`--no-push` 時只 rebase。lease 只在 rebase 結束後刪（push 後、`--no-push` 的 rebased、`--abort`、rebase 不是因為衝突而失敗），停在衝突的期間一律留著。push 用 cwd 而不用 `git -C`，因為 `guard.py` 只認得字面的 `git push`。
 
 跑法：
 

@@ -3,6 +3,7 @@ push 經 repo 真的 Bash hook。
 
 跑法：python3 -m unittest discover -s script/git/test
 """
+import fcntl
 import json
 import os
 import subprocess
@@ -202,6 +203,110 @@ class Conflict(Base):
         self.assertFalse(out["pushed"])
         self.assertIn("push", out["error"])
         self.assertEqual(self.remote_sha(), theirs)
+
+
+class Concurrent(Base):
+    """同一個 worktree 同時跑兩次（#626 收尾時發生）：後一次不准誤報 up_to_date、不准刪掉前一次的 lease。"""
+
+    def during_fetch(self, action):
+        """讓 rp.git 的 fetch 做完後執行 action，模擬這段時間另一個行程動了 worktree。"""
+        real = rp.git
+
+        def fake(repo, *args):
+            out = real(repo, *args)
+            if args[:1] == ("fetch",):
+                action()
+            return out
+        return mock.patch.object(rp, "git", side_effect=fake)
+
+    def other_run_stops_in_conflict(self):
+        """另一次 rebase_push.py：寫下 lease、rebase 停在衝突（直接用 git，不經 rp，避免搶同一把鎖）。"""
+        self.lease_file().write_text(json.dumps(
+            {"branch": BRANCH, "lease": self.remote_sha(), "before": self.head()}) + "\n", encoding="utf-8")
+        r = subprocess.run(["git", "rebase", "origin/main"], cwd=self.repo, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+
+    def test_rebase_started_mid_run_reports_conflict(self):
+        start = self.head()
+        self.advance_main(name="b.txt", text="main 的 b\n")
+        with self.during_fetch(self.other_run_stops_in_conflict):
+            code, out = self.run_rp()
+        self.assertEqual(code, 3, out)
+        self.assertEqual(out["state"], "conflict")
+        self.assertEqual(out["conflicts"], ["b.txt"])
+        self.assertEqual(out["before"], start)
+        self.assertTrue(self.lease_file().is_file())
+        (self.repo / "b.txt").write_text("合併後的 b\n", encoding="utf-8")
+        self.git(self.repo, "add", "b.txt")
+        code, out = self.run_rp("--continue")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out["pushed"])
+        self.assertEqual(self.remote_sha(), self.head())
+
+    def test_head_moved_mid_run_fails(self):
+        self.advance_main()
+        self.git(self.repo, "fetch", "-q", "origin")
+        detach = lambda: self.git(self.repo, "switch", "-q", "--detach", "origin/main")  # noqa: E731
+        with self.during_fetch(detach):
+            code, out = self.run_rp()
+        self.assertEqual(code, 1, out)
+        self.assertNotEqual(out["state"], "up_to_date")
+        self.assertIn("HEAD 變了", out["error"])
+
+    def test_second_start_reports_conflict(self):
+        """停在衝突時再跑一次不帶 --continue 的：回 conflict 與衝突檔，lease 留著。"""
+        self.advance_main(name="b.txt", text="main 的 b\n")
+        code, first = self.run_rp()
+        self.assertEqual(code, 3, first)
+        code, out = self.run_rp()
+        self.assertEqual(code, 3, out)
+        self.assertEqual(out["state"], "conflict")
+        self.assertEqual(out["conflicts"], ["b.txt"])
+        self.assertEqual(out["before"], first["before"])
+        self.assertTrue(self.lease_file().is_file())
+
+    def test_second_start_without_lease_fails(self):
+        self.advance_main(name="b.txt", text="main 的 b\n")
+        self.run_rp()
+        self.lease_file().unlink()
+        code, out = self.run_rp()
+        self.assertEqual(code, 1, out)
+        self.assertIn(rp.LEASE_FILE, out["error"])
+
+    def test_second_start_after_resolving_fails(self):
+        self.advance_main(name="b.txt", text="main 的 b\n")
+        self.run_rp()
+        (self.repo / "b.txt").write_text("合併後的 b\n", encoding="utf-8")
+        self.git(self.repo, "add", "b.txt")
+        code, out = self.run_rp()
+        self.assertEqual(code, 1, out)
+        self.assertIn("--continue", out["error"])
+        self.assertTrue(self.lease_file().is_file())
+
+    def test_up_to_date_keeps_existing_lease(self):
+        self.lease_file().write_text("{}\n", encoding="utf-8")
+        code, out = self.run_rp()
+        self.assertEqual(out["state"], "up_to_date", out)
+        self.assertTrue(self.lease_file().is_file())
+
+    def test_lock_held_while_running(self):
+        held = []
+
+        def probe():
+            with open(self.repo / ".git" / rp.LOCK_FILE, "w") as f:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    held.append(True)
+                else:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+                    held.append(False)
+        with self.during_fetch(probe):
+            code, out = self.run_rp()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(held, [True])
+        with open(self.repo / ".git" / rp.LOCK_FILE, "w") as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)   # 結束後放開了
 
 
 class Refused(Base):
