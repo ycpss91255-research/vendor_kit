@@ -48,7 +48,7 @@ fn checkout(m: &Mounts) {
     fs::write(
         vk.join("version.toml"),
         format!(
-            "vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\n\
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\n\
              other = \"ghcr.io/acme/other:v2.0.0@{OTHER_DIGEST}\"\n\
              tool = \"ghcr.io/acme/tool:v1.2.0@{TOOL_DIGEST}\"\n"
         ),

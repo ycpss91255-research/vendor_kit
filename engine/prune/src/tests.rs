@@ -41,7 +41,7 @@ impl Fx {
         fs::write(
             dir.version_toml(),
             format!(
-                "vendor_kit = \"{ENGINE}\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\n{TOOL}"
+                "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"v0.0.0\"\n\n[tools]\n{TOOL}"
             ),
         )
         .unwrap();

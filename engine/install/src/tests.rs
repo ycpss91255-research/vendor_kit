@@ -275,6 +275,13 @@ fn fresh_install_writes_the_skeleton_without_asking() {
     );
     let lock = LockFile::load_from(&fx.dir).unwrap().unwrap();
     assert_eq!(lock.engine().to_string(), ENGINE);
+    assert_eq!(lock.protocols(), &[1]);
+    assert!(
+        fx.read(".vendor_kit/version.toml").starts_with(&format!(
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\n"
+        )),
+        "version.toml"
+    );
     assert_eq!(fx.read(".vendor_kit/gen/.stamp"), format!("{ENGINE}\n"));
     assert!(lock.tools().is_empty());
     for (i, name) in layout::SHELL_FILES.iter().enumerate() {
