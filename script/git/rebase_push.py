@@ -10,12 +10,19 @@ argv 交給 .claude/settings.json 註冊的 Bash hook（guard.py 不准推 main�
   python3 script/git/rebase_push.py --repo <worktree> --branch <分支> [--onto origin/main]
                                     [--continue | --abort] [--no-push]
 
+同一個 worktree 的 rebase_push.py 依序執行：開始、--continue、--abort 都先拿 git dir 的 rebase_push.lock
+排他鎖（fcntl.flock，拿不到就等），結束才放開。不加鎖時，兩次同時開始會互相干擾：後一次在前一次 rebase
+到一半（HEAD 已 detached 在 --onto）時比對 merge-base，誤報 up_to_date，還刪掉前一次的 rebase_push.lease。
+
 開始（沒給 --continue／--abort）：
-  1. --branch 不是 main；--repo 是 git worktree 的根目錄；目前分支等於 --branch；沒有進行中的 rebase；
+  1. --branch 不是 main；--repo 是 git worktree 的根目錄。已經有同一個分支的 rebase 停在衝突、
+     rebase_push.lease 也在：不重來，直接回 state conflict 與 conflicts（結束碼 3），不動 lease；
+     其他進行中的 rebase（衝突已解完、別的分支、沒有 lease）都是失敗。接著檢查目前分支等於 --branch、
      git status --porcelain 是空的。
   2. git fetch origin；記下 origin/<分支> 的 sha 當 lease（遠端還沒有這個分支就記成空，push 時要求遠端
      仍然沒有）；lease 與開始時的 HEAD 寫進 git dir 的 rebase_push.lease。
-  3. HEAD 已經包含 --onto（merge-base 等於 --onto）：state up_to_date，不 rebase、不 push。
+  3. HEAD 已經包含 --onto（merge-base 等於 --onto）：先再確認一次目前分支仍是 --branch、HEAD 仍是開始時的
+     sha、沒有進行中的 rebase（有就照第 1 步處理），才回 state up_to_date，不 rebase、不 push、不動 lease。
   4. 否則 git rebase <onto>。衝突時不 abort：state conflict，conflicts 列出未合併的檔
      （git diff --name-only --diff-filter=U），結束碼 3。
   5. rebase 完成：state rebased，接著 push（--no-push 時跳過）。
@@ -25,6 +32,8 @@ argv 交給 .claude/settings.json 註冊的 Bash hook（guard.py 不准推 main�
 --abort：git rebase --abort，刪掉 rebase_push.lease，state aborted。
 push：guarded_run(["git", "push", "--force-with-lease=<分支>:<lease>", "origin", <分支>], cwd=<repo>)，
   lease 一律用開始時記下的 sha（--continue 時從 rebase_push.lease 讀）；push 之後刪掉 rebase_push.lease。
+rebase_push.lease 只在 rebase 結束後刪：push 之後、--no-push 的 rebased、--abort、rebase 不是因為衝突而失敗；
+  rebase 停在衝突的期間一律留著，--continue 才讀得到。
   不用 git -C <repo>：guard.py 只認得字面的 `git push`，中間夾 -C 就看不出是 push、擋不到推 main。
 
 輸出一行 JSON（ensure_ascii=False）：
@@ -36,10 +45,12 @@ push：guarded_run(["git", "push", "--force-with-lease=<分支>:<lease>", "origi
 結束碼：成功 0；檢查、hook 或 git 失敗 1；用法錯 2；衝突 3。
 """
 import argparse
+import fcntl
 import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -47,6 +58,7 @@ sys.path.insert(0, str(HERE.parent / "workflow"))
 import hook_rules  # noqa: E402
 
 LEASE_FILE = "rebase_push.lease"
+LOCK_FILE = "rebase_push.lock"
 
 
 class Fail(Exception):
@@ -149,6 +161,33 @@ def drop_lease(repo: Path) -> None:
         pass
 
 
+@contextmanager
+def worktree_lock(repo: Path):
+    """同一個 worktree 的排他鎖：同時跑的幾次 rebase_push.py 依序執行。"""
+    with open(git_path(repo, LOCK_FILE), "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def in_progress(repo: Path, rdir: Path, branch: str, out: dict) -> str:
+    """開始時已經有進行中的 rebase：同一個分支停在衝突、lease 也在就回 conflict，其他情況失敗。"""
+    check_rebasing_branch(rdir, branch)
+    try:
+        data = read_lease(repo, branch)
+    except Fail as e:
+        raise Fail(f"已經有進行中的 rebase，但{e.error}；要放棄用 --abort")
+    out["before"] = data.get("before")
+    out["after"] = head(repo)
+    files = conflicts(repo)
+    if not files:
+        raise Fail("已經有進行中的 rebase，衝突都解完了：用 --continue 接著做，要放棄用 --abort")
+    out["conflicts"] = files
+    return "conflict"
+
+
 def push(repo: Path, branch: str, lease: str, settings=None, project_dir=None) -> None:
     # 不用 git -C：guard.py 的 check_git 只認得字面的 `git push`，-C 夾在中間就看不出是 push，
     # 所以改成 cwd＝repo，讓 hook 看到的就是 `git push …`。
@@ -169,10 +208,11 @@ def push(repo: Path, branch: str, lease: str, settings=None, project_dir=None) -
 
 def start(repo: Path, args, out: dict) -> str:
     """回傳 state：up_to_date、rebased 或 conflict。"""
+    rdir = rebase_dir(repo)
+    if rdir:
+        return in_progress(repo, rdir, args.branch, out)
     r = run_git(repo, "symbolic-ref", "--short", "-q", "HEAD")
     current = r.stdout.strip() if r.returncode == 0 else ""
-    if rebase_dir(repo):
-        raise Fail("已經有進行中的 rebase：解完衝突用 --continue，要放棄用 --abort")
     if current != args.branch:
         raise Fail(f"目前分支是 {current or '（detached HEAD）'}，不是 --branch 給的 {args.branch}")
     if git(repo, "status", "--porcelain").strip():
@@ -185,6 +225,16 @@ def start(repo: Path, args, out: dict) -> str:
     if onto.returncode != 0:
         raise Fail(f"找不到 --onto：{args.onto}")
     if git(repo, "merge-base", "HEAD", onto.stdout.strip()).strip() == onto.stdout.strip():
+        # 比對的那一刻 HEAD 可能已經被別的 rebase 移走（例如 detached 在 onto 上），
+        # 那時 merge-base 也會等於 onto；確認分支與 HEAD 都沒變才算 up_to_date。
+        rdir = rebase_dir(repo)
+        if rdir:
+            return in_progress(repo, rdir, args.branch, out)
+        r = run_git(repo, "symbolic-ref", "--short", "-q", "HEAD")
+        now = r.stdout.strip() if r.returncode == 0 else ""
+        if now != args.branch or head(repo) != out["before"]:
+            raise Fail(f"比對途中 HEAD 變了（分支 {now or '（detached HEAD）'}、HEAD {head(repo)}），"
+                       "不確定是否已包含 --onto；確認沒有別的 git 指令在動這個 worktree 後重跑")
         return "up_to_date"
     write_lease(repo, {"branch": args.branch, "lease": lease, "before": out["before"]})
     r = run_git(repo, "rebase", args.onto)
@@ -249,23 +299,24 @@ def run(argv=None, *, settings=None, project_dir=None) -> tuple[int, dict]:
     out["branch"] = args.branch
     try:
         check_repo(repo, args.branch)
-        if args.abort:
-            out["state"] = abort(repo, args, out)
-        else:
-            state = resume(repo, args, out) if args.cont else start(repo, args, out)
-            if state == "conflict":
-                out["state"] = state
-                return 3, out
-            out["state"] = state
-            if state == "rebased" and not args.no_push:
-                lease = read_lease(repo, args.branch)["lease"]
-                try:
-                    push(repo, args.branch, lease, settings=settings, project_dir=project_dir)
-                finally:
-                    drop_lease(repo)
-                out["pushed"] = True
+        with worktree_lock(repo):
+            if args.abort:
+                out["state"] = abort(repo, args, out)
             else:
-                drop_lease(repo)
+                state = resume(repo, args, out) if args.cont else start(repo, args, out)
+                out["state"] = state
+                if state == "conflict":
+                    return 3, out
+                # up_to_date 沒有寫 lease，不刪：留著的 lease 可能屬於停在衝突的那次 rebase。
+                if state == "rebased" and not args.no_push:
+                    lease = read_lease(repo, args.branch)["lease"]
+                    try:
+                        push(repo, args.branch, lease, settings=settings, project_dir=project_dir)
+                    finally:
+                        drop_lease(repo)
+                    out["pushed"] = True
+                elif state == "rebased":
+                    drop_lease(repo)
     except Fail as e:
         out["error"] = e.error
         out["denied"] = e.extra.get("denied", [])
