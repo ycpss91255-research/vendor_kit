@@ -113,6 +113,25 @@ pub enum Invocation {
     Help { name: Name, engine: bool },
 }
 
+impl Invocation {
+    /// 是不是救援路徑的呼叫（crate 文件「救援路徑」）：`install`、`upgrade --engine`、`sync`，
+    /// 以及 `install -h`、`upgrade --engine -h`、`sync -h`。不帶指令的用法呼叫是 [`UsageError::NoCommand`]，
+    /// 不在這裡判。
+    pub fn is_rescue(&self) -> bool {
+        match self {
+            Invocation::Run(c) => matches!(
+                c,
+                Command::Install { .. } | Command::UpgradeEngine { .. } | Command::Sync
+            ),
+            Invocation::Help { name, engine } => match name {
+                Name::Install | Name::Sync => !engine,
+                Name::Upgrade => *engine,
+                _ => false,
+            },
+        }
+    }
+}
+
 /// 各指令的參數值（04 指令表）。路徑與 image 保留原本的 [`OsString`]。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -931,6 +950,7 @@ mod tests {
         bad(&["upgrade", "lint", "-y", "--yes"], "--yes");
         bad(&["upgrade", "lint", "-i", "x"], "-i");
         bad(&["upgrade", "lint", "-p", "d"], "-p");
+        // 解析結果與介面版無關；介面版不合時引擎先報版本（回 3），見 engine/vendor_kit 的 cli 測試。
         bad(&["upgrade", "--engine", "--bogus"], "--bogus");
         bad(&["upgrade", "lint", "-yi"], "-yi");
         bad(&["upgrade", "lint", "--registry-token-file", "-"], "-");
@@ -1326,6 +1346,34 @@ mod tests {
             assert_eq!(help_of(&["install", h]), (Name::Install, false));
             assert_eq!(help_of(&["upgrade", "--engine", h]), (Name::Upgrade, true));
             assert_eq!(help_of(&["sync", h]), (Name::Sync, false));
+        }
+    }
+
+    #[test]
+    fn rescue_calls_are_recognized() {
+        for a in [
+            &["install"][..],
+            &["install", "-y"],
+            &["upgrade", "--engine"],
+            &["upgrade", "--engine=v2.0.0", "-y"],
+            &["sync"],
+            &["install", "-h"],
+            &["upgrade", "--engine", "--help"],
+            &["sync", "-h"],
+        ] {
+            assert!(parse(a).unwrap().is_rescue(), "{a:?}");
+        }
+        for a in [
+            &["add", "lint"][..],
+            &["upgrade", "lint"],
+            &["upgrade", "-h"],
+            &["update"],
+            &["add", "-h"],
+            &["dev", "--engine", "-h"],
+            &["undev", "--engine"],
+            &["prune"],
+        ] {
+            assert!(!parse(a).unwrap().is_rescue(), "{a:?}");
         }
     }
 

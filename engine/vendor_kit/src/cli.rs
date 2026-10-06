@@ -3,11 +3,19 @@
 //! 兩種呼叫：
 //!
 //! - 經啟動器（第一個參數是 `--protocol`）：照 `plan` 的入口 argv 取上下文，接上執行紀錄與往返通道，
-//!   判用法與安裝目錄，再分派到指令；結束前寫 `engine_finished` 與 `done`。
+//!   判介面版、用法與安裝目錄，再分派到指令；結束前寫 `engine_finished` 與 `done`。
 //! - 直接呼叫（其他）：沒有執行紀錄與往返，只處理不帶指令的用法；其餘以 VK0026 回報，待決議（#457）。
 //!
-//! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`dev`、`undev` 與 `prune`（`upgrade --engine` 還沒有）。04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；其他還沒實作的指令
-//! 暫以 VK0026（不認得的參數）回報並附用法，`-h`／`--help` 的用法文字還沒定，以 VK0056 停下。
+//! 介面版（ADR-0008:26、#372 N61、N19）：救援路徑的入口 argv、`hdr`、`done` 與救援 op 跨介面版不變，
+//! 所以呼叫方的 P 不論在不在 [`compat::Compat`] 的區間內，引擎都以那個 P 回應、照常寫 `done`。
+//! 參數解析完先判介面版（[`gate`]）：P 在區間內照常往下；不在區間內時，救援呼叫（`args::Invocation::is_rescue`
+//! 與不帶指令的用法）照常執行、往返只准救援 op，其餘一律先報版本、不報用法錯誤，所以救援候選解析失敗
+//! （例如 `upgrade --engine --bogus`）也先報版本。P 低於 floor 是 VK0009（fatal 3）；P 高於上限還沒有專屬
+//! 代碼（計畫缺口 G6），跟啟動器一樣暫以 VK0056 停下。兩者都停在任何寫入之前（執行紀錄除外）。
+//!
+//! 目前只實作 `add`、`sync`、`install`、`remove`、`uninstall`、`update`、`upgrade <repo>`、`dev`、`undev` 與 `prune`。
+//! 04 說明與用法錯誤：不認得的名稱由 just 擋下、到不了引擎；還沒實作的 `upgrade --engine`、`test`、`test dist`
+//! 以 VK0056 停下（#372 N62），`-h`／`--help` 的用法文字還沒定，也以 VK0056 停下。
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -74,8 +82,24 @@ where
     O: Write + Clone,
     E: Write + Clone,
 {
+    run_with(&compat::THIS, args, mounts, stdin, stdout, stderr)
+}
+
+/// [`run`]，介面版區間由 `compat` 給（測試注入用；正式執行是 [`compat::THIS`]）。
+fn run_with<O, E>(
+    compat: &compat::Compat,
+    args: &[OsString],
+    mounts: &Mounts,
+    stdin: &mut dyn BufRead,
+    stdout: O,
+    stderr: E,
+) -> u8
+where
+    O: Write + Clone,
+    E: Write + Clone,
+{
     if args.first().map(OsString::as_os_str) == Some(plan::argv::PROTOCOL.as_ref()) {
-        return launched(args, mounts, stdin, stdout, stderr);
+        return launched(compat, args, mounts, stdin, stdout, stderr);
     }
     let mut out = Output::new(stdout, stderr.clone());
     let mut diags = Diagnostics::new(stderr);
@@ -101,8 +125,39 @@ fn no_command<O: Write, E: Write, W: Write, S: Sink>(
     let _ = out.flush();
 }
 
+/// 介面版判定：P 在區間內回 `Ok(false)`；不在區間內而且是救援呼叫回 `Ok(true)`（照常回應那個 P，
+/// 往返只准救援 op）；其餘回 `Err`。解析失敗的呼叫（不帶指令的用法除外）都不算救援呼叫，所以先報版本。
+fn gate(
+    compat: &compat::Compat,
+    protocol: u32,
+    parsed: &Result<args::Invocation, args::UsageError>,
+) -> Result<bool, compat::ProtocolError> {
+    match compat.accept_protocol(protocol) {
+        Ok(_) => Ok(false),
+        Err(e) => match parsed {
+            Ok(inv) if inv.is_rescue() => Ok(true),
+            Err(args::UsageError::NoCommand) => Ok(true),
+            _ => Err(e),
+        },
+    }
+}
+
+/// 介面版不合的診斷：P 低於 floor 是 VK0009；高於上限還沒有專屬代碼（G6），暫以 VK0056。
+fn protocol_mismatch(e: &compat::ProtocolError, host_log: &str) -> Diagnostic {
+    if e.given < e.floor {
+        Diagnostic::new(&messages::VK0009)
+            .arg("P_shell", e.given.to_string())
+            .arg("vY", VERSION)
+    } else {
+        Diagnostic::new(&messages::VK0056)
+            .arg("reason", format!("{e}; reason code pending (G6)"))
+            .arg("path", host_log)
+    }
+}
+
 /// 經啟動器的呼叫。
 fn launched<O, E>(
+    compat: &compat::Compat,
     args: &[OsString],
     mounts: &Mounts,
     stdin: &mut dyn BufRead,
@@ -127,11 +182,8 @@ where
         Err(e) => return internal(stderr, e.to_string(), "none"),
     };
     let host_log = inv.host_root.join(&inv.run_log).display().to_string();
-    let protocol = compat::THIS.accept_protocol(inv.protocol);
-    let header = protocol
-        .ok()
-        .and_then(|p| plan::Header::new(p, inv.run_id.clone()));
-    let Some(header) = header else {
+    // 介面版不在區間內也以呼叫方的 P 回應：hdr 與 done 屬救援路徑，跨介面版不變（[`gate`] 判要不要往下）。
+    let Some(header) = plan::Header::new(inv.protocol, inv.run_id.clone()) else {
         let reason = format!("engine does not accept protocol {}", inv.protocol);
         return internal(stderr, reason, &host_log);
     };
@@ -139,6 +191,7 @@ where
 
     let code = match runlog::open_append(&mounts.root.join(&inv.run_log)) {
         Ok(file) => with_log(
+            compat,
             &inv,
             mounts,
             &file,
@@ -167,6 +220,7 @@ where
 /// 執行紀錄接好之後的部分。
 #[allow(clippy::too_many_arguments)]
 fn with_log<O, E>(
+    compat: &compat::Compat,
     inv: &plan::Invocation,
     mounts: &Mounts,
     file: &File,
@@ -197,7 +251,18 @@ where
         return bare.exit_code();
     }
 
-    let code = match args::parse(&inv.rest) {
+    let parsed = args::parse(&inv.rest);
+    let rescue_only = match gate(compat, inv.protocol, &parsed) {
+        Ok(rescue_only) => rescue_only,
+        Err(e) => {
+            let _ = diags.emit(&protocol_mismatch(&e, host_log));
+            return finish_log(&mut out, &mut log, host_log, stderr, diags.exit_code());
+        }
+    };
+    if rescue_only {
+        channel.restrict_to_rescue();
+    }
+    let code = match parsed {
         Err(args::UsageError::NoCommand) => {
             no_command(&mut out, &mut diags);
             2
@@ -237,8 +302,23 @@ where
             }
         }
     };
-    let _ = out.flush();
     let code = code.max(diags.exit_code());
+    finish_log(&mut out, &mut log, host_log, stderr, code)
+}
+
+/// flush 輸出、寫 `engine_finished`，回傳整次的結束碼。
+fn finish_log<O, E>(
+    out: &mut Output<O, E>,
+    log: &mut runlog::Writer<&File>,
+    host_log: &str,
+    stderr: E,
+    code: u8,
+) -> u8
+where
+    O: Write,
+    E: Write,
+{
+    let _ = out.flush();
     if let Err(e) = log.write(&runlog::Event::EngineFinished { exit_code: code }) {
         // 紀錄寫不進去：診斷照印（不再寫紀錄），整次以錯誤結束。
         let mut bare = Diagnostics::new(stderr);
@@ -463,19 +543,23 @@ where
         args::Command::Uninstall => run_remove(
             None, inv, mounts, host_log, stdin, stdout, stderr, diags, log,
         ),
-        _ => {
-            let name = inv
-                .rest
-                .first()
-                .map(|a| a.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let d = Diagnostic::new(&messages::VK0026).arg("value", name);
-            let _ = diags.emit(&d);
-            let mut out = Output::new(stdout, stderr.clone());
-            let _ = out.stderr_line(SHORT_USAGE);
-            2
-        }
+        args::Command::UpgradeEngine { .. } => not_implemented("upgrade --engine", host_log, diags),
+        args::Command::Test { .. } => not_implemented("test", host_log, diags),
+        args::Command::TestDist => not_implemented("test dist", host_log, diags),
     }
+}
+
+/// 還沒實作的指令（#372 N62）：是 VK 自己的缺，不是使用者打錯，以 VK0056 停下、不印用法。
+fn not_implemented<E: Write>(
+    what: &str,
+    host_log: &str,
+    diags: &mut Diagnostics<E, runlog::Writer<&File>>,
+) -> u8 {
+    let d = Diagnostic::new(&messages::VK0056)
+        .arg("reason", format!("{what} is not implemented yet"))
+        .arg("path", host_log);
+    let _ = diags.emit(&d);
+    2
 }
 
 /// `dev` 與 `undev`（四種呼叫）。
@@ -697,6 +781,221 @@ mod tests {
         assert_eq!(m.inbox, Path::new("/vk/in"));
         let m = Mounts::with_prefix(Some(Path::new("/t")));
         assert_eq!(m.root, Path::new("/t/vk/root"));
+    }
+
+    /// 一次經啟動器呼叫用的暫存掛載點：安裝目錄（有 `.vendor_kit/` 與空的執行紀錄）與 `ctl/`、`in/`。
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Scratch {
+            let base = std::env::temp_dir().join(format!("vk-cli-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&base);
+            for d in ["vk/root/.vendor_kit/log", "vk/ctl", "vk/in"] {
+                std::fs::create_dir_all(base.join(d)).unwrap();
+            }
+            std::fs::write(base.join("vk/root").join(RUN_LOG), "").unwrap();
+            Scratch(base)
+        }
+
+        fn mounts(&self) -> Mounts {
+            Mounts::with_prefix(Some(&self.0))
+        }
+
+        fn done(&self) -> String {
+            std::fs::read_to_string(self.0.join("vk/ctl/done")).unwrap()
+        }
+
+        /// `.vendor_kit/` 底下除了執行紀錄以外的路徑。
+        fn written(&self) -> Vec<PathBuf> {
+            let vk = self.0.join("vk/root/.vendor_kit");
+            let mut out = Vec::new();
+            for e in std::fs::read_dir(&vk).unwrap() {
+                let p = e.unwrap().path();
+                if p != vk.join("log") {
+                    out.push(p);
+                }
+            }
+            out
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const RUN_LOG: &str = ".vendor_kit/log/r1.jsonl";
+
+    /// 只接受 P=2、3 的引擎（floor 高於 1，用來測舊薄殼）。
+    const NEWER: compat::Compat = compat::Compat {
+        floor_protocol: 2,
+        current_protocol: 3,
+        max_schema: 1,
+    };
+
+    /// 經啟動器跑一次：P 是 `protocol`，`rest` 是 `--` 之後的 recipe 與參數。
+    fn launch(
+        s: &Scratch,
+        compat: &compat::Compat,
+        protocol: u32,
+        rest: &[&str],
+    ) -> (u8, String, String) {
+        let host_root = "/srv/proj";
+        let p = protocol.to_string();
+        let mut args: Vec<&str> = vec![
+            "--protocol",
+            &p,
+            "--run-id",
+            "r1",
+            "--host-root",
+            host_root,
+            "--host-cwd",
+            host_root,
+            "--run-log",
+            RUN_LOG,
+            "--tty",
+            "000",
+            "--no-color",
+            "1",
+            "--",
+        ];
+        args.extend_from_slice(rest);
+        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let (out, err) = (Buf::default(), Buf::default());
+        let code = run_with(
+            compat,
+            &args,
+            &s.mounts(),
+            &mut io::empty(),
+            out.clone(),
+            err.clone(),
+        );
+        (code, out.text(), err.text())
+    }
+
+    #[test]
+    fn gate_lets_only_rescue_calls_through_outside_the_range() {
+        let p = |a: &[&str]| args::parse(a);
+        // 區間內：一律照常往下，不限定救援 op。
+        for a in [&["prune"][..], &["upgrade", "--engine", "--bogus"], &[]] {
+            assert_eq!(gate(&NEWER, 2, &p(a)), Ok(false), "{a:?}");
+            assert_eq!(gate(&NEWER, 3, &p(a)), Ok(false), "{a:?}");
+        }
+        // 區間外（低於 floor 與高於上限）：救援呼叫照常、限定救援 op；其餘先報版本。
+        for protocol in [1, 4] {
+            for a in [
+                &[][..],
+                &["install"],
+                &["install", "-y"],
+                &["sync"],
+                &["upgrade", "--engine"],
+                &["upgrade", "--engine=v2.0.0", "-y"],
+                &["install", "-h"],
+                &["sync", "--help"],
+                &["upgrade", "--engine", "-h"],
+            ] {
+                assert_eq!(gate(&NEWER, protocol, &p(a)), Ok(true), "{protocol} {a:?}");
+            }
+            for a in [
+                &["prune"][..],
+                &["add", "lint"],
+                &["add", "-h"],
+                &["upgrade", "lint"],
+                &["upgrade", "--engine", "--bogus"],
+                &["install", "--bogus"],
+                &["sync", "extra"],
+                &["frobnicate"],
+            ] {
+                assert!(gate(&NEWER, protocol, &p(a)).is_err(), "{protocol} {a:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn rescue_candidate_with_a_usage_error_reports_the_version_first() {
+        // 版本合：用法錯誤，回 2。
+        let s = Scratch::new("bogus-ok");
+        let (code, stdout, stderr) = launch(&s, &NEWER, 2, &["upgrade", "--engine", "--bogus"]);
+        assert_eq!(code, 2);
+        assert_eq!(stdout, "");
+        assert!(
+            stderr.starts_with("vendor_kit: error[VK0026]: "),
+            "{stderr}"
+        );
+        assert_eq!(s.done(), "vk-resolve/2 r1 done 2\n");
+        // 版本不合（舊薄殼）：先報版本，回 3，不報用法錯誤。
+        let s = Scratch::new("bogus-old");
+        let (code, stdout, stderr) = launch(&s, &NEWER, 1, &["upgrade", "--engine", "--bogus"]);
+        assert_eq!(code, 3);
+        assert_eq!(stdout, "");
+        assert_eq!(
+            stderr,
+            format!(
+                "vendor_kit: fatal[VK0009]: Shell interface version 1 is older than required for general recipes in engine {VERSION}. Run first: just vendor_kit upgrade --engine\n"
+            )
+        );
+        assert_eq!(s.done(), "vk-resolve/1 r1 done 3\n");
+    }
+
+    #[test]
+    fn general_recipe_outside_the_range_stops_before_any_write() {
+        let s = Scratch::new("old-prune");
+        let (code, _, stderr) = launch(&s, &NEWER, 1, &["prune"]);
+        assert_eq!(code, 3);
+        assert!(
+            stderr.starts_with("vendor_kit: fatal[VK0009]: "),
+            "{stderr}"
+        );
+        assert!(s.written().is_empty(), "{:?}", s.written());
+        assert_eq!(s.done(), "vk-resolve/1 r1 done 3\n");
+        // 薄殼比引擎新：還沒有專屬代碼（G6），暫以 VK0056。
+        let s = Scratch::new("new-prune");
+        let (code, _, stderr) = launch(&s, &NEWER, 4, &["prune"]);
+        assert_eq!(code, 2);
+        assert!(
+            stderr.starts_with("vendor_kit: error[VK0056]: Internal vendor_kit error: interface version 4 is outside the supported range [2, 3]; reason code pending (G6)."),
+            "{stderr}"
+        );
+        assert!(s.written().is_empty(), "{:?}", s.written());
+        assert_eq!(s.done(), "vk-resolve/4 r1 done 2\n");
+    }
+
+    #[test]
+    fn rescue_calls_outside_the_range_answer_with_the_callers_protocol() {
+        // 不帶指令的用法照常。
+        let s = Scratch::new("old-usage");
+        let (code, _, stderr) = launch(&s, &NEWER, 1, &[]);
+        assert_eq!(code, 2);
+        assert!(stderr.contains("error[VK0024]"), "{stderr}");
+        assert_eq!(s.done(), "vk-resolve/1 r1 done 2\n");
+        // 救援呼叫的 -h 照常（用法文字還沒定，VK0056），不報版本。
+        let s = Scratch::new("old-help");
+        let (code, _, stderr) = launch(&s, &NEWER, 1, &["sync", "-h"]);
+        assert_eq!(code, 2);
+        assert!(stderr.contains("help text for sync"), "{stderr}");
+        assert_eq!(s.done(), "vk-resolve/1 r1 done 2\n");
+    }
+
+    #[test]
+    fn unimplemented_commands_are_internal_errors_not_usage_errors() {
+        for (rest, what) in [
+            (&["upgrade", "--engine"][..], "upgrade --engine"),
+            (&["test"], "test"),
+            (&["test", "dist"], "test dist"),
+        ] {
+            let s = Scratch::new("unimplemented");
+            let (code, stdout, stderr) = launch(&s, &compat::THIS, 1, rest);
+            assert_eq!(code, 2, "{rest:?}");
+            assert_eq!(stdout, "");
+            assert!(
+                stderr.starts_with(&format!(
+                    "vendor_kit: error[VK0056]: Internal vendor_kit error: {what} is not implemented yet."
+                )),
+                "{stderr}"
+            );
+            assert!(!stderr.contains(SHORT_USAGE), "{stderr}");
+        }
     }
 
     #[test]

@@ -2,6 +2,9 @@
 //!
 //! 引擎寫的檔一律先寫 `<名>.tmp` 再 rename，啟動器不會讀到寫一半的檔；啟動器寫 `res.<seq>` 也照同一個做法，
 //! 所以 `res.<seq>` 一出現就是完整的。同一時間只有一個未完成的 request。
+//!
+//! 呼叫方的介面版不在引擎接受的區間內、而照救援路徑執行時，以 [`Channel::restrict_to_rescue`] 限定只送
+//! [`crate::RESCUE_OPS`] 的 op（crate 文件「救援路徑」）；其餘 op 不寫檔，回 [`ChannelError::NotRescue`]。
 
 use std::fmt;
 use std::fs;
@@ -12,8 +15,8 @@ use std::time::Duration;
 
 use messages::Message;
 
-use crate::files;
 use crate::wire::{Exit, Header, Op, OpKind, Outcome, ProtocolError, Reply, Seq};
+use crate::{RESCUE_OPS, files};
 
 /// 往返失敗：讀寫控制檔出錯，或啟動器回的東西不合協定。都是 VK0056。
 #[derive(Debug)]
@@ -29,6 +32,8 @@ pub enum ChannelError {
     Idle,
     /// seq 用完（9999）。
     Exhausted,
+    /// 限定救援路徑時要送救援路徑以外的 op。
+    NotRescue(OpKind),
 }
 
 impl ChannelError {
@@ -46,6 +51,11 @@ impl fmt::Display for ChannelError {
             ChannelError::Pending(s) => write!(f, "request {s} is still pending"),
             ChannelError::Idle => f.write_str("no request is pending"),
             ChannelError::Exhausted => f.write_str("request sequence exhausted"),
+            ChannelError::NotRescue(k) => write!(
+                f,
+                "op {} is outside the rescue path and the interface version is not supported",
+                k.name()
+            ),
         }
     }
 }
@@ -65,6 +75,7 @@ pub struct Channel {
     header: Header,
     next: Option<Seq>,
     pending: Option<(Seq, OpKind)>,
+    rescue_only: bool,
 }
 
 impl Channel {
@@ -75,7 +86,13 @@ impl Channel {
             header,
             next: Some(Seq::FIRST),
             pending: None,
+            rescue_only: false,
         }
+    }
+
+    /// 之後只准送 [`RESCUE_OPS`] 的 op（呼叫方的介面版不在引擎接受的區間內時）。
+    pub fn restrict_to_rescue(&mut self) {
+        self.rescue_only = true;
     }
 
     pub fn header(&self) -> &Header {
@@ -107,6 +124,9 @@ impl Channel {
     pub fn send(&mut self, op: &Op) -> Result<Seq, ChannelError> {
         if let Some((seq, _)) = self.pending {
             return Err(ChannelError::Pending(seq));
+        }
+        if self.rescue_only && !RESCUE_OPS.contains(&op.kind().name()) {
+            return Err(ChannelError::NotRescue(op.kind()));
         }
         let seq = self.next.ok_or(ChannelError::Exhausted)?;
         let bytes = op.encode_request(&self.header, seq)?;

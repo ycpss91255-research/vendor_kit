@@ -612,6 +612,24 @@ fn channel_does_not_write_invalid_requests() {
     assert_eq!(ch.send(&Op::Ps).unwrap(), seq(1));
 }
 
+#[test]
+fn channel_restricted_to_rescue_only_sends_rescue_ops() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = header(7);
+    let mut ch = Channel::new(dir.path(), h.clone());
+    ch.restrict_to_rescue();
+    let e = ch.send(&Op::Ps).unwrap_err();
+    assert!(matches!(e, ChannelError::NotRescue(OpKind::Ps)), "{e:?}");
+    assert_eq!(e.message().code, "VK0056");
+    assert!(listing(dir.path()).is_empty());
+    // 救援路徑的 op 照常送，header 用呼叫方的 P；被拒的 op 不佔 seq。
+    assert_eq!(ch.send(&Op::Pull(image(&pinned()))).unwrap(), seq(1));
+    assert_eq!(
+        fs::read_to_string(dir.path().join("req.1")).unwrap(),
+        format!("vk-resolve/7 r1 1\npull {}\n", pinned())
+    );
+}
+
 // ---- 救援路徑：跨介面版永久不變 ----
 
 #[test]
