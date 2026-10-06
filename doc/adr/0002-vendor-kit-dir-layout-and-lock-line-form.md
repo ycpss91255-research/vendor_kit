@@ -19,8 +19,9 @@
 - 內部機制（之後搬到實作 issue）：
   - 目錄佈局：`version.toml`、`version.local.toml`、`cache/<repo>/`、自有 `.gitignore` 都在 `.vendor_kit/`，每個安裝目錄一份，彼此不共享。
   - 引擎行不靠行號：唯一符合 `^vendor_kit[[:space:]]*=` 的行（POSIX BRE，不用 `\s`）。啟動器以 `grep` 取得，命中數必須恰為 1；0 或 2 以上表示這個檔不是 VK 寫出來的形狀。第一行只是 `install` 寫出的慣例。
+  - 介面版列表：`version.toml` 在根層記 `vendor_kit_protocols = "<列表>"`，寫出新檔時緊接在引擎行下面，讀取不靠行號。列表把鎖定引擎的 `[floor, current]` 逐一展開，以一個空白分隔、連續遞增，不接受 0 或前導零（例如 `"2 3 4"`）。鍵名中的 `_` 讓它不被 `^vendor_kit[[:space:]]*=` 當成引擎行；啟動器可據此離線比對介面版。引擎讀檔只檢查列表形狀，不跟本引擎的區間比，因為列表記的是鎖定的那一版引擎接受的區間。`version.local.toml` 不檢查介面版列表。
   - 工具行：`[tools]` 表下每個工具一行；BOM、重複鍵、繞過 `[tools]` 表的寫法都不接受。引擎讀到非正規形就以[結束碼 `2`](../contract/03_output.md#結束碼)結束、列出差異、不動任何檔。
   - `.vendor_kit/.gitignore` 目前涵蓋 `cache/`、`gen/`、`log/`、`version.local.toml`、`.tmp.*`。這份清單就是自動化可以自己寫的界線，清單外的一律要使用者明確打的 recipe。
-  - 外部版本追蹤：Renovate 一條 regex manager 追 docker datasource；Renovate、`upgrade` 與人手改的都是同一個 `version.toml`。
+  - 外部版本追蹤：Renovate 一條 regex manager 追 docker datasource，只改 `version.toml` 的引擎行與工具行，不改 `vendor_kit_protocols`；Renovate、`upgrade` 與人手改的都是同一個 `version.toml`。
   - 兩份版本真相的典型例子是 image tag 加上另一個 lock 檔。digest 才鎖內容；tag 只給人與外部版本追蹤工具看。
-  - `version.local.toml` 只覆蓋已存在的版本鎖定行、不進 git，不是第二份真相。
+  - `version.local.toml` 只覆蓋已存在的版本鎖定行、不進 git，不是第二份真相。本機覆寫的引擎行（符合 `^vendor_kit[[:space:]]*=` 的行）只能有 0 或 1 行：0 行表示引擎沒有本機覆寫；1 行時，值是雙引號包住的本機 image 名稱（例如 `vendor_kit:dev`）或 image ID，不必帶 tag 與 digest，所以不是 image 引用。`vendor_kit_protocols` 不算引擎行。
