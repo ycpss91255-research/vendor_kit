@@ -21,7 +21,7 @@
 //! - 引擎一律用 `--engine`，只有 `upgrade`、`dev`、`undev` 收；帶版本只收 `upgrade --engine=<tag>`，
 //!   `--engine <tag>` 的 `<tag>` 算多出的位置參數。工具用 `<repo>@<tag>`，只有 `add`、`upgrade` 收。
 //! - `--registry-token-file <path>` 只有 `update`、`add`、`upgrade <repo>` 收；值是單獨的 `-` 算用法錯誤。
-//! - `--image-path <registry>/<path>`（名稱暫定，待維護者確認，#372 N2b）只有長選項、只有 `add` 收：線上 `add`
+//! - `--image-path ghcr.io/<path>` 只有長選項、只有 `add` 收：線上 `add`
 //!   還沒有版本鎖定行時，工具 image 在 registry 的位置。值只收 `ghcr.io/<路徑>`（路徑照
 //!   [`imageref::is_valid_path`]），不帶 tag 或 digest；不合算不允許的參數（VK0026，`<value>` 印那個值）。
 //! - `dev <repo>` 必須帶 `-p <dir>`、`dev --engine` 必須帶 `-i <image>`，各自不收對方的選項（04 本機覆寫）。
@@ -152,7 +152,7 @@ impl Invocation {
 /// 各指令的參數值（04 指令表）。路徑與 image 保留原本的 [`OsString`]。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    /// `add <repo>[@<tag>] [-i <image>] [--image-path <registry>/<path>] [-y] [--dry-run] [--registry-token-file <path>]`
+    /// `add <repo>[@<tag>] [-i <image>] [--image-path ghcr.io/<path>] [-y] [--dry-run] [--registry-token-file <path>]`
     Add {
         repo: String,
         tag: Option<Tag>,
@@ -349,7 +349,7 @@ impl Opt {
     fn missing(self, typed: &OsStr) -> String {
         let value = match self {
             Opt::Image => "<image>",
-            Opt::ImagePath => "<registry>/<path>",
+            Opt::ImagePath => "ghcr.io/<path>",
             Opt::Path => "<dir>",
             Opt::TokenFile => "<path>",
         };
@@ -1026,7 +1026,7 @@ mod tests {
     fn add_image_path_errors() {
         missing(
             &["add", "lint", "--image-path"],
-            "--image-path <registry>/<path>",
+            "--image-path ghcr.io/<path>",
         );
         for value in [
             "acme/lint",
