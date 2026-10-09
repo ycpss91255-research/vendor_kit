@@ -7,10 +7,11 @@
 //! 1. 讀 `.vendor_kit/config.toml`（VK0059），在取鎖之前（04 設定）。
 //! 2. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束：兩者都是可寫 recipe。
 //! 3. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）。
-//! 4. 辨識殘留的進度檔（見「恢復」）；不能併入的有任何一份就把每一份都印出來再停下。
-//! 5. 判對象：`dev <repo>`、`undev <repo>` 的工具不在版本鎖定行回 VK0046（訊息表：先辨識未完成進度，再判斷
-//!    對象不存在，所以排在第 4 步之後；`dev` 是 #372 N80 擴的情境，契約文字待補）。工具名不是合法的 just
-//!    名稱已在 `args` 回 VK0026。
+//! 4. 辨識殘留的進度檔（見「恢復」）；不能併入也不能恢復的有任何一份就把每一份都印出來再停下。殘留的
+//!    `add`、工具 `upgrade` 先備好恢復（取件、驗證，只讀不寫），之後的判定都看恢復之後的版本鎖定行。
+//! 5. 判對象：`dev <repo>`、`undev <repo>` 的工具不在恢復之後的版本鎖定行回 VK0046（訊息表：先辨識未完成
+//!    進度，再判斷對象不存在，所以排在第 4 步之後；`dev` 是 #372 N80 擴的情境，契約文字待補）。工具名不是
+//!    合法的 just 名稱已在 `args` 回 VK0026。
 //! 6. 判要做什麼：
 //!    - `dev <repo> -p <dir>`：已有同來源的覆寫、也沒有殘留，stdout 說明未變更；已有不同來源的覆寫回
 //!      VK0050，不取代。相對路徑以安裝目錄為準（見「本機目錄」），要存在、是目錄、符合交付格式（`dist/`
@@ -29,15 +30,17 @@
 //!    待補），在任何寫入之前停下。`undev <repo>` 的對象回到鎖定版本：`cache/<repo>/` 與印記、版本
 //!    鎖定行一致就直接指回去；對不上就取件（見「取件」），入口檔照取到的內容算。`dev --engine`、
 //!    `undev --engine` 不動入口檔。
-//! 8. 經 `txn` 的本機覆寫順序落地：建進度檔 → 寫 `version.local.toml`（記錄檔那一步）→ 換 `cache/<repo>/` 與
-//!    印記（`undev` 要取件時；其他情況是空的）→ 寫 `gen/tools.just` → 刪進度檔；不改版本鎖定行
-//!    （`keep_lock_line`）。覆寫的增減排在 `cache/` 與入口檔之前：04 本機覆寫「`undev` 解除覆寫，隨即同步到
+//! 8. 備好的恢復先落地（見「恢復」），再經 `txn` 的本機覆寫順序落地這次的：建進度檔 → 寫
+//!    `version.local.toml`（記錄檔那一步）→ 換 `cache/<repo>/` 與印記（`undev` 要取件時；其他情況是空的）
+//!    → 寫 `gen/tools.just` → 刪進度檔；不改版本鎖定行（`keep_lock_line`）。這次沒有要寫的（未變更）時只落地
+//!    恢復。覆寫的增減排在 `cache/` 與入口檔之前：04 本機覆寫「`undev` 解除覆寫，隨即同步到
 //!    當下鎖定版本」「`undev` 同步未完成時，覆寫已解除，須重跑原 `undev`」。之後才刪併入的殘留進度檔。
 //!    `undev` 在覆寫已寫好、`cache/` 或入口檔還沒寫好時失敗，回 VK0053（訊息表：undev 解除覆寫後同步失敗）。
 //! 9. stdout 列出改了什麼與用了哪個覆寫（04 本機覆寫：每次報告用了哪個覆寫，不加診斷前綴）。
 //!
 //! 這裡不直接碰 docker：往返只有安裝目錄外的本機開發來源的 `stage-dir`（不在 `plan::RESCUE_OPS`
-//! 裡；`dev` 不是救援路徑）、`dev --engine` 的 `inspect`，與 `undev` 取件的 `inspect`、`pull`、`extract`。
+//! 裡；`dev` 不是救援路徑）、`dev --engine` 的 `inspect`，與 `undev` 取件、恢復殘留 `add`、`upgrade` 取件的
+//! `inspect`、`pull`、`extract`。
 //!
 //! # 預演（`--dry-run`，#372 N11）
 //!
@@ -46,12 +49,13 @@
 //!
 //! - 取安裝目錄的共享鎖，不取排他鎖（只讀）。
 //! - 不重驗暫存內容、不落地（第 8 步），不建進度檔、不刪殘留的進度檔；除執行紀錄外不寫安裝目錄裡的任何檔。
-//! - 算計畫要用的 docker 動作照送：`stage-dir`、`dev --engine` 的 `inspect`、`undev` 取件的 `inspect`、
+//!   恢復殘留的 `add`、`upgrade` 只印會完成哪一份（[`text::recovered_add`]、[`text::recovered_upgrade`]）。
+//! - 算計畫要用的 docker 動作照送：`stage-dir`、`dev --engine` 的 `inspect`、`undev` 與恢復取件的 `inspect`、
 //!   `pull`、`extract`。它們動到的是主機的 image store 與 session 目錄，不是安裝目錄。
 //! - stdout 照實際執行的順序印會改的內容，改動的字句換成「Would …」的寫法（[`text`] 各函式的 `dry` 參數）；
 //!   未變更時照樣印未變更。最後一行是 `prompt::DRY_RUN_DONE`，以 0 結束。
 //! - `dev`、`undev` 不收 `-y`（不詢問），預演也一樣。
-//! - 算計畫時遇到的停下（VK0046、VK0050～VK0053、VK0030、缺口等）照樣以各自的結束碼停下。
+//! - 算計畫時遇到的停下（VK0046、VK0050～VK0053、VK0030、VK0031、VK0055、缺口等）照樣以各自的結束碼停下。
 //!
 //! # 本機引擎
 //!
@@ -114,13 +118,34 @@
 //! 這次的參數判定，落地時一起寫，這次落地完成之後才刪殘留的那幾份，中途再斷也還認得出來。有殘留時即使沒有
 //! 要改的，也走一次 `txn`，讓刪除排在 `writes_started` 之後。
 //!
-//! 不能併入的殘留不恢復、不刪，依訊息表報出下一步（#372 N81 擴的情境，契約文字待補）：
+//! 殘留的 `add`、工具 `upgrade`（04 成對與無害：可寫 recipe 先恢復再判是否重複；ADR-0004）先代為恢復，
+//! 做法照 engine/add、engine/upgrade 自己的恢復（指令之間互不依賴，照抄）：
+//!
+//! - 讀進度檔記的對象與版本鎖定行的值（`add` 是 `[add]` 的 `repo`、`image`、`repo_files`；`upgrade` 是
+//!   `progress::upgrade` 的欄位），只收沒有初始檔要寫的那種，其他的見「缺口」。
+//! - 以帶 digest 的引用 `<registry>/<路徑>@<digest>` 取件：`add` 只 inspect、RepoDigests 要有這個引用
+//!   （否則 VK0031），`upgrade` 本機沒有就 `pull` 再 inspect；之後以 image ID `extract` 進 `in/<slot>`。
+//!   docker 動作失敗回 VK0055，`<source>` 是版本鎖定行的值、`<target>` 是工具名（VK0055、VK0031 擴到
+//!   `dev`、`undev` 恢復殘留的情境，契約文字待補）。
+//! - `fetch::verify` 驗 digest 與交付格式，撞名（VK0030）的對象是其他工具（開著覆寫的以本機開發來源為準，
+//!   排在前面、還沒落地的恢復以它的暫存內容為準）、根 `justfile` 的 recipe 與 module（`justfile` 模組，照抄
+//!   engine/add）與保留名 `vendor_kit`。
+//! - 算好恢復之後的版本鎖定行與入口檔（照檔上的覆寫：對象開著覆寫時仍指向本機開發來源），只讀不寫。之後
+//!   這次的判定都看恢復之後的樣子：`dev` 的對象導入到一半也不是 VK0046；`undev` 的對象有恢復時直接用恢復
+//!   取到的內容，不再比 `cache/`、不再取件；入口檔比的是最後一份恢復落地後的內容。
+//! - 恢復沒有要問的事；`dev`、`undev` 也不詢問（04：每次呼叫先問完，含恢復舊操作）。恢復只在這次判定都通過、
+//!   以 0 結束時才落地（含這次未變更），排在這次自己的落地之前：每一份重驗暫存內容，照那個指令的順序走
+//!   一次 `txn`（`cache/<repo>/` 與印記、入口檔、版本鎖定行），新的進度檔沿用殘留的 `<verb>`、欄位與原指令，
+//!   完成之後才刪殘留的那一份，中途再斷也還認得出來，下一步仍是原指令。這次停下時恢復也不寫，殘留照留。
+//! - stdout 在恢復落地時印完成了哪一份，排在這次的字句前面。
+//!
+//! 不能併入也不能恢復的殘留不恢復、不刪，依訊息表報出下一步（#372 N81 擴的情境，契約文字待補）：
 //!
 //! - 對象不同的 `undev`：VK0053，`<target>` 讀進度檔 `[undev] target`，`<undev_command>` 由進度檔的
 //!   `command` 重組。
 //! - 對象不同的 `dev`，或其他可寫 recipe（`remove`、`install`、`uninstall`、`prune` 等）：VK0054，
 //!   `<operation>` 是進度檔的 `<verb>`，`<original_command>` 由進度檔的 `command` 重組。
-//! - `add`、`upgrade`、`sync`：見「缺口」。
+//! - `sync`，與還恢復不了的 `add`、`upgrade`：見「缺口」。
 //!
 //! # 這次自訂的內部細節（契約沒寫，使用者看不到格式以外的差別）
 //!
@@ -147,11 +172,19 @@
 //!   兩種的草稿碼登錄前以 VK0056 停下，`<reason>` 結尾寫明草稿碼（`fetch::DRAFT_CACHE_MISSING`、
 //!   `fetch::DRAFT_CACHE_UNREADABLE`）。
 //!   `undev` 不另加檢查；它要重產入口檔時讀不到同樣停下，訊息相同。
-//! - 殘留的進度檔是 `add`、`upgrade`（工具或引擎）或 `sync` 的：VK0054 的情境排除未完成導入與 `upgrade`，
-//!   而 VK0004、VK0041、VK0023 只寫唯讀 recipe；`sync` 不寫進度檔。
+//! - 殘留的 `add` 要寫 repo 檔（`repo_files = true`）：進度檔只記了寫入前後的 hash，重新落地要讀
+//!   `init.toml`，格式沒定（同 engine/add）。殘留的工具 `upgrade` 寫了初始檔相關的檔（`init_files = true`），
+//!   或殘留的是引擎 `upgrade`：engine/upgrade 自己也還恢復不了。這幾種與欄位不齊的，在任何 docker 動作之前
+//!   停下。
+//! - 殘留的進度檔是 `sync` 的：`sync` 不寫進度檔。
+//! - 根 `justfile` 只做保守的逐行掃描（引擎 image 沒有 just），限制見 `justfile` 模組；`dev <repo>` 自己的
+//!   `<ns>` 撞名不比對根 `justfile`（見上）。
+//! - 恢復殘留的 `add` 照 engine/add 以版本鎖定行的 `<路徑>@<digest>` inspect、不 pull：image tar 在 classic
+//!   image store 載入後沒有 RepoDigests，找不到回 VK0055（同 engine/add 的缺口）。
 //! - 中途寫檔失敗沒有代碼（G4），`undev` 解除覆寫後的那一段（換 `cache/`、寫入口檔、刪進度檔）除外
 //!   （VK0053）。
 
+mod justfile;
 pub mod text;
 
 #[cfg(test)]
@@ -200,9 +233,15 @@ pub const ENGINE_TARGET: &str = "vendor_kit";
 pub const COMMAND_PREFIX: [&str; 2] = ["just", "vendor_kit"];
 /// `undev` 取件 `extract` 進 `in/` 的 slot 名前綴，後接這次執行裡的序號（`tool1`…；同 engine/sync）。
 pub const FETCH_SLOT_PREFIX: &str = "tool";
-/// 殘留時不報 VK0054 的 `<verb>`（訊息表 VK0054 排除未完成導入與工具、引擎 `upgrade`；`sync` 不寫進度檔），
-/// 見模組說明的缺口。
-const NOT_VK0054: [&str; 3] = ["add", "upgrade", "sync"];
+/// `add` 的進度檔 `<verb>`，也是它的表名（engine/add 的 `VERB`、`PROGRESS_TABLE`；照抄）。殘留的先代為恢復
+/// （模組說明「恢復」）。
+const ADD_VERB: &str = "add";
+/// `add` 進度檔 `[add]` 表的鍵：工具名、版本鎖定行的值、有沒有要寫 repo 檔（engine/add 的 `progress`）。
+const ADD_REPO: &str = "repo";
+const ADD_IMAGE: &str = "image";
+const ADD_REPO_FILES: &str = "repo_files";
+/// `sync` 不寫進度檔；殘留的 `sync` 進度檔見模組說明的缺口。
+const SYNC_VERB: &str = "sync";
 /// `version.local.toml` 相對於 `.vendor_kit/` 的路徑（`txn` 記錄檔那一步收這種路徑）。
 const LOCAL_FILE: &str = "version.local.toml";
 
@@ -273,6 +312,8 @@ pub fn run<W: Write, S: Sink, L: Write>(
         code: 0,
         slots: 0,
         extracts: 0,
+        pending: Vec::new(),
+        sources: BTreeMap::new(),
     };
     let _ = dev.run(req);
     dev.code
@@ -404,11 +445,44 @@ struct Stop;
 
 type Step<T> = Result<T, Stop>;
 
+/// 每個工具（`<repo>`）交付的 `<ns>`。
+type Namespaces = BTreeMap<String, Vec<String>>;
+
 /// 併進這次的一份殘留進度檔。
 struct Residual {
     entry: progress::Entry,
     /// `dev` 記的值：工具是正規化後的本機目錄，引擎是本機 image；`undev` 是 `None`。
     value: Option<String>,
+}
+
+/// 殘留的進度檔辨識後的結果（模組說明「恢復」）。
+enum Found {
+    /// 對象相同的 `dev`、`undev`：併進這次。
+    Merge(Residual),
+    /// `add` 或工具 `upgrade`：這次先代為恢復。
+    Recover(Foreign),
+}
+
+/// 一份要先代為恢復的殘留 `add` 或工具 `upgrade`。
+struct Foreign {
+    entry: progress::Entry,
+    /// [`ADD_VERB`] 或 `progress::upgrade::VERB`。
+    verb: &'static str,
+    /// 進度檔記的原指令；恢復落地時的新進度檔照抄，中途再斷時下一步仍是原指令。
+    command: Vec<String>,
+    repo: String,
+    /// 進度檔記的版本鎖定行的值。
+    locked: ImageRef,
+}
+
+/// 照殘留的 `add`、`upgrade` 備好、還沒落地的恢復：取件、驗證過，入口檔與版本鎖定行也算好了。
+struct Recovery {
+    foreign: Foreign,
+    candidate: Candidate,
+    /// 這份恢復落地後的 `gen/tools.just`。
+    tools_just: String,
+    /// 這份恢復落地後的版本鎖定行（含排在它前面的恢復）。
+    lockfile: LockFile,
 }
 
 /// `undev <repo>` 的對象 `cache/<repo>/` 跟版本鎖定行比的結果。
@@ -440,6 +514,10 @@ struct Dev<'r, 'a, W: Write, S: Sink, L: Write> {
     slots: usize,
     /// 這次執行已用掉的取件 slot 數。
     extracts: usize,
+    /// 備好、等這次判定通過才落地的恢復，依進度檔的順序（模組說明「恢復」）。
+    pending: Vec<Recovery>,
+    /// 讀過的本機開發來源（正規化後的值與工具名）交付的 `<ns>`：恢復與這次都要重產入口檔時不重讀。
+    sources: BTreeMap<(String, String), Vec<String>>,
 }
 
 impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
@@ -524,9 +602,11 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
     fn run(&mut self, req: &Request<'_>) -> Step<()> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
-        let lockfile = self.lockfile()?;
+        let mut lockfile = self.lockfile()?;
         let disk = self.local_file()?;
-        let residual = self.residuals(req)?;
+        let (residual, foreign) = self.residuals(req)?;
+        // 先備好殘留的 `add`、`upgrade`（只讀不寫）；之後的判定都看恢復之後的版本鎖定行（模組說明「恢復」）。
+        self.prepare(foreign, &mut lockfile, disk.as_ref())?;
 
         let mut local = disk.clone().unwrap_or_default();
         for r in &residual {
@@ -572,14 +652,20 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         // 覆寫的實際內容跟檔上一樣就不寫（殘留併進來時，記憶體裡的可能已經跟檔上不同）。
         let local = plan.local.filter(|l| !same_overrides(l, disk.as_ref()));
         let dry = self.dry_run;
-        if local.is_none() && plan.entry.is_none() && plan.fetched.is_none() && residual.is_empty()
-        {
+        let own = local.is_some()
+            || plan.entry.is_some()
+            || plan.fetched.is_some()
+            || !residual.is_empty();
+        if !own && self.pending.is_empty() {
             for line in &plan.said {
                 self.say(line);
             }
             self.dry_run_done();
             return Ok(());
         }
+
+        // 判定都通過了：備好的恢復先落地（預演只印），再做這次自己的。
+        self.land_recoveries()?;
 
         // 預演不重驗暫存內容、不落地，殘留的進度檔照留（模組說明「預演」）。
         if !dry {
@@ -589,7 +675,9 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 let repo = c.repo().to_owned();
                 return Err(self.internal(format!("staged content of {repo} changed: {e}")));
             }
-            self.land(req, local, plan.entry.as_deref(), plan.fetched.as_ref())?;
+            if own {
+                self.land(req, local, plan.entry.as_deref(), plan.fetched.as_ref())?;
+            }
             for r in &residual {
                 if let Err(err) = progress::delete(self.env.dir, &r.entry.verb, &r.entry.id) {
                     let d = self.failed_diag(&r.entry.path, err.message(), err.to_string());
@@ -774,12 +862,17 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 said: vec![text::undev_tool_unchanged(repo)],
             });
         }
-        let (ns, fetched) = match self.locked_cache(repo, locked)? {
-            Cached::Keep(ns) => (ns, None),
-            Cached::Fetch { previous } => {
-                let c = self.fetch(repo, locked, previous.as_deref())?;
-                (c.namespaces().to_vec(), Some(c))
-            }
+        // 對象有備好的恢復：恢復落地時就換成鎖定版本的內容，不再比 `cache/`、不再取件。
+        let pending = self.pending_namespaces(repo);
+        let (ns, fetched) = match pending {
+            Some(ns) => (ns, None),
+            None => match self.locked_cache(repo, locked)? {
+                Cached::Keep(ns) => (ns, None),
+                Cached::Fetch { previous } => {
+                    let c = self.fetch(repo, locked, previous.as_deref())?;
+                    (c.namespaces().to_vec(), Some(c))
+                }
+            },
         };
         if let Err(e) = local.remove_tool(repo) {
             return Err(self.internal(e.to_string()));
@@ -933,7 +1026,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
 
     /// 依覆寫算出新的 `gen/tools.just`（模組說明第 7 步），跟現有內容一樣回 `None`。`known` 是這次已經讀過
     /// `<ns>` 的工具。`collide` 是這次開覆寫的工具：它的 `<ns>` 撞到保留名或其他工具的，每個各印一則 VK0030
-    /// 再停下。
+    /// 再停下。有備好的恢復時，比的是最後一份恢復落地後的入口檔（它先落地）。
     fn entry_if_changed(
         &mut self,
         lockfile: &LockFile,
@@ -941,60 +1034,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         known: Option<BTreeMap<String, Vec<String>>>,
         collide: Option<&str>,
     ) -> Step<Option<String>> {
-        let mut known = known.unwrap_or_default();
-        let mut dirs: BTreeMap<String, Source> = BTreeMap::new();
-        let mut blocked: Vec<Diagnostic> = Vec::new();
-        let mut check = fetch::CacheCheck::default();
-        for repo in lockfile.tools().keys() {
-            let source = local.tool(repo);
-            if let Some(source) = source {
-                match normalize(OsStr::new(source), self.env.host_root) {
-                    Ok(dir) => {
-                        dirs.insert(repo.clone(), dir);
-                    }
-                    Err(PathProblem::Unusable(reason) | PathProblem::Gap(reason)) => {
-                        blocked.push(self.unreadable(repo, source, reason));
-                        continue;
-                    }
-                }
-            }
-            if known.contains_key(repo) {
-                continue;
-            }
-            let ns = match dirs.get(repo).cloned() {
-                Some(dir) => match self.read_source(&dir, repo)? {
-                    Ok(ns) => ns,
-                    Err(PathProblem::Unusable(reason) | PathProblem::Gap(reason)) => {
-                        let source = source.unwrap_or(dir.as_str()).to_owned();
-                        blocked.push(self.unreadable(repo, &source, reason));
-                        continue;
-                    }
-                },
-                None => {
-                    let cache = match self.env.dir.tool_cache(repo) {
-                        Ok(c) => c,
-                        Err(e) => return Err(self.internal(e.to_string())),
-                    };
-                    match fetch::cached_namespaces(&cache) {
-                        Ok(ns) => ns,
-                        Err(e) => {
-                            check.push(repo, e);
-                            continue;
-                        }
-                    }
-                }
-            };
-            known.insert(repo.clone(), ns);
-        }
-        for reason in check.reasons() {
-            blocked.push(self.internal_diag(reason));
-        }
-        if !blocked.is_empty() {
-            for d in blocked {
-                self.emit(d);
-            }
-            return Err(Stop);
-        }
+        let (known, dirs) = self.collect(lockfile, local, known.unwrap_or_default(), None)?;
         if let Some(target) = collide
             && let Some(wanted) = known.get(target)
         {
@@ -1014,6 +1054,99 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
                 return Err(Stop);
             }
         }
+        let entry = self.render(lockfile, &known, dirs)?;
+        if let Some(r) = self.pending.last() {
+            return Ok((r.tools_just != entry).then_some(entry));
+        }
+        let path = self.env.dir.gen_dir().join(txn::TOOLS_JUST);
+        match fs::read(&path) {
+            Ok(b) if b == entry.as_bytes() => Ok(None),
+            Ok(_) => Ok(Some(entry)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Some(entry)),
+            Err(e) => Err(self.internal(format!("{}: {e}", path.display()))),
+        }
+    }
+
+    /// 版本鎖定行每個工具（`skip` 除外）的 `<ns>` 與開著覆寫的工具正規化後的本機開發來源。`known` 裡已有的
+    /// 不再讀；其他的：開著覆寫的讀本機開發來源，備好還沒落地的恢復取它暫存內容的 `<ns>`（`cache/` 還沒換），
+    /// 其餘讀 `cache/<repo>/`。讀不到的在任何寫入之前收齊一起報（VK0052、`fetch::CacheCheck`）再停下。
+    fn collect(
+        &mut self,
+        lockfile: &LockFile,
+        local: &LocalFile,
+        mut known: BTreeMap<String, Vec<String>>,
+        skip: Option<&str>,
+    ) -> Step<(Namespaces, BTreeMap<String, Source>)> {
+        let mut dirs: BTreeMap<String, Source> = BTreeMap::new();
+        let mut blocked: Vec<Diagnostic> = Vec::new();
+        let mut check = fetch::CacheCheck::default();
+        for repo in lockfile.tools().keys() {
+            if skip == Some(repo.as_str()) {
+                continue;
+            }
+            let source = local.tool(repo);
+            if let Some(source) = source {
+                match normalize(OsStr::new(source), self.env.host_root) {
+                    Ok(dir) => {
+                        dirs.insert(repo.clone(), dir);
+                    }
+                    Err(PathProblem::Unusable(reason) | PathProblem::Gap(reason)) => {
+                        blocked.push(self.unreadable(repo, source, reason));
+                        continue;
+                    }
+                }
+            }
+            if known.contains_key(repo) {
+                continue;
+            }
+            let ns = match dirs.get(repo).cloned() {
+                Some(dir) => match self.read_cached(&dir, repo)? {
+                    Ok(ns) => ns,
+                    Err(PathProblem::Unusable(reason) | PathProblem::Gap(reason)) => {
+                        let source = source.unwrap_or(dir.as_str()).to_owned();
+                        blocked.push(self.unreadable(repo, &source, reason));
+                        continue;
+                    }
+                },
+                None => match self.pending_namespaces(repo) {
+                    Some(ns) => ns,
+                    None => {
+                        let cache = match self.env.dir.tool_cache(repo) {
+                            Ok(c) => c,
+                            Err(e) => return Err(self.internal(e.to_string())),
+                        };
+                        match fetch::cached_namespaces(&cache) {
+                            Ok(ns) => ns,
+                            Err(e) => {
+                                check.push(repo, e);
+                                continue;
+                            }
+                        }
+                    }
+                },
+            };
+            known.insert(repo.clone(), ns);
+        }
+        for reason in check.reasons() {
+            blocked.push(self.internal_diag(reason));
+        }
+        if !blocked.is_empty() {
+            for d in blocked {
+                self.emit(d);
+            }
+            return Err(Stop);
+        }
+        Ok((known, dirs))
+    }
+
+    /// 照 `known` 的 `<ns>` 與 `dirs` 的覆寫算出 `gen/tools.just`：只列版本鎖定行裡的工具，開著覆寫的那幾行
+    /// 指向本機開發來源。
+    fn render(
+        &mut self,
+        lockfile: &LockFile,
+        known: &BTreeMap<String, Vec<String>>,
+        dirs: BTreeMap<String, Source>,
+    ) -> Step<String> {
         let tools: Vec<tools_just::Tool> = known
             .iter()
             .filter(|(repo, _)| lockfile.tool(repo).is_some())
@@ -1026,22 +1159,39 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
             .into_iter()
             .map(|(repo, dir)| (repo, dir.as_str().to_owned()))
             .collect();
-        let entry = match tools_just::render_with(&tools, &dirs) {
-            Ok(e) => e,
-            Err(e @ tools_just::Error::Duplicate { .. }) => {
-                return Err(self.gap(format_args!(
-                    "{e} after the local override (no reason code)"
-                )));
-            }
-            Err(e) => return Err(self.internal(e.to_string())),
-        };
-        let path = self.env.dir.gen_dir().join(txn::TOOLS_JUST);
-        match fs::read(&path) {
-            Ok(b) if b == entry.as_bytes() => Ok(None),
-            Ok(_) => Ok(Some(entry)),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Some(entry)),
-            Err(e) => Err(self.internal(format!("{}: {e}", path.display()))),
+        match tools_just::render_with(&tools, &dirs) {
+            Ok(e) => Ok(e),
+            Err(e @ tools_just::Error::Duplicate { .. }) => Err(self.gap(format_args!(
+                "{e} after the local override (no reason code)"
+            ))),
+            Err(e) => Err(self.internal(e.to_string())),
         }
+    }
+
+    /// 備好還沒落地的恢復裡，`repo` 最後一份的暫存內容交付的 `<ns>`。
+    fn pending_namespaces(&self, repo: &str) -> Option<Vec<String>> {
+        self.pending
+            .iter()
+            .rev()
+            .find(|r| r.foreign.repo == repo)
+            .map(|r| r.candidate.namespaces().to_vec())
+    }
+
+    /// [`Self::read_source`]，讀過的不再讀（恢復與這次都要重產入口檔時，同一個來源只 `stage-dir` 一次）。
+    fn read_cached(
+        &mut self,
+        source: &Source,
+        repo: &str,
+    ) -> Step<Result<Vec<String>, PathProblem>> {
+        let key = (source.as_str().to_owned(), repo.to_owned());
+        if let Some(ns) = self.sources.get(&key) {
+            return Ok(Ok(ns.clone()));
+        }
+        let read = self.read_source(source, repo)?;
+        if let Ok(ns) = &read {
+            self.sources.insert(key, ns.clone());
+        }
+        Ok(read)
     }
 
     /// 讀本機開發來源交付的 `<ns>`（`check_dir`）：安裝目錄裡的直接讀；安裝目錄外的先請啟動器
@@ -1166,22 +1316,25 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         }
     }
 
-    /// 殘留的進度檔（模組說明「恢復」）：對象相同的 `dev`、`undev` 併進這次，其他的把每一份都印出來再停下。
-    fn residuals(&mut self, req: &Request<'_>) -> Step<Vec<Residual>> {
+    /// 殘留的進度檔（模組說明「恢復」）：對象相同的 `dev`、`undev` 併進這次，`add`、工具 `upgrade` 回傳讓這次
+    /// 先代為恢復，其他的把每一份都印出來再停下（在任何 docker 動作之前）。
+    fn residuals(&mut self, req: &Request<'_>) -> Step<(Vec<Residual>, Vec<Foreign>)> {
         let entries = match progress::find(self.env.dir) {
             Ok(e) => e,
             Err(e) => return Err(self.internal(e.to_string())),
         };
         let mut merged = Vec::new();
+        let mut foreign = Vec::new();
         let mut blocked = Vec::new();
         for entry in entries {
             match self.residual(req, entry) {
-                Ok(r) => merged.push(r),
+                Ok(Found::Merge(r)) => merged.push(r),
+                Ok(Found::Recover(f)) => foreign.push(f),
                 Err(d) => blocked.push(d),
             }
         }
         if blocked.is_empty() {
-            Ok(merged)
+            Ok((merged, foreign))
         } else {
             for d in blocked {
                 self.emit(d);
@@ -1190,7 +1343,7 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         }
     }
 
-    fn residual(&self, req: &Request<'_>, entry: progress::Entry) -> Result<Residual, Diagnostic> {
+    fn residual(&self, req: &Request<'_>, entry: progress::Entry) -> Result<Found, Diagnostic> {
         let loaded = match entry.load() {
             Ok(p) => p,
             Err(progress::Error::Parse {
@@ -1201,7 +1354,10 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         };
         let shown = self.rel(&entry.path);
         let verb = entry.verb.as_str();
-        if NOT_VK0054.contains(&verb) {
+        if verb == ADD_VERB || verb == progress::upgrade::VERB {
+            return self.foreign(entry, &loaded).map(Found::Recover);
+        }
+        if verb == SYNC_VERB {
             return Err(self.gap_diag(format_args!(
                 "{} while the incomplete {verb} operation in {shown} remains",
                 req.verb()
@@ -1247,7 +1403,322 @@ impl<W: Write, S: Sink, L: Write> Dev<'_, '_, W, S, L> {
         } else {
             None
         };
-        Ok(Residual { entry, value })
+        Ok(Found::Merge(Residual { entry, value }))
+    }
+
+    /// 讀殘留的 `add` 或工具 `upgrade` 記的對象與版本鎖定行的值（模組說明「恢復」）。跟 engine/add、
+    /// engine/upgrade 自己恢復時一樣，只收沒有初始檔要寫的那種；其他的見缺口。
+    fn foreign(&self, entry: progress::Entry, loaded: &Progress) -> Result<Foreign, Diagnostic> {
+        let shown = self.rel(&entry.path);
+        let (verb, repo, image) = if entry.verb == ADD_VERB {
+            let field = |key: &str| {
+                loaded
+                    .document()
+                    .get(&[ADD_VERB, key])
+                    .and_then(|i| i.as_value())
+                    .cloned()
+            };
+            let repo = field(ADD_REPO).and_then(|v| v.as_str().map(str::to_owned));
+            let image = field(ADD_IMAGE).and_then(|v| v.as_str().map(str::to_owned));
+            let repo_files = field(ADD_REPO_FILES).and_then(|v| v.as_bool());
+            let (Some(repo), Some(image), Some(repo_files)) = (repo, image, repo_files) else {
+                return Err(self.gap_diag(format_args!(
+                    "recovering the incomplete add in {shown} without the [add] fields"
+                )));
+            };
+            if repo_files {
+                return Err(self.gap_diag(format_args!(
+                    "recovering the incomplete add in {shown}, which writes repo files from init.toml"
+                )));
+            }
+            (ADD_VERB, repo, image)
+        } else {
+            use progress::upgrade as table;
+            let target = table::field(loaded, table::TARGET).map(str::to_owned);
+            let image = table::field(loaded, table::IMAGE).map(str::to_owned);
+            let init_files = table::flag(loaded, table::INIT_FILES);
+            if target.as_deref() == Some(table::ENGINE_TARGET) {
+                return Err(self.gap_diag(format_args!(
+                    "recovering the incomplete engine upgrade in {shown}"
+                )));
+            }
+            let (Some(repo), Some(image), Some(init_files)) = (target, image, init_files) else {
+                return Err(self.gap_diag(format_args!(
+                    "recovering the incomplete upgrade in {shown} without the [upgrade] fields"
+                )));
+            };
+            if init_files {
+                return Err(self.gap_diag(format_args!(
+                    "recovering the incomplete upgrade in {shown}, which writes init files"
+                )));
+            }
+            (table::VERB, repo, image)
+        };
+        let Ok(locked) = ImageRef::parse(&image) else {
+            return Err(self.internal_diag(format!("{shown} records image {image:?}")));
+        };
+        Ok(Foreign {
+            command: loaded.command().to_vec(),
+            entry,
+            verb,
+            repo,
+            locked,
+        })
+    }
+
+    // ---- 恢復殘留的 `add`、`upgrade` ----
+
+    /// 依序備好每一份（只讀不寫），`lockfile` 換成恢復之後的版本鎖定行。入口檔照檔上的覆寫算：恢復排在這次
+    /// 自己的落地之前。
+    fn prepare(
+        &mut self,
+        foreign: Vec<Foreign>,
+        lockfile: &mut LockFile,
+        disk: Option<&LocalFile>,
+    ) -> Step<()> {
+        if foreign.is_empty() {
+            return Ok(());
+        }
+        let local = disk.cloned().unwrap_or_default();
+        for f in foreign {
+            let r = self.recover(f, lockfile, &local)?;
+            *lockfile = r.lockfile.clone();
+            self.pending.push(r);
+        }
+        Ok(())
+    }
+
+    /// 備好一份：依進度檔記的版本鎖定行值取件、驗證（撞名對象是其他工具與根 `justfile`，同 engine/add、
+    /// engine/upgrade），算好恢復之後的版本鎖定行與入口檔，不寫任何檔。
+    fn recover(&mut self, f: Foreign, lockfile: &LockFile, local: &LocalFile) -> Step<Recovery> {
+        let repo = f.repo.clone();
+        let (others, _) = self.collect(lockfile, local, BTreeMap::new(), Some(&repo))?;
+        let mut taken = Taken::new();
+        for (other, ns) in &others {
+            taken.tool(other, ns.iter().cloned());
+        }
+        self.root_names(&mut taken)?;
+        let (id, repo_digests) = self.resolve(&f)?;
+
+        self.extracts += 1;
+        let slot = format!("{FETCH_SLOT_PREFIX}{}", self.extracts);
+        let Some(slot_v) = Slot::parse(&slot) else {
+            return Err(self.internal(format!("invalid slot {slot}")));
+        };
+        let (_, outcome) = self.request(&Op::Extract(id, slot_v))?;
+        match outcome {
+            Outcome::Ok => {}
+            Outcome::Failed(rc) => {
+                let shown = f.locked.to_string();
+                return Err(self.access_failed(&shown, &repo, text::docker_failed("extract", rc)));
+            }
+            Outcome::Runner(_) => return Err(self.internal("extract returned a runner result")),
+        }
+        let root = self.env.inbox.join(&slot);
+        let staged = Staged {
+            repo: &repo,
+            locked: &f.locked,
+            root: &root,
+            repo_digests: &repo_digests,
+        };
+        let candidate = match fetch::verify(&staged, &taken, None) {
+            Ok(c) => c,
+            Err(fetch::Error::Collision { collisions, .. }) => {
+                for c in collisions {
+                    let d = Diagnostic::new(&messages::VK0030)
+                        .arg("repo", repo.as_str())
+                        .arg("ns", c.ns)
+                        .arg("owner", c.owner.to_string());
+                    self.emit(d);
+                }
+                return Err(Stop);
+            }
+            Err(e) => return Err(self.internal(format!("tool content of {repo}: {e}"))),
+        };
+        let mut lockfile = lockfile.clone();
+        if let Err(e) = lockfile.set_tool(&repo, &f.locked) {
+            return Err(self.internal(e.to_string()));
+        }
+        // 對象開著覆寫時入口檔照樣指向本機開發來源（`collect` 讀它）；否則用取到的內容。
+        let mut known = others;
+        if local.tool(&repo).is_none() {
+            known.insert(repo.clone(), candidate.namespaces().to_vec());
+        }
+        let (known, dirs) = self.collect(&lockfile, local, known, None)?;
+        let tools_just = self.render(&lockfile, &known, dirs)?;
+        Ok(Recovery {
+            foreign: f,
+            candidate,
+            tools_just,
+            lockfile,
+        })
+    }
+
+    /// 取件前找出 image：殘留的 `add` 照 engine/add 的恢復，只 inspect 帶 digest 的引用、RepoDigests 要有它
+    /// （否則 VK0031）；工具 `upgrade` 照 engine/upgrade 的恢復，本機沒有就 `pull` 再 inspect。docker 動作
+    /// 失敗回 VK0055。回傳 image ID 與交給 `fetch::verify` 的 RepoDigests。
+    fn resolve(&mut self, f: &Foreign) -> Step<(ImageId, Vec<String>)> {
+        let pinned = format!(
+            "{}/{}@{}",
+            f.locked.registry(),
+            f.locked.path(),
+            f.locked.digest()
+        );
+        let Some(wire) = plan::ImageRef::parse(&pinned).filter(plan::ImageRef::is_pinned) else {
+            return Err(self.internal(format!("cannot request {pinned}")));
+        };
+        let shown = f.locked.to_string();
+        let inspected = match self.inspect(&wire)? {
+            Ok(i) => i,
+            Err(rc) if f.verb == ADD_VERB => {
+                return Err(self.access_failed(
+                    &shown,
+                    &f.repo,
+                    text::docker_failed("inspect", rc),
+                ));
+            }
+            Err(_) => {
+                let (_, outcome) = self.request(&Op::Pull(wire.clone()))?;
+                match outcome {
+                    Outcome::Ok => {}
+                    Outcome::Failed(rc) => {
+                        return Err(self.access_failed(
+                            &shown,
+                            &f.repo,
+                            text::docker_failed("pull", rc),
+                        ));
+                    }
+                    Outcome::Runner(_) => {
+                        return Err(self.internal("pull returned a runner result"));
+                    }
+                }
+                match self.inspect(&wire)? {
+                    Ok(i) => i,
+                    Err(rc) => {
+                        return Err(self.access_failed(
+                            &shown,
+                            &f.repo,
+                            text::docker_failed("inspect", rc),
+                        ));
+                    }
+                }
+            }
+        };
+        let Some(id) = ImageId::parse(&inspected.id) else {
+            return Err(self.internal(format!("image inspect returned Id {:?}", inspected.id)));
+        };
+        if f.verb != ADD_VERB {
+            return Ok((id, inspected.repo_digests));
+        }
+        if !inspected.repo_digests.contains(&pinned) {
+            let d = Diagnostic::new(&messages::VK0031)
+                .arg("image", shown.as_str())
+                .arg("reason", text::no_repo_digest(&pinned));
+            return Err(self.stop(d));
+        }
+        Ok((id, vec![pinned]))
+    }
+
+    /// 根 `justfile` 的 recipe 與 module 名加進撞名對象（同 engine/add、engine/upgrade）。
+    fn root_names(&mut self, taken: &mut Taken) -> Step<()> {
+        let path = self.env.dir.root().join("justfile");
+        match fs::read(&path) {
+            Ok(bytes) => {
+                let names = justfile::scan(&String::from_utf8_lossy(&bytes));
+                for r in names.recipes {
+                    taken.root_recipe(r);
+                }
+                for m in names.modules {
+                    taken.root_module(m);
+                }
+                Ok(())
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(self.internal(format!("{}: {e}", path.display()))),
+        }
+    }
+
+    /// VK0055：恢復取件時 docker 動作失敗（訊息表：add、upgrade 取得工具 image 時的錯誤）。
+    fn access_failed(&mut self, source: &str, repo: &str, reason: String) -> Stop {
+        let d = Diagnostic::new(&messages::VK0055)
+            .arg("source", source)
+            .arg("target", repo)
+            .arg("reason", reason);
+        self.stop(d)
+    }
+
+    /// 依序落地備好的恢復，排在這次自己的落地之前：每一份重驗暫存內容、照那個指令的順序落地（`cache/` 與
+    /// 印記、入口檔、版本鎖定行），新的進度檔沿用原指令與欄位，完成之後才刪殘留的那一份，中途再斷也還認得
+    /// 出來。預演只印會完成哪幾份，殘留的進度檔照留。
+    fn land_recoveries(&mut self) -> Step<()> {
+        if self.dry_run {
+            let lines: Vec<String> = self
+                .pending
+                .iter()
+                .map(|r| recovered_line(r, true))
+                .collect();
+            for line in lines {
+                self.say(&line);
+            }
+            return Ok(());
+        }
+        for mut r in std::mem::take(&mut self.pending) {
+            if let Err(e) = r.candidate.recheck() {
+                let repo = r.foreign.repo.clone();
+                return Err(self.internal(format!("staged content of {repo} changed: {e}")));
+            }
+            let progress = self.recovery_progress(&r.foreign)?;
+            let stamp = stamp::tool_file(self.env.dir, r.candidate.repo());
+            let tool = ToolContent {
+                repo: r.candidate.repo(),
+                staged: r.candidate.root(),
+                version: r.candidate.version(),
+                stamp_file: &stamp,
+            };
+            let result = {
+                let mut fx = Disk::new(self.env.dir, self.env.log, self.env.written_by);
+                Txn::begin(&mut fx, progress).and_then(|t| {
+                    t.swap_cache(&[tool])?
+                        .write_repo_files(&[])?
+                        .write_records(&[])?
+                        .write_tools_just(Some(r.tools_just.as_bytes()))?
+                        .write_lock_line(&mut r.lockfile, runlog::Target::Tool)?
+                        .complete()
+                })
+            };
+            if let Err(f) = result {
+                return Err(self.internal(f.to_string()));
+            }
+            let old = &r.foreign.entry;
+            if let Err(e) = progress::delete(self.env.dir, &old.verb, &old.id) {
+                let d = self.failed_diag(&old.path, e.message(), e.to_string());
+                return Err(self.stop(d));
+            }
+            self.say(&recovered_line(&r, false));
+        }
+        Ok(())
+    }
+
+    /// 恢復落地時的新進度檔：`<verb>` 與欄位照殘留的那一份（engine/add、engine/upgrade 的 `progress`），
+    /// 原指令照抄。
+    fn recovery_progress(&mut self, f: &Foreign) -> Step<Progress> {
+        let mut p = match Progress::new(f.verb, self.env.run_id, &f.command) {
+            Ok(p) => p,
+            Err(e) => return Err(self.internal(e.to_string())),
+        };
+        let doc = p.document_mut();
+        let set = if f.verb == ADD_VERB {
+            doc.set(&[ADD_VERB, ADD_REPO], f.repo.as_str())
+                .and_then(|()| doc.set(&[ADD_VERB, ADD_IMAGE], f.locked.to_string()))
+                .and_then(|()| doc.set(&[ADD_VERB, ADD_REPO_FILES], false))
+        } else {
+            use progress::upgrade as table;
+            doc.set(&[table::TABLE, table::TARGET], f.repo.as_str())
+                .and_then(|()| doc.set(&[table::TABLE, table::IMAGE], f.locked.to_string()))
+                .and_then(|()| doc.set(&[table::TABLE, table::INIT_FILES], false))
+        };
+        set.map_err(|e| self.internal(e.to_string()))?;
+        Ok(p)
     }
 
     /// VK0054：不能併進這次的殘留（其他可寫 recipe 的，或對象不同的 `dev`），下一步是重跑原指令。
@@ -1332,4 +1803,13 @@ fn same_overrides(a: &LocalFile, b: Option<&LocalFile>) -> bool {
     let empty = LocalFile::new();
     let b = b.unwrap_or(&empty);
     a.engine() == b.engine() && a.tools() == b.tools()
+}
+
+/// 恢復殘留的 `add`、`upgrade` 落地後（預演時是會落地）印的字句。
+fn recovered_line(r: &Recovery, dry: bool) -> String {
+    if r.foreign.verb == ADD_VERB {
+        text::recovered_add(&r.foreign.repo, &r.foreign.locked, dry)
+    } else {
+        text::recovered_upgrade(&r.foreign.repo, &r.foreign.locked, dry)
+    }
 }

@@ -81,3 +81,31 @@ pub fn recovered(verb: &str, file: &str, dry: bool) -> String {
     let v = if dry { "Would complete" } else { "Completed" };
     format!("{v} the interrupted {verb} recorded in {file}.")
 }
+
+/// 完成了殘留的 `add`（字句同 engine/add）；預演時是會完成的。
+pub fn recovered_add(repo: &str, locked: &ImageRef, dry: bool) -> String {
+    let v = if dry { "Would complete" } else { "Completed" };
+    format!(
+        "{v} the interrupted add of {repo} {} ({locked}).",
+        locked.tag()
+    )
+}
+
+/// 完成了殘留的工具 `upgrade`（字句同 engine/upgrade）；預演時是會完成的。
+pub fn recovered_upgrade(repo: &str, locked: &ImageRef, dry: bool) -> String {
+    let v = if dry { "Would complete" } else { "Completed" };
+    format!(
+        "{v} the interrupted upgrade of {repo} to {} ({locked}).",
+        locked.tag()
+    )
+}
+
+/// VK0055 的 `<reason>`：啟動器代做的 docker 動作失敗（字句同 engine/add、engine/upgrade）。
+pub fn docker_failed(op: &str, rc: u8) -> String {
+    format!("docker {op} exited with {rc}")
+}
+
+/// VK0031 的 `<reason>`：本機 image 沒有這個 registry 與路徑的 RepoDigest（字句同 engine/add）。
+pub fn no_repo_digest(name: &str) -> String {
+    format!("it has no repository digest for {name}")
+}
