@@ -70,6 +70,46 @@ class CsvTest(unittest.TestCase):
         self.assertEqual(check_terms.line_hits("x.csv", "<u>底線</u>", patterns), ["<u>（名詞改用連結）"])
 
 
+class TermPatternTest(unittest.TestCase):
+    def hits(self, term, line):
+        return check_terms.line_hits("x.md", line, [(term, check_terms.term_pattern(term))])
+
+    def test_longer_identifier_does_not_count(self):
+        # OCI LABEL 鍵裡的 .version 是更長識別字的一段，不是避用詞
+        for line in (
+            "LABEL 鍵 `org.opencontainers.image.version` 記版本",
+            "org.opencontainers.image.version=1.2.3",
+            "`foo.version.bar`",
+            "`foo.version-bar`",
+            "`.version_x`",
+            "`.versions`",
+            "`x-.version`",
+        ):
+            self.assertEqual(self.hits(".version", line), [], line)
+
+    def test_standalone_dot_version_still_fails(self):
+        for line in (
+            "版本寫在 `.version`",
+            "版本寫在 .version 檔",
+            "寫成 .version.",
+            "寫成 .version-",
+            "repo/.version",
+            "(.version)",
+        ):
+            self.assertEqual(self.hits(".version", line), [".version"], line)
+
+    def test_other_terms_unchanged(self):
+        # 含中文或空白的詞仍是子字串比對；非識別字字元那一端不加邊界
+        self.assertEqual(self.hits("下游 image", "下游 images"), ["下游 image"])
+        self.assertEqual(self.hits("needs human", "xneeds humans"), ["needs human"])
+        self.assertEqual(self.hits("專案", "子專案檔"), ["專案"])
+        self.assertEqual(self.hits("<name>", "a<name>b"), ["<name>"])
+        self.assertEqual(self.hits(".<repo>/", "`.<repo>/config.toml`"), [".<repo>/"])
+        self.assertEqual(self.hits(".<repo>/", "`x.<repo>/`"), [])
+        self.assertEqual(self.hits("簽章", "數位簽章"), [])
+        self.assertEqual(self.hits("簽章", "簽章檔"), ["簽章"])
+
+
 class GlossaryLinkTest(unittest.TestCase):
     GLOSSARY = """# 名詞表
 
