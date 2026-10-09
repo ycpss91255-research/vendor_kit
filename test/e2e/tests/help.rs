@@ -84,8 +84,8 @@ Add a tool at its latest version, at <tag>, or from a local image.
 
 Options:
   -i, --image <image>               Use a local image or image tar instead of the registry
-      --image-path <registry>/<path>
-                                    Registry path of a tool not yet in the lock file
+      --image-path ghcr.io/<path>   Registry path of a tool not yet in the lock file,
+                                    without a tag or digest
   -y, --yes                         Answer yes to the questions add asks
       --dry-run                     Print the changes without making them
       --registry-token-file <path>  Read a registry token from <path> to list versions
