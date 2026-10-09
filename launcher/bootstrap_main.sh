@@ -13,6 +13,8 @@
 #   被拒絕時都不建紀錄、不寫檔，只在 stderr 印診斷。單獨 -h／--help 只印用法，不做主機檢查。
 # - 判定 4（首次導入，含未完成的首次導入）：建 `.vendor_kit/log/` 與這次的紀錄（mode initial_import、
 #   verb bootstrap、argv 是這次的參數原樣），取得引擎 image，再以 `install [-y]` 起引擎（vk_bootstrap_import）。
+#   入口 argv 凍結，bootstrap.sh 的 `$0` 與全部原參數另外寫成 in/bootstrap（launch.sh 的 vk_launch_bootstrap，B2），
+#   引擎不能互動時以它組 VK0002 的重跑指令。
 #   引擎的起法與往返跟 VK recipe 相同（launch.sh 的 vk_launch_session）；P 是內嵌的 vk_bootstrap_proto，
 #   不讀介面版列表（首次導入還沒有 version.toml）。
 # - 首次導入的引擎來源（vk_bootstrap_source；04 用哪一版引擎、離線導入）：
@@ -616,6 +618,10 @@ vk_bootstrap_import() {
     if [[ -n $vk_bs_yes ]]; then
         args+=(-y)
     fi
+    # 引擎入口 argv 凍結（救援），所以 bootstrap.sh 自己怎麼被叫的（`$0` 與全部原參數）經 in/bootstrap 交給引擎，
+    # 給 VK0002 的重跑指令用（B2）。
+    # shellcheck disable=SC2034 # launch.sh 的 vk_launch_session 讀它
+    vk_launch_bootstrap=("$0" "$@")
     vk_launch_session "$dir" "$dir" "$vk_bs_engine_image" "$vk_bs_engine_ref" "$vk_bootstrap_proto" \
         "$run_id" "$run_log" "${args[@]}"
 }

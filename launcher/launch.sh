@@ -31,6 +31,7 @@
 #   底下 ctl/ 可寫掛在 /vk/ctl、in/ 唯讀掛在 /vk/in，安裝目錄掛在 /vk/root。
 # - 起引擎之前先把這次用的 pinned 引用寫成 in/engine（wire.sh 的 vk_wire_in_engine；先 .tmp 再 mv），
 #   救援呼叫也寫。之後 stage、stage-dir、extract 到同名 slot 都會被拒，整次只寫這一次。
+#   bootstrap.sh 的首次導入另外寫 in/bootstrap（vk_wire_in_bootstrap；B2），其他呼叫不寫。
 # - `docker create -i --init` 先拿到容器 ID，再以前景 `docker start -ai` 起引擎（stdin 接通、不帶 -t，
 #   stdout 與 stderr 分開）；代辦迴圈（vk_launch_serve）在背景跑，結果寫 res.<seq>（先 .tmp 再 mv）。
 # - docker 子程序的輸出一律攔下（N20，03:45–46）：啟動器呼叫的 docker（pull、load、inspect、ps、create、cp、
@@ -50,11 +51,14 @@
 # - 協定不合（VK0056）時迴圈停掉引擎容器，原因寫在 session 目錄的 fault（不在 ctl/，引擎寫不到）。
 # - 引擎結束後核對 done 與容器結束碼，寫 run_finished，刪容器（不加 -f）與 session 目錄。
 #   容器停不下來時保留 session 目錄與容器，不刪現場。
-# - 殘留的現場（N58）：`prune` 會刪本安裝目錄已停止的容器，但 session 目錄在 repo 外、引擎看不到。
-#   所以 `prune` 起引擎之前先記下帶本安裝目錄 label 的容器屬於哪些 run-id，`prune` 成功（結束碼 0）之後
-#   再查一次：先前有、現在一個容器都不剩的 run-id，它留下的 `vendor_kit.<run-id>/` 由啟動器刪掉。
+# - 殘留的現場（N58、D14）：`prune` 會刪本安裝目錄已停止的容器，但 session 目錄在 repo 外、引擎看不到。
+#   所以 `prune` 起引擎之前先記下帶本安裝目錄 label 的容器屬於哪些 run-id（vk_session_before）；之後再查一次：
+#   先前有、現在一個容器都不剩、不是這次的 run-id，它留下的 `vendor_kit.<run-id>/`（自己的實體目錄）由啟動器刪掉。
 #   session 目錄本身不記安裝目錄，只有容器的 label 記，所以只清這次執行期間容器被刪掉的；更早就沒了
-#   容器的目錄不清。stdout 不列刪了什麼（要列得由引擎印，協定還沒有對應的 op）。
+#   容器的目錄不清。
+#   P ≥ 2：由引擎在刪完容器後送 rm-sessions 請啟動器照這條規則刪，刪了哪些、哪些刪不掉寫進 res.<seq>.out，
+#   由引擎列在 stdout、寫進紀錄（預演不送）；啟動器在引擎結束後不再自己清。
+#   P = 1（舊引擎不送 rm-sessions）：照舊在 `prune` 成功（結束碼 0）之後由啟動器自己清，不印、不影響結束碼。
 #
 # 呼叫端（薄殼）先載入 msggen 的訊息片段與 diag.sh、host.sh、log.sh、wire.sh，設好 vk_log_version。
 # 那些檔定義的變數（vk_wire_*、vk_log_*、vk_diag_exit、vk_req_*）在這裡直接用。
@@ -84,6 +88,8 @@ vk_pending_local_newer='reason code pending (draft VK0009, N55)'
 
 # 本機覆寫的引擎 image（main.sh 從 version.local.toml 讀）；空字串是沒有覆寫。
 vk_launch_override=
+# bootstrap.sh 首次導入時設的來源（`$0` 與全部原參數）；非空時 vk_launch_session 把它寫成 in/bootstrap（B2）。
+vk_launch_bootstrap=()
 
 vk_launch_stop=none
 
@@ -381,19 +387,40 @@ vk_launch_session() {
         vk_launch_finish ""
         return "$REPLY"
     fi
+    # bootstrap.sh 的首次導入：來源寫成 in/bootstrap（一行、每個字一個自由文字欄、以一個空白分隔；先 .tmp 再 mv）。
+    if ((${#vk_launch_bootstrap[@]} > 0)); then
+        local line='' w src=$sess/in/$vk_wire_in_bootstrap
+        for w in "${vk_launch_bootstrap[@]}"; do
+            vk_wire_encode "$w"
+            line+="${line:+ }$REPLY"
+        done
+        if ! { printf '%s\n' "$line" >"$src.tmp" && mv -f -- "$src.tmp" "$src"; } 2>/dev/null; then
+            rm -rf -- "$sess"
+            vk_launch_internal "cannot write the bootstrap source to the session directory $sess"
+            vk_launch_finish ""
+            return "$REPLY"
+        fi
+    fi
 
-    # prune 起引擎之前記下本安裝目錄的容器所屬的 run-id；查不到就不清殘留的現場。
+    # prune 起引擎之前記下本安裝目錄的容器所屬的 run-id；查不到就不清殘留的現場（代辦迴圈的 rm-sessions 也讀這兩個）。
+    # vk_session_before_ok：0 不是 prune、1 記到了、2 是 prune 但查不到。
     local prune=0
-    local -a before=()
-    if [[ ${1:-} == prune ]] && vk_launch_runs "$root"; then
-        prune=1
-        before=("${vk_runs[@]}")
+    vk_session_tmp=${tmp:-/tmp}
+    vk_session_before=()
+    vk_session_before_ok=0
+    if [[ ${1:-} == prune ]]; then
+        vk_session_before_ok=2
+        if vk_launch_runs "$root"; then
+            prune=1
+            vk_session_before=("${vk_runs[@]}")
+            vk_session_before_ok=1
+        fi
     fi
 
     vk_launch_engine "$sess" "$root" "$cwd" "$image" "$proto" "$run_id" "$run_log" "$@"
     local code=$REPLY
-    if ((prune && code == 0)); then
-        vk_launch_prune_sessions "${tmp:-/tmp}" "$root" "$run_id" "${before[@]}"
+    if ((prune && code == 0 && proto < 2)); then
+        vk_launch_prune_sessions "$vk_session_tmp" "$root" "$run_id" /dev/null "${vk_session_before[@]}"
     fi
     REPLY=$code
     return "$REPLY"
@@ -415,18 +442,26 @@ vk_launch_runs() {
     return 0
 }
 
-# vk_launch_prune_sessions <tmp> <root> <run-id> [<prune 之前的 run-id>...]：prune 成功之後清殘留的現場（N58）。
+# vk_launch_prune_sessions <tmp> <root> <run-id> <out> [<prune 之前的 run-id>...]：清殘留的現場（N58、D14）。
 # 只刪這樣的 <tmp>/vendor_kit.<id>/：<id> 在 prune 之前帶本安裝目錄 label 的容器裡、現在一個都不剩、
 # 不是這次執行，而且是自己的實體目錄（不是 symlink）。label 值來自 docker，先照 run-id 文法驗過才拼路徑。
-# 查不到現在的容器就一個都不刪。不印、不影響結束碼。
+# 每個刪掉的目錄在 <out> 附加一行 `removed <id>`，刪不掉的附加 `failed <id>`（同一個 id 只處理一次）。
+# 回 0；查不到現在的容器就一個都不刪，回 1。不印診斷。
 vk_launch_prune_sessions() {
-    local tmp=$1 root=$2 self=$3
-    shift 3
-    if (($# == 0)) || ! vk_launch_runs "$root"; then
+    local tmp=$1 root=$2 self=$3 out=$4
+    shift 4
+    if (($# == 0)); then
         return 0
     fi
-    local id now dir left
+    if ! vk_launch_runs "$root"; then
+        return 1
+    fi
+    local id now dir left done_ids=' '
     for id in "$@"; do
+        if [[ $done_ids == *" $id "* ]]; then
+            continue
+        fi
+        done_ids+="$id "
         if [[ ! $id =~ $vk_wire_re_run_id || $id == "$self" ]]; then
             continue
         fi
@@ -438,7 +473,11 @@ vk_launch_prune_sessions() {
         done
         dir=$tmp/vendor_kit.$id
         if ((!left)) && [[ -d $dir && ! -L $dir && -O $dir ]]; then
-            rm -rf -- "$dir" 2>/dev/null
+            if rm -rf -- "$dir" 2>/dev/null && [[ ! -e $dir && ! -L $dir ]]; then
+                printf 'removed %s\n' "$id" >>"$out"
+            else
+                printf 'failed %s\n' "$id" >>"$out"
+            fi
         fi
     done
     return 0
@@ -614,7 +653,8 @@ vk_launch_result() {
 
 # vk_launch_dispatch <sess> <root> <run-id> <seq>：照 vk_req_op 與 vk_req_args 做固定的 docker 動作，
 # result 那一行放進 REPLY。只在這裡呼叫 docker；op 不在封閉清單的已在 wire.sh 擋掉。
-# 交給引擎的原始輸出寫 res.<seq>.out：inspect、ps，以及 load -q 的 stdout（引擎從裡面拿 image ID，N43）。
+# 交給引擎的原始輸出寫 res.<seq>.out：inspect、ps，load -q 的 stdout（引擎從裡面拿 image ID，N43），
+# 以及 rm-sessions 刪了哪些（vk_launch_prune_sessions 的 `removed <id>`／`failed <id>`）。
 # stderr 一律附加到 vk_launch_errlog（N20）。
 vk_launch_dispatch() {
     local sess=$1 root=$2 run_id=$3 seq=$4
@@ -623,7 +663,8 @@ vk_launch_dispatch() {
     local -a a=("${vk_req_args[@]}")
     local -a labels=(--label "$vk_label_root=$root" --label "$vk_label_run=$run_id")
     case $vk_req_op in
-    pull)
+    pull | pull-tag)
+        # pull-tag（P ≥ 2，D7）跟 pull 一樣交給主機 Docker，用的是主機 Docker 的登入；之後引擎自己 inspect 讀 digest。
         docker pull -q "${a[0]}" >/dev/null 2>>"$vk_launch_errlog"
         rc=$?
         ;;
@@ -674,6 +715,18 @@ vk_launch_dispatch() {
         fi
         docker rm "${a[0]}" >/dev/null 2>>"$vk_launch_errlog"
         rc=$?
+        ;;
+    rm-sessions)
+        # P ≥ 2（D14）：照起引擎前記下的 run-id 清殘留的現場。不是 prune 就沒有能證明歸屬的，什麼都不刪、回 ok；
+        # 是 prune 但起引擎前或現在查不到容器，就證明不了，回 failed 1。
+        : >"$out"
+        case ${vk_session_before_ok:-0} in
+        1)
+            vk_launch_prune_sessions "$vk_session_tmp" "$root" "$run_id" "$out" "${vk_session_before[@]}"
+            rc=$?
+            ;;
+        2) rc=1 ;;
+        esac
         ;;
     runner)
         vk_launch_runner "$sess" "$root" "${a[@]}"

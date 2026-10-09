@@ -13,11 +13,17 @@
 #
 # 救援路徑用到的部分（掛載點、控制檔名、in/ 的引擎引用檔名、hdr、done、fld、ok／failed 與 pull、load、
 # inspect、extract、stage）跨介面版永久不變（#372 維護者 10/05 定救援路徑協定選 A）；改了就破壞救援，P+1 也不能改。
+#
+# 介面版 2 起（ADR-0008:25 的 P+1；#723、#724）：多了 pull-tag、rm-sessions 兩個 op，runner 的 image 欄改用自由文字欄。
+# 這三樣只在 header 的 P ≥ 2 時收；P = 1 的 req 照原本的文法（舊薄殼配新引擎時，引擎以 P = 1 回應、不送新 op）。
 
 vk_wire_grammar=vk-resolve
 # op 的封閉集合，依文法的順序（engine/plan 的 OPS），兩邊相等；wire.bats 比對兩份清單。
 # stage-dir（N48，開發來源的目錄）只給 dev 用，不屬救援路徑。
-vk_wire_ops=(pull load inspect extract stage stage-dir ps rm-container runner)
+# pull-tag、rm-sessions 是介面版 2 起才有的 op（vk_wire_since_v2），不屬救援路徑。
+vk_wire_ops=(pull load inspect extract stage stage-dir ps rm-container runner pull-tag rm-sessions)
+# 介面版 2 起才收的 op；P = 1 的 req 送這些算協定不合。
+vk_wire_since_v2=(pull-tag rm-sessions)
 # 引擎入口的具名選項，依傳的順序（engine/plan 的 argv::ORDER），之後接 `--`。
 vk_wire_argv=(--protocol --run-id --host-root --host-cwd --run-log --tty --no-color)
 # 引擎容器內的掛載點（engine/plan 的 mount）。
@@ -28,6 +34,10 @@ vk_wire_mount_in=/vk/in
 # 引擎 image 不可能含有自己的 index digest，救援 argv 又凍結，所以由這個檔交給引擎（N37）。
 # 不會跟 tool<N> 的 slot 撞名；stage、stage-dir、extract 遇到已存在的 slot 一律拒絕，也蓋不掉這個檔。
 vk_wire_in_engine=engine
+# in/ 裡 bootstrap.sh 首次導入時放的來源檔（容器內 /vk/in/bootstrap）：`$0` 與 bootstrap.sh 收到的全部參數，
+# 每個寫成一個自由文字欄（fld），以一個空白分隔，一行、LF 結尾。引擎用它組 VK0002 的重跑指令（B2）。
+# install 是救援呼叫、入口 argv 凍結，所以比照 res.<seq>.out 的前例放進 in/；引擎讀時允許檔不存在。
+vk_wire_in_bootstrap=bootstrap
 
 # 各欄的型別（engine/plan 的 ABNF）。fld 的 0x21–0x7E 不含反斜線 0x5C；八進位只收 001–377。
 vk_wire_re_proto='^[1-9][0-9]{0,9}$'
@@ -36,6 +46,8 @@ vk_wire_re_seq='^[1-9][0-9]{0,3}$'
 vk_wire_re_exit='^[0-3]$'
 vk_wire_re_ref='^[a-z0-9][a-z0-9._/:@-]*$'
 vk_wire_re_pinned='^[^@]+@sha256:[0-9a-f]{64}$'
+# pull-tag 的 tag（最後一個 / 之後、: 之後那段）：Docker 的 tag 文法 [\w][\w.-]{0,127} 裡 ref 收得下的子集。
+vk_wire_re_tag='^[a-z0-9_][a-z0-9_.-]{0,127}$'
 vk_wire_re_imgid='^sha256:[0-9a-f]{64}$'
 vk_wire_re_cid='^[0-9a-f]{64}$'
 vk_wire_re_slot='^[a-z0-9]{1,16}$'
@@ -97,6 +109,26 @@ vk_wire_field() {
     printf -v REPLY '%b' "${tok//\\/\\0}"
 }
 
+# vk_wire_encode <value>：把值編成自由文字欄（engine/plan 的 Field::encode，同一個值只有一種位元組），放進 REPLY。
+# 0x21–0x7E 照原樣，反斜線、空白、控制字元與 0x7F 以上一律寫成三位八進位。值不能含 NUL（bash 字串本來就存不了）。
+vk_wire_encode() {
+    local LC_ALL=C s=$1 c o i
+    REPLY=e:
+    for ((i = 0; i < ${#s}; i++)); do
+        c=${s:i:1}
+        printf -v o '%d' "'$c"
+        if ((o < 0)); then
+            o=$((o + 256))
+        fi
+        if ((o >= 0x21 && o <= 0x7e && o != 0x5c)); then
+            REPLY+=$c
+        else
+            printf -v c '\\%03o' "$o"
+            REPLY+=$c
+        fi
+    done
+}
+
 # vk_wire_ref <token> [pinned]：image 引用；給 pinned 時還要以 @sha256:<64 位小寫 hex> 結尾、全串只有一個 @。
 vk_wire_ref() {
     local LC_ALL=C
@@ -105,6 +137,28 @@ vk_wire_ref() {
         [[ $1 =~ $vk_wire_re_pinned ]] || return 1
     fi
     return 0
+}
+
+# vk_wire_tagged <token>：pull-tag 的運算元，不帶 digest 的 `<路徑>:<tag>`：是 ref、不含 @，最後一個 / 之後有 :，
+# 那個 : 之後是 tag（vk_wire_re_tag）。
+vk_wire_tagged() {
+    local LC_ALL=C last
+    [[ $1 =~ $vk_wire_re_ref && $1 != *@* ]] || return 1
+    last=${1##*/}
+    [[ $last == *:* && ${last##*:} =~ $vk_wire_re_tag ]]
+}
+
+# vk_wire_runner_image <token> <P>：runner 的 image 欄，合格的值放進 REPLY。P = 1 是 ref（只收小寫）；
+# P ≥ 2 是自由文字欄，解碼後非空、不以 - 開頭（不讓 docker create 當成選項），其餘照 Docker 自己的規則判。
+vk_wire_runner_image() {
+    local LC_ALL=C
+    if (($2 < 2)); then
+        vk_wire_ref "$1" || return 1
+        REPLY=$1
+        return 0
+    fi
+    vk_wire_field "$1" || return 1
+    [[ -n $REPLY && $REPLY != -* ]]
 }
 
 # vk_wire_parse_req <file> <P> <run-id> <seq>：讀 req.<seq>。成功時 op 名放進 vk_req_op，
@@ -135,7 +189,15 @@ vk_wire_parse_req() {
         REPLY="unknown op $name"
         return 1
     fi
-    if ! vk_wire_operands "$name" "$n" "${op[@]:1}"; then
+    if ((proto < 2)); then
+        for o in "${vk_wire_since_v2[@]}"; do
+            if [[ $o == "$name" ]]; then
+                REPLY="op $name needs interface version 2 or later"
+                return 1
+            fi
+        done
+    fi
+    if ! vk_wire_operands "$name" "$n" "$proto" "${op[@]:1}"; then
         REPLY="invalid operands for op $name"
         return 1
     fi
@@ -143,10 +205,10 @@ vk_wire_parse_req() {
     return 0
 }
 
-# vk_wire_operands <op> <個數> <運算元>...：逐欄驗證，合格的值（自由文字欄已解碼）放進 vk_req_args；不合回 1。
+# vk_wire_operands <op> <個數> <P> <運算元>...：逐欄驗證，合格的值（自由文字欄已解碼）放進 vk_req_args；不合回 1。
 vk_wire_operands() {
-    local LC_ALL=C name=$1 n=$2
-    shift 2
+    local LC_ALL=C name=$1 n=$2 proto=$3
+    shift 3
     vk_req_args=()
     case $name in
     pull | inspect)
@@ -193,11 +255,22 @@ vk_wire_operands() {
         fi
         vk_req_args=("$1")
         ;;
-    runner)
-        if ((n < 2)) || ! vk_wire_ref "$1"; then
+    pull-tag)
+        # 介面版 2 起：依 tag 下載（D7），由主機 Docker（含它的登入）pull；不屬救援路徑，救援的 pull 文法不動。
+        if ((n != 1)) || ! vk_wire_tagged "$1"; then
             return 1
         fi
         vk_req_args=("$1")
+        ;;
+    rm-sessions)
+        # 介面版 2 起：prune 請啟動器清殘留的 session 目錄（D14）；沒有運算元，刪哪些由啟動器證明歸屬後決定。
+        ((n == 0)) || return 1
+        ;;
+    runner)
+        if ((n < 2)) || ! vk_wire_runner_image "$1" "$proto"; then
+            return 1
+        fi
+        vk_req_args=("$REPLY")
         shift
         local a
         for a in "$@"; do

@@ -144,6 +144,24 @@ not_obtained() {
     [[ $(head -n 1 "$REPLY") == *'"vendor_kit.argv":["--yes"]}}' ]]
 }
 
+@test "the bootstrap source (\$0 and every original argument) is written to in/bootstrap for VK0002" {
+    # 入口 argv 凍結（救援），所以 bootstrap.sh 怎麼被叫的經 in/bootstrap 交給引擎（B2）：一行、每個字一個自由文字欄。
+    printf '%s\n' 'cp "${engine_ctl%/ctl}/in/bootstrap" "$fake/in_bootstrap"; finish 0' >"$fake/engine"
+    bsi --yes
+    [ "$status" -eq 0 ]
+    local line
+    line=$(<"$fake/in_bootstrap")
+    local -a words
+    read -r -a words <<<"$line"
+    [ "${#words[@]}" -eq 2 ]
+    [[ ${words[0]} == e:?* ]]
+    [ "${words[1]}" = e:--yes ]
+    # 位元組跟 wire.sh 的 vk_wire_encode 一致，解得回來：第一個字是 bash 的 $0
+    vk "vk_wire_field '${words[0]}' && printf '%s' \"\$REPLY\""
+    [ "$output" = "$BASH" ]
+    [ "$(tail -c 1 "$fake/in_bootstrap" | od -An -c | tr -d ' ')" = '\n' ]
+}
+
 @test "the engine exit code is the exit code of bootstrap.sh" {
     printf '%s\n' 'finish 1' >"$fake/engine"
     bsi
