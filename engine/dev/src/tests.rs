@@ -1010,21 +1010,298 @@ fn residual_of_another_target_is_vk0053_or_vk0054() {
     assert_eq!(fx.snapshot(), before);
 }
 
-/// `add`、`upgrade` 的殘留：VK0054 的情境排除它們，照舊以 VK0056 停下。
+/// 殘留的 `add` 導入的工具（不在版本鎖定行）。
+const FRESH: &str = "ghcr.io/acme/fresh:v2.0.0@sha256:5555555555555555555555555555555555555555555555555555555555555555";
+const FRESH_PINNED: &str =
+    "ghcr.io/acme/fresh@sha256:5555555555555555555555555555555555555555555555555555555555555555";
+/// 恢復殘留的 `add`、`upgrade` 落地時的里程碑事件（寫版本鎖定行）。
+const RECOVERY_LANDED: [&str; 4] = [
+    "writes_started",
+    "lock_line_write_started",
+    "lock_line_written",
+    "progress_removed",
+];
+/// 恢復殘留的 `add fresh` 之後，入口檔多出的那一行。
+const FRESH_LINE: &str = "mod? fresh '../cache/fresh/just/fresh.just'\n";
+
+impl Fx {
+    /// 寫一份殘留的 `add` 或工具 `upgrade` 進度檔：`[<verb>]` 下記對象、版本鎖定行的值與
+    /// 有沒有要寫的初始檔（`add` 是 `repo`、`image`、`repo_files`；`upgrade` 是 `target`、`image`、`init_files`）。
+    fn recoverable(&self, verb: &str, repo: &str, image: &str, files: bool) {
+        let (target, flag) = if verb == ADD_VERB {
+            (ADD_REPO, ADD_REPO_FILES)
+        } else {
+            (progress::upgrade::TARGET, progress::upgrade::INIT_FILES)
+        };
+        let mut p = Progress::new(verb, "r0", &[verb, repo]).unwrap();
+        let doc = p.document_mut();
+        doc.set(&[verb, target], repo).unwrap();
+        doc.set(&[verb, "image"], image).unwrap();
+        doc.set(&[verb, flag], files).unwrap();
+        p.create(&self.dir, WRITTEN_BY).unwrap();
+    }
+
+    /// 本機有 `fresh` 的 image（殘留的 `add` 只 inspect、不 pull），交付 `files` 這幾個 `<ns>`。
+    fn fresh_image(&self, namespaces: &[&str]) {
+        let mut image = Image::new(FRESH_PINNED, true, "");
+        image.files = namespaces
+            .iter()
+            .map(|ns| (format!("just/{ns}.just"), "f:\n    echo f\n".to_owned()))
+            .collect();
+        self.registry.borrow_mut().images.push(image);
+    }
+
+    fn lock_line(&self, repo: &str) -> Option<String> {
+        LockFile::load_from(&self.dir)
+            .unwrap()
+            .unwrap()
+            .tool(repo)
+            .map(ToString::to_string)
+    }
+}
+
+/// `dev` 遇到另一個工具殘留的 `add`（04：可寫 recipe 先恢復再做自己的事）：恢復先落地（`cache/`、印記、
+/// 入口檔、版本鎖定行），再開這次的覆寫；殘留的進度檔刪掉，以 0 結束。
 #[test]
-fn residual_add_or_upgrade_is_still_a_gap() {
-    for verb in ["add", "upgrade"] {
+fn residual_add_of_another_tool_is_recovered_before_dev() {
+    let fx = Fx::new();
+    fx.fresh_image(&["fresh"]);
+    fx.recoverable(ADD_VERB, "fresh", FRESH, false);
+    let out = dev(&fx, "tool", "dev/tool");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.ops,
+        [
+            format!("inspect {FRESH_PINNED}"),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Completed the interrupted add of fresh v2.0.0 ({FRESH}).\n\
+             tool now uses the local source dev/tool (local override).\n\
+             Updated .vendor_kit/gen/tools.just.\n"
+        )
+    );
+    assert_eq!(fx.lock_line("fresh").as_deref(), Some(FRESH));
+    assert_eq!(fx.entry(), format!("{FRESH_LINE}{DEV_GEN}"));
+    assert_eq!(fx.local().unwrap().tool("tool"), Some("dev/tool"));
+    let cache = fx.dir.tool_cache("fresh").unwrap();
+    assert!(cache.join("just/fresh.just").is_file());
+    let stamp = stamp::Stamp::load(&stamp::tool_file(&fx.dir, "fresh"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stamp.version(), FRESH);
+    assert!(fx.progress_files().is_empty());
+    // 恢復（寫版本鎖定行）與這次各走一次落地。
+    assert_eq!(out.events(), [&RECOVERY_LANDED[..], &LANDED[..]].concat());
+}
+
+/// `dev` 的對象就是殘留 `add` 導入到一半的工具：先恢復，版本鎖定行有它了，不報 VK0046。
+#[test]
+fn dev_of_a_tool_whose_add_is_incomplete_recovers_it_first() {
+    let fx = Fx::new();
+    fx.fresh_image(&["fresh"]);
+    fx.recoverable(ADD_VERB, "fresh", FRESH, false);
+    let src = fx.root().join("dev/fresh/just");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("fresh.just"), "g:\n    echo g\n").unwrap();
+    let out = dev(&fx, "fresh", "dev/fresh");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(fx.lock_line("fresh").as_deref(), Some(FRESH));
+    assert_eq!(fx.local().unwrap().tool("fresh"), Some("dev/fresh"));
+    assert_eq!(
+        fx.entry(),
+        format!("mod? fresh '../../dev/fresh/just/fresh.just'\n{GEN}")
+    );
+    assert!(fx.progress_files().is_empty());
+}
+
+/// `undev` 的對象有殘留的 `upgrade`：照 engine/upgrade 的恢復 pull 後取件一次，恢復換好 `cache/` 與鎖定行，
+/// 解除覆寫時直接指回去，不再取件。
+#[test]
+fn undev_with_a_residual_upgrade_of_the_same_tool_fetches_once() {
+    let fx = Fx::new();
+    fx.write_local("\n[tools]\ntool = \"dev/tool\"\n");
+    fs::write(fx.dir.gen_dir().join(txn::TOOLS_JUST), DEV_GEN).unwrap();
+    fx.registry
+        .borrow_mut()
+        .images
+        .push(Image::new(NEW_PINNED, false, "n:\n    echo n\n"));
+    fx.recoverable(progress::upgrade::VERB, "tool", NEW_TOOL, false);
+    let out = undev(&fx, "tool");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.ops,
+        [
+            format!("inspect {NEW_PINNED}"),
+            format!("pull {NEW_PINNED}"),
+            format!("inspect {NEW_PINNED}"),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Completed the interrupted upgrade of tool to v1.3.0 ({NEW_TOOL}).\n\
+             Removed the local override of tool; tool uses v1.3.0 ({NEW_TOOL}).\n\
+             Updated .vendor_kit/gen/tools.just.\n"
+        )
+    );
+    assert_eq!(fx.lock_line("tool").as_deref(), Some(NEW_TOOL));
+    assert_eq!(fx.stamp_version(), NEW_TOOL);
+    assert_eq!(fx.cached_text(), "n:\n    echo n\n");
+    assert_eq!(fx.entry(), GEN);
+    assert_eq!(fx.local().unwrap().tool("tool"), None);
+    assert!(fx.progress_files().is_empty());
+}
+
+/// 這次本身未變更（重複 `dev` 同來源）也照樣落地恢復；入口檔照檔上的覆寫算。
+#[test]
+fn unchanged_dev_still_lands_the_recovery() {
+    let fx = Fx::new();
+    fx.write_local("\n[tools]\ntool = \"dev/tool\"\n");
+    fs::write(fx.dir.gen_dir().join(txn::TOOLS_JUST), DEV_GEN).unwrap();
+    fx.fresh_image(&["fresh"]);
+    fx.recoverable(ADD_VERB, "fresh", FRESH, false);
+    let out = dev(&fx, "tool", "dev/tool");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Completed the interrupted add of fresh v2.0.0 ({FRESH}).\n\
+             tool already uses the local source dev/tool. No changes were made.\n"
+        )
+    );
+    assert_eq!(fx.lock_line("fresh").as_deref(), Some(FRESH));
+    assert_eq!(fx.entry(), format!("{FRESH_LINE}{DEV_GEN}"));
+    assert!(fx.progress_files().is_empty());
+    // 這次沒有要寫的，只有恢復那一次落地。
+    assert_eq!(out.events(), RECOVERY_LANDED);
+}
+
+/// 這次停下（VK0050）時恢復也不落地：除了取件的暫存處，什麼都不寫，殘留照留。
+#[test]
+fn a_stop_keeps_the_residual_add_and_writes_nothing() {
+    let fx = Fx::new();
+    fx.write_local("\n[tools]\ntool = \"dev/tool\"\n");
+    fx.fresh_image(&["fresh"]);
+    fx.recoverable(ADD_VERB, "fresh", FRESH, false);
+    let before = fx.snapshot();
+    let out = dev(&fx, "tool", "dev/elsewhere");
+    assert_eq!(out.code, 2);
+    assert_eq!(diag_codes(&out.stderr), ["VK0050"], "{}", out.stderr);
+    assert!(out.events().is_empty());
+    assert_eq!(fx.snapshot(), before);
+    assert_eq!(fx.progress_files(), ["add.r0"]);
+}
+
+/// 預演：恢復照樣取件、驗證，只印會完成哪一份，殘留照留。
+#[test]
+fn dry_run_only_reports_the_recovery() {
+    let fx = Fx::new();
+    fx.fresh_image(&["fresh"]);
+    fx.recoverable(ADD_VERB, "fresh", FRESH, false);
+    let before = fx.snapshot();
+    let out = run_with(
+        &fx,
+        &Request::DevTool {
+            repo: "tool",
+            path: OsStr::new("dev/tool"),
+        },
+        &["dev", "tool", "-p", "dev/tool", "--dry-run"],
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Would complete the interrupted add of fresh v2.0.0 ({FRESH}).\n\
+             tool would use the local source dev/tool (local override).\n\
+             Would update .vendor_kit/gen/tools.just.\n\
+             Dry run: no changes were made.\n"
+        )
+    );
+    assert!(out.events().is_empty());
+    assert_eq!(fx.snapshot(), before);
+}
+
+/// 恢復時撞名照 engine/add 判（VK0030），在任何寫入之前停下；根 `justfile` 的 recipe 也算。
+#[test]
+fn residual_add_whose_namespace_collides_is_vk0030() {
+    for (namespaces, justfile) in [
+        (&["fresh", "other"][..], None),
+        (&["fresh"][..], Some("fresh:\n    echo r\n")),
+    ] {
         let fx = Fx::new();
-        fx.residual(verb, &[verb, "other"], &[]);
+        if let Some(text) = justfile {
+            fs::write(fx.root().join("justfile"), text).unwrap();
+        }
+        fx.fresh_image(namespaces);
+        fx.recoverable(ADD_VERB, "fresh", FRESH, false);
         let before = fx.snapshot();
         let out = dev(&fx, "tool", "dev/tool");
         assert_eq!(out.code, 2);
+        assert_eq!(diag_codes(&out.stderr), ["VK0030"], "{}", out.stderr);
+        assert!(out.events().is_empty());
+        assert_eq!(fx.snapshot(), before);
+    }
+}
+
+/// 殘留 `add` 的 image 本機沒有：照 engine/add 的恢復不 pull，VK0055；什麼都不寫。
+#[test]
+fn residual_add_whose_image_is_missing_is_vk0055() {
+    let fx = Fx::new();
+    fx.recoverable(ADD_VERB, "fresh", FRESH, false);
+    let before = fx.snapshot();
+    let out = dev(&fx, "tool", "dev/tool");
+    assert_eq!(out.code, 2);
+    assert_eq!(
+        out.stderr,
+        format!(
+            "vendor_kit: error[VK0055]: Cannot access {FRESH} for fresh: docker inspect exited with 1. The requested operation did not complete.\n"
+        )
+    );
+    assert_eq!(out.ops, [format!("inspect {FRESH_PINNED}")]);
+    assert_eq!(fx.snapshot(), before);
+}
+
+/// 還恢復不了的殘留：`add` 要寫 repo 檔、工具 `upgrade` 寫初始檔、引擎 `upgrade`、欄位不齊、`sync`。照舊以
+/// VK0056 停下，在任何 docker 動作與寫入之前。
+#[test]
+fn residuals_that_cannot_be_recovered_yet_are_gaps() {
+    type Setup<'a> = &'a dyn Fn(&Fx);
+    let cases: [(Setup<'_>, &str); 5] = [
+        (
+            &|fx| fx.recoverable(ADD_VERB, "fresh", FRESH, true),
+            "which writes repo files from init.toml",
+        ),
+        (
+            &|fx| fx.recoverable(progress::upgrade::VERB, "tool", NEW_TOOL, true),
+            "which writes init files",
+        ),
+        (
+            &|fx| fx.recoverable(progress::upgrade::VERB, ENGINE_TARGET, ENGINE, false),
+            "incomplete engine upgrade",
+        ),
+        (
+            &|fx| fx.residual(ADD_VERB, &["add", "fresh"], &[]),
+            "without the [add] fields",
+        ),
+        (
+            &|fx| fx.residual(SYNC_VERB, &["sync"], &[]),
+            "incomplete sync operation",
+        ),
+    ];
+    for (write, what) in cases {
+        let fx = Fx::new();
+        write(&fx);
+        let before = fx.snapshot();
+        let out = dev(&fx, "tool", "dev/tool");
+        assert_eq!(out.code, 2, "{what}");
         assert_eq!(diag_codes(&out.stderr), ["VK0056"], "{}", out.stderr);
-        assert!(
-            out.stderr.contains(&format!("incomplete {verb} operation")),
-            "{}",
-            out.stderr
-        );
+        assert!(out.stderr.contains(what), "{what}: {}", out.stderr);
+        assert!(out.ops.is_empty(), "{what}: {:?}", out.ops);
         assert_eq!(fx.snapshot(), before);
     }
 }
@@ -1477,4 +1754,42 @@ fn dry_run_keeps_the_residual_progress_file() {
     );
     assert_eq!(fx.progress_files().len(), 1);
     assert_eq!(fx.snapshot(), before);
+}
+
+/// 同一次有對象相同的 `dev` 殘留（併入）與另一個工具的 `add` 殘留（先恢復）：兩份都完成、都刪掉。
+#[test]
+fn merged_dev_and_recovered_add_are_both_completed() {
+    let fx = Fx::new();
+    fx.residual(
+        DEV_VERB,
+        &["dev", "tool", "-p", "dev/tool"],
+        &[(TARGET_KEY, "tool"), (PATH_KEY, "dev/tool")],
+    );
+    fx.fresh_image(&["fresh"]);
+    fx.recoverable(ADD_VERB, "fresh", FRESH, false);
+    let out = run_as(
+        &fx,
+        &Request::DevTool {
+            repo: "tool",
+            path: OsStr::new("dev/tool"),
+        },
+        &["dev", "tool", "-p", "dev/tool"],
+        "r2",
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(
+        out.stdout
+            .starts_with("Completed the interrupted add of fresh v2.0.0"),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout
+            .ends_with("Completed the interrupted dev recorded in .vendor_kit/.tmp.dev.r0.toml.\n"),
+        "{}",
+        out.stdout
+    );
+    assert_eq!(fx.lock_line("fresh").as_deref(), Some(FRESH));
+    assert_eq!(fx.entry(), format!("{FRESH_LINE}{DEV_GEN}"));
+    assert!(fx.progress_files().is_empty());
 }
