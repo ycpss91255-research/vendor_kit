@@ -1,5 +1,6 @@
 //! 單元測試：以 std `TcpListener` 在 127.0.0.1 起假 registry，不連外網。
-//! 涵蓋匿名與帶 token 的 token 交換、分頁、HEAD 取 digest 與 Accept、錯誤分類、重試與逾時。
+//! 涵蓋匿名與帶 token 的 token 交換、分頁、HEAD 取 digest 與 Accept、錯誤分類、重試與逾時，
+//! 以及以自簽憑證的 TLS 假 registry 驗證憑證不被信任時不重試。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -514,6 +515,117 @@ fn timeout_is_network() {
     let err = repo.tags().unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Network);
     assert!(err.detail().contains("2 attempts"), "{err}");
+}
+
+// ---- TLS 憑證 ----
+
+/// 自簽憑證（ECDSA P-256、CA:FALSE、SAN 127.0.0.1，效期到 2126 年）與它的 PKCS#8 私鑰，只給測試用。
+/// 不在 webpki-roots 裡，所以驗證結果是 UnknownIssuer，對應公司網路以自有 CA 重簽 HTTPS 的情況。
+const SELF_SIGNED_CERT: &[u8] = include_bytes!("../testdata/self_signed.cert.der");
+const SELF_SIGNED_KEY: &[u8] = include_bytes!("../testdata/self_signed.key.der");
+
+/// 用自簽憑證做 TLS 握手的假 registry；回傳 https base URL 與收到的連線數。
+fn self_signed_tls_server() -> (String, Arc<Mutex<usize>>) {
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![CertificateDer::from(SELF_SIGNED_CERT.to_vec())],
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(SELF_SIGNED_KEY.to_vec())),
+        )
+        .unwrap();
+    let config = Arc::new(config);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("https://{}", listener.local_addr().unwrap());
+    let count = Arc::new(Mutex::new(0));
+    let count2 = Arc::clone(&count);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            *count2.lock().unwrap() += 1;
+            let mut conn = rustls::ServerConnection::new(Arc::clone(&config)).unwrap();
+            // client 拒絕憑證後送 alert 並斷線，這裡就會出錯或讀到 EOF。
+            while conn.is_handshaking() {
+                match conn.complete_io(&mut stream) {
+                    Ok((0, 0)) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+        }
+    });
+    (base, count)
+}
+
+#[test]
+fn untrusted_certificate_is_not_retried() {
+    let (base, count) = self_signed_tls_server();
+    let client = test_client(&base);
+    let mut repo = client.repository("ghcr.io/acme/tool", None).unwrap();
+    let err = repo.tags().unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Network);
+    assert!(
+        err.detail()
+            .contains("the registry's TLS certificate is not trusted (UnknownIssuer)"),
+        "{err}"
+    );
+    assert!(!err.detail().contains("attempts"), "{err}");
+    assert_eq!(*count.lock().unwrap(), 1);
+}
+
+#[test]
+fn other_tls_failure_is_retried() {
+    // TCP 接得通，但握手前就斷線：暫時性的 TLS 故障，照常重試。
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("https://{}", listener.local_addr().unwrap());
+    let count = Arc::new(Mutex::new(0));
+    let count2 = Arc::clone(&count);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            *count2.lock().unwrap() += 1;
+            drop(stream);
+        }
+    });
+    let client = test_client(&base);
+    let mut repo = client.repository("ghcr.io/acme/tool", None).unwrap();
+    let err = repo.tags().unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Network);
+    assert!(!err.detail().contains("not trusted"), "{err}");
+    assert!(err.detail().contains("attempts"), "{err}");
+    assert_eq!(*count.lock().unwrap(), ATTEMPTS as usize);
+}
+
+#[test]
+fn only_invalid_certificate_counts_as_untrusted() {
+    use rustls::{AlertDescription, CertificateError};
+    use std::io;
+    let wrapped = |e: rustls::Error| ureq::Error::Io(io::Error::new(io::ErrorKind::InvalidData, e));
+    assert_eq!(
+        untrusted_certificate(&wrapped(rustls::Error::InvalidCertificate(
+            CertificateError::UnknownIssuer
+        ))),
+        Some(&CertificateError::UnknownIssuer)
+    );
+    assert_eq!(
+        untrusted_certificate(&ureq::Error::Rustls(rustls::Error::InvalidCertificate(
+            CertificateError::Expired
+        ))),
+        Some(&CertificateError::Expired)
+    );
+    for other in [
+        wrapped(rustls::Error::DecryptError),
+        wrapped(rustls::Error::AlertReceived(
+            AlertDescription::HandshakeFailure,
+        )),
+        ureq::Error::Rustls(rustls::Error::DecryptError),
+        ureq::Error::Io(io::Error::from(io::ErrorKind::ConnectionReset)),
+        ureq::Error::Io(io::Error::from(io::ErrorKind::UnexpectedEof)),
+        ureq::Error::Timeout(ureq::Timeout::Connect),
+    ] {
+        assert_eq!(untrusted_certificate(&other), None, "{other}");
+    }
 }
 
 // ---- 輸入與小工具 ----

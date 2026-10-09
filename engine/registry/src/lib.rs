@@ -34,6 +34,10 @@
 //! 429 與 5xx 才重試，一個請求最多試 [`ATTEMPTS`] 次，第 n 次重試前等 [`RETRY_DELAY`] × 2^(n-1)；
 //! 401、403、404 與其他狀態不重試。不跟隨轉址。
 //!
+//! TLS 憑證驗證失敗（registry 給的憑證不被信任，例如公司網路以自有 CA 重簽 HTTPS）不重試：重試也只會得到
+//! 同一個結果。辨識只看型別，不比對錯誤字串（見私有函式 `untrusted_certificate`）；握手中斷線等其他 TLS 故障
+//! 照常重試。
+//!
 //! # 錯誤分類
 //!
 //! [`ErrorKind`] 分五類，呼叫端照 reason_codes.csv 對應：
@@ -41,7 +45,8 @@
 //! - [`ErrorKind::AuthRequired`]：沒帶 token，registry 要求認證（401／403）。呼叫端對應 VK0001。
 //! - [`ErrorKind::TokenRejected`]：帶了 token，換 token 或之後的請求被拒（401／403）。被拒後不改走
 //!   匿名重試。呼叫端對應 VK0055。
-//! - [`ErrorKind::Network`]：連線失敗、逾時，或重試完仍是 429／5xx。呼叫端對應 VK0055。
+//! - [`ErrorKind::Network`]：連線失敗、逾時，重試完仍是 429／5xx，或 TLS 憑證不被信任（不重試，說明
+//!   寫明憑證不被信任）。呼叫端對應 VK0055。
 //! - [`ErrorKind::NotFound`]：registry 回 404（路徑或 tag 不存在）。
 //! - [`ErrorKind::Protocol`]：registry 的回應不合協定（缺 challenge、JSON 不對、digest 格式錯、Link 指到
 //!   別的來源、其他狀態碼），以及 image 名稱不是 ghcr.io。
@@ -94,7 +99,7 @@ pub enum ErrorKind {
     AuthRequired,
     /// 帶了 token，被 registry 拒絕。
     TokenRejected,
-    /// 連線失敗、逾時，或重試完仍是 429／5xx。
+    /// 連線失敗、逾時，重試完仍是 429／5xx，或 TLS 憑證不被信任。
     Network,
     /// registry 回 404。
     NotFound,
@@ -253,17 +258,17 @@ impl Client {
         })
     }
 
-    /// 發一個請求；連線失敗、逾時、429、5xx 照常數重試。
+    /// 發一個請求；連線失敗、逾時、429、5xx 照常數重試，憑證不被信任不重試。
     fn send(&self, method: Method, url: &str, headers: &[(&str, &str)]) -> Result<Response, Error> {
         let mut attempt = 1;
         loop {
             let result = self.send_once(method, url, headers);
             let retryable = match &result {
                 Ok(r) => r.status == 429 || r.status >= 500,
-                Err(_) => true,
+                Err(f) => f.retry,
             };
             if !retryable {
-                return result;
+                return result.map_err(|f| f.error);
             }
             if attempt >= self.attempts {
                 return match result {
@@ -274,9 +279,9 @@ impl Client {
                             r.status
                         ),
                     )),
-                    Err(e) => Err(Error::new(
+                    Err(f) => Err(Error::new(
                         ErrorKind::Network,
-                        format!("{} (after {attempt} attempts)", e.detail),
+                        format!("{} (after {attempt} attempts)", f.error.detail),
                     )),
                 };
             }
@@ -290,8 +295,20 @@ impl Client {
         method: Method,
         url: &str,
         headers: &[(&str, &str)],
-    ) -> Result<Response, Error> {
-        let network = |e: ureq::Error| Error::new(ErrorKind::Network, format!("{url}: {e}"));
+    ) -> Result<Response, Failure> {
+        let network = |e: ureq::Error| match untrusted_certificate(&e) {
+            Some(cert) => Failure {
+                error: Error::new(
+                    ErrorKind::Network,
+                    format!("{url}: the registry's TLS certificate is not trusted ({cert})"),
+                ),
+                retry: false,
+            },
+            None => Failure {
+                error: Error::new(ErrorKind::Network, format!("{url}: {e}")),
+                retry: true,
+            },
+        };
         let mut resp = match method {
             Method::Get => {
                 let mut req = self.agent.get(url);
@@ -540,6 +557,31 @@ impl Repository<'_> {
             ErrorKind::Protocol,
             format!("registry pointed to another origin: {target}"),
         ))
+    }
+}
+
+/// [`Client::send_once`] 的失敗；`retry` 是 false 時 [`Client::send`] 不再重試。
+struct Failure {
+    error: Error,
+    retry: bool,
+}
+
+/// ureq 的錯誤是 TLS 憑證驗證失敗時，回傳 rustls 給的原因。
+///
+/// ureq 3.4.2 的 rustls connector 以 `ClientConnection::complete_io` 握手；rustls 驗證憑證失敗時回
+/// `io::Error`（`InvalidData`），裡面包 [`rustls::Error::InvalidCertificate`]，ureq 再把它包成
+/// [`ureq::Error::Io`]（`From<io::Error>` 只拆 ureq 自己的錯誤）。ureq 也有 [`ureq::Error::Rustls`]，
+/// 兩種形狀都收。`InvalidCertificate` 是 rustls 檢查憑證後的結論，不是傳輸故障，重試不會變；其他 rustls
+/// 錯誤（訊息解不開、收到 alert）與 io 錯誤一律不算。
+fn untrusted_certificate(e: &ureq::Error) -> Option<&rustls::CertificateError> {
+    let tls = match e {
+        ureq::Error::Rustls(tls) => tls,
+        ureq::Error::Io(io) => io.get_ref()?.downcast_ref::<rustls::Error>()?,
+        _ => return None,
+    };
+    match tls {
+        rustls::Error::InvalidCertificate(cert) => Some(cert),
+        _ => None,
     }
 }
 
