@@ -294,7 +294,7 @@ fn a_target_that_cannot_read_the_existing_files_is_vk0007_without_writes() {
 // ---- 第二段 ----
 
 /// 第二段的引擎就是這個測試的引擎（[`WRITTEN_BY`]）：目標 tag 與它的 LABEL。
-const SELF_LABELS: &str = r#""vendor_kit.protocol.floor":"1","vendor_kit.protocol.current":"1","vendor_kit.schema.max":"1","org.opencontainers.image.version":"v0.0.0""#;
+const SELF_LABELS: &str = r#""vendor_kit.protocol.floor":"1","vendor_kit.protocol.current":"2","vendor_kit.schema.max":"1","org.opencontainers.image.version":"v0.0.0""#;
 
 const SELF_TARGET: Script = Script {
     labels: SELF_LABELS,
@@ -366,8 +366,9 @@ fn assert_completed_with(fx: &Fx, out: &Out, wrote: &[&str], config: &[&str]) {
     assert_eq!(
         fx.lock_text(),
         format!(
-            "vendor_kit = \"{}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"{WRITTEN_BY}\"\n\n[tools]\ntool = \"{OLD}\"\n",
-            self_locked()
+            "vendor_kit = \"{}\"\nvendor_kit_protocols = \"{}\"\nschema = 1\nwritten_by = \"{WRITTEN_BY}\"\n\n[tools]\ntool = \"{OLD}\"\n",
+            self_locked(),
+            compat::THIS.protocol_list()
         )
     );
     assert!(progress::find(&fx.dir).unwrap().is_empty());

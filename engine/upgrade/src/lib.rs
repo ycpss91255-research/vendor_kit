@@ -67,8 +67,11 @@
 //!   再以同一個查詢（沿用換到的 bearer）取 registry 上這個 tag 的 digest，跟本機的比對；本機沒有：取 digest
 //!   後 pull。
 //! - `@<tag>`：先 inspect 本機，本機有就用它、不連 registry（指定 tag 不查清單，也不讀 token 檔；離線照樣
-//!   能用）。本機沒有才匿名取 registry 上這個 tag 的 digest，再 pull。
-//! - pull 一律用帶 digest、不帶 tag 的引用 `<registry>/<路徑>@<digest>`，之後也以同一個引用 inspect：
+//!   能用）。本機沒有時（D7，同 engine/add）：
+//!   - 呼叫方的介面版 ≥ 2：請啟動器 `pull-tag <registry>/<路徑>:<tag>`，由主機 Docker 用它自己的登入下載，再
+//!     inspect 同一個引用，從 RepoDigests 讀 digest；缺少或衝突照下面拒絕，pull-tag 失敗回 VK0055。
+//!   - 呼叫方的介面版是 1：照舊匿名取 registry 上這個 tag 的 digest，再 pull。
+//! - 不帶 tag 而本機沒有時的 pull 一律用帶 digest、不帶 tag 的引用 `<registry>/<路徑>@<digest>`，之後也以同一個引用 inspect：
 //!   以 digest pull 的 image 不會帶上 tag，拿 `<路徑>:<tag>` 去 inspect 會找不到。
 //!
 //! 無法唯一判定 digest 就停下（02 不變量 12），在任何寫入之前：
@@ -141,8 +144,8 @@
 //! - 不帶 tag 而 registry 的最新版比版本鎖定行舊（例如較新的 tag 被刪了）：04 只說最新版不限目前的 vX，
 //!   沒說要不要因此降版，停下。
 //! - 取 digest 時不檢查 manifest 的 media type 是不是多架構 index（`registry` 把判斷交給呼叫端，契約沒定）。
-//! - `@<tag>` 而本機沒有、package 又是私有的：04 規定指定 tag 不讀 token 檔，匿名取 digest 會被拒，報 VK0055；
-//!   pull 本身用的是主機的 Docker 認證。
+//! - `@<tag>` 而本機沒有、package 又是私有的、呼叫方的介面版又是 1：04 規定指定 tag 不讀 token 檔，匿名取
+//!   digest 會被拒，報 VK0055。介面版 2 起改走 pull-tag，用主機的 Docker 認證，沒有這個缺口。
 //! - 帶 token 的流程還沒對私有 package 手動測過（`registry` 的缺口）。
 //! - 判基準版落後（04：鎖定行比基準版新時，不帶 tag 的 `upgrade` 只完成鎖定行那一版的合併）：`metadata`
 //!   沒有記基準版是哪一版。所以不帶 tag、或 `@<tag>` 與鎖定行同 tag，而工具有逐檔紀錄時停下；沒有紀錄的
@@ -190,7 +193,7 @@ use imageref::{ImageRef, Tag};
 use initfiles::{Gap, InitFile, Strategy};
 use layout::InstallDir;
 use metadata::Metadata;
-use plan::{Channel, Field, ImageId, Op, Outcome, Slot, Tty};
+use plan::{Channel, Field, ImageId, Op, OpKind, Outcome, Slot, Tty};
 use progress::Progress;
 use progress::repo_files::{self, RepoFile as WrittenFile};
 use progress::upgrade as table;
@@ -753,6 +756,9 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             Err(_) => {
                 return match listed {
                     Some(online) => self.pull(online, name, tag, repo),
+                    None if self.env.channel.supports(OpKind::PullTag) => {
+                        self.pull_tag(&wire, name, &given, repo)
+                    }
                     None => {
                         let registry = self.env.registry;
                         let mut online = match registry.repository(name, None) {
@@ -764,16 +770,7 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
                 };
             }
         };
-        let digest = match repo_digest(name, &inspected.repo_digests) {
-            RepoDigest::One(d) => d,
-            RepoDigest::Missing => {
-                let d = Diagnostic::new(&messages::VK0031)
-                    .arg("image", given.as_str())
-                    .arg("reason", text::DIGEST_MISSING);
-                return Err(self.stop(d));
-            }
-            RepoDigest::Conflicting(found) => return Err(self.tag_digests(&given, &found)),
-        };
+        let digest = self.local_digest(name, &given, &inspected)?;
         if let Some(online) = listed {
             let remote = self.remote_digest(online, tag, &given, repo)?;
             if remote != digest {
@@ -781,6 +778,50 @@ impl<W: Write, S: Sink, L: Write> Upgrade<'_, '_, W, S, L> {
             }
         }
         self.resolved(&given, &digest, inspected)
+    }
+
+    /// 本機 image 的 RepoDigests 裡 `name` 的那一個 digest；沒有回 VK0031、不只一個拒絕（模組說明「線上解析」）。
+    fn local_digest(&mut self, name: &str, given: &str, inspected: &Inspected) -> Step<String> {
+        match repo_digest(name, &inspected.repo_digests) {
+            RepoDigest::One(d) => Ok(d),
+            RepoDigest::Missing => {
+                let d = Diagnostic::new(&messages::VK0031)
+                    .arg("image", given)
+                    .arg("reason", text::DIGEST_MISSING);
+                Err(self.stop(d))
+            }
+            RepoDigest::Conflicting(found) => Err(self.tag_digests(given, &found)),
+        }
+    }
+
+    /// 介面版 2 起、指定 tag 而本機沒有（D7）：請啟動器以主機 Docker 的登入 `pull-tag <name>:<tag>`，再 inspect
+    /// 同一個引用，digest 從 RepoDigests 讀。引擎不連 registry。
+    fn pull_tag(
+        &mut self,
+        wire: &plan::ImageRef,
+        name: &str,
+        given: &str,
+        repo: &str,
+    ) -> Step<Resolved> {
+        if !wire.is_tagged() {
+            return Err(self.internal(format!("cannot request pull-tag {given}")));
+        }
+        let (_, outcome) = self.request(&Op::PullTag(wire.clone()))?;
+        match outcome {
+            Outcome::Ok => {}
+            Outcome::Failed(rc) => {
+                return Err(self.access_failed(given, repo, text::docker_failed("pull", rc)));
+            }
+            Outcome::Runner(_) => return Err(self.internal("pull-tag returned a runner result")),
+        }
+        let inspected = match self.inspect(wire)? {
+            Ok(i) => i,
+            Err(rc) => {
+                return Err(self.access_failed(given, repo, text::docker_failed("inspect", rc)));
+            }
+        };
+        let digest = self.local_digest(name, given, &inspected)?;
+        self.resolved(given, &digest, inspected)
     }
 
     /// 組成 [`Resolved`]：版本鎖定行值 `<given>@<digest>` 與 inspect 到的 image ID。

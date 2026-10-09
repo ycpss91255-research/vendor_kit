@@ -12,15 +12,19 @@
 //! 寫好的引擎引用檔 [`files::IN_ENGINE`]）。控制檔都在 `ctl/`（[`files`]）：
 //!
 //! - 引擎寫 `req.<seq>`：先寫 `req.<seq>.tmp` 再 rename，啟動器只讀 rename 完的檔。
-//! - 啟動器寫 `res.<seq>`（同樣先寫暫存再 rename）；有原始輸出（inspect、ps、load）時另存 `res.<seq>.out`。
-//!   load 的 `.out` 是 #589 起才寫的，引擎讀它時要容許檔不存在。
+//! - 啟動器寫 `res.<seq>`（同樣先寫暫存再 rename）；有原始輸出（inspect、ps、load、rm-sessions）時另存
+//!   `res.<seq>.out`。load 的 `.out` 是 #589 起才寫的，引擎讀它時要容許檔不存在。
 //! - 同一時間只有一個未完成的 request；seq 從 1 起連續。
 //! - 引擎最後寫 `done`（同樣先寫暫存再 rename），帶自己的結束碼。
 //!
-//! # 文法 vk-resolve/1（ABNF，RFC 5234）
+//! # 文法 vk-resolve/<P>（ABNF，RFC 5234）
 //!
 //! 這一節是規範：bash 端照它逐欄驗證，與這裡的解析器同一份規則。字串一律區分大小寫，只用 ASCII，
 //! 不准 CR、NUL 與多餘的空白或行。
+//!
+//! 介面版 2（[`SINCE_V2`]，ADR-0008:25 的 P+1；#723）加了 `pull-tag`、`rm-sessions` 兩個 op，`runner` 的 image 欄
+//! 改成 `rimage`。header 的 P 是 1 時這三樣照 P = 1 的文法：不收新 op，runner 的 image 是 `ref`
+//! （[`OpKind::since`]、[`Op::validate`]）。救援路徑的部分不受影響。
 //!
 //! ```text
 //! req     = hdr SP seq LF op LF
@@ -39,7 +43,9 @@
 //!         / "stage-dir" SP fld SP slot        ; 主機上的目錄（安裝目錄外的本機開發來源）整個複製進 in/<slot>
 //!         / "ps"                              ; 本安裝目錄 label 的已停止容器，輸出寫 res.<seq>.out
 //!         / "rm-container" SP cid             ; 只收本次 ps 列出的 cid；不加 -f
-//!         / "runner" SP ref 1*( SP fld )      ; command 加 path，不經 shell
+//!         / "runner" SP rimage 1*( SP fld )   ; command 加 path，不經 shell
+//!         / "pull-tag" SP tagged              ; P ≥ 2：主機 Docker（含它的登入）pull，之後引擎自己 inspect
+//!         / "rm-sessions"                     ; P ≥ 2：刪 prune 這次清掉容器的 session 目錄，結果寫 res.<seq>.out
 //! result  = "ok" / "failed" SP rc             ; runner 以外的 op
 //!         / "runner" SP runout                ; 只回給 runner
 //! runout  = "notstarted" / "exited" SP rc / "stopped" SP ( rc / "unavailable" )
@@ -47,6 +53,11 @@
 //! oct     = "00" %x31-37 / "0" %x31-37 %x30-37 / %x31-33 %x30-37 %x30-37   ; 001–377，不收 \000
 //! ref     = ( %x61-7A / DIGIT ) *( %x61-7A / DIGIT / "." / "_" / "/" / ":" / "@" / "-" )
 //! pinned  = ref                               ; 而且以 "@sha256:" 64hexl 結尾，全串只有這一個 "@"
+//! tagged  = ref                               ; 而且沒有 "@"，最後一個 "/" 之後有 ":"，那個 ":" 之後是 tag
+//! tag     = ( %x61-7A / DIGIT / "_" ) *127( %x61-7A / DIGIT / "_" / "." / "-" )
+//! rimage  = ref                               ; P = 1
+//!         / fld                               ; P ≥ 2：解碼後非空、不以 "-" 開頭
+//! sessout = *( ( "removed" / "failed" ) SP run-id LF )   ; rm-sessions 的 res.<seq>.out
 //! imgid   = "sha256:" 64hexl
 //! cid     = 64hexl
 //! hexl    = DIGIT / %x61-66
@@ -84,14 +95,17 @@ pub use channel::{Channel, ChannelError};
 pub use field::{Field, FieldError};
 pub use wire::{
     Container, Exit, Header, ImageId, ImageRef, Op, OpKind, Outcome, ProtocolError, Reply, RunId,
-    RunnerOutcome, Seq, Slot,
+    RunnerOutcome, Seq, SessionRemoval, Slot,
 };
 
 /// 文法名；控制檔第一行的開頭是 `vk-resolve/<P>`。
 pub const GRAMMAR: &str = "vk-resolve";
 
+/// `pull-tag`、`rm-sessions` 與 runner 的自由文字 image 欄從這個介面版起才有（crate 文件「文法」）。
+pub const SINCE_V2: u32 = 2;
+
 /// op 的封閉集合，依文法的順序。
-pub const OPS: [&str; 9] = [
+pub const OPS: [&str; 11] = [
     "pull",
     "load",
     "inspect",
@@ -101,6 +115,8 @@ pub const OPS: [&str; 9] = [
     "ps",
     "rm-container",
     "runner",
+    "pull-tag",
+    "rm-sessions",
 ];
 
 /// 救援路徑用到的 op；文法跨介面版永久不變（見 crate 文件「救援路徑」）。`stage-dir`（`dev`、`sync`、`upgrade`
@@ -150,6 +166,11 @@ pub mod files {
     /// 引擎 image 不可能含有自己的 index digest，救援 argv 又凍結，所以經這個檔交給引擎。
     /// 不會跟 `tool<N>` 的 slot 撞名（stage、stage-dir、extract 遇到已存在的 slot 一律拒絕）。
     pub const IN_ENGINE: &str = "engine";
+    /// `in/` 裡 `bootstrap.sh` 首次導入時放的來源檔：`$0` 與 `bootstrap.sh` 收到的全部參數，每個寫成一個 `fld`、
+    /// 以一個空白分隔，一行、LF 結尾（B2）。`install` 不能互動時以它組 VK0002 的重跑指令。`install` 是救援呼叫、
+    /// 入口 argv 凍結，所以比照 `res.<seq>.out` 的前例放進 `in/`；讀的一端要容許檔不存在（舊啟動器不寫、
+    /// `just vendor_kit install` 也不寫）。
+    pub const IN_BOOTSTRAP: &str = "bootstrap";
 }
 
 /// `--` 之後只有 `bootstrap.sh` 會送的保留入口（04 bootstrap.sh 的只檢查與 `--repair`、ADR-0007）。

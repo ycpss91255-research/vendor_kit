@@ -26,8 +26,9 @@
 //!   不在。
 //! - VK0060（`lock_enabled = false`）是取鎖時每次執行都印的警告，不算安裝檢查的結果：鎖關著時檢查通過照樣
 //!   啟動 runner，整次結束碼仍取 1 與 runner 結果的較大者。否則鎖關著的安裝目錄永遠跑不了測試。
-//! - image 不合往返協定的 `ref` 文法（例如 tag 有大寫字母）：啟動器收不到，回 VK0066，`<reason>` 寫明，
-//!   續行印 `unavailable`。
+//! - runner 的 image 欄（D16）：介面版 2 起寫成自由文字欄，`[test].image` 只要非空、不以 `-` 開頭就照原樣交給
+//!   主機 Docker（04 只要求非空字串；以 `-` 開頭的會被 docker create 當成選項）。呼叫方的介面版是 1 時照舊文法
+//!   `ref`（tag 有大寫字母等就送不出）。送不出時回 VK0066，`<reason>` 寫明，續行印 `unavailable`。
 //!
 //! # 缺口
 //!
@@ -45,7 +46,7 @@ use std::time::Duration;
 use config::Config;
 use diagnostics::{Diagnostic, Sink};
 use metadata::{Metadata, State};
-use plan::{Channel, Field, ImageRef, Op, Outcome, RunnerOutcome};
+use plan::{Channel, Field, Op, Outcome, RunnerOutcome};
 use version_file::LockFile;
 
 use super::{Check, Env, Step, Stop, text};
@@ -226,7 +227,8 @@ impl<W: Write, S: Sink> Check<'_, '_, W, S> {
         }
         self.say(text::PASSED);
 
-        let op = self.runner_op(&test, path, &shown)?;
+        let protocol = runner.channel.header().protocol();
+        let op = self.runner_op(&test, path, &shown, protocol)?;
         let outcome = self.request(runner, &op)?;
         self.report(outcome, &shown);
         Ok(())
@@ -315,16 +317,36 @@ impl<W: Write, S: Sink> Check<'_, '_, W, S> {
         self.stop(d)
     }
 
-    fn runner_op(&mut self, test: &config::Runner, path: &OsStr, shown: &str) -> Step<Op> {
-        let Some(image) = ImageRef::parse(&test.image) else {
-            return Err(self.not_started(
-                shown,
-                format!(
-                    "the image reference {:?} cannot be passed to the launcher \
-                     (only lowercase letters, digits and . _ / : @ - are accepted)",
-                    test.image
-                ),
-            ));
+    fn runner_op(
+        &mut self,
+        test: &config::Runner,
+        path: &OsStr,
+        shown: &str,
+        protocol: u32,
+    ) -> Step<Op> {
+        let fits = Op::runner_image_fits(test.image.as_bytes(), protocol);
+        let image = match Field::new(test.image.as_bytes().to_vec()) {
+            Ok(f) if fits => f,
+            _ if protocol < plan::SINCE_V2 => {
+                return Err(self.not_started(
+                    shown,
+                    format!(
+                        "the image reference {:?} cannot be passed to the launcher \
+                         (only lowercase letters, digits and . _ / : @ - are accepted)",
+                        test.image
+                    ),
+                ));
+            }
+            _ => {
+                return Err(self.not_started(
+                    shown,
+                    format!(
+                        "the image reference {:?} cannot be passed to the launcher \
+                         (it must not be empty or start with -)",
+                        test.image
+                    ),
+                ));
+            }
         };
         let field = |b: &[u8]| Field::new(b.to_vec());
         let mut words = test.command.iter().map(|w| field(w.as_bytes()));

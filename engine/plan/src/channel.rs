@@ -99,6 +99,13 @@ impl Channel {
         &self.header
     }
 
+    /// 這次能不能送 `kind` 的 op：呼叫方的介面版要有它（[`OpKind::since`]），限定救援路徑時還要在
+    /// [`RESCUE_OPS`] 裡。送不了的 op 由呼叫端改走舊的做法，不送。
+    pub fn supports(&self, kind: OpKind) -> bool {
+        self.header.protocol() >= kind.since()
+            && (!self.rescue_only || RESCUE_OPS.contains(&kind.name()))
+    }
+
     /// `req.<seq>` 的路徑。
     pub fn request_path(&self, seq: Seq) -> PathBuf {
         self.dir.join(format!("{}{seq}", files::REQ_PREFIX))

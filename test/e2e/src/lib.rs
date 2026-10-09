@@ -58,7 +58,7 @@ pub mod shell {
     /// 引擎讀出貨輸入的測試用目錄（engine/vendor_kit 的 `RELEASE_DIR_ENV`；照抄名字）。
     pub const RELEASE_DIR_ENV: &str = "VK_TEST_RELEASE_DIR";
     /// 這一版引擎的介面版（engine/compat 的 `THIS.current_protocol`；照抄）。
-    pub const INTERFACE: u32 = 1;
+    pub const INTERFACE: u32 = 2;
     /// 薄殼四檔的檔名與模板本文，順序同 engine/layout 的 `SHELL_FILES`。
     pub const TEMPLATES: [(&str, &str); 4] = [
         ("entry.just", "# entry\nimport? 'vendor.just'\n"),

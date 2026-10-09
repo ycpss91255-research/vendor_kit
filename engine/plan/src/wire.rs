@@ -161,6 +161,27 @@ impl ImageRef {
         &self.0
     }
 
+    /// 不帶 digest 的 `<路徑>:<tag>`（pull-tag 只收這種）：沒有 `@`，最後一個 `/` 之後有 `:`，那個 `:` 之後是
+    /// tag（Docker 的 tag 文法 `[\w][\w.-]{0,127}` 裡 [`ImageRef`] 收得下的子集）。
+    pub fn is_tagged(&self) -> bool {
+        if self.0.contains('@') {
+            return false;
+        }
+        let last = self.0.rsplit('/').next().unwrap_or(&self.0);
+        match last.rsplit_once(':') {
+            Some((_, tag)) => {
+                let mut b = tag.bytes();
+                b.next()
+                    .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
+                    && tag.len() <= 128
+                    && b.all(|c| {
+                        c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-".contains(&c)
+                    })
+            }
+            None => false,
+        }
+    }
+
     /// 以 `@sha256:<64 位小寫 hex>` 結尾，而且全串只有這一個 `@`（pull 只收這種）。
     pub fn is_pinned(&self) -> bool {
         match self.0.split_once('@') {
@@ -234,11 +255,13 @@ pub enum OpKind {
     Ps,
     RmContainer,
     Runner,
+    PullTag,
+    RmSessions,
 }
 
 impl OpKind {
     /// 依 [`crate::OPS`] 的順序。
-    pub const ALL: [OpKind; 9] = [
+    pub const ALL: [OpKind; 11] = [
         OpKind::Pull,
         OpKind::Load,
         OpKind::Inspect,
@@ -248,6 +271,8 @@ impl OpKind {
         OpKind::Ps,
         OpKind::RmContainer,
         OpKind::Runner,
+        OpKind::PullTag,
+        OpKind::RmSessions,
     ];
 
     pub fn name(self) -> &'static str {
@@ -261,6 +286,16 @@ impl OpKind {
             OpKind::Ps => "ps",
             OpKind::RmContainer => "rm-container",
             OpKind::Runner => "runner",
+            OpKind::PullTag => "pull-tag",
+            OpKind::RmSessions => "rm-sessions",
+        }
+    }
+
+    /// 這個 op 從哪個介面版起才有（[`crate::SINCE_V2`]）；呼叫方的 P 比它小就不能送。
+    pub fn since(self) -> u32 {
+        match self {
+            OpKind::PullTag | OpKind::RmSessions => crate::SINCE_V2,
+            _ => 1,
         }
     }
 
@@ -288,12 +323,18 @@ pub enum Op {
     Ps,
     /// 刪本次 ps 列出的一個容器，不加 -f。
     RmContainer(Container),
-    /// 在使用者指定的 image 跑 test runner：command 加參數，不經 shell。
+    /// 在使用者指定的 image 跑 test runner：command 加參數，不經 shell。image 是使用者寫的原字串
+    /// （`[test].image`）：P = 1 時要合 [`ImageRef`]、照原樣寫；P ≥ 2 時寫成自由文字欄，只要非空、不以 `-` 開頭。
     Runner {
-        image: ImageRef,
+        image: Field,
         command: Field,
         args: Vec<Field>,
     },
+    /// 介面版 2 起：以主機 Docker（含它的登入）`docker pull <路徑>:<tag>`；只收不帶 digest 的引用（D7）。
+    PullTag(ImageRef),
+    /// 介面版 2 起：請啟動器刪掉 `prune` 這次清掉容器、能證明歸屬的 session 目錄（D14）。
+    /// 刪了哪些寫在 `res.<seq>.out`（[`SessionRemoval::parse`]）。
+    RmSessions,
 }
 
 fn host_path(f: &Field) -> Result<(), ProtocolError> {
@@ -316,24 +357,51 @@ impl Op {
             Op::Ps => OpKind::Ps,
             Op::RmContainer(_) => OpKind::RmContainer,
             Op::Runner { .. } => OpKind::Runner,
+            Op::PullTag(_) => OpKind::PullTag,
+            Op::RmSessions => OpKind::RmSessions,
         }
     }
 
-    /// 型別保證不了的條件：pull 帶 digest、load、stage 與 stage-dir 的路徑是絕對路徑。
-    pub fn validate(&self) -> Result<(), ProtocolError> {
+    /// 型別保證不了的條件：op 在介面版 `protocol` 已經有、pull 帶 digest、pull-tag 不帶 digest、load、stage 與
+    /// stage-dir 的路徑是絕對路徑、runner 的 image 合這個介面版的文法（[`Op::runner_image_fits`]）。
+    pub fn validate(&self, protocol: u32) -> Result<(), ProtocolError> {
+        let kind = self.kind();
+        if protocol < kind.since() {
+            return Err(ProtocolError::new(format!(
+                "op {} needs interface version {} or later",
+                kind.name(),
+                kind.since()
+            )));
+        }
         match self {
             Op::Pull(r) if !r.is_pinned() => {
                 Err(ProtocolError::new("pull reference is not pinned by digest"))
             }
+            Op::PullTag(r) if !r.is_tagged() => Err(ProtocolError::new(
+                "pull-tag reference is not <path>:<tag> without a digest",
+            )),
             Op::Load(p) | Op::Stage(p, _) | Op::StageDir(p, _) => host_path(p),
+            Op::Runner { image, .. } if !Op::runner_image_fits(image.as_bytes(), protocol) => Err(
+                ProtocolError::new("runner image does not fit this interface version"),
+            ),
             _ => Ok(()),
         }
     }
 
-    fn line(&self) -> String {
+    /// runner 的 image 能不能在介面版 `protocol` 送：P = 1 要合 [`ImageRef`]（只收小寫）；P ≥ 2 是自由文字欄，
+    /// 非空、不以 `-` 開頭（不讓 docker create 當成選項），其餘照 Docker 自己的規則判（D16）。
+    pub fn runner_image_fits(image: &[u8], protocol: u32) -> bool {
+        if protocol < crate::SINCE_V2 {
+            return std::str::from_utf8(image).is_ok_and(|s| ImageRef::parse(s).is_some());
+        }
+        !image.is_empty() && image[0] != b'-' && !image.contains(&0)
+    }
+
+    fn line(&self, protocol: u32) -> String {
         let name = self.kind().name();
         match self {
-            Op::Pull(r) | Op::Inspect(r) => format!("{name} {}", r.0),
+            Op::Pull(r) | Op::Inspect(r) | Op::PullTag(r) => format!("{name} {}", r.0),
+            Op::RmSessions => name.to_owned(),
             Op::Load(p) => format!("{name} {}", p.encode()),
             Op::Extract(id, slot) => format!("{name} {} {}", id.0, slot.0),
             Op::Stage(p, slot) | Op::StageDir(p, slot) => {
@@ -346,7 +414,12 @@ impl Op {
                 command,
                 args,
             } => {
-                let mut s = format!("{name} {} {}", image.0, command.encode());
+                let image = if protocol < crate::SINCE_V2 {
+                    String::from_utf8_lossy(image.as_bytes()).into_owned()
+                } else {
+                    image.encode()
+                };
+                let mut s = format!("{name} {image} {}", command.encode());
                 for a in args {
                     s.push(' ');
                     s.push_str(&a.encode());
@@ -358,8 +431,8 @@ impl Op {
 
     /// `req.<seq>` 的確切位元組；不合 [`Op::validate`] 就回錯。
     pub fn encode_request(&self, header: &Header, seq: Seq) -> Result<Vec<u8>, ProtocolError> {
-        self.validate()?;
-        Ok(format!("{} {seq}\n{}\n", header.line(), self.line()).into_bytes())
+        self.validate(header.protocol)?;
+        Ok(format!("{} {seq}\n{}\n", header.line(), self.line(header.protocol)).into_bytes())
     }
 
     /// 讀 `req.<seq>`（bash 端驗證的同一份規則）：header 必須等於 `header`。
@@ -369,13 +442,13 @@ impl Op {
             [s] => Seq::parse(s).ok_or_else(|| ProtocolError::new("invalid seq")),
             _ => Err(ProtocolError::new("invalid request header")),
         })?;
-        let op = parse_op(&tokens(second)?)?;
-        op.validate()?;
+        let op = parse_op(&tokens(second)?, header.protocol)?;
+        op.validate(header.protocol)?;
         Ok((seq, op))
     }
 }
 
-fn parse_op(t: &[&str]) -> Result<Op, ProtocolError> {
+fn parse_op(t: &[&str], protocol: u32) -> Result<Op, ProtocolError> {
     let (&name, rest) = t
         .split_first()
         .ok_or_else(|| ProtocolError::new("empty op"))?;
@@ -393,8 +466,14 @@ fn parse_op(t: &[&str]) -> Result<Op, ProtocolError> {
         (OpKind::StageDir, [p, s]) => Op::StageDir(Field::decode(p)?, slot(s)?),
         (OpKind::Ps, []) => Op::Ps,
         (OpKind::RmContainer, [c]) => Op::RmContainer(Container::parse(c).ok_or_else(bad)?),
+        (OpKind::PullTag, [r]) => Op::PullTag(image(r)?),
+        (OpKind::RmSessions, []) => Op::RmSessions,
         (OpKind::Runner, [r, cmd, args @ ..]) => Op::Runner {
-            image: image(r)?,
+            image: if protocol < crate::SINCE_V2 {
+                Field::new(image(r)?.0.into_bytes())?
+            } else {
+                Field::decode(r)?
+            },
             command: Field::decode(cmd)?,
             args: args
                 .iter()
@@ -403,6 +482,40 @@ fn parse_op(t: &[&str]) -> Result<Op, ProtocolError> {
         },
         _ => return Err(bad()),
     })
+}
+
+/// rm-sessions 的結果裡的一筆（`res.<seq>.out` 一行一筆）：`removed <run-id>` 是刪掉了、`failed <run-id>` 是
+/// 能證明歸屬、該刪卻刪不掉。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionRemoval {
+    Removed(RunId),
+    Failed(RunId),
+}
+
+impl SessionRemoval {
+    /// 讀 rm-sessions 的 `res.<seq>.out`：每行一筆、LF 結尾，空檔是一筆都沒有。不合文法回錯（VK0056）。
+    pub fn parse(bytes: &[u8]) -> Result<Vec<SessionRemoval>, ProtocolError> {
+        if bytes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let body = bytes
+            .strip_suffix(b"\n")
+            .ok_or_else(|| ProtocolError::new("rm-sessions output does not end with LF"))?;
+        let text = std::str::from_utf8(body)
+            .map_err(|_| ProtocolError::new("rm-sessions output is not ASCII"))?;
+        text.split('\n')
+            .map(|line| {
+                let bad = || ProtocolError::new(format!("invalid rm-sessions line {line:?}"));
+                let (state, id) = line.split_once(' ').ok_or_else(bad)?;
+                let id = RunId::parse(id).ok_or_else(bad)?;
+                match state {
+                    "removed" => Ok(SessionRemoval::Removed(id)),
+                    "failed" => Ok(SessionRemoval::Failed(id)),
+                    _ => Err(bad()),
+                }
+            })
+            .collect()
+    }
 }
 
 /// runner 的結果：起來沒、自己的結束碼、是不是被 VK 停掉。

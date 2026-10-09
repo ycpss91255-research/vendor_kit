@@ -220,6 +220,62 @@ const NOT_LOCAL: Script = Script {
     ..NEW
 };
 
+// ---- 指定 tag、本機沒有：介面版 2 起由主機 Docker pull-tag（D7） ----
+
+#[test]
+fn from_interface_version_2_a_missing_tag_is_pulled_by_the_host_docker_without_the_registry() {
+    let fx = Fx::new();
+    // 不給 registry：引擎不連 registry，只經啟動器 pull-tag
+    let client = unused_registry();
+    let online = Online {
+        registry: &client,
+        token_file: None,
+    };
+    let peer = Peer::start_at(&fx, NOT_LOCAL, 2);
+    let out = run_online_at(&fx, &UPGRADE, Vec::new(), tty(false), "", &online, 2);
+    assert_eq!(
+        peer.finish(),
+        [
+            format!("inspect {NEW_REF}"),
+            format!("pull-tag {NEW_REF}"),
+            format!("inspect {NEW_REF}"),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stdout, upgraded_line());
+    assert_landed(&fx);
+}
+
+#[test]
+fn from_interface_version_2_a_failed_pull_tag_is_vk0055_before_writing() {
+    let fx = Fx::new();
+    let before = fx.lock_text();
+    let client = unused_registry();
+    let online = Online {
+        registry: &client,
+        token_file: None,
+    };
+    let peer = Peer::start_at(
+        &fx,
+        Script {
+            fail: Some("pull-tag"),
+            ..NOT_LOCAL
+        },
+        2,
+    );
+    let out = run_online_at(&fx, &UPGRADE, Vec::new(), tty(false), "", &online, 2);
+    peer.finish();
+    assert_eq!(out.code, 2);
+    assert_eq!(
+        out.stderr,
+        format!(
+            "vendor_kit: error[VK0055]: Cannot access {NEW_REF} for tool: docker pull exited with 1. The requested operation did not complete.\n"
+        )
+    );
+    assert_eq!(fx.lock_text(), before);
+}
+
 // ---- 不帶 tag：列 tag 取最新版 ----
 
 #[test]

@@ -84,7 +84,11 @@ impl Fx {
 }
 
 fn header() -> Header {
-    Header::new(1, RunId::parse("r1").unwrap()).unwrap()
+    header_at(1)
+}
+
+fn header_at(protocol: u32) -> Header {
+    Header::new(protocol, RunId::parse("r1").unwrap()).unwrap()
 }
 
 /// 假啟動器：inspect 回 RepoDigests，extract 放進 `just/<ns>.just`；`fail` 讓指定的 op 回 failed 1。
@@ -286,6 +290,18 @@ fn tty(interactive: bool) -> Tty {
 }
 
 fn run_add(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &str) -> Out {
+    run_add_at(fx, argv, init, tty, input, 1)
+}
+
+/// 同 [`run_add`]，呼叫方的介面版是 `protocol`。
+fn run_add_at(
+    fx: &Fx,
+    argv: &[&str],
+    init: Vec<OwnedInit>,
+    tty: Tty,
+    input: &str,
+    protocol: u32,
+) -> Out {
     let value = |opt: &str| argv.iter().position(|a| *a == opt).map(|i| argv[i + 1]);
     let (repo, tag) = match argv[1].split_once('@') {
         Some((r, t)) => (r, Some(Tag::parse(t).unwrap())),
@@ -304,7 +320,7 @@ fn run_add(fx: &Fx, argv: &[&str], init: Vec<OwnedInit>, tty: Tty, input: &str) 
     let registry = Client::with_base_url("http://127.0.0.1:9").unwrap();
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     fx.assert_fresh_session();
-    let mut channel = Channel::new(&fx.ctl, header());
+    let mut channel = Channel::new(&fx.ctl, header_at(protocol));
     let mut stdin = Cursor::new(input.as_bytes().to_vec());
     let mut stdout = Vec::new();
     // 詢問與診斷寫進同一條 stderr：兩邊都寫進共用的緩衝。
@@ -774,6 +790,155 @@ fn online_add_at_a_tag_in_the_local_store_does_not_query() {
         fx.lock_text()
             .ends_with(&format!("[tools]\ntool = \"{}\"\n", locked()))
     );
+}
+
+/// 介面版 2 的假啟動器（D7）：本機原本沒有 image，`pull-tag` 之後 inspect 才回 `digests` 當 RepoDigests；
+/// `pull_fails` 讓 pull-tag 回 failed 1。回傳依序的 op 行。
+fn pull_tag_peer(
+    fx: &Fx,
+    digests: &'static [&'static str],
+    pull_fails: bool,
+) -> JoinHandle<Vec<String>> {
+    fx.new_session();
+    let (ctl, inbox) = (fx.ctl.clone(), fx.inbox.clone());
+    thread::spawn(move || {
+        let header = header_at(2);
+        let mut seen = Vec::new();
+        let mut pulled = false;
+        let mut seq = 1u16;
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while std::time::Instant::now() < deadline {
+            if ctl.join("done-test").exists() {
+                break;
+            }
+            let Ok(bytes) = fs::read(ctl.join(format!("req.{seq}"))) else {
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            };
+            let (s, op) = Op::parse_request(&bytes, &header).unwrap();
+            seen.push(
+                String::from_utf8(bytes)
+                    .unwrap()
+                    .lines()
+                    .nth(1)
+                    .unwrap()
+                    .to_owned(),
+            );
+            let outcome = match &op {
+                Op::Inspect(_) if !pulled => Outcome::Failed(1),
+                Op::Inspect(_) => {
+                    let list: Vec<String> = digests.iter().map(|d| format!("\"{d}\"")).collect();
+                    let json = format!(
+                        "[{{\"Id\":\"{IMAGE_ID}\",\"RepoDigests\":[{}]}}]",
+                        list.join(",")
+                    );
+                    fs::write(ctl.join(format!("res.{s}.out")), json).unwrap();
+                    Outcome::Ok
+                }
+                Op::PullTag(_) if pull_fails => Outcome::Failed(1),
+                Op::PullTag(_) => {
+                    pulled = true;
+                    Outcome::Ok
+                }
+                Op::Extract(_, slot) => {
+                    let just = inbox.join(slot.as_str()).join("just");
+                    fs::create_dir_all(&just).unwrap();
+                    fs::write(just.join("tool.just"), "x:\n").unwrap();
+                    Outcome::Ok
+                }
+                _ => Outcome::Failed(1),
+            };
+            let tmp = ctl.join(format!("res.{s}.tmp"));
+            fs::write(&tmp, outcome.encode_response(&header, s)).unwrap();
+            fs::rename(&tmp, ctl.join(format!("res.{s}"))).unwrap();
+            seq += 1;
+        }
+        seen
+    })
+}
+
+fn finish_pull_tag_peer(fx: &Fx, peer: JoinHandle<Vec<String>>) -> Vec<String> {
+    fs::write(fx.ctl.join("done-test"), "").unwrap();
+    let seen = peer.join().unwrap();
+    let _ = fs::remove_file(fx.ctl.join("done-test"));
+    seen
+}
+
+#[test]
+fn from_interface_version_2_a_missing_tag_is_pulled_by_the_host_docker_and_pinned_from_repo_digests()
+ {
+    let fx = Fx::new("");
+    let peer = pull_tag_peer(
+        &fx,
+        &[
+            "ghcr.io/acme/tool@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        ],
+        false,
+    );
+    let out = run_add_at(
+        &fx,
+        &["add", "tool@v1.2.0", "--image-path", "ghcr.io/acme/tool"],
+        Vec::new(),
+        tty(false),
+        "",
+        2,
+    );
+    let seen = finish_pull_tag_peer(&fx, peer);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        seen,
+        [
+            format!("inspect {IMAGE}"),
+            format!("pull-tag {IMAGE}"),
+            format!("inspect {IMAGE}"),
+            format!("extract {IMAGE_ID} tool1"),
+        ]
+    );
+    assert_eq!(out.stdout, format!("Added tool v1.2.0 ({}).\n", locked()));
+    assert!(
+        fx.lock_text()
+            .ends_with(&format!("[tools]\ntool = \"{}\"\n", locked()))
+    );
+}
+
+#[test]
+fn from_interface_version_2_a_failed_pull_tag_or_an_unclear_digest_stops_before_writing() {
+    let fx = Fx::new("");
+    let before = fx.lock_text();
+    let argv = ["add", "tool@v1.2.0", "--image-path", "ghcr.io/acme/tool"];
+    // pull-tag 失敗：VK0055
+    let peer = pull_tag_peer(&fx, &[], true);
+    let out = run_add_at(&fx, &argv, Vec::new(), tty(false), "", 2);
+    finish_pull_tag_peer(&fx, peer);
+    assert_eq!(out.code, 2);
+    assert_eq!(
+        out.stderr,
+        format!(
+            "vendor_kit: error[VK0055]: Cannot access {IMAGE} for tool: docker pull exited with 1. The requested operation did not complete.\n"
+        )
+    );
+    assert!(untouched(&fx, &before));
+    // RepoDigests 沒有這個路徑的 digest：VK0031
+    let peer = pull_tag_peer(&fx, &[], false);
+    let out = run_add_at(&fx, &argv, Vec::new(), tty(false), "", 2);
+    finish_pull_tag_peer(&fx, peer);
+    assert_eq!(out.code, 2, "{}", out.stderr);
+    assert!(out.stderr.contains("error[VK0031]"), "{}", out.stderr);
+    assert!(untouched(&fx, &before));
+    // 兩個不同的 digest：拒絕（草稿碼登錄前暫以 VK0056）
+    let peer = pull_tag_peer(
+        &fx,
+        &[
+            "ghcr.io/acme/tool@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "ghcr.io/acme/tool@sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        ],
+        false,
+    );
+    let out = run_add_at(&fx, &argv, Vec::new(), tty(false), "", 2);
+    finish_pull_tag_peer(&fx, peer);
+    assert!(out.stderr.contains("error[VK0056]"), "{}", out.stderr);
+    assert!(out.stderr.contains(DRAFT_TAG_DIGESTS), "{}", out.stderr);
+    assert!(untouched(&fx, &before));
 }
 
 #[test]

@@ -39,7 +39,10 @@
 //! 7. 什麼都不用寫、也沒有殘留的進度檔：stdout 說明未變更，不建進度檔（04 成對與無害）。
 //! 8. `prompt` 一次問完（04 共同選項：全部同意才寫入，含恢復舊操作）：只有 append 進使用者既有檔才問；
 //!    `-y` 全部同意。答否是正常取消（stdout 說明未變更，以 0 結束）；不能互動回 VK0002，除執行紀錄外
-//!    不寫任何檔。
+//!    不寫任何檔。VK0002 的 `<command_with_y>`（B2）：`in/` 有 bootstrap.sh 首次導入放的來源檔
+//!    [`plan::files::IN_BOOTSTRAP`]（`$0` 與 bootstrap.sh 的全部原參數，含 `-i`）時以它開頭；沒有這個檔
+//!    （`just vendor_kit install`，或舊啟動器）時照舊是 `just vendor_kit` 加這次的參數。兩種都經
+//!    `prompt::command_with_y` 插 `-y`。入口 argv 凍結（救援），所以來源經 `in/` 的唯讀檔交進來。
 //! 9. 經 `txn` 落地：建進度檔 → repo 檔（根 `justfile`、`.dockerignore`、`.vendor_kit/config.toml`）→
 //!    `.vendor_kit/` 下的檔（薄殼、`config.toml` 的基準版副本、`baseline/` 的紀錄、`gen/.stamp`）→
 //!    寫引擎版本鎖定行（只有首次導入）→ 刪進度檔；之後才刪殘留的進度檔。
@@ -183,6 +186,32 @@ pub struct Request<'a> {
     /// 帶了 `--dry-run`：算出完整計畫後只印、不問、不寫（模組說明「預演」）。
     pub dry_run: bool,
     pub release: &'a Release,
+}
+
+/// 讀 `in/` 的 bootstrap 來源檔（[`plan::files::IN_BOOTSTRAP`]，B2）：一行、以一個空白分隔的 `fld`、LF 結尾，
+/// 解成 `$0` 與 bootstrap.sh 的原參數。檔不存在回 `None`（不是首次導入，或舊啟動器）；格式不合是 VK 的 bug，
+/// 回原因（VK0056）。值不是 UTF-8 的位元組以 U+FFFD 顯示（只用來組顯示給人的重跑指令）。
+pub fn bootstrap_source(inbox: &Path) -> Result<Option<Vec<String>>, String> {
+    let path = inbox.join(plan::files::IN_BOOTSTRAP);
+    let bytes = match fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let bad = || format!("{} is not one line of free-text fields", path.display());
+    let line = bytes.strip_suffix(b"\n").ok_or_else(bad)?;
+    let line = std::str::from_utf8(line).map_err(|_| bad())?;
+    if line.is_empty() {
+        return Err(bad());
+    }
+    line.split(' ')
+        .map(|t| {
+            plan::Field::decode(t)
+                .map(|f| String::from_utf8_lossy(f.as_bytes()).into_owned())
+                .map_err(|_| bad())
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 /// 跑一次 `install`，回傳結束碼。
@@ -823,8 +852,15 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
                 Ok(false)
             }
             Err(PromptError::NotInteractive(_)) => {
-                let mut words = vec!["just".to_owned(), "vendor_kit".to_owned()];
-                words.extend(self.env.argv.iter().cloned());
+                let words = match bootstrap_source(self.env.inbox) {
+                    Ok(Some(words)) => words,
+                    Ok(None) => {
+                        let mut words = vec!["just".to_owned(), "vendor_kit".to_owned()];
+                        words.extend(self.env.argv.iter().cloned());
+                        words
+                    }
+                    Err(reason) => return Err(self.internal(reason)),
+                };
                 let d = Diagnostic::new(&messages::VK0002)
                     .arg("command_with_y", prompt::command_with_y(&words));
                 Err(self.stop(d))

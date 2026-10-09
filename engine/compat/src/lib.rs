@@ -27,7 +27,7 @@ pub struct Compat {
 /// 本引擎的相容範圍。
 pub const THIS: Compat = Compat {
     floor_protocol: 1,
-    current_protocol: 1,
+    current_protocol: 2,
     max_schema: 1,
 };
 

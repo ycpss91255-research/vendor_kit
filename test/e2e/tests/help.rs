@@ -378,12 +378,12 @@ fn rescue_help_still_prints_when_the_versions_do_not_match() {
         &["sync", "--help"],
     ] {
         let (_, expected, ..) = launch(1, rest);
-        let (code, stdout, stderr, done, written) = launch(2, rest);
+        let (code, stdout, stderr, done, written) = launch(3, rest);
         assert_eq!(code, 0, "{rest:?}: {stderr}");
         assert_eq!(stdout, expected, "{rest:?}");
         assert!(stdout.starts_with("Usage: just vendor_kit "), "{rest:?}");
         assert_eq!(stderr, "", "{rest:?}");
-        assert_eq!(done, "vk-resolve/2 r1 done 0\n");
+        assert_eq!(done, "vk-resolve/3 r1 done 0\n");
         assert!(written.is_empty(), "{written:?}");
     }
 }
@@ -391,14 +391,14 @@ fn rescue_help_still_prints_when_the_versions_do_not_match() {
 #[test]
 fn other_help_reports_the_version_first_when_the_versions_do_not_match() {
     for rest in [&["add", "-h"][..], &["upgrade", "-h"], &["prune", "--help"]] {
-        let (code, stdout, stderr, done, written) = launch(2, rest);
+        let (code, stdout, stderr, done, written) = launch(3, rest);
         assert_eq!(code, 2, "{rest:?}");
         assert_eq!(stdout, "", "{rest:?}");
         assert!(
-            stderr.starts_with("vendor_kit: error[VK0056]: Internal vendor_kit error: interface version 2 is outside the supported range [1, 1]; reason code pending (G6)."),
+            stderr.starts_with("vendor_kit: error[VK0056]: Internal vendor_kit error: interface version 3 is outside the supported range [1, 2]; reason code pending (G6)."),
             "{stderr}"
         );
-        assert_eq!(done, "vk-resolve/2 r1 done 2\n");
+        assert_eq!(done, "vk-resolve/3 r1 done 2\n");
         assert!(written.is_empty(), "{written:?}");
     }
 }

@@ -104,6 +104,16 @@ struct Behavior {
     fail_ps: bool,
     /// 這個容器的 `rm-container` 回 failed 1。
     fail_rm: Option<String>,
+    /// 呼叫方的介面版；0 當成 1。
+    protocol: u32,
+    /// `rm-sessions` 寫進 `res.<seq>.out` 的內容；`None` 時回 failed 1。
+    sessions: Option<&'static str>,
+}
+
+impl Behavior {
+    fn protocol(&self) -> u32 {
+        self.protocol.max(1)
+    }
 }
 
 /// 假啟動器：回 `ps` 與 `rm-container`；`rm-container` 只收 `ps` 列過的 ID（同 launcher/launch.sh）。
@@ -119,7 +129,7 @@ impl Peer {
         let flag = Arc::clone(&stop);
         let listed = Arc::new(Mutex::new(Vec::<String>::new()));
         let handle = thread::spawn(move || {
-            let header = header();
+            let header = header_at(behavior.protocol());
             let mut seen = Vec::new();
             let mut seq = 1u16;
             while !flag.load(Ordering::SeqCst) {
@@ -150,6 +160,16 @@ impl Peer {
                             Outcome::Ok
                         }
                     }
+                    Op::RmSessions => {
+                        seen.push("rm-sessions".to_owned());
+                        match behavior.sessions {
+                            Some(text) => {
+                                fs::write(ctl.join(format!("res.{s}.out")), text).unwrap();
+                                Outcome::Ok
+                            }
+                            None => Outcome::Failed(1),
+                        }
+                    }
                     other => {
                         seen.push(other.kind().name().to_owned());
                         Outcome::Failed(1)
@@ -171,8 +191,8 @@ impl Peer {
     }
 }
 
-fn header() -> Header {
-    Header::new(1, RunId::parse("r1").unwrap()).unwrap()
+fn header_at(protocol: u32) -> Header {
+    Header::new(protocol, RunId::parse("r1").unwrap()).unwrap()
 }
 
 struct Out {
@@ -202,12 +222,13 @@ fn run_prune(fx: &Fx, behavior: Behavior) -> Out {
 /// 跑一次；`dry_run` 是有沒有帶 `--dry-run`。
 fn run_opts(fx: &Fx, behavior: Behavior, dry_run: bool) -> Out {
     fx.new_session();
+    let protocol = behavior.protocol();
     let peer = Peer::start(fx, behavior);
     let mut argv = vec!["prune".to_owned()];
     if dry_run {
         argv.push("--dry-run".to_owned());
     }
-    let mut channel = Channel::new(&fx.ctl, header());
+    let mut channel = Channel::new(&fx.ctl, header_at(protocol));
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let mut diags = Diagnostics::with_sink(&mut stderr, NoSink);
@@ -385,6 +406,133 @@ fn a_failed_container_removal_is_reported_and_the_rest_still_go() {
                 "docker rm exited with 1 for stopped container {}",
                 cid('a')
             )),
+        "{}",
+        out.stderr
+    );
+}
+
+// ---- session 目錄（介面版 2 起，D14） ----
+
+#[test]
+fn from_interface_version_2_the_sessions_of_removed_containers_are_removed_and_listed() {
+    let fx = Fx::new();
+    let out = run_prune(
+        &fx,
+        Behavior {
+            stopped: vec![cid('a')],
+            protocol: 2,
+            sessions: Some("removed oldrun\n"),
+            ..Behavior::default()
+        },
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(
+        out.ops,
+        [
+            "ps".to_owned(),
+            format!("rm-container {}", cid('a')),
+            "rm-sessions".to_owned()
+        ]
+    );
+    assert_eq!(
+        out.stdout,
+        format!(
+            "Removed stopped container {}.\nRemoved leftover session directory vendor_kit.oldrun/.\n",
+            cid('a')
+        )
+    );
+    assert_eq!(out.stderr, "");
+}
+
+#[test]
+fn rm_sessions_is_not_sent_without_a_removed_container_at_interface_version_1_or_in_a_dry_run() {
+    // 沒刪到容器
+    let fx = Fx::new();
+    let out = run_prune(
+        &fx,
+        Behavior {
+            stopped: vec![cid('a')],
+            fail_rm: Some(cid('a')),
+            protocol: 2,
+            sessions: Some(""),
+            ..Behavior::default()
+        },
+    );
+    assert!(
+        !out.ops.contains(&"rm-sessions".to_owned()),
+        "{:?}",
+        out.ops
+    );
+    // P = 1：啟動器自己清
+    let out = run_prune(
+        &fx,
+        Behavior {
+            stopped: vec![cid('b')],
+            sessions: Some(""),
+            ..Behavior::default()
+        },
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(
+        !out.ops.contains(&"rm-sessions".to_owned()),
+        "{:?}",
+        out.ops
+    );
+    // 預演
+    let out = run_opts(
+        &fx,
+        Behavior {
+            stopped: vec![cid('c')],
+            protocol: 2,
+            sessions: Some(""),
+            ..Behavior::default()
+        },
+        true,
+    );
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.ops, ["ps"]);
+}
+
+#[test]
+fn a_session_that_cannot_be_removed_or_proven_is_reported() {
+    let fx = Fx::new();
+    let out = run_prune(
+        &fx,
+        Behavior {
+            stopped: vec![cid('a')],
+            protocol: 2,
+            sessions: Some("removed r-1\nfailed r-2\n"),
+            ..Behavior::default()
+        },
+    );
+    assert_eq!(out.code, 2);
+    assert!(
+        out.stdout
+            .ends_with("Removed leftover session directory vendor_kit.r-1/.\n"),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stderr.starts_with("vendor_kit: error[VK0056]: ")
+            && out
+                .stderr
+                .contains("the session directory of run r-2 could not be removed"),
+        "{}",
+        out.stderr
+    );
+    // 啟動器查不到容器：證明不了，回 failed
+    let out = run_prune(
+        &fx,
+        Behavior {
+            stopped: vec![cid('b')],
+            protocol: 2,
+            sessions: None,
+            ..Behavior::default()
+        },
+    );
+    assert_eq!(out.code, 2);
+    assert!(
+        out.stderr.contains("rm-sessions failed with 1"),
         "{}",
         out.stderr
     );

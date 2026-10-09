@@ -247,7 +247,7 @@ fn install_in_an_empty_repo_writes_everything_without_asking() {
     let lock = read(&m, ".vendor_kit/version.toml");
     assert!(
         lock.starts_with(&format!(
-            "vendor_kit = \"{engine}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \""
+            "vendor_kit = \"{engine}\"\nvendor_kit_protocols = \"1 2\"\nschema = 1\nwritten_by = \""
         )),
         "{lock}"
     );
@@ -256,7 +256,7 @@ fn install_in_an_empty_repo_writes_everything_without_asking() {
     // 薄殼帶自描述標頭，其餘是模板本文原樣。
     let entry = read(&m, ".vendor_kit/entry.just");
     assert!(
-        entry.starts_with("# vendor_kit-shell interface 1\n") && entry.ends_with(SHELL[0].1),
+        entry.starts_with("# vendor_kit-shell interface 2\n") && entry.ends_with(SHELL[0].1),
         "{entry}"
     );
     // `gen/.stamp`：產生薄殼的引擎 ref。

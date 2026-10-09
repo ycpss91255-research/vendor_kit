@@ -295,10 +295,13 @@ fn fresh_install_writes_the_skeleton_without_asking() {
     );
     let lock = LockFile::load_from(&fx.dir).unwrap().unwrap();
     assert_eq!(lock.engine().to_string(), ENGINE);
-    assert_eq!(lock.protocols(), &[1]);
+    let protocols: Vec<u32> =
+        (compat::THIS.floor_protocol..=compat::THIS.current_protocol).collect();
+    assert_eq!(lock.protocols(), &protocols[..]);
     assert!(
         fx.read(".vendor_kit/version.toml").starts_with(&format!(
-            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"1\"\n"
+            "vendor_kit = \"{ENGINE}\"\nvendor_kit_protocols = \"{}\"\n",
+            compat::THIS.protocol_list()
         )),
         "version.toml"
     );
@@ -530,6 +533,53 @@ fn not_interactive_without_yes_is_vk0002() {
     assert!(out.events().is_empty());
     assert_eq!(fx.read(JUSTFILE), USER_JUSTFILE);
     assert!(fx.tree().is_empty());
+}
+
+#[test]
+fn not_interactive_bootstrap_import_retries_with_the_bootstrap_command() {
+    // bootstrap.sh 首次導入：in/bootstrap 是 `$0` 與它的全部原參數（含 -i），重跑指令以它開頭（B2）。
+    let fx = Fx::new();
+    fx.write(JUSTFILE, USER_JUSTFILE);
+    fs::write(
+        fx.inbox.join(plan::files::IN_BOOTSTRAP),
+        "e:./bootstrap.sh e:-i e:dist/my\\040engine.tar\n",
+    )
+    .unwrap();
+    let out = run_install(&fx, false, "");
+    assert_eq!(out.code, 2);
+    assert!(
+        out.stderr.starts_with("vendor_kit: error[VK0002]: ")
+            && out
+                .stderr
+                .contains("./bootstrap.sh -i 'dist/my engine.tar' -y"),
+        "{}",
+        out.stderr
+    );
+    assert!(!out.stderr.contains("just vendor_kit"), "{}", out.stderr);
+    assert!(out.events().is_empty());
+    assert!(fx.tree().is_empty());
+}
+
+#[test]
+fn a_malformed_bootstrap_source_is_a_vk_bug() {
+    for bad in [
+        "",
+        "e:./bootstrap.sh",
+        "./bootstrap.sh\n",
+        "e:a  e:b\n",
+        "\n",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(plan::files::IN_BOOTSTRAP), bad).unwrap();
+        assert!(bootstrap_source(dir.path()).is_err(), "{bad:?}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(bootstrap_source(dir.path()), Ok(None));
+    fs::write(dir.path().join(plan::files::IN_BOOTSTRAP), "e:bash e:-y\n").unwrap();
+    assert_eq!(
+        bootstrap_source(dir.path()),
+        Ok(Some(vec!["bash".to_owned(), "-y".to_owned()]))
+    );
 }
 
 #[test]
