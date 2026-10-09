@@ -230,6 +230,10 @@ not_obtained() {
     printf 'sha256:%s\n' "$B" >"$offline/engine.digest"
     printf '1' >"$fake/rc.load"
     bsi -i "$offline/engine.tar"
+    # load 的原文摘錄跟著 VK0036 寫進紀錄（N20b），收 stderr 的暫存檔讀完就刪；這份紀錄照樣算未完成的首次導入
+    log_file
+    [[ $(sed -n 2p "$REPLY") == *',"vendor_kit.docker.stderr":"fake docker: load failed\n","vendor_kit.docker.stderr_truncated":0}}' ]]
+    [ ! -e "$tmpd/vendor_kit.r1.load.err" ]
     not_obtained "$offline/engine.tar" 'docker load exited with 1'
     assert_failed VK0036 "$REPLY"
     rm "$fake/rc.load"

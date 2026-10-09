@@ -481,6 +481,19 @@ finish 2
     [ ! -e "$sess" ]
 }
 
+@test "a failed docker create for the engine writes its stderr excerpt to the run log (N20b)" {
+    printf '125' >"$fake/rc.create-engine"
+    launch 1 sync
+    [ "$status" -eq 2 ]
+    [ ! -e "$sess" ]
+    log_file
+    local -a lines
+    mapfile -t lines <"$REPLY"
+    [ "${#lines[@]}" -eq 3 ]
+    [[ ${lines[1]} == *'"vendor_kit.reason_code":"VK0056",'*',"vendor_kit.docker.stderr":"fake docker: create-engine failed\n","vendor_kit.docker.stderr_truncated":0}}' ]]
+    [[ ${lines[2]} == *'"vendor_kit.stop_reason_code":"VK0056"}}' ]]
+}
+
 # ---- 非法 req ----
 
 @test "an invalid request stops the engine with VK0056" {
@@ -944,6 +957,45 @@ finish 0
     launch 1 add foo
     [ "$status" -eq 2 ]
     [ "$stderr" = "vendor_kit: error[VK0036]: Cannot obtain engine image $engine: the image is not available locally after docker pull. No alternative engine version was used." ]
+}
+
+@test "a failed pull writes its stderr excerpt to the run log before any session directory (N20b)" {
+    rm "$fake/labels"
+    local rc
+    for rc in 1 124; do
+        rm -rf "$work/.vendor_kit/log"
+        printf '%s' "$rc" >"$fake/rc.pull"
+        launch 1 add foo
+        [ "$status" -eq 2 ]
+        [[ $stderr != *'fake docker'* ]]
+        log_file
+        local -a lines
+        mapfile -t lines <"$REPLY"
+        [ "${#lines[@]}" -eq 3 ]
+        [[ ${lines[1]} == *'"vendor_kit.reason_code":"VK0036",'*',"vendor_kit.docker.stderr":"fake docker: pull failed\n","vendor_kit.docker.stderr_truncated":0}}' ]]
+        # 收 stderr 的暫存檔讀完就刪，也沒建 session 目錄
+        [ ! -e "$tmpd/vendor_kit.r1.pull.err" ]
+        [ ! -e "$sess" ]
+    done
+    # pull 成功（沒有失敗的呼叫）就不帶摘錄
+    rm -rf "$work/.vendor_kit/log" "$fake/rc.pull"
+    launch 1 add foo
+    [ "$status" -eq 2 ]
+    log_file
+    [[ $(<"$REPLY") != *docker.stderr* ]]
+    [ ! -e "$tmpd/vendor_kit.r1.pull.err" ]
+}
+
+@test "a pull stderr file that already exists is not reused; the pull still runs without an excerpt" {
+    rm "$fake/labels"
+    printf '1' >"$fake/rc.pull"
+    printf 'keep\n' >"$tmpd/vendor_kit.r1.pull.err"
+    launch 1 add foo
+    [ "$status" -eq 2 ]
+    [ "$stderr" = "vendor_kit: error[VK0036]: Cannot obtain engine image $engine: docker pull exited with 1. No alternative engine version was used." ]
+    [ "$(<"$tmpd/vendor_kit.r1.pull.err")" = keep ]
+    log_file
+    [[ $(<"$REPLY") != *docker.stderr* ]]
 }
 
 @test "a LABEL that does not match the recorded list stops with VK0056 before any container" {

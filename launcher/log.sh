@@ -263,7 +263,141 @@ vk_log_start() {
     return 0
 }
 
+# ---- docker 原文摘錄（N20b，ADR-0005:27）----
+# 啟動器自己判定失敗的 docker 呼叫，把那一次呼叫的 stderr 摘錄交給下一條診斷：寫成 diagnostic_emitted 的
+# `vendor_kit.docker.stderr` 與 `vendor_kit.docker.stderr_truncated`。規則跟 engine/diagnostics 的 DockerStderr
+# 逐位元組相同：
+# - 先把不是 UTF-8 的位元組換成 U+FFFD（Rust 的 from_utf8_lossy：每個無效的最大片段換一個），再量長度；
+# - 超過 vk_log_docker_max（4096）位元組時只留結尾，切點往後挪到 UTF-8 字元邊界，旗標寫 1；
+# - 空的 stderr 不寫這兩個鍵。
+# 摘錄只進執行紀錄，stderr 照舊只印 VK 自己的診斷；判定（read.rs、bootstrap_main.sh）不看內容。
+# U+0000 在變數裡以 0xFF 代表（換好的文字是合法 UTF-8，不會有 0xFF），寫成 JSON 時換回 `\u0000`。
+
+vk_log_docker_max=4096
+# 待寫的摘錄（空字串是沒有）與截斷旗標；vk_diag 寫完一條診斷就清掉，不會帶到下一條。
+vk_log_docker_stderr=
+vk_log_docker_truncated=0
+
+# vk_log_docker_clear：清掉待寫的摘錄。
+vk_log_docker_clear() {
+    vk_log_docker_stderr=
+    vk_log_docker_truncated=0
+}
+
+# vk_log_utf8_lossy <bytes>：不含 NUL 的位元組串換成合法 UTF-8 放進 REPLY；無效的最大片段各換成一個 U+FFFD
+# （開頭位元組與第一個接續位元組的範圍照 Unicode 表 3-7，跟 Rust 的 from_utf8_lossy 相同）。
+vk_log_utf8_lossy() {
+    local LC_ALL=C s=$1 out='' i=0 n=${#1} c b need lo hi j run
+    local fffd=$'\xef\xbf\xbd'
+    while ((i < n)); do
+        c=${s:i:1}
+        # ASCII 一段一段接上
+        if [[ $c != [$'\x80'-$'\xff'] ]]; then
+            run=${s:i}
+            run=${run%%[$'\x80'-$'\xff']*}
+            out+=$run
+            i=$((i + ${#run}))
+            continue
+        fi
+        printf -v b '%d' "'$c"
+        lo=128 hi=191
+        if ((b >= 0xc2 && b <= 0xdf)); then
+            need=1
+        elif ((b == 0xe0)); then
+            need=2 lo=0xa0
+        elif ((b >= 0xe1 && b <= 0xef)); then
+            need=2
+            if ((b == 0xed)); then
+                hi=0x9f
+            fi
+        elif ((b == 0xf0)); then
+            need=3 lo=0x90
+        elif ((b >= 0xf1 && b <= 0xf3)); then
+            need=3
+        elif ((b == 0xf4)); then
+            need=3 hi=0x8f
+        else
+            out+=$fffd
+            i=$((i + 1))
+            continue
+        fi
+        j=1
+        while ((j <= need && i + j < n)); do
+            printf -v b '%d' "'${s:i+j:1}"
+            if ((b < lo || b > hi)); then
+                break
+            fi
+            lo=128 hi=191
+            j=$((j + 1))
+        done
+        if ((j > need)); then
+            out+=${s:i:j}
+        else
+            out+=$fffd
+        fi
+        i=$((i + j))
+    done
+    REPLY=$out
+}
+
+# vk_log_docker_read：讀 stdin（一次 docker 呼叫的 stderr）到結尾，摘錄放進 vk_log_docker_stderr、
+# vk_log_docker_truncated；空的就清掉。
+# 原文超過上限加 3 位元組時只換最後那一段：UTF-8 在 3 個位元組內一定重新同步，而換好的文字不會比原文短，
+# 所以最後 vk_log_docker_max 位元組跟整份換完再切相同，旗標一定是 1。
+vk_log_docker_read() {
+    local LC_ALL=C seg
+    local -a segs=()
+    vk_log_docker_clear
+    while IFS= read -r -d '' seg; do
+        segs+=("$seg")
+    done
+    segs+=("$seg")
+    # 原文總長（NUL 各算 1）；超過上限加 3 就從前面丟掉多的位元組。
+    local total=$((${#segs[@]} - 1)) k skip
+    for seg in "${segs[@]}"; do
+        total=$((total + ${#seg}))
+    done
+    if ((total == 0)); then
+        return 0
+    fi
+    skip=$((total - vk_log_docker_max - 3))
+    local out='' first=1
+    for seg in "${segs[@]}"; do
+        if ((skip > 0)); then
+            if ((skip > ${#seg})); then
+                skip=$((skip - ${#seg} - 1))
+                continue
+            fi
+            seg=${seg:skip}
+            skip=0
+        fi
+        if ((!first)); then
+            out+=$'\xff'
+        fi
+        first=0
+        vk_log_utf8_lossy "$seg"
+        out+=$REPLY
+    done
+    if ((${#out} > vk_log_docker_max)); then
+        k=$((${#out} - vk_log_docker_max))
+        while [[ ${out:k:1} == [$'\x80'-$'\xbf'] ]]; do
+            k=$((k + 1))
+        done
+        out=${out:k}
+        vk_log_docker_truncated=1
+    fi
+    vk_log_docker_stderr=$out
+}
+
+# vk_log_docker_json：待寫的摘錄寫成 JSON 字串（正規形，U+0000 是 `\u0000`）放進 REPLY。
+vk_log_docker_json() {
+    local LC_ALL=C
+    vk_json_str "$vk_log_docker_stderr"
+    REPLY=${REPLY//$'\xff'/'\u0000'}
+}
+
 # vk_log_diagnostic <code> <level> <body> [<name> <value>]...：diagnostic_emitted（diag.sh 的 vk_diag 呼叫）。
+# 有待寫的摘錄（vk_log_docker_stderr）就接在占位符之後；帶摘錄的行寫不進去時改寫不帶摘錄的同一筆（同引擎的 sink）。
 vk_log_diagnostic() {
     local code=$1 level=$2 body=$3 num
     shift 3
@@ -281,6 +415,17 @@ vk_log_diagnostic() {
         attrs+=",$j_name:$REPLY"
         shift 2
     done
+    if [[ -n $vk_log_docker_stderr ]]; then
+        vk_log_docker_json
+        if vk_log_event diagnostic_emitted "$level" "$num" "$body" \
+            "$attrs,\"vendor_kit.docker.stderr\":$REPLY,\"vendor_kit.docker.stderr_truncated\":$vk_log_docker_truncated"; then
+            return 0
+        fi
+        # 時鐘超出範圍時 vk_log_event 已報 VK0056 並清掉 vk_log_file，不再重寫。
+        if [[ -z $vk_log_file ]]; then
+            return 1
+        fi
+    fi
     vk_log_event diagnostic_emitted "$level" "$num" "$body" "$attrs"
 }
 

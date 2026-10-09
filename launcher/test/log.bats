@@ -251,3 +251,134 @@ only_log_file() {
     vk "$fixed"' vk_log_start "$PWD/.vendor_kit/log" add recipe && vk_log_finish 2 "" VK2'
     [[ $stderr == *'[VK0056]'*'invalid run_finished fields 2 null VK2'* ]]
 }
+
+# ---- docker 原文摘錄（N20b）：規則同 engine/diagnostics 的 DockerStderr ----
+
+# excerpt <原文檔>：vk_log_docker_read 讀那個檔，`<旗標>|<摘錄>` 寫進 $BATS_TEST_TMPDIR/got（沒有摘錄時前面加 none）。
+excerpt() {
+    vk "vk_log_docker_read <'$1'; if [[ -z \$vk_log_docker_stderr ]]; then printf none >'$BATS_TEST_TMPDIR/got'; else : >'$BATS_TEST_TMPDIR/got'; fi; printf '%s|%s' \"\$vk_log_docker_truncated\" \"\$vk_log_docker_stderr\" >>'$BATS_TEST_TMPDIR/got'"
+    [ "$status" -eq 0 ]
+    [ "$stderr" = "" ]
+}
+
+# got_is <期待的位元組（printf 格式）>
+got_is() {
+    local want got
+    want=$(printf "$1" && printf x)
+    got=$(cat "$BATS_TEST_TMPDIR/got" && printf x)
+    [ "$got" = "$want" ] || {
+        echo "got ${#got} bytes: ${got:0:80}" >&2
+        return 1
+    }
+}
+
+@test "a docker stderr excerpt matches golden_diagnostic_emitted_docker_stderr" {
+    printf 'Error: "denied"\n' >"$BATS_TEST_TMPDIR/raw"
+    vk "$fixed"' vk_log_start "$PWD/.vendor_kit/log" bootstrap initial_import && vk_log_docker_read <'"$BATS_TEST_TMPDIR/raw"' && vk_log_diagnostic VK0024 error "No command was specified."'
+    [ "$status" -eq 0 ]
+    [ "$stderr" = "" ]
+    only_log_file
+    local -a lines
+    mapfile -t lines <"$REPLY"
+    [ "${#lines[@]}" -eq 2 ]
+    rust_golden golden_diagnostic_emitted_docker_stderr
+    [ "${lines[1]}" = "$REPLY" ]
+}
+
+@test "the excerpt keeps short stderr whole and writes nothing for empty stderr" {
+    local raw=$BATS_TEST_TMPDIR/raw
+    : >"$raw"
+    excerpt "$raw"
+    got_is 'none0|'
+    printf 'line 1\nline 2\n\n' >"$raw"
+    excerpt "$raw"
+    got_is '0|line 1\nline 2\n\n'
+    # 剛好上限不算截斷
+    printf 'a%.0s' {1..4096} >"$raw"
+    excerpt "$raw"
+    [ "$(<"$BATS_TEST_TMPDIR/got")" = "0|$(<"$raw")" ]
+}
+
+@test "stderr over the limit keeps the tail and is flagged" {
+    local raw=$BATS_TEST_TMPDIR/raw
+    printf 'b%.0s' {1..4096} >"$raw"
+    printf 'x' >>"$raw"
+    excerpt "$raw"
+    local want
+    want="1|$(printf 'b%.0s' {1..4095})x"
+    [ "$(<"$BATS_TEST_TMPDIR/got")" = "$want" ]
+}
+
+@test "the cut moves forward to a UTF-8 character boundary" {
+    # 「中」是 3 位元組：1366 個加 end 是 4101 位元組，切點落在字元中間（同 engine 的 docker_stderr_keeps_the_tail_on_a_char_boundary）
+    local raw=$BATS_TEST_TMPDIR/raw
+    printf '中%.0s' {1..1366} >"$raw"
+    printf 'end' >>"$raw"
+    excerpt "$raw"
+    got_is "1|$(printf '中%.0s' {1..1364})end"
+}
+
+@test "invalid UTF-8 becomes one U+FFFD per maximal invalid subpart" {
+    local raw=$BATS_TEST_TMPDIR/raw
+    printf 'bad \xff byte' >"$raw"
+    excerpt "$raw"
+    got_is '0|bad \xef\xbf\xbd byte'
+    # 少了最後一個位元組的「中」：一個 U+FFFD
+    printf '\xe4\xb8' >"$raw"
+    excerpt "$raw"
+    got_is '0|\xef\xbf\xbd'
+    # surrogate（ED A0）、overlong（C0 AF）、超出範圍（F4 90）：開頭跟第一個接續位元組就不合，每個位元組各一個
+    printf '\xed\xa0\x80|\xc0\xaf|\xf4\x90' >"$raw"
+    excerpt "$raw"
+    got_is '0|\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd|\xef\xbf\xbd\xef\xbf\xbd|\xef\xbf\xbd\xef\xbf\xbd'
+    # 合法的 4 位元組字元原樣
+    printf 'ok \xf0\x9f\x98\x80\xf0\x9f.' >"$raw"
+    excerpt "$raw"
+    got_is '0|ok \xf0\x9f\x98\x80\xef\xbf\xbd.'
+}
+
+@test "replacement is measured after conversion, so short invalid stderr can be truncated" {
+    # 1366 個 0xFF 換成 4098 位元組：切點落在 U+FFFD 中間，往後挪到下一個字元
+    local raw=$BATS_TEST_TMPDIR/raw
+    printf '\xff%.0s' {1..1366} >"$raw"
+    excerpt "$raw"
+    got_is "1|$(printf '\\xef\\xbf\\xbd%.0s' {1..1365})"
+}
+
+@test "NUL is written as \\u0000 and an excerpt goes with exactly one diagnostic" {
+    printf 'a\0b"\t' >"$BATS_TEST_TMPDIR/raw"
+    excerpt "$BATS_TEST_TMPDIR/raw"
+    got_is '0|a\xffb"\t'
+    vk "$fixed"' vk_log_start "$PWD/.vendor_kit/log" bootstrap check && vk_log_docker_read <'"$BATS_TEST_TMPDIR/raw"' && vk_diag VK0033; vk_diag VK0033'
+    [ "$status" -eq 2 ]
+    [ "$stderr" = 'vendor_kit: error[VK0033]: Docker was not found on the host. Install Docker and retry.'$'\n''vendor_kit: error[VK0033]: Docker was not found on the host. Install Docker and retry.' ]
+    only_log_file
+    local -a lines
+    mapfile -t lines <"$REPLY"
+    [ "${#lines[@]}" -eq 3 ]
+    [[ ${lines[1]} == *'"vendor_kit.reason_code":"VK0033","vendor_kit.docker.stderr":"a\u0000b\"\t","vendor_kit.docker.stderr_truncated":0}}' ]]
+    [[ ${lines[2]} == *'"vendor_kit.reason_code":"VK0033"}}' ]]
+}
+
+@test "an excerpt read before the run log exists is dropped with the diagnostic" {
+    printf 'x\n' >"$BATS_TEST_TMPDIR/raw"
+    vk "$fixed"' vk_log_docker_read <'"$BATS_TEST_TMPDIR/raw"'; vk_diag VK0033; printf "[%s]" "$vk_log_docker_stderr"'
+    [ "$output" = '[]' ]
+}
+
+@test "a line with the excerpt that cannot be written falls back to the same diagnostic without it" {
+    printf 'x\n' >"$BATS_TEST_TMPDIR/raw"
+    # 帶摘錄的那一行寫不進去（例如磁碟滿）：改寫不帶摘錄的同一筆，stderr 與結束碼不變
+    vk "$fixed"' vk_log_start "$PWD/.vendor_kit/log" bootstrap check || exit 9
+    vk_log_line_real=$(declare -f vk_log_event)
+    eval "${vk_log_line_real/vk_log_event/vk_log_event_real}"
+    vk_log_event() { [[ ${5:-} != *docker.stderr* ]] || return 1; vk_log_event_real "$@"; }
+    vk_log_docker_read <'"$BATS_TEST_TMPDIR/raw"' && vk_diag VK0033'
+    [ "$status" -eq 2 ]
+    [ "$stderr" = 'vendor_kit: error[VK0033]: Docker was not found on the host. Install Docker and retry.' ]
+    only_log_file
+    local -a lines
+    mapfile -t lines <"$REPLY"
+    [ "${#lines[@]}" -eq 2 ]
+    [[ ${lines[1]} == *'"vendor_kit.reason_code":"VK0033"}}' ]]
+}

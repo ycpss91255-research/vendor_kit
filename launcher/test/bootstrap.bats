@@ -590,6 +590,66 @@ assess_raw() {
     [ "$status" -eq 0 ]
 }
 
+@test "assess: diagnostics with next_step.command and a docker stderr excerpt read back" {
+    # 引擎寫的下一步指令（golden_diagnostic_emitted_next_step）與啟動器寫的摘錄（golden_diagnostic_emitted_docker_stderr）
+    local dgn dd both
+    rust_golden golden_diagnostic_emitted_next_step && dgn=$REPLY
+    rust_golden golden_diagnostic_emitted_docker_stderr && dd=$REPLY
+    both=${dgn%'}}'}',"vendor_kit.docker.stderr":"x","vendor_kit.docker.stderr_truncated":1}}'
+    assess "$RS" "$ES" "$dgn" "$EF" "$RF"
+    [ "$status" -eq 0 ]
+    assess "$RS" "$ES" "$dd" "$both" "$EF" "$RF"
+    [ "$status" -eq 0 ]
+    # 摘錄剛好上限：跳脫還原後才量（\n、\u0000、\\ 各算 1 位元組）
+    local bsl='\' n4096='' z4096='' b4096='' i
+    for ((i = 0; i < 4096; i++)); do
+        n4096+="${bsl}n"
+        z4096+="${bsl}u0000"
+        b4096+="$bsl$bsl"
+    done
+    local cap
+    for cap in "$n4096" "$z4096" "$b4096"; do
+        assess "$RS" "$ES" "${DG%'}}'},\"vendor_kit.docker.stderr\":\"$cap\",\"vendor_kit.docker.stderr_truncated\":1}}" "$EF" "$RF"
+        [ "$status" -eq 0 ]
+    done
+}
+
+@test "assess: malformed next_step.command or docker stderr keys are not applicable (tests.rs malformed_docker_stderr_is_invalid)" {
+    local bsl='\' c4097='' n4097='' i
+    for ((i = 0; i < 4097; i++)); do
+        c4097+=c
+        n4097+="${bsl}n"
+    done
+    local -a bad=(
+        # 旗標不是 0 或 1、是字串、少了旗標、只有旗標
+        '"vendor_kit.docker.stderr":"x","vendor_kit.docker.stderr_truncated":2'
+        '"vendor_kit.docker.stderr":"x","vendor_kit.docker.stderr_truncated":"0"'
+        '"vendor_kit.docker.stderr":"x"'
+        '"vendor_kit.docker.stderr_truncated":0'
+        # 摘錄是空字串、不是字串、超過上限（跳脫還原後也算）
+        '"vendor_kit.docker.stderr":"","vendor_kit.docker.stderr_truncated":0'
+        '"vendor_kit.docker.stderr":1,"vendor_kit.docker.stderr_truncated":0'
+        "\"vendor_kit.docker.stderr\":\"$c4097\",\"vendor_kit.docker.stderr_truncated\":1"
+        "\"vendor_kit.docker.stderr\":\"$n4097\",\"vendor_kit.docker.stderr_truncated\":1"
+        # 兩個鍵順序顛倒
+        '"vendor_kit.docker.stderr_truncated":0,"vendor_kit.docker.stderr":"x"'
+        # 下一步指令是空字串、排在摘錄之後
+        '"vendor_kit.next_step.command":""'
+        '"vendor_kit.docker.stderr":"x","vendor_kit.docker.stderr_truncated":0,"vendor_kit.next_step.command":"./bootstrap.sh -y"'
+    )
+    local b
+    for b in "${bad[@]}"; do
+        assess "$RS" "$ES" "${DG%'}}'},$b}}" "$EF" "$RF"
+        [ "$status" -eq 1 ] || {
+            echo "accepted: ${b:0:120}" >&2
+            return 1
+        }
+    done
+    # 原樣的鍵是讀得進來的
+    assess "$RS" "$ES" "${DG%'}}'},\"vendor_kit.docker.stderr\":\"x\",\"vendor_kit.docker.stderr_truncated\":0}}" "$EF" "$RF"
+    [ "$status" -eq 0 ]
+}
+
 @test "assess: not applicable cases" {
     # 引擎版本鎖定行已經寫過
     assess "$RS" "$WS" "$LWS_E" "$LW_E" "$EF0"
