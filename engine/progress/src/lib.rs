@@ -13,7 +13,8 @@
 //! - 內容是 VK 寫的 TOML，經 `schema` 讀寫：先過檔案版門檻（過高回 VK0008），未知欄位讀時忽略、
 //!   寫時保留（ADR-0008）。已知欄位只有 `command`：原指令的參數（`just vendor_kit` 之後的每一段），
 //!   給 recipe 重組 `<original_command>`；其餘欄位由 recipe 經 [`Progress::document_mut`] 自己放。
-//!   好幾個 recipe 共用的格式定在這裡：[`upgrade`] 的 `[upgrade]` 表、[`repo_files`] 的這次要寫的 repo 檔。
+//!   好幾個 recipe 共用的格式定在這裡：[`upgrade`] 的 `[upgrade]` 表、[`repo_files`] 的這次要寫的 repo 檔、
+//!   [`uninstall`] 給完成未完成的 uninstall 用的引擎引用與保留清單。
 //! - 第一版禁止 symlink：進度檔是 symlink 時一律回錯，不跟隨。
 //! - 建立時同名進度檔已在就拒絕（[`Error::Exists`]），不蓋掉另一次未完成操作的恢復證據。檢查與
 //!   rename 之間不是原子的，呼叫端要先持安裝目錄的排他鎖（`filelock`）。
@@ -72,6 +73,118 @@ pub mod upgrade {
             .get(&[TABLE, key])
             .and_then(|i| i.as_bool())
     }
+}
+
+/// `uninstall` 的進度檔（`.tmp.uninstall.<id>.toml`）另記、完成未完成的 uninstall 要用的欄位（N8b）。
+///
+/// `uninstall` 落地時會刪掉 `baseline/`、`version.local.toml`、薄殼與整份 `version.toml`；收回進行到最後被
+/// 中斷時，引擎版本與保留清單都推不回來。所以 `uninstall` 在建初始進度檔時（早於任何收回的副作用）就把它們
+/// 記在 `[uninstall]` 表；寫的是 `engine/remove`，讀的是之後完成未完成 uninstall 的路徑，所以格式定在這裡：
+///
+/// | 鍵 | 值 |
+/// |---|---|
+/// | [`uninstall::ENGINE`] | 當初跑 uninstall 那一版引擎的 pinned 引用：`version.toml` 引擎鎖定行的值（`<registry>/<路徑>:<tag>@<digest>`）。開著引擎覆寫時也記鎖定行，不記覆寫 |
+/// | [`uninstall::KEPT`] | 保留的初始檔：逐檔紀錄裡 state 是 `managed` 或 `appended` 的檔（repo 相對路徑，排序） |
+/// | [`uninstall::KEPT_LOCAL`] | 保留的本機開發來源：inline table，`<repo> = "<來源>"`；沒有時是空表 |
+///
+/// 收回了哪些 repo 檔在 [`repo_files`]，`.vendor_kit/` 裡還留著的項目收尾時照目錄現況列，都不在這裡重記。
+/// 舊版寫的 `uninstall` 進度檔沒有這張表的這些鍵（[`uninstall::read`] 回 `Ok(None)`）。`[uninstall]` 表裡
+/// 其他的鍵（收回哪些工具等）由 `engine/remove` 自己定。
+pub mod uninstall {
+    use std::collections::BTreeMap;
+    use std::fmt;
+
+    use toml_edit::{Array, InlineTable, Item, Value};
+
+    use super::Progress;
+    use schema::WriteError;
+
+    /// 進度檔名裡的 `<verb>`，也是表名。
+    pub const VERB: &str = "uninstall";
+    pub const TABLE: &str = "uninstall";
+    pub const ENGINE: &str = "engine";
+    pub const KEPT: &str = "kept";
+    pub const KEPT_LOCAL: &str = "kept_local";
+
+    /// 完成未完成的 uninstall 要用的內容。
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    pub struct Record {
+        /// 引擎鎖定行的值。
+        pub engine: String,
+        /// 保留的初始檔（repo 相對路徑）。
+        pub kept: Vec<String>,
+        /// 保留的本機開發來源：工具名 → 來源。
+        pub kept_local: BTreeMap<String, String>,
+    }
+
+    /// 寫進 `[uninstall]` 表；`kept` 照排序寫。
+    pub fn record(progress: &mut Progress, record: &Record) -> Result<(), WriteError> {
+        let mut kept: Vec<&str> = record.kept.iter().map(String::as_str).collect();
+        kept.sort_unstable();
+        kept.dedup();
+        let kept: Array = kept.into_iter().collect();
+        let mut local = InlineTable::new();
+        for (repo, dir) in &record.kept_local {
+            local.insert(repo, Value::from(dir.as_str()));
+        }
+        let doc = progress.document_mut();
+        doc.set(&[TABLE, ENGINE], record.engine.as_str())?;
+        doc.set(&[TABLE, KEPT], kept)?;
+        doc.set(&[TABLE, KEPT_LOCAL], local)
+    }
+
+    /// 讀回記錄；沒有引擎引用回 `Ok(None)`（舊版寫的進度檔）。
+    pub fn read(progress: &Progress) -> Result<Option<Record>, Invalid> {
+        let doc = progress.document();
+        let engine = match doc.get(&[TABLE, ENGINE]) {
+            None | Some(Item::None) => return Ok(None),
+            Some(item) => item
+                .as_str()
+                .ok_or_else(|| Invalid(format!("`{TABLE}.{ENGINE}` is not a string")))?
+                .to_owned(),
+        };
+        let kept = match doc.get(&[TABLE, KEPT]) {
+            None | Some(Item::None) => return Err(Invalid(format!("missing `{TABLE}.{KEPT}`"))),
+            Some(item) => item
+                .as_array()
+                .and_then(|a| a.iter().map(|v| v.as_str().map(str::to_owned)).collect())
+                .ok_or_else(|| Invalid(format!("`{TABLE}.{KEPT}` is not an array of strings")))?,
+        };
+        let kept_local = match doc.get(&[TABLE, KEPT_LOCAL]) {
+            None | Some(Item::None) => {
+                return Err(Invalid(format!("missing `{TABLE}.{KEPT_LOCAL}`")));
+            }
+            Some(item) => item
+                .as_inline_table()
+                .and_then(|t| {
+                    t.iter()
+                        .map(|(k, v)| v.as_str().map(|s| (k.to_owned(), s.to_owned())))
+                        .collect()
+                })
+                .ok_or_else(|| {
+                    Invalid(format!(
+                        "`{TABLE}.{KEPT_LOCAL}` is not an inline table of strings"
+                    ))
+                })?,
+        };
+        Ok(Some(Record {
+            engine,
+            kept,
+            kept_local,
+        }))
+    }
+
+    /// 記錄的格式不對。
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Invalid(pub String);
+
+    impl fmt::Display for Invalid {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    impl std::error::Error for Invalid {}
 }
 
 /// 這次要寫的 repo 檔：根層陣列表 `[[repo_file]]`，`add`、`upgrade`、`remove`、`uninstall` 共用（#372 N47、N95）。
@@ -782,6 +895,60 @@ mod tests {
         back.save(&dir, "v1").unwrap();
         let back = load(&dir, "upgrade", "42").unwrap().unwrap();
         assert_eq!(repo_files::read(&back), Ok(None));
+    }
+
+    #[test]
+    fn uninstall_table_round_trips() {
+        let (_t, dir) = install();
+        let mut p = Progress::new(uninstall::VERB, "7", &["uninstall", "-y"]).unwrap();
+        assert_eq!(uninstall::read(&p), Ok(None));
+        let record = uninstall::Record {
+            engine: "ghcr.io/a/vendor_kit:v1.0.0@sha256:1".to_owned(),
+            kept: vec!["justfile".to_owned(), ".gitignore".to_owned()],
+            kept_local: [("other".to_owned(), "../other-src".to_owned())].into(),
+        };
+        uninstall::record(&mut p, &record).unwrap();
+        p.create(&dir, "v1").unwrap();
+        let back = load(&dir, uninstall::VERB, "7").unwrap().unwrap();
+        let mut sorted = record.clone();
+        sorted.kept.sort();
+        assert_eq!(uninstall::read(&back), Ok(Some(sorted)));
+        assert_eq!(back.command(), ["uninstall", "-y"]);
+
+        // 沒有保留的檔與本機開發來源時寫成空陣列與空表，讀回來是空的。
+        let mut p = Progress::new(uninstall::VERB, "8", &["uninstall"]).unwrap();
+        let empty = uninstall::Record {
+            engine: record.engine.clone(),
+            ..uninstall::Record::default()
+        };
+        uninstall::record(&mut p, &empty).unwrap();
+        p.create(&dir, "v1").unwrap();
+        let text = fs::read_to_string(dir.vk_dir().join(".tmp.uninstall.8.toml")).unwrap();
+        assert!(text.contains("kept = []"), "{text}");
+        assert!(text.contains("kept_local = {}"), "{text}");
+        let back = load(&dir, uninstall::VERB, "8").unwrap().unwrap();
+        assert_eq!(uninstall::read(&back), Ok(Some(empty)));
+    }
+
+    #[test]
+    fn uninstall_table_rejects_malformed_records() {
+        // 舊版寫的：只有收回哪些工具，沒有引擎引用。
+        let old = "schema = 1\ncommand = [\"uninstall\"]\n\
+                   [uninstall]\nrepos = []\nrepo_files = false\n";
+        let p = Progress::parse("uninstall", "1", old).unwrap();
+        assert_eq!(uninstall::read(&p), Ok(None));
+        for bad in [
+            "engine = 1\nkept = []\nkept_local = {}",
+            "engine = \"e\"\nkept_local = {}",
+            "engine = \"e\"\nkept = [1]\nkept_local = {}",
+            "engine = \"e\"\nkept = []",
+            "engine = \"e\"\nkept = []\nkept_local = { a = 1 }",
+            "engine = \"e\"\nkept = []\nkept_local = []",
+        ] {
+            let text = format!("schema = 1\ncommand = [\"uninstall\"]\n[uninstall]\n{bad}\n");
+            let p = Progress::parse("uninstall", "1", &text).unwrap();
+            assert!(uninstall::read(&p).is_err(), "{bad}");
+        }
     }
 
     #[test]

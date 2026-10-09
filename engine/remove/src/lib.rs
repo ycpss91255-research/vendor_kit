@@ -98,6 +98,10 @@
 //! - 進度檔 `.tmp.<verb>.<run-id>.toml` 另記 `[<verb>]` 表的 `repos`（這次收回的工具）與
 //!   `repo_files`（這次有沒有要寫 repo 檔），以及這次要寫的每個 repo 檔（`[[repo_file]]` 的路徑、動作、
 //!   寫入前後內容的 hash；格式定在 `progress::repo_files`）。
+//! - `uninstall` 的進度檔另在 `[uninstall]` 表記完成未完成的 uninstall 要用的資料（N8b；格式定在
+//!   `progress::uninstall`）：引擎鎖定行的值（開著引擎覆寫也記鎖定行），以及保留清單裡會隨 `baseline/`、
+//!   `version.local.toml` 一起刪掉、之後推不回來的兩項：保留的初始檔（[`Run::report_files`] 列的同一份）與
+//!   保留的本機開發來源。建初始進度檔時就寫進去，早於任何收回的副作用（`txn::Txn::begin` 先建進度檔）。
 //! - 覆寫的解除排在紀錄檔那一步（寫回拿掉對象那一行的 `version.local.toml`），在版本鎖定行之前；進度檔不另記
 //!   覆寫，恢復時照 `repos` 重算。上一次已解除的覆寫，恢復時不再報告（原來的來源已經不在檔裡）。
 //! - 覆寫全部解除後 `version.local.toml` 照留（只剩檔案版與寫入者），跟 `dev` 相同。
@@ -129,7 +133,8 @@
 //! - 工具名不是 just 名稱。
 //! - 中途寫檔失敗沒有代碼（計畫 G4）。
 //! - `uninstall` 收回根 `justfile` 的 `import` 與薄殼之後 `just vendor_kit` 就跑不起來；在那之後中斷，
-//!   重跑的入口與診斷沒定（04：殘留與真正中斷的結果見訊息表，訊息表還沒有對應的碼）。
+//!   重跑的入口與診斷還沒做（N8b 後半：bootstrap 辨識未完成的 uninstall、完成模式）。完成要用的
+//!   引擎引用與保留清單已經記在進度檔（見「這次自訂的內部細節」）。
 //! - 04:261 `remove` 後再 `add` 的重新詢問：`remove` 刪掉了該工具的逐檔紀錄，`add` 照既有檔處理。
 
 pub mod text;
@@ -161,7 +166,7 @@ use version_file::{LocalFile, LockFile};
 /// `remove` 的進度檔 `<verb>`，也是它在進度檔裡自己的表名。
 pub const REMOVE_VERB: &str = "remove";
 /// `uninstall` 的進度檔 `<verb>`，也是它在進度檔裡自己的表名。
-pub const UNINSTALL_VERB: &str = "uninstall";
+pub const UNINSTALL_VERB: &str = progress::uninstall::VERB;
 /// 進度檔記這次收回哪些工具的欄位。
 pub const REPOS_KEY: &str = "repos";
 /// 進度檔記這次有沒有要寫 repo 檔的欄位。
@@ -737,6 +742,25 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         Ok(p)
     }
 
+    /// `uninstall` 的進度檔：[`Run::progress`] 之外，`[uninstall]` 表另記引擎鎖定行的值與保留清單
+    /// （`progress::uninstall`），給完成未完成的 uninstall 用。
+    fn uninstall_progress(
+        &mut self,
+        repos: &BTreeSet<String>,
+        plan: &Plan,
+        lockfile: &LockFile,
+        local: Option<&LocalFile>,
+    ) -> Step<Progress> {
+        let mut p = self.progress(UNINSTALL_VERB, repos, plan)?;
+        let record = progress::uninstall::Record {
+            engine: lockfile.engine().to_string(),
+            kept: kept_files(plan).into_iter().collect(),
+            kept_local: local.map(|l| l.tools().clone()).unwrap_or_default(),
+        };
+        progress::uninstall::record(&mut p, &record).map_err(|e| self.internal(e.to_string()))?;
+        Ok(p)
+    }
+
     /// 這次落地完成之後刪殘留的進度檔。
     fn delete_residuals(&mut self, residual: &[Residual]) -> Step<()> {
         for r in residual {
@@ -755,12 +779,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         for e in &plan.edits {
             self.say(&text::retracted(&e.path, dry));
         }
-        let kept: BTreeSet<String> = plan
-            .records
-            .iter()
-            .filter(|r| matches!(r.state, State::Managed | State::Appended))
-            .map(|r| r.path.clone())
-            .collect();
+        let kept = kept_files(plan);
         for path in &kept {
             self.say(&text::kept(path, dry));
         }
@@ -1201,7 +1220,7 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
             gone.insert(self.env.dir.version_toml());
             gone.extend(residual.iter().map(|r| r.entry.path.clone()));
         } else {
-            let progress = self.progress(UNINSTALL_VERB, &targets, &plan)?;
+            let progress = self.uninstall_progress(&targets, &plan, &lockfile, local.as_ref())?;
             self.land(
                 progress,
                 &plan,
@@ -1307,6 +1326,15 @@ impl<W: Write, S: Sink, L: Write> Run<'_, '_, W, S, L> {
         }
         Ok(())
     }
+}
+
+/// 保留清單裡的初始檔：逐檔紀錄裡 state 是 `managed` 或 `appended` 的檔（VK 建立或插入過的）。
+fn kept_files(plan: &Plan) -> BTreeSet<String> {
+    plan.records
+        .iter()
+        .filter(|r| matches!(r.state, State::Managed | State::Appended))
+        .map(|r| r.path.clone())
+        .collect()
 }
 
 /// 讀檔；不在回 `None`。
