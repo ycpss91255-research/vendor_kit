@@ -925,9 +925,16 @@ fn interrupted(fx: &Fx, argv: &[&str]) -> Vec<WrittenFile> {
         let Ok(plan) = run.plan(&records, &[]) else {
             panic!("plan")
         };
-        let Ok(mut p) = run.progress(verb, &targets, &plan) else {
-            panic!("progress")
+        // `uninstall` 照 `Run::uninstall` 用同一個建法，另記引擎引用與保留清單。
+        let built = if verb == REMOVE_VERB {
+            run.progress(verb, &targets, &plan)
+        } else {
+            let (Ok(lockfile), Ok(local)) = (run.lockfile(), run.local()) else {
+                panic!("lock files")
+            };
+            run.uninstall_progress(&targets, &plan, &lockfile, local.as_ref())
         };
+        let Ok(mut p) = built else { panic!("progress") };
         p.create(&fx.dir, WRITTEN_BY).unwrap();
         0
     });
@@ -955,6 +962,79 @@ fn the_progress_file_records_the_repo_files_to_write() {
         )]
     );
     assert_eq!(files[0].action, repo_files::Action::Modify);
+    // `remove` 的進度檔不記 uninstall 的引擎引用與保留清單。
+    let p = progress::load(&fx.dir, REMOVE_VERB, "r0").unwrap().unwrap();
+    assert!(
+        p.document()
+            .get(&[REMOVE_VERB, progress::uninstall::ENGINE])
+            .is_none()
+    );
+    assert!(p.document().get(&[progress::uninstall::TABLE]).is_none());
+}
+
+/// `uninstall` 的進度檔在任何收回的副作用之前就記下引擎鎖定行的值與保留清單（N8b）：中斷在刪掉
+/// `baseline/`、`version.local.toml`、`version.toml` 之後，完成時照它補印保留清單、用原來那一版引擎。
+#[test]
+fn the_uninstall_progress_file_records_the_engine_and_what_is_kept() {
+    let fx = Fx::new();
+    fx.record("baseline/.vendor_kit.toml", "justfile", IMPORT, JUSTFILE);
+    let mut local = LocalFile::new();
+    local.set_tool("other", "../other-src").unwrap();
+    // 引擎覆寫不算數：記的是鎖定行，不是覆寫。
+    local.set_engine("vendor_kit:dev").unwrap();
+    local.save_to(&fx.dir, WRITTEN_BY).unwrap();
+    interrupted(&fx, &["uninstall"]);
+
+    let p = progress::load(&fx.dir, UNINSTALL_VERB, "r0")
+        .unwrap()
+        .unwrap();
+    let record = progress::uninstall::read(&p).unwrap().unwrap();
+    assert_eq!(record.engine, ENGINE);
+    assert_eq!(record.engine, fx.lock().engine().to_string());
+    assert_eq!(record.kept, [".gitignore", "justfile"]);
+    assert_eq!(
+        record.kept_local,
+        BTreeMap::from([("other".to_owned(), "../other-src".to_owned())])
+    );
+
+    // 照常完成時進度檔照刪，保留清單照印。
+    let out = run(&fx, &["uninstall"], true, "y\ny\n");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert!(fx.progress_left().is_empty());
+    assert!(out.stdout.contains("Kept .gitignore\n"), "{}", out.stdout);
+    assert!(out.stdout.contains("Kept justfile\n"), "{}", out.stdout);
+}
+
+/// 沒有保留的初始檔、也沒有本機開發來源時，兩項都記成空的，引擎引用照記。
+#[test]
+fn the_uninstall_progress_file_records_an_empty_kept_list() {
+    let fx = Fx::new();
+    fs::remove_file(fx.vk().join("baseline/tool.toml")).unwrap();
+    let out = with_env(&fx, "r0", &["uninstall".to_owned()], false, "", |env| {
+        let mut run = Run::new(env, Opts::default());
+        let (Ok(records), Ok(lockfile), Ok(local)) =
+            (run.all_records(), run.lockfile(), run.local())
+        else {
+            panic!("inputs")
+        };
+        let Ok(plan) = run.plan(&records, &[]) else {
+            panic!("plan")
+        };
+        let targets = BTreeSet::from(["other".to_owned(), "tool".to_owned()]);
+        let Ok(mut p) = run.uninstall_progress(&targets, &plan, &lockfile, local.as_ref()) else {
+            panic!("progress")
+        };
+        p.create(&fx.dir, WRITTEN_BY).unwrap();
+        0
+    });
+    assert_eq!(out.stderr, "");
+    let p = progress::load(&fx.dir, UNINSTALL_VERB, "r0")
+        .unwrap()
+        .unwrap();
+    let record = progress::uninstall::read(&p).unwrap().unwrap();
+    assert_eq!(record.engine, ENGINE);
+    assert!(record.kept.is_empty());
+    assert!(record.kept_local.is_empty());
 }
 
 #[test]
