@@ -35,10 +35,13 @@
 # - `docker create -i --init` 先拿到容器 ID，再以前景 `docker start -ai` 起引擎（stdin 接通、不帶 -t，
 #   stdout 與 stderr 分開）；代辦迴圈（vk_launch_serve）在背景跑，結果寫 res.<seq>（先 .tmp 再 mv）。
 # - docker 子程序的輸出一律攔下（N20，03:45–46）：啟動器呼叫的 docker（pull、load、inspect、ps、create、cp、
-#   rm）與 stage、stage-dir 的 cp，stderr 都附加到 session 目錄的 docker.err（vk_launch_errlog；在 ctl/、in/
-#   之外，引擎看不到），不繼承；stdout 不是要交給引擎的資料就丟掉。docker 的原文不解析、不決定結果（03:26），
-#   失敗時印的是 VK 自己的診斷。docker.err 跟 session 目錄一起刪，不寫進執行紀錄（摘錄要不要進紀錄是 N20b，
-#   還沒定）。session 目錄建好之前的 pull（vk_launch_obtain）沒有地方放，stderr 直接丟掉。
+#   rm）與 stage、stage-dir 的 cp，stderr 都寫到 session 目錄的 docker.err（vk_launch_errlog；在 ctl/、in/
+#   之外，引擎看不到），不繼承；stdout 不是要交給引擎的資料就丟掉。每次呼叫重寫這個檔（`2>`），所以檔裡只有
+#   最近一次呼叫的原文。docker 的原文不解析、不決定結果（03:26），失敗時印的是 VK 自己的診斷。
+#   啟動器自己判定失敗的 docker 呼叫（取得引擎 image 的 pull、建引擎容器的 create），把那一次的原文摘錄跟著
+#   那條診斷寫進執行紀錄（N20b，log.sh 的 vk_log_docker_read）：create 失敗時在刪 session 目錄之前讀；
+#   session 目錄建好之前的 pull 寫到 repo 外暫存處的專用檔（vk_launch_prefile），讀完就刪。
+#   代辦的 op 失敗時由引擎報診斷，原文還交不到引擎（要動協定），只留在 docker.err、跟 session 目錄一起刪。
 #   照舊繼承的只有兩個：引擎的 `docker start -ai`（引擎自己的 VK 輸出）與 test runner 的 `docker start -a`
 #   （04 test 承諾 runner 的輸出原樣給使用者）。
 # - 中斷（N49）：引擎不當 PID 1，由 --init 的 tini 把 docker CLI 轉來的 SIGINT、SIGTERM 交給引擎
@@ -173,16 +176,46 @@ vk_launch_labels() {
     return 0
 }
 
+# vk_launch_prefile <name>：session 目錄建好之前的 docker 呼叫收 stderr 的檔
+# `${TMPDIR:-/tmp}/vendor_kit.<run-id>.<name>.err`（repo 外；run-id 是這次執行紀錄的 invocation_id），
+# 以 noclobber 排他建立，路徑放進 REPLY。run-id 不合文法或建不出來回 1，呼叫端改丟到 /dev/null（沒有摘錄）。
+vk_launch_prefile() {
+    if [[ ! ${vk_log_invocation_id:-} =~ $vk_wire_re_run_id ]]; then
+        return 1
+    fi
+    local tmp=${TMPDIR:-/tmp}
+    tmp=${tmp%/}
+    REPLY="${tmp:-/tmp}/vendor_kit.$vk_log_invocation_id.$1.err"
+    (set -C && : >"$REPLY") 2>/dev/null
+}
+
+# vk_launch_docker_err <file> <rc>：一次 docker 呼叫結束之後：失敗（rc 不是 0）就讀 file 裡那一次的 stderr，
+# 摘錄交給下一條診斷（log.sh 的 vk_log_docker_stderr）；成功或讀不到就清掉。
+vk_launch_docker_err() {
+    vk_log_docker_clear
+    if (($2 != 0)) && [[ -f $1 && -r $1 ]]; then
+        vk_log_docker_read <"$1"
+    fi
+}
+
 # vk_launch_obtain <engine_ref>：確保本機有引擎 image（N40）。有就不 pull；沒有才以 vk_pull_timeout 秒的逾時
 # pull 這個 pinned 引用，失敗或逾時回 VK0036，不改用其他版本。成功時 image 的 LABEL 已讀進 vk_image_*。
-# 這時還沒有 session 目錄，docker pull 的 stdout、stderr 都丟掉（N20）。
+# 這時還沒有 session 目錄，docker pull 的 stdout 丟掉，stderr 寫到 vk_launch_prefile 的專用檔；失敗或逾時時
+# 摘錄跟著 VK0036 寫進執行紀錄（N20b）。
 vk_launch_obtain() {
-    local engine=$1 rc
+    local engine=$1 rc err=/dev/null
     if vk_launch_labels "$engine"; then
         return 0
     fi
-    timeout "$vk_pull_timeout" docker pull -q "$engine" >/dev/null 2>&1
+    if vk_launch_prefile pull; then
+        err=$REPLY
+    fi
+    timeout "$vk_pull_timeout" docker pull -q "$engine" >/dev/null 2>"$err"
     rc=$?
+    vk_launch_docker_err "$err" "$rc"
+    if [[ $err != /dev/null ]]; then
+        rm -f -- "$err" 2>/dev/null
+    fi
     if ((rc == 124)); then
         vk_launch_fail VK0036 image "$engine" reason "docker pull timed out after $vk_pull_timeout seconds"
         return 1
@@ -500,7 +533,7 @@ vk_launch_engine() {
         nocolor=1
     fi
     vk_launch_user
-    # 之後啟動器呼叫的 docker 子程序（含背景的代辦迴圈）stderr 都附加到這裡（N20）。
+    # 之後啟動器呼叫的 docker 子程序（含背景的代辦迴圈）stderr 都寫到這裡，每次呼叫重寫（N20）。
     vk_launch_errlog=$sess/$vk_launch_errfile
     local m_root m_ctl m_in
     vk_wire_mount_source "$root"
@@ -517,9 +550,11 @@ vk_launch_engine() {
         "$image" \
         "${vk_wire_argv[0]}" "$proto" "${vk_wire_argv[1]}" "$run_id" "${vk_wire_argv[2]}" "$root" \
         "${vk_wire_argv[3]}" "$cwd" "${vk_wire_argv[4]}" "$run_log" "${vk_wire_argv[5]}" "$tty" \
-        "${vk_wire_argv[6]}" "$nocolor" -- "$@" 2>>"$vk_launch_errlog")
+        "${vk_wire_argv[6]}" "$nocolor" -- "$@" 2>"$vk_launch_errlog")
     rc=$?
     if ((rc != 0)) || [[ ! $cid =~ $vk_wire_re_cid ]]; then
+        # 原文摘錄在刪 session 目錄之前讀（N20b）。
+        vk_launch_docker_err "$vk_launch_errlog" 1
         rm -rf -- "$sess"
         vk_launch_internal "docker create for the engine exited with $rc"
         vk_launch_finish ""
@@ -562,7 +597,7 @@ vk_launch_engine() {
         vk_launch_internal "${reason:-the request loop failed}"
     elif [[ -e $sess/interrupted && ! -e $sess/ctl/done ]]; then
         IFS= read -r sig <"$sess/interrupted"
-        docker rm "$cid" >/dev/null 2>>"$vk_launch_errlog"
+        docker rm "$cid" >/dev/null 2>"$vk_launch_errlog"
         rm -rf -- "$sess"
         local code=130
         if [[ $sig == TERM ]]; then
@@ -576,7 +611,7 @@ vk_launch_engine() {
     elif [[ $REPLY != "$exit" ]]; then
         vk_launch_internal "done exit code $REPLY does not match the engine container exit code $exit"
     fi
-    docker rm "$cid" >/dev/null 2>>"$vk_launch_errlog"
+    docker rm "$cid" >/dev/null 2>"$vk_launch_errlog"
     rm -rf -- "$sess"
     vk_launch_finish "$exit"
     return "$REPLY"
@@ -655,7 +690,7 @@ vk_launch_result() {
 # result 那一行放進 REPLY。只在這裡呼叫 docker；op 不在封閉清單的已在 wire.sh 擋掉。
 # 交給引擎的原始輸出寫 res.<seq>.out：inspect、ps，load -q 的 stdout（引擎從裡面拿 image ID，N43），
 # 以及 rm-sessions 刪了哪些（vk_launch_prune_sessions 的 `removed <id>`／`failed <id>`）。
-# stderr 一律附加到 vk_launch_errlog（N20）。
+# stderr 一律寫到 vk_launch_errlog，每次呼叫重寫（N20）。
 vk_launch_dispatch() {
     local sess=$1 root=$2 run_id=$3 seq=$4
     local ctl=$sess/ctl in=$sess/in rc=0
@@ -665,15 +700,15 @@ vk_launch_dispatch() {
     case $vk_req_op in
     pull | pull-tag)
         # pull-tag（P ≥ 2，D7）跟 pull 一樣交給主機 Docker，用的是主機 Docker 的登入；之後引擎自己 inspect 讀 digest。
-        docker pull -q "${a[0]}" >/dev/null 2>>"$vk_launch_errlog"
+        docker pull -q "${a[0]}" >/dev/null 2>"$vk_launch_errlog"
         rc=$?
         ;;
     load)
-        docker load -q -i "${a[0]}" >"$out" 2>>"$vk_launch_errlog"
+        docker load -q -i "${a[0]}" >"$out" 2>"$vk_launch_errlog"
         rc=$?
         ;;
     inspect)
-        docker image inspect "${a[0]}" >"$out" 2>>"$vk_launch_errlog"
+        docker image inspect "${a[0]}" >"$out" 2>"$vk_launch_errlog"
         rc=$?
         ;;
     extract)
@@ -684,7 +719,7 @@ vk_launch_dispatch() {
         if [[ -e $in/${a[1]} ]]; then
             rc=1
         else
-            cp -- "${a[0]}" "$in/${a[1]}" 2>>"$vk_launch_errlog"
+            cp -- "${a[0]}" "$in/${a[1]}" 2>"$vk_launch_errlog"
             rc=$?
         fi
         ;;
@@ -693,7 +728,7 @@ vk_launch_dispatch() {
         rc=$REPLY
         ;;
     ps)
-        docker ps -a --no-trunc --filter "label=$vk_label_root=$root" --filter status=exited --format '{{.ID}}' >"$out" 2>>"$vk_launch_errlog"
+        docker ps -a --no-trunc --filter "label=$vk_label_root=$root" --filter status=exited --format '{{.ID}}' >"$out" 2>"$vk_launch_errlog"
         rc=$?
         vk_serve_ps=()
         if ((rc == 0)); then
@@ -713,7 +748,7 @@ vk_launch_dispatch() {
         if ((!listed)); then
             vk_launch_fault "rm-container ${a[0]} was not listed by ps"
         fi
-        docker rm "${a[0]}" >/dev/null 2>>"$vk_launch_errlog"
+        docker rm "${a[0]}" >/dev/null 2>"$vk_launch_errlog"
         rc=$?
         ;;
     rm-sessions)
@@ -745,15 +780,15 @@ vk_launch_extract() {
         REPLY=1
         return 0
     fi
-    c=$(docker create "$@" --entrypoint "$vk_never_run" "$image" 2>>"$vk_launch_errlog")
+    c=$(docker create "$@" --entrypoint "$vk_never_run" "$image" 2>"$vk_launch_errlog")
     rc=$?
     if ((rc != 0)) || [[ ! $c =~ $vk_wire_re_cid ]]; then
         REPLY=$((rc == 0 ? 1 : rc))
         return 0
     fi
-    docker cp "$c:/dist/." "$dest" >/dev/null 2>>"$vk_launch_errlog"
+    docker cp "$c:/dist/." "$dest" >/dev/null 2>"$vk_launch_errlog"
     rc=$?
-    docker rm "$c" >/dev/null 2>>"$vk_launch_errlog"
+    docker rm "$c" >/dev/null 2>"$vk_launch_errlog"
     local rm_rc=$?
     if ((rc == 0)); then
         rc=$rm_rc
@@ -771,7 +806,7 @@ vk_launch_stage_dir() {
         REPLY=1
         return 0
     fi
-    cp -R -- "$src/." "$dest" 2>>"$vk_launch_errlog"
+    cp -R -- "$src/." "$dest" 2>"$vk_launch_errlog"
     REPLY=$?
 }
 
@@ -804,7 +839,7 @@ vk_launch_runner() {
     local c rc
     c=$(docker create "${vk_user_args[@]}" --label "$vk_label_root=$root" --label "$vk_label_run=$run_id" \
         --mount "$m_repo" --mount "$m_mask" --mount type=tmpfs,target=/tmp -w "$wd" \
-        --entrypoint="$command" "$image" "$@" 2>>"$vk_launch_errlog")
+        --entrypoint="$command" "$image" "$@" 2>"$vk_launch_errlog")
     rc=$?
     REPLY="runner notstarted"
     if ((rc != 0)) || [[ ! $c =~ $vk_wire_re_cid ]]; then
@@ -827,6 +862,6 @@ vk_launch_runner() {
     else
         REPLY="runner stopped unavailable"
     fi
-    docker rm "$c" >/dev/null 2>>"$vk_launch_errlog"
+    docker rm "$c" >/dev/null 2>"$vk_launch_errlog"
     return 0
 }

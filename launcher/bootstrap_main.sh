@@ -220,11 +220,23 @@ vk_bs_re_c='([^"\[:cntrl:]]|\\["\nrt]|\\u00(0[0-8bcef]|1[0-9a-f]|7f))'
 vk_bs_re_s="\"$vk_bs_re_c*\""
 vk_bs_re_rc='(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])'
 
+# vk_bootstrap_json_len <"…">：正規形 JSON 字串（含引號）還原跳脫之後的位元組數放進 REPLY。
+# 先把 `\\` 兩兩換成一個字（正規形裡每個 `\` 都開頭一個跳脫，由左往右配對不會錯），再換 `\u00xx`，
+# 最後換剩下的 `\"`、`\n`、`\r`、`\t`。
+vk_bootstrap_json_len() {
+    local LC_ALL=C s=${1:1:${#1}-2} bsl=\\
+    s=${s//"$bsl$bsl"/x}
+    s=${s//"${bsl}u00"??/x}
+    s=${s//"$bsl"?/x}
+    REPLY=${#s}
+}
+
 # vk_bootstrap_line <line>：讀一行紀錄（不含 LF），合格時把事件名、invocation_id（JSON 原字）與事件的值
 # 放進 vk_bs_ev、vk_bs_inv、vk_bs_val（mode、reason_code、target、stop_reason_code；其他事件是空字串），回 0。
 # 照 engine/runlog 的 read.rs 逐欄比對正規形：鍵序固定、沒有多的鍵或空白、跳脫寫法唯一。
 # 跟 read.rs 不同、這裡只看形狀的地方：訊息片段只有主機端的代碼，不在片段裡的代碼只查 VKnnnn 的形狀，
-# 診斷的嚴重度只查成對（在片段裡的才跟 level 比）；不檢查 UTF-8。
+# 診斷的嚴重度只查成對（在片段裡的才跟 level 比）；不檢查 UTF-8。診斷可帶的選用鍵（下一步指令、docker 原文
+# 摘錄與截斷旗標）跟 read.rs 一樣只驗格式。
 vk_bootstrap_line() {
     local LC_ALL=C line=$1 s=$vk_bs_re_s c=$vk_bs_re_c rc=$vk_bs_re_rc
     local head='^\{"timestamp":"([^"]*)","severity_text":"(info|warn|error|fatal)","severity_number":(9|13|17|21),'
@@ -261,8 +273,16 @@ vk_bootstrap_line() {
         ;;
     diagnostic_emitted)
         want_component=
-        [[ $rest =~ ^,\"vendor_kit\.reason_code\":\"(VK[0-9]{4})\"(,\"vendor_kit\.placeholder\.$c+\":$s)*$ ]] || return 1
+        # 占位符之後可有可無的下一步指令（非空），再接可有可無的 docker 原文摘錄（非空）與截斷旗標（N20b）。
+        local tail='(,"vendor_kit\.next_step\.command":"'"$c"'+")?(,"vendor_kit\.docker\.stderr":("'"$c"'+"),"vendor_kit\.docker\.stderr_truncated":(0|1))?'
+        [[ $rest =~ ^,\"vendor_kit\.reason_code\":\"(VK[0-9]{4})\"(,\"vendor_kit\.placeholder\.$c+\":$s)*$tail$ ]] || return 1
         vk_bs_val=${BASH_REMATCH[1]}
+        # 摘錄只驗長度（跳脫還原後不超過上限），內容不拿來判定。$c 帶兩組括號：BASH_REMATCH 的 2–6 是占位符，
+        # 7–9 是下一步，10 是摘錄那一段、11 是摘錄的 JSON 字串。
+        if [[ -n ${BASH_REMATCH[10]} ]]; then
+            vk_bootstrap_json_len "${BASH_REMATCH[11]}"
+            ((REPLY <= vk_log_docker_max)) || return 1
+        fi
         local level_var="vk_msg_${vk_bs_val}_level"
         if [[ -v $level_var ]]; then
             [[ ${sev%%:*} == "${!level_var}" ]] || return 1
@@ -489,12 +509,20 @@ vk_bootstrap_digest() {
 
 # vk_bootstrap_load <tar>：docker load -q 載入 tar，載入的 image ID 放進 REPLY。
 # load 失敗、輸出不是剛好一行 `Loaded image ID: <id>` 或 `Loaded image: <ref>`、讀不到 ID 時印 VK0036、回 1。
-# 這時還沒有 session 目錄，docker 的 stderr 丟掉（N20）。
+# 這時還沒有 session 目錄，docker load 的 stderr 寫到 launch.sh 的 vk_launch_prefile 的專用檔；失敗時摘錄跟著
+# VK0036 寫進執行紀錄（N20b）。
 vk_bootstrap_load() {
-    local tar=$1 out rc line id=
+    local tar=$1 out rc line id='' err=/dev/null
     local -a lines=()
-    out=$(docker load -q -i "$tar" 2>/dev/null)
+    if vk_launch_prefile load; then
+        err=$REPLY
+    fi
+    out=$(docker load -q -i "$tar" 2>"$err")
     rc=$?
+    vk_launch_docker_err "$err" "$rc"
+    if [[ $err != /dev/null ]]; then
+        rm -f -- "$err" 2>/dev/null
+    fi
     if ((rc != 0)); then
         vk_launch_fail VK0036 image "$tar" reason "docker load exited with $rc"
         return 1

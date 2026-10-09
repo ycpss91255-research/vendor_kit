@@ -3,7 +3,8 @@
 #
 # 訊息文字不在這裡寫：呼叫端先載入 msggen 產生的片段（`vk_msg_<code>_level`、`vk_msg_<code>_exit`、
 # `vk_msg_<code>_text`，見 engine/msggen 的 --bash-out），這裡只換占位符。
-# 已建執行紀錄時（log.sh 的 vk_log_file 有值），每印一條就寫恰好一筆 diagnostic_emitted（ADR-0005:7）。
+# 已建執行紀錄時（log.sh 的 vk_log_file 有值），每印一條就寫恰好一筆 diagnostic_emitted（ADR-0005:7）；
+# 呼叫前放進 vk_log_docker_stderr 的 docker 原文摘錄跟著這一筆寫（N20b）。
 #
 # 整次的結束碼取所有診斷裡最大的那個，沒有診斷時為 0（03 結束碼），存在 vk_diag_exit。
 
@@ -58,5 +59,7 @@ vk_diag() {
     if [[ -n ${vk_log_file:-} ]]; then
         vk_log_diagnostic "$code" "$level" "$body" "$@"
     fi
+    # docker 原文摘錄（log.sh）只屬於這一條診斷，沒寫進紀錄也一樣清掉。
+    vk_log_docker_clear
     return 0
 }
