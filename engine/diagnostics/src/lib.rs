@@ -27,11 +27,59 @@ fn is_command_tail(tail: &str) -> bool {
     })
 }
 
+/// docker 原文摘錄的上限（位元組，UTF-8）。
+pub const DOCKER_STDERR_MAX: usize = 4096;
+
+/// 一次 docker 呼叫的 stderr 摘錄（N20b）：只寫進執行紀錄，不印到 stderr、不決定結果（03:26）。
+///
+/// 摘錄是 docker 的原文，不承諾格式，可能含敏感資訊。超過 [`DOCKER_STDERR_MAX`] 時留最後的部分
+/// （docker 的錯誤通常在結尾），在 UTF-8 字元邊界切，並記下有截斷。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DockerStderr {
+    text: String,
+    truncated: bool,
+}
+
+impl DockerStderr {
+    /// 從一次呼叫的 stderr 位元組截取；不是 UTF-8 的位元組換成 U+FFFD。空的回 `None`（沒有可記的原文）。
+    pub fn capture(raw: &[u8]) -> Option<Self> {
+        if raw.is_empty() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(raw);
+        if text.len() <= DOCKER_STDERR_MAX {
+            return Some(Self {
+                text: text.into_owned(),
+                truncated: false,
+            });
+        }
+        let mut start = text.len() - DOCKER_STDERR_MAX;
+        while !text.is_char_boundary(start) {
+            start += 1;
+        }
+        Some(Self {
+            text: text[start..].to_owned(),
+            truncated: true,
+        })
+    }
+
+    /// 摘錄本身，不超過 [`DOCKER_STDERR_MAX`] 位元組、不是空字串。
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// 原文是否超過上限而被截掉開頭。
+    pub fn truncated(&self) -> bool {
+        self.truncated
+    }
+}
+
 /// 一條待印的診斷：訊息表的一列，加上要換進占位符的值。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     message: &'static Message,
     args: Vec<(&'static str, String)>,
+    docker_stderr: Option<DockerStderr>,
 }
 
 impl Diagnostic {
@@ -39,6 +87,26 @@ impl Diagnostic {
         Self {
             message,
             args: Vec::new(),
+            docker_stderr: None,
+        }
+    }
+
+    /// 附上造成這條診斷的那一次 docker 呼叫的 stderr 摘錄；只進執行紀錄，[`Diagnostic::render`] 不印。
+    pub fn with_docker_stderr(mut self, excerpt: DockerStderr) -> Self {
+        self.docker_stderr = Some(excerpt);
+        self
+    }
+
+    /// 附上的 docker 原文摘錄。
+    pub fn docker_stderr(&self) -> Option<&DockerStderr> {
+        self.docker_stderr.as_ref()
+    }
+
+    /// 拿掉 docker 原文摘錄的同一條診斷（帶摘錄的紀錄寫不進去時退回用）。
+    pub fn without_docker_stderr(&self) -> Self {
+        Self {
+            docker_stderr: None,
+            ..self.clone()
         }
     }
 
@@ -316,5 +384,46 @@ mod tests {
             d.args(),
             [("file", "a".to_owned()), ("text", "t".to_owned())]
         );
+    }
+
+    #[test]
+    fn docker_stderr_keeps_short_text() {
+        assert_eq!(DockerStderr::capture(b""), None);
+        let e = DockerStderr::capture(b"Error response from daemon: denied\n").unwrap();
+        assert_eq!(e.text(), "Error response from daemon: denied\n");
+        assert!(!e.truncated());
+        let full = vec![b'a'; DOCKER_STDERR_MAX];
+        let e = DockerStderr::capture(&full).unwrap();
+        assert_eq!(e.text().len(), DOCKER_STDERR_MAX);
+        assert!(!e.truncated());
+    }
+
+    #[test]
+    fn docker_stderr_keeps_the_tail_on_a_char_boundary() {
+        // 「中」是 3 位元組：上限 +1 個位元組時，切點落在字元中間，要往後挪到下一個邊界。
+        let mut raw = "中".repeat(DOCKER_STDERR_MAX / 3 + 1).into_bytes();
+        raw.extend_from_slice(b"end");
+        let e = DockerStderr::capture(&raw).unwrap();
+        assert!(e.truncated());
+        assert!(e.text().len() <= DOCKER_STDERR_MAX);
+        assert!(e.text().ends_with("中end"));
+        assert!(e.text().starts_with('中'));
+    }
+
+    #[test]
+    fn docker_stderr_replaces_invalid_utf8() {
+        let e = DockerStderr::capture(b"bad \xff byte").unwrap();
+        assert_eq!(e.text(), "bad \u{fffd} byte");
+    }
+
+    #[test]
+    fn docker_stderr_is_not_rendered() {
+        let plain = Diagnostic::new(&VK0024);
+        let d = plain
+            .clone()
+            .with_docker_stderr(DockerStderr::capture(b"secret").unwrap());
+        assert_eq!(d.render(), plain.render());
+        assert_eq!(d.docker_stderr().unwrap().text(), "secret");
+        assert_eq!(d.without_docker_stderr(), plain);
     }
 }

@@ -325,16 +325,24 @@ fn decode(value: &Value) -> Option<Entry> {
                 return None;
             }
             while let Some(k) = attrs.peek_key() {
-                // 占位符之後可有可無的下一步指令；還沒寫這個鍵的行（啟動器）照舊讀得進來
-                if k == key::NEXT_STEP_COMMAND {
-                    (!attrs.str(k)?.is_empty()).then_some(())?;
+                let Some(placeholder) = k.strip_prefix(key::PLACEHOLDER_PREFIX) else {
                     break;
-                }
-                let placeholder = k.strip_prefix(key::PLACEHOLDER_PREFIX)?;
+                };
                 if placeholder.is_empty() {
                     return None;
                 }
                 attrs.str(k)?;
+            }
+            // 占位符之後可有可無的下一步指令；還沒寫這個鍵的行（啟動器）照舊讀得進來
+            if attrs.peek_key() == Some(key::NEXT_STEP_COMMAND) {
+                (!attrs.str(key::NEXT_STEP_COMMAND)?.is_empty()).then_some(())?;
+            }
+            // 最後是可有可無的 docker 原文摘錄與截斷旗標（N20b）：只驗格式，內容不拿來判定
+            if attrs.peek_key() == Some(key::DOCKER_STDERR) {
+                let excerpt = attrs.str(key::DOCKER_STDERR)?;
+                (!excerpt.is_empty() && excerpt.len() <= diagnostics::DOCKER_STDERR_MAX)
+                    .then_some(())?;
+                matches!(attrs.int(key::DOCKER_STDERR_TRUNCATED)?, 0 | 1).then_some(())?;
             }
             Kind::DiagnosticEmitted(message.code)
         }

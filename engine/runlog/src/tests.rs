@@ -720,3 +720,149 @@ fn every_golden_line_reads_back() {
         Verdict::Applies(Condition::BeforeEngineLockLine)
     );
 }
+
+// ---- docker 原文摘錄（N20b）----
+
+fn excerpt(raw: &str) -> diagnostics::DockerStderr {
+    diagnostics::DockerStderr::capture(raw.as_bytes()).unwrap()
+}
+
+#[test]
+fn golden_diagnostic_emitted_docker_stderr() {
+    let d = Diagnostic::new(&VK0024).with_docker_stderr(excerpt("Error: \"denied\"\n"));
+    assert_eq!(
+        written(Component::Launcher, &Event::DiagnosticEmitted(&d)),
+        concat!(
+            r#"{"timestamp":"2026-10-05T01:02:03.000004Z","severity_text":"error","severity_number":17,"event_name":"diagnostic_emitted","body":"No command was specified.","resource":{"service.name":"vendor_kit","service.version":"0.0.0"},"attributes":{"vendor_kit.log_format":"1","vendor_kit.component":"launcher","vendor_kit.invocation_id":"inv-1","vendor_kit.reason_code":"VK0024","vendor_kit.docker.stderr":"Error: \"denied\"\n","vendor_kit.docker.stderr_truncated":0}}"#,
+            "\n"
+        )
+    );
+}
+
+#[test]
+fn docker_stderr_follows_the_next_step_command() {
+    let d = prompt_diag().with_docker_stderr(excerpt("x"));
+    let line = written(Component::Engine, &Event::DiagnosticEmitted(&d));
+    assert!(line.contains(concat!(
+        r#""vendor_kit.next_step.command":"./bootstrap.sh -y","#,
+        r#""vendor_kit.docker.stderr":"x","vendor_kit.docker.stderr_truncated":0}}"#
+    )));
+}
+
+#[test]
+fn truncated_docker_stderr_is_flagged() {
+    let raw = "a".repeat(diagnostics::DOCKER_STDERR_MAX + 1);
+    let d = Diagnostic::new(&VK0024).with_docker_stderr(excerpt(&raw));
+    let line = written(Component::Engine, &Event::DiagnosticEmitted(&d));
+    assert!(line.ends_with("\"vendor_kit.docker.stderr_truncated\":1}}\n"));
+}
+
+#[test]
+fn docker_stderr_does_not_change_the_verdict() {
+    let plain = prompt_diag();
+    for raw in ["short", &"b".repeat(diagnostics::DOCKER_STDERR_MAX + 7)] {
+        let d = prompt_diag().with_docker_stderr(excerpt(raw));
+        assert_eq!(
+            assess(&stopped_at_prompt(&d), false),
+            assess(&stopped_at_prompt(&plain), false)
+        );
+    }
+}
+
+#[test]
+fn malformed_docker_stderr_is_invalid() {
+    let d = prompt_diag().with_docker_stderr(excerpt("x"));
+    let text = String::from_utf8(stopped_at_prompt(&d)).unwrap();
+    let good = r#""vendor_kit.docker.stderr":"x","vendor_kit.docker.stderr_truncated":0"#;
+    assert!(text.contains(good));
+    assert!(matches!(
+        assess(text.as_bytes(), false),
+        Verdict::Applies(_)
+    ));
+    let too_long = format!(
+        r#""vendor_kit.docker.stderr":"{}","vendor_kit.docker.stderr_truncated":1"#,
+        "c".repeat(diagnostics::DOCKER_STDERR_MAX + 1)
+    );
+    let bad = [
+        // 旗標不是 0 或 1
+        r#""vendor_kit.docker.stderr":"x","vendor_kit.docker.stderr_truncated":2"#.to_owned(),
+        // 旗標是字串
+        r#""vendor_kit.docker.stderr":"x","vendor_kit.docker.stderr_truncated":"0""#.to_owned(),
+        // 少了旗標
+        r#""vendor_kit.docker.stderr":"x""#.to_owned(),
+        // 只有旗標
+        r#""vendor_kit.docker.stderr_truncated":0"#.to_owned(),
+        // 摘錄是空字串
+        r#""vendor_kit.docker.stderr":"","vendor_kit.docker.stderr_truncated":0"#.to_owned(),
+        // 摘錄不是字串
+        r#""vendor_kit.docker.stderr":1,"vendor_kit.docker.stderr_truncated":0"#.to_owned(),
+        // 摘錄超過上限
+        too_long,
+        // 旗標在摘錄前面
+        r#""vendor_kit.docker.stderr_truncated":0,"vendor_kit.docker.stderr":"x""#.to_owned(),
+        // 摘錄之後還有其他鍵
+        format!(r#"{good},"vendor_kit.placeholder.x":"y""#),
+    ];
+    for b in bad {
+        let edited = text.replacen(good, &b, 1);
+        assert_eq!(
+            assess(edited.as_bytes(), false),
+            no(Reason::InvalidLine { line: 3 }),
+            "{b}"
+        );
+    }
+    // 摘錄放在下一步指令前面
+    let swapped = text.replacen(
+        &format!(r#""vendor_kit.next_step.command":"./bootstrap.sh -y",{good}"#),
+        &format!(r#"{good},"vendor_kit.next_step.command":"./bootstrap.sh -y""#),
+        1,
+    );
+    assert_ne!(swapped, text);
+    assert_eq!(
+        assess(swapped.as_bytes(), false),
+        no(Reason::InvalidLine { line: 3 })
+    );
+}
+
+/// 帶 docker 原文摘錄的那行第一次寫不進去就失敗，之後照常寫（模擬摘錄讓那行寫不進去的磁碟滿）。
+struct FailOnDockerStderr {
+    out: Vec<u8>,
+    failed: bool,
+}
+
+impl io::Write for FailOnDockerStderr {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if !self.failed && String::from_utf8_lossy(buf).contains(key::DOCKER_STDERR) {
+            self.failed = true;
+            return Err(io::Error::from(io::ErrorKind::StorageFull));
+        }
+        self.out.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_docker_stderr_that_cannot_be_written_falls_back_to_the_plain_line() {
+    let out = FailOnDockerStderr {
+        out: Vec::new(),
+        failed: false,
+    };
+    let w = Writer::new(out, header(Component::Engine)).with_clock(fixed_time);
+    let mut d = Diagnostics::with_sink(Vec::new(), w);
+    let plain = Diagnostic::new(&VK0024);
+    d.emit(&plain.clone().with_docker_stderr(excerpt("x")))
+        .unwrap();
+    assert_eq!(d.exit_code(), plain.message().exit_code());
+    let (stderr, w) = d.into_parts();
+    assert_eq!(String::from_utf8(stderr).unwrap(), plain.render());
+    let out = w.into_inner();
+    assert!(out.failed);
+    assert_eq!(
+        String::from_utf8(out.out).unwrap(),
+        written(Component::Engine, &Event::DiagnosticEmitted(&plain))
+    );
+}
