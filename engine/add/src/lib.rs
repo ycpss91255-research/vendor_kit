@@ -6,8 +6,8 @@
 //! 1. `add vendor_kit` 看參數字面就擋（VK0057），不取件。
 //! 2. 讀 `.vendor_kit/config.toml`（VK0059），在第一次取鎖之前（04 設定）。
 //! 3. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束。
-//! 4. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）；有工具的覆寫就讀它的本機開發來源，
-//!    讀不到回 VK0052（見「本機覆寫」）。
+//! 4. 讀 `version.toml` 與 `version.local.toml`（檔案版過高回 VK0008）。工具覆寫的本機開發來源只在要重產
+//!    入口檔時才讀（恢復殘留的 `add`、導入），讀不到回 VK0052（見「本機覆寫」）。
 //! 5. 備好殘留進度檔的恢復（04 成對與無害：可寫 recipe 先恢復再判是否重複）：重新取件、驗證，算好恢復
 //!    之後的版本鎖定行與入口檔，只讀不寫；之後的判定都看恢復之後的樣子。恢復跟這次的詢問一起問完（04
 //!    共同選項：全部同意才寫入，含恢復舊操作），恢復本身不寫 repo 檔、沒有要問的事。恢復只在這次以 0
@@ -57,13 +57,16 @@
 //! - 每個覆寫的 `<ns>` 從本機開發來源讀（`fetch::local`，值照 engine/dev 以安裝目錄為準正規化），不讀那個
 //!   工具的 `cache/<repo>/`。安裝目錄外的（`dev` 收的絕對路徑，或開頭是 `..` 的相對路徑）引擎看不到，照
 //!   engine/dev 請啟動器 `stage-dir` 複製進 session 目錄的 `in/<slot>`，再讀那份複本。讀不到回 VK0052（04 本機
-//!   覆寫：覆寫來源失效只擋需讀它的動作；重產 `gen/tools.just` 要讀它），列出每個讀不到的覆寫，在恢復、
-//!   任何 docker 動作與寫入之前停下。
+//!   覆寫：覆寫來源失效只擋需讀它的動作；重產 `gen/tools.just` 要讀它），列出每個讀不到的覆寫，在任何寫入
+//!   之前停下。
+//! - 只在要重產 `gen/tools.just` 時讀：有殘留進度檔要恢復時（工具已是同一版也照樣恢復），在恢復的 docker
+//!   動作之前讀；要導入的工具不在版本鎖定行時，在任何 docker 動作之前讀；其他情況到真的要取件時才讀。已在
+//!   版本鎖定行、沒有要恢復的（未變更）不讀，所以另一個工具的來源失效不擋這次。
 //! - `gen/tools.just` 裡開著覆寫的工具那幾行指向本機開發來源（`tools_just::render_with`，恢復殘留 `add` 的
 //!   重產也一樣）；撞名判定裡開著覆寫的工具也以本機開發來源的 `<ns>` 為準（入口檔裡生效的是它）。
-//! - 每次以 0 結束時（導入完成、已導入同一版、答否取消）都在 stdout 報告用了哪個覆寫，排在那條路徑的字句
-//!   前面（04 本機覆寫：不加診斷前綴，`update` 以外到 stdout）；停下時只印診斷。恢復殘留 `add` 的字句在恢復
-//!   落地時印，排在覆寫報告前面。
+//! - 每次以 0 結束時（導入完成、已導入同一版、答否取消）都在 stdout 依 `version.local.toml` 記的值報告用了
+//!   哪個覆寫（不表示來源讀過），排在那條路徑的字句前面（04 本機覆寫：不加診斷前綴，`update` 以外到
+//!   stdout）；停下時只印診斷。恢復殘留 `add` 的字句在恢復落地時印，排在覆寫報告前面。
 //! - 覆寫指到不在版本鎖定行的工具（孤兒覆寫）見「缺口」；引擎的覆寫與導入工具無關，不看。
 //!
 //! # 線上解析（N2、N53）
@@ -335,7 +338,8 @@ pub(crate) fn run_with<W: Write, S: Sink, L: Write>(
         code: 0,
         extracts: 0,
         stages: 0,
-        local: BTreeMap::new(),
+        recorded: BTreeMap::new(),
+        local: None,
         pending: Vec::new(),
     };
     let _ = add.run(req);
@@ -385,8 +389,11 @@ struct Add<'r, 'a, W: Write, S: Sink, L: Write> {
     extracts: u32,
     /// 這次執行已用掉的 `stage-dir` slot 數。
     stages: u32,
-    /// 開著覆寫的工具（模組說明「本機覆寫」）。
-    local: BTreeMap<String, Local>,
+    /// `version.local.toml` 記的工具覆寫：`<repo>` 對本機開發來源，照檔裡記的值（模組說明「本機覆寫」）。
+    recorded: BTreeMap<String, String>,
+    /// 開著覆寫的工具讀過本機開發來源之後的樣子；只在要重產入口檔時才讀（[`Self::overrides`]），還沒讀是
+    /// `None`。
+    local: Option<BTreeMap<String, Local>>,
     /// 備好、等這次的詢問全部同意才落地的恢復，依進度檔的順序。
     pending: Vec<Recovery>,
 }
@@ -467,12 +474,12 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         }
     }
 
-    /// 每次報告用了哪個覆寫（04 本機覆寫）。
+    /// 每次報告用了哪個覆寫（04 本機覆寫）：照 `version.local.toml` 記的值，不以讀到本機開發來源為前提。
     fn report_overrides(&mut self) {
         let lines: Vec<String> = self
-            .local
+            .recorded
             .iter()
-            .map(|(repo, l)| text::local_override(repo, &l.dir))
+            .map(|(repo, source)| text::local_override(repo, source))
             .collect();
         for line in lines {
             self.say(&line);
@@ -484,6 +491,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let dirs: BTreeMap<String, String> = self
             .local
             .iter()
+            .flatten()
             .map(|(r, l)| (r.clone(), l.dir.clone()))
             .collect();
         let tools: Vec<tools_just::Tool> = all
@@ -508,8 +516,13 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
         let mut lockfile = self.lockfile()?;
-        self.local = self.local(&lockfile)?;
+        self.recorded = self.local_file(&lockfile)?;
         self.recover_all(&mut lockfile)?;
+        // 要導入（或停在導入之前的判定）時一定重產入口檔：在任何 docker 動作之前讀其他工具的覆寫來源。
+        // 已在版本鎖定行的，留到真的要取件時才讀（已完整就不讀，04 本機覆寫）。
+        if lockfile.tool(req.repo).is_none() {
+            self.overrides()?;
+        }
 
         let local = match (req.image, req.tag) {
             (None, _) => return self.online(req, lockfile),
@@ -947,32 +960,15 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         }
     }
 
-    /// `version.local.toml`：檔案版過高回 VK0008；工具的覆寫讀本機開發來源（模組說明「本機覆寫」），
-    /// 讀不到的每一個都印 VK0052 再停下。
-    fn local(&mut self, lockfile: &LockFile) -> Step<BTreeMap<String, Local>> {
+    /// `version.local.toml`：檔案版過高回 VK0008；孤兒覆寫是缺口。只讀檔，不讀本機開發來源（見
+    /// [`Self::overrides`]）。
+    fn local_file(&mut self, lockfile: &LockFile) -> Step<BTreeMap<String, String>> {
         match LocalFile::load_from(self.env.dir) {
             Ok(Some(file)) => {
                 if let Err(orphan) = Versions::new(lockfile, Some(&file)) {
                     return Err(self.gap(format_args!("{orphan} (no reason code)")));
                 }
-                let mut local = BTreeMap::new();
-                let mut blocked: Vec<Diagnostic> = Vec::new();
-                for (repo, source) in file.tools() {
-                    match self.local_source(repo, source)? {
-                        Ok(l) => {
-                            local.insert(repo.clone(), l);
-                        }
-                        Err(d) => blocked.push(d),
-                    }
-                }
-                if blocked.is_empty() {
-                    Ok(local)
-                } else {
-                    for d in blocked {
-                        self.emit(d);
-                    }
-                    Err(Stop)
-                }
+                Ok(file.tools().clone())
             }
             Ok(None) => Ok(BTreeMap::new()),
             Err(version_file::Error::Parse {
@@ -981,6 +977,33 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
             }) => Err(self.too_new(&file, &t)),
             Err(e) => Err(self.internal(e.to_string())),
         }
+    }
+
+    /// 讀開著覆寫的工具的本機開發來源（模組說明「本機覆寫」），讀不到的每一個都印 VK0052 再停下。只在要
+    /// 重產入口檔時呼叫（導入、恢復殘留的 `add`）；讀過就不再讀。
+    fn overrides(&mut self) -> Step<()> {
+        if self.local.is_some() {
+            return Ok(());
+        }
+        let recorded = self.recorded.clone();
+        let mut local = BTreeMap::new();
+        let mut blocked: Vec<Diagnostic> = Vec::new();
+        for (repo, source) in &recorded {
+            match self.local_source(repo, source)? {
+                Ok(l) => {
+                    local.insert(repo.clone(), l);
+                }
+                Err(d) => blocked.push(d),
+            }
+        }
+        if !blocked.is_empty() {
+            for d in blocked {
+                self.emit(d);
+            }
+            return Err(Stop);
+        }
+        self.local = Some(local);
+        Ok(())
     }
 
     /// 一個工具的本機開發來源：讀不到回 `Ok(Err(VK0052))`；交付保留名是缺口（模組說明）。
@@ -1127,6 +1150,8 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         locked: &ImageRef,
         lockfile: &LockFile,
     ) -> Step<(Candidate, Installed)> {
+        // 取件之後一定重產入口檔，要用其他工具的覆寫來源（已讀過就不再讀）。
+        self.overrides()?;
         self.extracts += 1;
         let slot = format!("{SLOT_PREFIX}{}", self.extracts);
         let Some(slot_v) = Slot::parse(&slot) else {
@@ -1178,7 +1203,7 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
         let mut namespaces = BTreeMap::new();
         let mut check = fetch::CacheCheck::default();
         for other in lockfile.tools().keys().filter(|r| r.as_str() != repo) {
-            if let Some(l) = self.local.get(other) {
+            if let Some(l) = self.local.as_ref().and_then(|m| m.get(other)) {
                 taken.tool(other, l.namespaces.iter().cloned());
                 namespaces.insert(other.clone(), l.namespaces.clone());
                 continue;
@@ -1529,6 +1554,10 @@ impl<W: Write, S: Sink, L: Write> Add<'_, '_, W, S, L> {
             Ok(e) => e,
             Err(e) => return Err(self.internal(e.to_string())),
         };
+        // 恢復要重產入口檔：在恢復的 docker 動作之前讀其他工具的覆寫來源。工具已是同一版也照樣恢復、照樣讀。
+        if !entries.is_empty() {
+            self.overrides()?;
+        }
         for entry in entries {
             if entry.verb != VERB {
                 return Err(self.gap(format_args!(
