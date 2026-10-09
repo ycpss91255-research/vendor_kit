@@ -61,16 +61,21 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
 }
 
 @test "op names are the closed set of engine/plan" {
-    vk 'printf "%s\n" "${vk_wire_ops[*]}" "${vk_wire_argv[*]}" "$vk_wire_mount_root $vk_wire_mount_ctl $vk_wire_mount_in" "$vk_wire_in_engine"'
-    [ "${lines[0]}" = "pull load inspect extract stage stage-dir ps rm-container runner" ]
+    vk 'printf "%s\n" "${vk_wire_ops[*]}" "${vk_wire_argv[*]}" "$vk_wire_mount_root $vk_wire_mount_ctl $vk_wire_mount_in" "$vk_wire_in_engine" "$vk_wire_in_bootstrap" "${vk_wire_since_v2[*]}"'
+    [ "${lines[0]}" = "pull load inspect extract stage stage-dir ps rm-container runner pull-tag rm-sessions" ]
     [ "${lines[1]}" = "--protocol --run-id --host-root --host-cwd --run-log --tty --no-color" ]
     [ "${lines[2]}" = "/vk/root /vk/ctl /vk/in" ]
     # 救援協定的一部分，跟引擎端讀的檔名一致
     [ "${lines[3]}" = engine ]
+    # bootstrap.sh 首次導入的來源檔（B2）與介面版 2 起才收的 op
+    [ "${lines[4]}" = bootstrap ]
+    [ "${lines[5]}" = "pull-tag rm-sessions" ]
 }
 
-@test "the launcher ops equal the OPS of engine/plan in order" {
+@test "the launcher ops equal the OPS of engine/plan in order, or add only the pending version-2 ops" {
     # 兩邊各自寫一份；這裡從 engine/plan/src/lib.rs 讀 OPS，逐項依序比對。
+    # 啟動器先 merge、引擎後加 op（#724 先、#723 後；前例 stage-dir）時，兩邊有一段時間不相等：
+    # 這時啟動器的清單只准是 engine/plan 的 OPS 後面接上還沒落地的 pull-tag rm-sessions。
     local src re='pub const OPS: \[&str; [0-9]+\] = \[([^]]*)\]'
     src=$(<"$repo_root/engine/plan/src/lib.rs")
     [[ $src =~ $re ]]
@@ -79,10 +84,99 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
     [ "${#engine_ops[@]}" -gt 0 ]
     vk 'printf "%s\n" "${vk_wire_ops[@]}"'
     [ "$status" -eq 0 ]
-    [ "${lines[*]}" = "${engine_ops[*]}" ] || {
+    [ "${lines[*]}" = "${engine_ops[*]}" ] || [ "${lines[*]}" = "${engine_ops[*]} pull-tag rm-sessions" ] || {
         echo "launcher ops: ${lines[*]}; engine/plan OPS: ${engine_ops[*]}" >&2
         return 1
     }
+}
+
+@test "interface version 2 adds pull-tag, rm-sessions and a free-text runner image" {
+    local -a cases=(
+        'pull-tag ghcr.io/acme/ros_tools:v1.2.0' "pull-tag\nghcr.io/acme/ros_tools:v1.2.0"
+        'pull-tag localhost:5000/acme/ros_tools:v1.2.0' "pull-tag\nlocalhost:5000/acme/ros_tools:v1.2.0"
+        'rm-sessions' 'rm-sessions'
+        'runner e:ghcr.io/u/test:Nightly_1 e:pytest e:-q' "runner\nghcr.io/u/test:Nightly_1\npytest\n-q"
+        'runner e:sha256:0123 e:pytest' "runner\nsha256:0123\npytest"
+    )
+    local i want
+    for ((i = 0; i < ${#cases[@]}; i += 2)); do
+        put req "vk-resolve/2 r1 3\n${cases[i]}\n"
+        vk 'vk_wire_parse_req "$PWD/req" 2 r1 3 || { printf "rejected: %s\n" "$REPLY"; exit 1; }; printf "%s\n" "$vk_req_op"; for a in "${vk_req_args[@]}"; do printf "%q\n" "$a"; done'
+        printf -v want '%b' "${cases[i + 1]}"
+        [ "$status" -eq 0 ] || {
+            echo "${cases[i]}: $output" >&2
+            return 1
+        }
+        [ "$output" = "$want" ] || {
+            echo "${cases[i]}: got $output want $want" >&2
+            return 1
+        }
+    done
+    local -a bad=(
+        "pull-tag $pinned"
+        'pull-tag ghcr.io/acme/ros_tools'
+        'pull-tag ghcr.io/acme/ros_tools:'
+        'pull-tag localhost:5000/acme/ros_tools'
+        'pull-tag ghcr.io/acme/ros_tools:V1.2.0'
+        'pull-tag ghcr.io/acme/ros_tools:.v1'
+        'pull-tag ghcr.io/acme/ros_tools:v1.2.0 x'
+        'pull-tag'
+        'rm-sessions r1'
+        'runner ghcr.io/u/test:1 e:pytest'
+        'runner e: e:pytest'
+        'runner e:--privileged e:pytest'
+        'runner e:ghcr.io/u/test:1'
+    )
+    for i in "${!bad[@]}"; do
+        put "bad.$i" "vk-resolve/2 r1 1\n${bad[i]}\n"
+    done
+    vk 'for f in bad.*; do if vk_wire_parse_req "$PWD/$f" 2 r1 1; then echo "accepted $(<"$f")"; fi; done'
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "the version-2 ops and the free-text runner image are not accepted at interface version 1" {
+    local req
+    # e:ghcr.io/u/test:1 這種字串本身也合 ref，所以 P = 1 用 ref 收不下的大寫 tag 驗。
+    for req in 'pull-tag ghcr.io/acme/ros_tools:v1.2.0' 'rm-sessions' 'runner e:ghcr.io/u/test:Nightly e:pytest'; do
+        put req "vk-resolve/1 r1 1\n$req\n"
+        vk 'vk_wire_parse_req "$PWD/req" 1 r1 1 && echo accepted; true'
+        [ "$output" = "" ] || {
+            echo "$req: $output" >&2
+            return 1
+        }
+    done
+    # P = 1 的 runner 照舊收 ref
+    put req 'vk-resolve/1 r1 1\nrunner ghcr.io/u/test:1 e:pytest\n'
+    vk 'vk_wire_parse_req "$PWD/req" 1 r1 1 || exit 1; printf "%s\n" "${vk_req_args[@]}"'
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = ghcr.io/u/test:1 ]
+}
+
+@test "the free-text encoder writes the one byte form that the decoder reads back" {
+    local -a cases=(
+        '' 'e:'
+        'abc' 'e:abc'
+        'a\b' 'e:a\134b'
+        'a b' 'e:a\040b'
+        $'\t\n' 'e:\011\012'
+        $'\001\177\377' 'e:\001\177\377'
+        'e:' 'e:e:'
+        './bootstrap.sh' 'e:./bootstrap.sh'
+    )
+    local i
+    for ((i = 0; i < ${#cases[@]}; i += 2)); do
+        vk "vk_wire_encode $(printf '%q' "${cases[i]}") && printf '%s' \"\$REPLY\""
+        [ "$status" -eq 0 ]
+        [ "$output" = "${cases[i + 1]}" ] || {
+            echo "${cases[i]}: got $output" >&2
+            return 1
+        }
+    done
+    # 每個非 NUL 位元組編了再解，回到原值
+    vk 'for ((b = 1; b < 256; b++)); do printf -v w "%b" "\\0$(printf %03o "$b")"; vk_wire_encode "x${w}y"; e=$REPLY; vk_wire_field "$e" || echo "rejected $e"; [[ $REPLY == "x${w}y" ]] || echo "wrong $b"; done'
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
 }
 
 @test "free-text fields decode exactly like field_encoding_is_exact" {

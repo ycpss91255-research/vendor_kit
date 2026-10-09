@@ -55,11 +55,11 @@ internal() {
     REPLY="vendor_kit: error[VK0056]: Internal vendor_kit error: $1. This is a VK bug. Report it at https://github.com/ycpss91255-research/vendor_kit/issues and attach run log $REPLY."
 }
 
-# res <seq> <result>：res.<seq> 的期待位元組與收到的相同。
+# res <seq> <result> [<P>]：res.<seq> 的期待位元組與收到的相同（P 預設 1）。
 assert_res() {
     local got
     got=$(cat "$fake/got/res.$1" && printf x)
-    [ "$got" = "vk-resolve/1 r1 $1"$'\n'"$2"$'\n'x ] || {
+    [ "$got" = "vk-resolve/${3:-1} r1 $1"$'\n'"$2"$'\n'x ] || {
         echo "res.$1: got ${got%x}" >&2
         return 1
     }
@@ -193,6 +193,13 @@ assert_ref() {
     [ ! -e "$sess" ]
 }
 
+@test "a recipe gets no in/bootstrap; only the bootstrap.sh initial import writes it" {
+    engine_does '[[ -e $engine_ctl/../in/bootstrap ]] && : >"$VK_FAKE/bootstrap_seen"; finish 0'
+    launch 1 install
+    [ "$status" -eq 0 ]
+    [ ! -e "$fake/bootstrap_seen" ]
+}
+
 @test "rescue calls also get in/engine" {
     printf '2 3 v2.0.0' >"$fake/labels"
     local c
@@ -301,6 +308,73 @@ finish 0
     [ "${got[*]}" = "${want[*]}" ]
     [ "${#got[@]}" -eq "${#want[@]}" ]
     [ ! -e "$sess" ]
+}
+
+# at_p2：安裝目錄與引擎 image 都接受介面版 2（之後 launch 2 …）。
+at_p2() {
+    lock_protocols '1 2'
+    printf '1 2 v1.0.0' >"$fake/labels"
+}
+
+@test "at interface version 2 pull-tag pulls through the host docker and runner takes a free-text image" {
+    at_p2
+    printf '3' >"$fake/runner.rc"
+    engine_does "
+send 'pull-tag ghcr.io/acme/ros_tools:v1.2.0'
+send 'inspect ghcr.io/acme/ros_tools:v1.2.0'
+send 'runner e:ghcr.io/u/test:Nightly_1 e:pytest e:-q'
+finish 0
+"
+    launch 2 sync
+    [ "$status" -eq 0 ] || {
+        echo "$stderr" >&2
+        return 1
+    }
+    assert_res 1 ok 2
+    assert_res 2 ok 2
+    assert_res 3 'runner exited 3' 2
+    [ ! -e "$fake/got/res.1.out" ]
+    assert_called 'pull -q ghcr.io/acme/ros_tools:v1.2.0'
+    assert_called 'image inspect ghcr.io/acme/ros_tools:v1.2.0'
+    mapfile -t got <"$fake/runner.argv"
+    [ "${got[-3]}" = --entrypoint=pytest ]
+    [ "${got[-2]}" = ghcr.io/u/test:Nightly_1 ]
+    [ "${got[-1]}" = -q ]
+    [ "$stderr" = "" ]
+}
+
+@test "a failed pull-tag is answered as failed <rc> with the docker text kept off stderr" {
+    at_p2
+    printf '1' >"$fake/rc.pull"
+    engine_does "
+send 'pull-tag ghcr.io/acme/ros_tools:v1.2.0'
+finish 0
+"
+    launch 2 sync
+    [ "$status" -eq 0 ]
+    assert_res 1 'failed 1' 2
+    [ "$stderr" = "" ]
+}
+
+@test "the interface-version-2 requests are a protocol mismatch at interface version 1" {
+    local req
+    for req in 'pull-tag ghcr.io/acme/ros_tools:v1.2.0' rm-sessions 'runner e:ghcr.io/u/test:1 e:pytest'; do
+        rm -rf "$work/.vendor_kit/log" "$fake/calls" "$fake/got"
+        engine_does "
+send '$req'
+finish 0
+"
+        launch 1 sync
+        [ "$status" -eq 2 ] || [ "$status" -eq 3 ] || {
+            echo "$req: status $status" >&2
+            return 1
+        }
+        [[ $stderr == *VK0056* ]] || {
+            echo "$req: $stderr" >&2
+            return 1
+        }
+        [ ! -e "$fake/got/res.1" ]
+    done
 }
 
 @test "stage-dir copies a host directory into in/<slot> and refuses what is not a directory" {
@@ -557,6 +631,94 @@ assert_sites() {
     launch 1 prune
     [ "$status" -eq 0 ]
     [ "$stderr" = "" ]
+    assert_sites oldrun liverun otherrun stale Bad_Run
+}
+
+@test "at interface version 2 the engine asks for the sessions with rm-sessions and the launcher does not clean after it" {
+    at_p2
+    kept_sites
+    engine_does "
+send ps
+send 'rm-container $K'
+send 'rm-container $M'
+send 'rm-container $N'
+send 'rm-container $P'
+send rm-sessions
+send rm-sessions
+finish 0
+"
+    launch 2 prune
+    [ "$status" -eq 0 ] || {
+        echo "$stderr" >&2
+        return 1
+    }
+    [ "$stderr" = "" ]
+    assert_res 6 ok 2
+    [ "$(<"$fake/got/res.6.out")" = "removed oldrun" ]
+    # 第二次沒有剩下能刪的：.out 是空的
+    assert_res 7 ok 2
+    [ ! -s "$fake/got/res.7.out" ]
+    [ ! -e "$tmpd/vendor_kit.oldrun" ]
+    assert_sites liverun otherrun stale Bad_Run linkrun
+    # 起引擎之前一次、每個 rm-sessions 各一次；引擎結束後不再查
+    [ "$(grep -c "^ps -a --no-trunc --filter label=vendor_kit.root=$(printf '%q' "$work") --format" "$fake/calls")" -eq 3 ]
+}
+
+@test "at interface version 2 a prune that does not send rm-sessions leaves every session in place" {
+    at_p2
+    kept_sites
+    launch 2 prune
+    [ "$status" -eq 0 ]
+    assert_sites oldrun liverun otherrun stale Bad_Run
+    [ "$(grep -cF '.Label\ ' "$fake/calls")" -eq 1 ]
+}
+
+@test "rm-sessions reports a directory it cannot remove as failed and needs the container list" {
+    at_p2
+    kept_sites
+    # 刪不掉：rm 換成刪 vendor_kit.oldrun 時失敗的替身（先拿掉指向真 rm 的 symlink，不寫穿它）
+    local real_rm
+    real_rm=$(readlink "$shim/rm")
+    command rm -f "$shim/rm"
+    fake_cmd rm 'for a; do if [[ $a == */vendor_kit.oldrun ]]; then exit 1; fi; done; exec '"$(printf '%q' "$real_rm")"' "$@"'
+    engine_does "
+send ps
+send 'rm-container $K'
+send rm-sessions
+finish 0
+"
+    launch 2 prune
+    [ "$status" -eq 0 ]
+    assert_res 3 ok 2
+    [ "$(<"$fake/got/res.3.out")" = "failed oldrun" ]
+    assert_sites oldrun
+    command rm -f "$shim/rm"
+    ln -s "$real_rm" "$shim/rm"
+
+    # 起引擎前查不到容器：證明不了歸屬，回 failed 1
+    rm -rf "$work/.vendor_kit/log" "$fake/calls" "$fake/got"
+    kept_sites
+    printf '1' >"$fake/rc.ps-runs"
+    engine_does "
+send rm-sessions
+finish 0
+"
+    launch 2 prune
+    [ "$status" -eq 0 ]
+    assert_res 1 'failed 1' 2
+    assert_sites oldrun liverun otherrun stale Bad_Run
+
+    # 不是 prune：沒有能證明歸屬的，回 ok、什麼都不刪
+    rm -rf "$work/.vendor_kit/log" "$fake/calls" "$fake/got" "$fake/rc.ps-runs"
+    kept_sites
+    engine_does "
+send rm-sessions
+finish 0
+"
+    launch 2 sync
+    [ "$status" -eq 0 ]
+    assert_res 1 ok 2
+    [ ! -s "$fake/got/res.1.out" ]
     assert_sites oldrun liverun otherrun stale Bad_Run
 }
 
