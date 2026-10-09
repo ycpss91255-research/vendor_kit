@@ -1015,7 +1015,8 @@ fn progress_records_the_repo_files_to_write() {
         code: 0,
         extracts: 0,
         stages: 0,
-        local: BTreeMap::new(),
+        recorded: BTreeMap::new(),
+        local: None,
         pending: Vec::new(),
     };
     let locked = ImageRef::parse(&locked()).unwrap();
@@ -1306,6 +1307,61 @@ fn an_unreadable_override_of_another_tool_is_vk0052_before_any_request() {
          the directory does not exist. Run: just vendor_kit undev other\n"
     );
     assert!(untouched(&fx, &lock_before));
+}
+
+#[test]
+fn an_unreadable_override_of_another_tool_does_not_block_an_added_tool() {
+    // 已完整的 add 不重產入口檔，不讀其他工具的覆寫來源（04 本機覆寫：失效只擋需讀它的動作）：照
+    // version.local.toml 記的值報告覆寫，未變更，以 0 結束。
+    let fx = Fx::new(&format!("other = \"{OTHER}\"\ntool = \"{}\"\n", locked()));
+    let mut local = LocalFile::new();
+    local.set_tool("other", "work/gone").unwrap();
+    local.save_to(&fx.dir, WRITTEN_BY).unwrap();
+    let lock_before = fx.lock_text();
+    let expected = "other uses the local source work/gone (local override).\n\
+                    tool v1.2.0 is already added; no changes were made.\n";
+
+    // 線上 add：不送任何 docker 動作。
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(&fx, &["add", "tool"], Vec::new(), tty(false), "");
+    assert!(peer.finish().is_empty());
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(out.stdout, expected);
+    assert!(untouched(&fx, &lock_before));
+
+    // -i 同一版：只 inspect 比對版本鎖定行。
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(&fx, &ADD, Vec::new(), tty(false), "");
+    assert_eq!(peer.finish(), ["inspect"]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(out.stderr, "");
+    assert_eq!(out.stdout, expected);
+    assert!(untouched(&fx, &lock_before));
+}
+
+#[test]
+fn an_unreadable_override_of_another_tool_blocks_recovery_of_the_same_version() {
+    // 恢復要重產入口檔：工具已是同一版也照樣恢復，來源失效在任何 docker 動作與寫入之前回 VK0052。
+    let fx = Fx::new(&format!("other = \"{OTHER}\"\ntool = \"{}\"\n", locked()));
+    let mut local = LocalFile::new();
+    local.set_tool("other", "work/gone").unwrap();
+    local.save_to(&fx.dir, WRITTEN_BY).unwrap();
+    let lock_before = fx.lock_text();
+    leftover(&fx, "tool");
+    let peer = Peer::start(&fx, &["tool"], None);
+    let out = run_add(&fx, &["add", "tool"], Vec::new(), tty(false), "");
+    assert!(peer.finish().is_empty());
+    assert_eq!(out.code, 2);
+    assert_eq!(out.stdout, "");
+    assert_eq!(
+        out.stderr,
+        "vendor_kit: error[VK0052]: Cannot read the local override source work/gone for other: \
+         the directory does not exist. Run: just vendor_kit undev other\n"
+    );
+    assert_eq!(fx.lock_text(), lock_before);
+    assert!(!fx.dir.cache_dir().exists() && !fx.dir.gen_dir().exists());
+    assert_eq!(progress::find(&fx.dir).unwrap().len(), 1);
 }
 
 #[test]
