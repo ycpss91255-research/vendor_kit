@@ -30,9 +30,9 @@ pub const VK0004: Message = Message {
 pub const VK0005: Message = Message {
     code: "VK0005",
     level: Level::Error,
-    disposition: Some(Disposition::Pending),
+    disposition: Some(Disposition::Failed),
     sources: &[Source::Bootstrap],
-    text: "just 1.33.0 or later is required; the current version is <version>. Use the GitHub release.\nDownload: <download_url>\nInstall: <install_command>",
+    text: "just 1.33.0 or later is required; the current version is <version>. Install a GitHub Release build of just 1.33.0 or later, confirm it with just --version in the current shell, and rerun bootstrap.sh.\nDownload: <download_url>",
 };
 
 pub const VK0006: Message = Message {
@@ -120,7 +120,7 @@ pub const VK0018: Message = Message {
     level: Level::Warn,
     disposition: None,
     sources: &[Source::Engine],
-    text: "<file> already exists and is unmanaged; it was neither overwritten nor brought under management.",
+    text: "<file> already exists and is unmanaged.<effect> It was neither overwritten nor brought under management.",
 };
 
 pub const VK0019: Message = Message {
@@ -238,9 +238,9 @@ pub const VK0033: Message = Message {
 pub const VK0034: Message = Message {
     code: "VK0034",
     level: Level::Error,
-    disposition: Some(Disposition::Pending),
+    disposition: Some(Disposition::Failed),
     sources: &[Source::Bootstrap],
-    text: "just was not found on the host. Use the GitHub release.\nDownload: <download_url>\nInstall: <install_command>",
+    text: "just was not found on the host. Install a GitHub Release build of just 1.33.0 or later, confirm it with just --version in the current shell, and rerun bootstrap.sh.\nDownload: <download_url>",
 };
 
 pub const VK0035: Message = Message {
@@ -255,7 +255,7 @@ pub const VK0036: Message = Message {
     code: "VK0036",
     level: Level::Error,
     disposition: Some(Disposition::Failed),
-    sources: &[Source::Bootstrap, Source::Launcher],
+    sources: &[Source::Bootstrap, Source::Engine, Source::Launcher],
     text: "Cannot obtain engine image <image>: <reason>. No alternative engine version was used.",
 };
 
@@ -534,9 +534,9 @@ pub const VK0070: Message = Message {
 pub const VK0071: Message = Message {
     code: "VK0071",
     level: Level::Error,
-    disposition: Some(Disposition::Failed),
+    disposition: Some(Disposition::Pending),
     sources: &[Source::Engine, Source::Test],
-    text: "Local override for tool <repo> has no corresponding lock version line. The requested operation did not complete.",
+    text: "Local override for tool <repo> has no corresponding lock version line. The requested operation did not complete. Run: just vendor_kit undev <repo>",
 };
 
 pub const VK0072: Message = Message {
@@ -608,7 +608,7 @@ pub const VK0080: Message = Message {
     level: Level::Error,
     disposition: Some(Disposition::Failed),
     sources: &[Source::Launcher],
-    text: "The interface version range of engine image <image> differs from the interface version list in version.toml. The engine was not started.",
+    text: "The interface version range of engine image <image> differs from vendor_kit_protocols in version.toml. The engine was not started.",
 };
 
 pub const VK0081: Message = Message {
@@ -638,9 +638,9 @@ pub const VK0083: Message = Message {
 pub const VK0084: Message = Message {
     code: "VK0084",
     level: Level::Error,
-    disposition: Some(Disposition::Pending),
+    disposition: Some(Disposition::Failed),
     sources: &[Source::Engine],
-    text: "Appending to existing unmanaged file <file> requires confirmation, but -y does not answer this prompt and interaction is unavailable. Run from a terminal: <original_command>",
+    text: "Appending to existing unmanaged file <file> requires confirmation, but interaction is unavailable and -y does not answer this prompt. Rerun just vendor_kit add <repo> from a terminal and answer the prompt there.",
 };
 
 pub const VK0085: Message = Message {
@@ -664,7 +664,63 @@ pub const VK0087: Message = Message {
     level: Level::Warn,
     disposition: None,
     sources: &[Source::Engine],
-    text: "The baseline merge result for <file> cannot be parsed. The original file and baseline were retained, and the path was recorded in conflicts. Handle it manually.",
+    text: "The baseline merge result for <file> is invalid (TOML that fails to parse, or a just file with conflict markers). <outcome> Manually merge the new version shipped with the version being switched to into <file>.",
+};
+
+pub const VK0088: Message = Message {
+    code: "VK0088",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "The lock version line for <target> is <locked_tag>, but the latest version in the registry is the older <latest_tag>. No version change was made. To switch to <latest_tag>, run: <command>",
+};
+
+pub const VK0089: Message = Message {
+    code: "VK0089",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "Tool image <image> is not a multi-architecture index (received media type <media_type>). The lock version line was not written.",
+};
+
+pub const VK0090: Message = Message {
+    code: "VK0090",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "Local image <image> is not a vendor_kit engine: <reason>. The local override was not enabled. Use a valid engine image.",
+};
+
+pub const VK0091: Message = Message {
+    code: "VK0091",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "<file> does not match the offline delivery format: <reason>. The lock version line was not changed.",
+};
+
+pub const VK0092: Message = Message {
+    code: "VK0092",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "Cannot delete session directory <path>: <reason>. Other items were cleaned as usual.",
+};
+
+pub const VK0093: Message = Message {
+    code: "VK0093",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Engine],
+    text: "Cannot delete container <container>: <reason>. Other items were cleaned as usual.",
+};
+
+pub const VK0094: Message = Message {
+    code: "VK0094",
+    level: Level::Error,
+    disposition: Some(Disposition::Failed),
+    sources: &[Source::Bootstrap],
+    text: "Uninstall is incomplete, but its progress file uses an old format that does not record the engine and retained-list data needed to finish, so it cannot be completed automatically. Manually finish the remaining steps according to the uninstall removal scope, then delete the uninstall progress file.",
 };
 
 /// Every active code, in ascending order.
@@ -752,4 +808,11 @@ pub const ALL: &[Message] = &[
     VK0085,
     VK0086,
     VK0087,
+    VK0088,
+    VK0089,
+    VK0090,
+    VK0091,
+    VK0092,
+    VK0093,
+    VK0094,
 ];
