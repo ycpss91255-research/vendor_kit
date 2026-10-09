@@ -1,5 +1,5 @@
 {
-  "review_zip": 18,
+  "review_zip": 19,
   "pages": {
     "01_purpose": [
       {
@@ -279,6 +279,11 @@
       {
         "v": 17,
         "commit": "6e6db9661935cca7643bbe655884793b3e97c667",
+        "replied": false
+      },
+      {
+        "v": 18,
+        "commit": "587b65c07babe6569a48c51caac69bb87dcb5f8e",
         "replied": false
       }
     ],
