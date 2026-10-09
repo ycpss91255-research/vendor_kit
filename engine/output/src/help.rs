@@ -3,7 +3,6 @@
 //! 實際的 help 輸出就是唯一來源（04 共同選項），04 不另寫一份。文字只列這一版 `args` 收的選項；
 //! `--dry-run` 列在收它的可寫 recipe（`add`、`upgrade`、`dev`、`undev`、`remove`、`install`、`uninstall`、
 //! `prune`）。
-//! `add --image-path` 的名稱是暫定（#372 N2b）。
 
 /// 印哪一份用法：一個指令一份；`upgrade`、`dev`、`undev` 帶 `--engine` 時各另一份。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,8 +72,8 @@ Add a tool at its latest version, at <tag>, or from a local image.
 
 Options:
   -i, --image <image>               Use a local image or image tar instead of the registry
-      --image-path <registry>/<path>
-                                    Registry path of a tool not yet in the lock file
+      --image-path ghcr.io/<path>   Registry path of a tool not yet in the lock file,
+                                    without a tag or digest
   -y, --yes                         Answer yes to the questions add asks
       --dry-run                     Print the changes without making them
       --registry-token-file <path>  Read a registry token from <path> to list versions
