@@ -50,6 +50,28 @@ WHITELIST = ()
 SPECIAL_PATTERNS = {
     "簽章": r"(?<!數位)簽章",
 }
+# 識別字型的避用詞（全 ASCII、不含空白，例如 `.version`）只在單獨出現時算命中。
+# 詞的開頭是識別字字元（英數、`_`、`.`、`-`）時，前面緊接識別字字元就不算；詞的結尾是
+# 識別字字元時，後面接著英數、`_`，或接著 `.`、`-` 再接英數、`_`，也不算：那是更長識別字
+# （例如 OCI LABEL 鍵 `org.opencontainers.image.version`）的一段。句尾的 `.`、`-` 不算接續，
+# 所以「寫成 .version.」照擋。含中文或空白的詞維持原本的子字串比對。
+IDENT_TERM = re.compile(r"[\x21-\x7e]+")
+IDENT_CHAR = re.compile(r"[A-Za-z0-9_.\-]")
+IDENT_BEFORE = r"(?<![A-Za-z0-9_.\-])"
+IDENT_AFTER = r"(?![A-Za-z0-9_]|[.\-][A-Za-z0-9_])"
+
+
+def term_pattern(term: str) -> re.Pattern:
+    """避用詞的比對式：SPECIAL_PATTERNS 優先；識別字型的詞在識別字字元那一端加邊界。"""
+    if term in SPECIAL_PATTERNS:
+        return re.compile(SPECIAL_PATTERNS[term])
+    pat = re.escape(term)
+    if IDENT_TERM.fullmatch(term):
+        if IDENT_CHAR.fullmatch(term[0]):
+            pat = IDENT_BEFORE + pat
+        if IDENT_CHAR.fullmatch(term[-1]):
+            pat = pat + IDENT_AFTER
+    return re.compile(pat)
 
 
 def whitelisted(rel: str, line: str, pat: re.Pattern) -> bool:
@@ -317,7 +339,7 @@ def main() -> int:
     if not terms:
         print("GLOSSARY.md 抽不到任何 _Avoid_ 詞，格式可能壞了")
         return 1
-    patterns = [(t, re.compile(SPECIAL_PATTERNS.get(t, re.escape(t)))) for t in terms]
+    patterns = [(t, term_pattern(t)) for t in terms]
     groups = glossary_terms(context)
     if not groups:
         print("GLOSSARY.md 抽不到任何粗體名詞，格式可能壞了")
