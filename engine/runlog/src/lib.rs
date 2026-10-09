@@ -245,6 +245,11 @@ pub mod key {
     pub const PLACEHOLDER_PREFIX: &str = "vendor_kit.placeholder.";
     /// 診斷本文結尾的下一步指令，換好占位符；本文沒有結尾指令就不寫這個鍵（#118）。
     pub const NEXT_STEP_COMMAND: &str = "vendor_kit.next_step.command";
+    /// 造成這條診斷的那一次 docker 呼叫的 stderr 摘錄（N20b）：docker 原文、不承諾格式，讀取端不拿它判斷結果；
+    /// 長度上限是 [`diagnostics::DOCKER_STDERR_MAX`] 位元組。沒有摘錄就不寫這個鍵。
+    pub const DOCKER_STDERR: &str = "vendor_kit.docker.stderr";
+    /// 摘錄有沒有截斷：`1` 是原文超過上限、只留結尾，`0` 是完整原文。只跟在 [`DOCKER_STDERR`] 後面。
+    pub const DOCKER_STDERR_TRUNCATED: &str = "vendor_kit.docker.stderr_truncated";
     pub const TARGET: &str = "vendor_kit.target";
     pub const PROGRESS_FILE: &str = "vendor_kit.progress_file";
     pub const EXIT_CODE: &str = "vendor_kit.exit_code";
@@ -260,7 +265,8 @@ pub enum Event<'a> {
     /// 引擎開始（flow-launch e1）。
     EngineStarted,
     /// 每印一條診斷寫一筆：`vendor_kit.reason_code`，再依序放 `vendor_kit.placeholder.<name>`；
-    /// 本文以指令結尾時最後放 `vendor_kit.next_step.command`（[`Diagnostic::next_step`]）。
+    /// 本文以指令結尾時接著放 `vendor_kit.next_step.command`（[`Diagnostic::next_step`]）；
+    /// 帶 docker 原文摘錄時最後放 `vendor_kit.docker.stderr` 與 `vendor_kit.docker.stderr_truncated`。
     DiagnosticEmitted(&'a Diagnostic),
     /// 第一筆非紀錄檔寫入（建進度檔，ADR-0004:33）之前。
     WritesStarted,
@@ -329,6 +335,13 @@ impl Event<'_> {
                 }
                 if let Some(command) = d.next_step() {
                     attrs.push(s(key::NEXT_STEP_COMMAND, &command));
+                }
+                if let Some(excerpt) = d.docker_stderr() {
+                    attrs.push(s(key::DOCKER_STDERR, excerpt.text()));
+                    attrs.push(n(
+                        key::DOCKER_STDERR_TRUNCATED,
+                        u8::from(excerpt.truncated()),
+                    ));
                 }
                 attrs
             }
@@ -514,13 +527,21 @@ impl<W: Write> Writer<W> {
 }
 
 /// 每條診斷恰好寫一筆 `diagnostic_emitted`（ADR-0005:7）。
+///
+/// 帶 docker 原文摘錄的那行寫不進去（例如磁碟滿）時，改寫不帶摘錄的同一筆：摘錄只是附帶的證據，
+/// 寫不進去不能讓這條診斷少了紀錄、改變結束碼（N20b）。
 impl<W: Write> Sink for Writer<W> {
     fn record(&mut self, diagnostic: &Diagnostic) -> io::Result<()> {
-        self.write(&Event::DiagnosticEmitted(diagnostic))
-            .map_err(|e| match e {
-                Error::Io(e) => e,
-                other => io::Error::other(other),
-            })
+        let result = match self.write(&Event::DiagnosticEmitted(diagnostic)) {
+            Err(Error::Io(_)) if diagnostic.docker_stderr().is_some() => self.write(
+                &Event::DiagnosticEmitted(&diagnostic.without_docker_stderr()),
+            ),
+            other => other,
+        };
+        result.map_err(|e| match e {
+            Error::Io(e) => e,
+            other => io::Error::other(other),
+        })
     }
 }
 
