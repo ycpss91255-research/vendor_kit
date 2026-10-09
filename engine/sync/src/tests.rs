@@ -800,6 +800,61 @@ fn stamp_schema_too_new_is_fatal_before_any_fetch() {
     );
 }
 
+#[test]
+fn lock_file_too_new_alone_is_vk0008_before_any_fetch() {
+    let fx = Fx::new(&[&TOOL]);
+    let lock = fs::read_to_string(fx.dir.version_toml())
+        .unwrap()
+        .replace("schema = 1\n", "schema = 99\n");
+    fs::write(fx.dir.version_toml(), &lock).unwrap();
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 3);
+    assert!(out.ops.is_empty());
+    assert_eq!(out.stderr.lines().count(), 1, "{}", out.stderr);
+    assert!(
+        out.stderr.starts_with("vendor_kit: fatal[VK0008]: "),
+        "{}",
+        out.stderr
+    );
+    assert!(untouched(&fx, lock.as_bytes()));
+}
+
+/// `version.toml` 檔案版過高（VK0008）與薄殼不符（VK0006）同時成立：兩條都印、取大值 3（04 sync 第 2 步、
+/// #41）。
+#[test]
+fn lock_file_too_new_is_listed_with_a_shell_mismatch() {
+    let fx = Fx::new(&[&TOOL]);
+    fs::write(fx.dir.vk_dir().join("entry.just"), "changed\n").unwrap();
+    let lock = fs::read_to_string(fx.dir.version_toml())
+        .unwrap()
+        .replace("schema = 1\n", "schema = 99\n");
+    fs::write(fx.dir.version_toml(), &lock).unwrap();
+    let out = run_sync(&fx, all_local());
+    assert_eq!(out.code, 3);
+    assert!(out.ops.is_empty());
+    assert_eq!(out.stdout, "");
+    let lines: Vec<&str> = out.stderr.lines().collect();
+    assert_eq!(lines.len(), 2, "{}", out.stderr);
+    assert_eq!(
+        lines[0],
+        format!(
+            "vendor_kit: error[VK0006]: Shell files do not match this engine version's templates: \
+             .vendor_kit/entry.just (modified). {VK0006_FIX}"
+        )
+    );
+    assert!(
+        lines[1].starts_with("vendor_kit: fatal[VK0008]: "),
+        "{}",
+        out.stderr
+    );
+    assert!(
+        lines[1].contains(".vendor_kit/version.toml"),
+        "{}",
+        out.stderr
+    );
+    assert!(untouched(&fx, lock.as_bytes()));
+}
+
 /// `tool` 開著本機覆寫，指到安裝目錄裡的 `work/tool/`（交付 `tool`、`tool-extra`）。
 fn override_tool(fx: &Fx, source: &str) {
     content(&fx.dir.root().join("work/tool"), TOOL.namespaces);

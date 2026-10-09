@@ -7,7 +7,9 @@
 //! 1. 讀 `.vendor_kit/config.toml`（VK0059），在第一次取鎖之前（04 設定）。
 //! 2. 取安裝目錄的排他鎖（VK0042；`lock_enabled = false` 印 VK0060），持到結束：會取件的 `sync`
 //!    屬寫入端（04 鎖與逾時）。`sync` 仍是唯讀 recipe（名詞表、ADR-0007）：不動追蹤檔，也不動進度檔。
-//! 3. 讀 `version.toml`（檔案版過高回 VK0008）。
+//! 3. 讀 `version.toml`。檔案版過高回 VK0008，不在這裡停下，跟第 4 步的停下原因一起列出（04 sync 第 2 步：
+//!    薄殼與版本組合兩者皆不符時都報告）；讀不到版本鎖定行，第 4 步只判不靠它的項目（薄殼、
+//!    `version.local.toml` 的檔案版、殘留的進度檔）。
 //! 4. 逐工具處理前先判（04 sync 第 2 步；02 不變量 4：動到任何工具之前判定有工具不能做，就一個都不動，
 //!    並列出每個原因）。這一段只讀、不取件、不寫（安裝目錄外的本機開發來源經 `stage-dir` 複製進 session
 //!    目錄，不寫安裝目錄，見「本機覆寫」）：
@@ -401,8 +403,14 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
     fn run(&mut self) -> Step<()> {
         let config = self.config()?;
         let _lock = self.lock(&config)?;
-        let lockfile = self.lockfile()?;
-        let Judged { mut stamps, local } = self.judge(&lockfile)?;
+        let (lockfile, too_new) = match self.lockfile()? {
+            Ok(l) => (Some(l), None),
+            Err(d) => (None, Some(d)),
+        };
+        let Judged { mut stamps, local } = self.judge(lockfile.as_ref(), too_new)?;
+        let Some(lockfile) = lockfile else {
+            return Err(self.internal("version.toml was not read but nothing blocked"));
+        };
 
         let mut keep: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut fetched: Vec<Fetched> = Vec::new();
@@ -506,17 +514,15 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         }
     }
 
-    fn lockfile(&mut self) -> Step<LockFile> {
+    /// 讀版本鎖定行：檔案版過高回 `Ok(Err(VK0008))`，交給 [`Self::judge`] 跟其他停下原因一起列出。
+    fn lockfile(&mut self) -> Step<Result<LockFile, Diagnostic>> {
         match LockFile::load_from(self.env.dir) {
-            Ok(Some(l)) => Ok(l),
+            Ok(Some(l)) => Ok(Ok(l)),
             Ok(None) => Err(self.internal(".vendor_kit/version.toml does not exist")),
             Err(version_file::Error::Parse {
                 file,
                 source: version_file::ParseError::Read(schema::ReadError::TooNew(t)),
-            }) => {
-                let d = self.too_new_diag(&file, &t);
-                Err(self.stop(d))
-            }
+            }) => Ok(Err(self.too_new_diag(&file, &t))),
             Err(e) => Err(self.internal(e.to_string())),
         }
     }
@@ -547,16 +553,19 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
     }
 
     /// 逐工具處理前的判定（模組說明第 4 步）：只讀。有任何一項不能做就把每一項都印出來再停下。
-    fn judge(&mut self, lockfile: &LockFile) -> Step<Judged> {
+    /// `version.toml` 檔案版過高（`lockfile` 是 `None`、`too_new` 是它的 VK0008）時，跟薄殼一起列出，
+    /// 只判不靠版本鎖定行的項目。
+    fn judge(&mut self, lockfile: Option<&LockFile>, too_new: Option<Diagnostic>) -> Step<Judged> {
         let mut blocked: Vec<Diagnostic> = Vec::new();
 
         if let Some(d) = self.shell() {
             blocked.push(d);
         }
+        blocked.extend(too_new);
 
         let mut local = BTreeMap::new();
-        match LocalFile::load_from(self.env.dir) {
-            Ok(Some(file)) => match Versions::new(lockfile, Some(&file)) {
+        match (LocalFile::load_from(self.env.dir), lockfile) {
+            (Ok(Some(file)), Some(lockfile)) => match Versions::new(lockfile, Some(&file)) {
                 Ok(_) => {
                     for (repo, source) in file.tools() {
                         match self.local_source(repo, source)? {
@@ -571,12 +580,16 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
                     blocked.push(self.gap_diag(format_args!("{orphan} (no reason code)")))
                 }
             },
-            Ok(None) => {}
-            Err(version_file::Error::Parse {
-                file,
-                source: version_file::ParseError::Read(schema::ReadError::TooNew(t)),
-            }) => blocked.push(self.too_new_diag(&file, &t)),
-            Err(e) => blocked.push(self.internal_diag(e.to_string())),
+            // 讀不到版本鎖定行就對不了覆寫，也不讀本機開發來源。
+            (Ok(Some(_)), None) | (Ok(None), _) => {}
+            (
+                Err(version_file::Error::Parse {
+                    file,
+                    source: version_file::ParseError::Read(schema::ReadError::TooNew(t)),
+                }),
+                _,
+            ) => blocked.push(self.too_new_diag(&file, &t)),
+            (Err(e), _) => blocked.push(self.internal_diag(e.to_string())),
         }
 
         match progress::find(self.env.dir) {
@@ -589,7 +602,7 @@ impl<W: Write, S: Sink, L: Write> Sync<'_, '_, W, S, L> {
         }
 
         let mut stamps = BTreeMap::new();
-        for repo in lockfile.tools().keys() {
+        for repo in lockfile.iter().flat_map(|l| l.tools().keys()) {
             if !fetch::is_namespace(repo) {
                 blocked.push(self.gap_diag(format_args!("tool name {repo:?} (not a just name)")));
                 continue;
