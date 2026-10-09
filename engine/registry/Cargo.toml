@@ -9,6 +9,11 @@ description = "GHCR 的 registry client：token 交換、列 tag（分頁）、H
 imageref.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
+rustls.workspace = true
+
+[dev-dependencies]
+# 測試裡起自簽憑證的 TLS 假 registry；ring 跟 ureq 開的是同一個。
+rustls = { workspace = true, features = ["ring"] }
 
 [lints]
 workspace = true

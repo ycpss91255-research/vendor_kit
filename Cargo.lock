@@ -786,6 +786,7 @@ name = "registry"
 version = "0.0.0"
 dependencies = [
  "imageref",
+ "rustls",
  "serde_json",
  "ureq",
 ]

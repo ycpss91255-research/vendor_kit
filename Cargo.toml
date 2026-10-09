@@ -109,6 +109,10 @@ check = { path = "engine/check" }
 #   編進執行檔，最終 image 不必裝 ca-certificates。ring 要編 C：vendor_kit 經 update 依賴 registry，
 #   image/Dockerfile 的 test stage 因此裝了 musl 的 C 編譯器（Debian 的 musl-tools），musl 靜態編譯才編得過。
 #   比較過的方案與結果見 #577。
+# - rustls（default-features = false, features = ["std"]）：ureq 已經帶進來的 TLS 實作；registry 直接依賴它，
+#   只為了拿 `rustls::Error` 的型別，辨識憑證驗證失敗（不重試、說明寫明憑證不被信任，#711）。ureq 不 re-export
+#   rustls，而且註明它包的 rustls 錯誤不屬於 ureq 的 API，不比對錯誤字串就只能這樣。不開預設 feature：預設的
+#   aws-lc-rs 要另編 C，加密實作沿用 ureq 開的 ring。
 toml_edit = "0.25"
 serde_json = "1"
 serde = "1"
@@ -116,6 +120,7 @@ sha2 = "0.10"
 nix = { version = "0.30", default-features = false }
 tempfile = "3"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 
 # 只在建置時用的：
 # - csv：msggen 與 test/reason_lint 讀訊息表 doc/contract/reason_codes.csv。
