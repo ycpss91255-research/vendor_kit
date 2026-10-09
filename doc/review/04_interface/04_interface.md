@@ -1,6 +1,6 @@
 # 04 使用者介面
 
-[使用者](../../../GLOSSARY.md#角色與情境)與自動化平常用 `just vendor_kit` 操作 [VK](../../../GLOSSARY.md#角色與情境)。`bootstrap.sh` 只用於首次[導入](../../../GLOSSARY.md#角色與情境)，以及[薄殼](../../../GLOSSARY.md#vk-組件)的檢查、明確要求的修復與完成未完成的 [uninstall](../../../GLOSSARY.md#vk-recipe-與用途) (待確認 (N8b)，選項名及所用引擎版本未定)。
+[使用者](../../../GLOSSARY.md#角色與情境)與自動化平常用 `just vendor_kit` 操作 [VK](../../../GLOSSARY.md#角色與情境)。`bootstrap.sh` 只用於首次[導入](../../../GLOSSARY.md#角色與情境)，以及[薄殼](../../../GLOSSARY.md#vk-組件)的檢查、明確要求的修復與完成未完成的 [uninstall](../../../GLOSSARY.md#vk-recipe-與用途) (`bootstrap.sh --finish-uninstall`)。
 
 這一頁列必要的參數、選項與操作流程；其他選項細節留到實作時定。
 
@@ -28,7 +28,7 @@
 | [Git](https://git-scm.com/) | 不設最低版本 | VK 不在主機呼叫 git；啟動器往上找 `.git`，確認位於 git [repo](../../../GLOSSARY.md#工具與出貨) 內；目錄或檔都算，適用 worktree 與 submodule |
 | [just](https://github.com/casey/just) | 1.33.0 | 首次導入檢查；使用 [just Release 下載頁](https://github.com/casey/just/releases/latest)的版本 |
 
-待確認 (N6b)：支援本機 rootful (不開 userns-remap)、同一使用者的 rootless；WSL2 Docker Desktop 是候選，實機驗收通過才算支援。snap、遠端、DinD、userns-remap 不承諾支援。daemon 形態屬主機前置檢查，首次導入與既有安裝目錄都由啟動器檢查，不通過時不建[執行紀錄](../../../GLOSSARY.md#repo-內的檔與狀態)；建執行紀錄後另做能力檢查，失敗走一般[失敗](../../../GLOSSARY.md#執行與結果)。[診斷](../../../GLOSSARY.md#執行與結果)見[訊息表](../../contract/reason_codes.csv)。
+支援的 Docker daemon 形態：本機 rootful (不開 userns-remap)，以及同一使用者的本機 rootless，兩種都在驗收矩陣實際覆蓋。WSL2 Docker Desktop 是候選，實機驗收通過前跟清單外的形態一樣處理。snap、遠端 daemon、DinD、userns-remap 不支援。daemon 形態屬主機前置檢查，首次導入與既有安裝目錄都由啟動器檢查，只用 docker 自己的指令 (`docker info`、`docker context`) 判斷，不加主機依賴；不通過時報 VK0081，不建[執行紀錄](../../../GLOSSARY.md#repo-內的檔與狀態)。建執行紀錄後另做能力檢查，失敗報 VK0082，走一般[失敗](../../../GLOSSARY.md#執行與結果)。[診斷](../../../GLOSSARY.md#執行與結果)見[訊息表](../../contract/reason_codes.csv)。
 
 主機前置檢查不通過時的處置見[訊息表](../../contract/reason_codes.csv)。已有安裝目錄若使用太舊的 just，會在讀取 justfile 時由 just 自己報錯，尚未進入 VK，也不留[執行紀錄](../../../GLOSSARY.md#repo-內的檔與狀態)。
 
@@ -43,7 +43,7 @@
 
 | 動作 | 用誰的憑證 | 沒有或不夠時 |
 |---|---|---|
-| 查版本清單 (`update`、`add`、`upgrade <repo>`) | 公開不必設定；私有用 `--registry-token-file <path>`，帳號須有讀取權限 | 沒有憑證時，可加選項重跑，或用 `<repo>@<tag>` 直接指定版本；待確認 (D7)：私有 package 在本機沒有 image 時，這條路目前停在 VK0055 |
+| 查版本清單 (`update`、`add`、`upgrade <repo>`) | 公開不必設定；私有用 `--registry-token-file <path>`，帳號須有讀取權限 | 沒有憑證時，可加選項重跑，或用 `<repo>@<tag>` 直接指定版本；指定 [tag](../../../GLOSSARY.md#工具與出貨) 而本機沒有 image 時，由主機 Docker 用使用者的登入下載 |
 | 下載 image (`add`、`upgrade`、`sync`、啟動器) | 主機或 CI 的 Docker；私有 image 先 `docker login ghcr.io` | Docker 沒有足夠讀取權限就無法下載 |
 
 - 兩邊憑證不互通
@@ -53,6 +53,7 @@
 - registry 連線逾時 10 秒、單一請求逾時 30 秒；連線失敗、逾時、429、5xx 才重試，最多 3 次，間隔從 1 秒起倍增；401、403、404 不重試，不跟隨轉址
 - token 用 Basic 認證換 bearer，帳號固定為 `vendor_kit`
 - 啟動器 pull 引擎 image 使用 `timeout`，逾時為 600 秒
+- 待確認 (D15)：主機 Docker 信任、引擎不信任的自訂 CA (TLS 攔截代理)
 
 ## 共同選項
 
@@ -76,23 +77,23 @@
 
 ### 預演
 
-待確認 (D1)：`--dry-run` 只有長選項；本節的預演規則尚待確認。`add`、`upgrade <repo>`、`upgrade --engine`、`remove`、`uninstall`、`install`、`dev`、`undev`、`prune` 接受；`update`、`test`、`test dist`、`sync` 不接受。
+`--dry-run` 只有長選項。`add`、`upgrade <repo>`、`upgrade --engine`、`remove`、`uninstall`、`install`、`dev`、`undev`、`prune` 接受；`update`、`test`、`test dist`、`sync` 不接受。
 
 - 算出完整計畫，輸出格式見 [03 輸出](../../contract/03_output.md#輸出)
-- 不詢問，不能互動也不報 VK0002；接受 `-y` 的指令可與 `-y` 並用，`-y` 沒有作用
+- 不詢問，不能互動也不報 VK0002；`add` 不附加內容，也不因既有、未[納管](../../../GLOSSARY.md#初始檔與合併)的檔報 VK0084；接受 `-y` 的指令可與 `-y` 並用，`-y` 沒有作用
 - 除執行紀錄外不寫檔、不建[進度檔](../../../GLOSSARY.md#repo-內的檔與狀態)。殘留進度檔照留，只印會一併完成哪些操作
 - 持共享鎖；算計畫所需的 image 照常取得（下載或載入），不刪除容器
 - 算計畫時遇到阻擋，照各自的碼停下；[警告](../../../GLOSSARY.md#執行與結果)與結束碼見 [03 輸出](../../contract/03_output.md#輸出)
 - `upgrade --engine --dry-run` 第一段只解析目標、判降版，印會換上的[版本鎖定行](../../../GLOSSARY.md#版本與來源)與「第二段要等重跑時由新引擎做」，不報 VK0023；沒有警告或其他失敗時以 `0` 結束；第二段列出會重產的薄殼、會升級的 [VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)與 `config.toml` 的動作
 - `prune` 預演列出會刪的容器；共享鎖下只是預估
 - `--dry-run` 重複給定依上節的最嚴格解讀處理；給兩次、寫成 `--dry-run=…`、與 `-h` 並用或放在 `--` 之後，都回 VK0026
-- [救援路徑](../../../GLOSSARY.md#介面版與契約)接受 `install --dry-run [-y]`、`upgrade --engine[=<tag>] --dry-run [-y]`；`sync` 不接受
+- [救援路徑](../../../GLOSSARY.md#介面版與契約)接受 `install --dry-run [-y]`、`upgrade --engine[=<tag>] --dry-run [-y]`；`sync` 不接受。這兩種寫法屬救援路徑，跨版本永久不改
 
 ## 入口
 
 | 入口 | 用途 |
 |---|---|
-| `bootstrap.sh` | 首次導入、薄殼檢查與修復 |
+| `bootstrap.sh` | 首次導入、薄殼檢查與修復、完成未完成的 uninstall |
 | `just vendor_kit <cmd>` | 日常與 CI 操作；`<cmd>` 換成要執行的 [VK recipe](../../../GLOSSARY.md#執行與結果) 名稱，例如 `update`、`add`、`upgrade` |
 
 `bootstrap.sh` 是啟動器，檔名固定，每個 Release 各附一份；下面的網址預設取最新 Release。要指定版本時，把網址的 `latest/download` 換成 `download/vX.Y.Z`；本頁的 `vX` 指 `vX.Y.Z` 的 X。含此資產的 Release 尚未發布前，流程尚不可用。取得與執行流程：
@@ -124,10 +125,10 @@
 | 首次導入（可帶 `-i`、`-y`），或未完成的首次導入 | 取得內嵌那版[引擎](../../../GLOSSARY.md#vk-組件)（帶 `-i` 時改用指定的本機 image），呼叫 `install` 導入目前目錄 |
 | 不帶選項，既有安裝目錄 | 只檢查薄殼；一致時報告一致 |
 | `--repair`，既有安裝目錄 | 一致則不重產；不符則先逐檔列差異，再重產並報告結果，不詢問 |
-| 完成未完成的 uninstall (待確認 (N8b)) | 完成移除；選項名及所用引擎版本未定 |
+| `--finish-uninstall`，有 uninstall 進度檔的目錄 | 以進度檔記下的引擎 (當初跑 uninstall 時鎖定的那一版) 收完剩下的步驟，刪除進度檔，印保留清單；本機沒有那個 image 又取不到時報 VK0036 |
 | 單獨 `-h` / `--help` | 只印用法，不做主機檢查、不寫檔，不印內嵌引擎版本 |
 
-- 不收位置參數，沒有 `--version`；短長選項同義，順序不限，`--repair` 只有長選項
+- 不收位置參數，沒有 `--version`；短長選項同義，順序不限，`--repair`、`--finish-uninstall` 只有長選項
 - `-h` / `--help` 只准單獨使用；`-y` 只在首次導入傳給 `install`，任何情況都不接受 `--repair -y`
 - 首次導入的寫入、詢問與檔案處理見[使用者的檔與 VK 的檔](#使用者的檔與-vk-的檔)
 - 用法、主機條件、鎖定行、引擎取得與薄殼不符的診斷及結束碼，統一見[訊息表](../../contract/reason_codes.csv)的 `source` 含 `bootstrap` 的列
@@ -136,7 +137,7 @@
 
 目前目錄沒有 `.vendor_kit/` 才是首次導入；有就按既有安裝目錄處理。讀不出恰好一行有效的引擎[版本鎖定行](../../../GLOSSARY.md#版本與來源)時，不猜版本或改走首次導入，處置見[訊息表](../../contract/reason_codes.csv)。
 
-唯一例外是未完成的首次導入：允許重跑首次導入，也可帶 `-y`；條件是最近一筆執行紀錄是首次導入，且符合任一條件：
+例外有兩個：未完成的首次導入，以及未完成的 uninstall。未完成的 uninstall 只能用 `--finish-uninstall` 完成，不擴大首次導入的例外。未完成的首次導入允許重跑首次導入，也可帶 `-y`；條件是最近一筆執行紀錄是首次導入，且符合任一條件：
 
 - 因需詢問、沒帶 `-y` 又不能互動（含 EOF）而停下，除紀錄外未修改任何檔
 - 建紀錄後、寫入引擎版本鎖定行前結束，不論是否已寫入其他檔
@@ -153,6 +154,7 @@
 |---|---|
 | 首次導入 | 腳本內嵌那一版；`-i <image>` 可改用離線交付 |
 | 既有安裝目錄的檢查、修復 | 引擎版本鎖定行那一版，不套用[本機覆寫](../../../GLOSSARY.md#版本與來源) |
+| 完成未完成的 uninstall | 進度檔記下的那一版引擎 |
 
 既有安裝目錄帶 `-i` 可用本機 image 或 image tar，但 [digest](../../../GLOSSARY.md#工具與出貨) 必須符合鎖定行；以 [image 引用](../../../GLOSSARY.md#工具與出貨)指定時，完整引用也須相同。
 
@@ -160,11 +162,13 @@
 
 ### 判定順序
 
-1. 先看 `.vendor_kit/` 與有效鎖定行，必要時依既有執行紀錄辨識未完成首次導入，以判定是否接受 `-y`
-2. 判用法、檢查主機；首次導入、只檢查、`--repair` 都檢查 Docker 與 daemon 形態（待確認 (N6b)），just 只在首次導入檢查，git 位置見[主機需求](#主機需求)
-3. 建紀錄前判定跨 vX、git 位置、首次導入的巢狀安裝、非安裝目錄的 `--repair`，以及不適用例外的無效鎖定行；被拒絕時不建紀錄、不寫檔
-4. 依 [02 不變量第 4 條](../../contract/02_invariants.md#4-永不靜默失敗)建執行紀錄，再取得 image、啟動引擎；首次導入在呼叫 `install` 前建好，只檢查與修復在比對前建好
-5. 只檢查與修復先辨識升引擎未完成的進度檔；有就依訊息表的下一步重跑原 `upgrade`，不比對或重產薄殼。待確認 (N8b)：也辨識 uninstall 進度檔，以 VK0083 停下，下一步為完成模式指令；選項名及所用引擎版本未定
+1. 先看 `.vendor_kit/` 與 uninstall 進度檔，再看有效鎖定行，必要時依既有執行紀錄辨識未完成首次導入，以判定是否接受 `-y`。有 uninstall 進度檔時，不論鎖定行是否有效，都按未完成的 uninstall 處理，不套用首次導入例外：
+   - 進度檔記下了引擎：`--finish-uninstall` 用那一版引擎完成；其他呼叫以 VK0083 停下，下一步是 `--finish-uninstall` 指令
+   - 舊格式的進度檔 (沒有記下引擎)：仍辨識成 uninstall 未完成，不報 VK0083，也不退回只報 VK0037；包括 `--finish-uninstall` 在內，一律以 VK0094 停下 (失敗、`2`)，訊息指出進度檔沒有記下引擎，給人工處理的下一步
+2. 判用法、檢查主機；首次導入、只檢查、`--repair` 都檢查 Docker 與 daemon 形態，just 只在首次導入檢查，git 位置見[主機需求](#主機需求)
+3. 建紀錄前判定跨 vX、git 位置、首次導入的巢狀安裝、非安裝目錄的 `--repair`，以及沒有 uninstall 進度檔時、不適用例外的無效鎖定行；被拒絕時不建紀錄、不寫檔
+4. 依 [02 不變量第 4 條](../../contract/02_invariants.md#4-永不靜默失敗)建執行紀錄，再取得 image、啟動引擎；首次導入在呼叫 `install` 前建好，只檢查與修復在比對前建好；`--finish-uninstall` 取得進度檔記下的那一版引擎，不讀鎖定行
+5. 只檢查與修復先辨識升引擎未完成的[進度檔](../../../GLOSSARY.md#repo-內的檔與狀態)；有就依訊息表的下一步重跑原 `upgrade`，不比對或重產薄殼
 
 ### 寫入範圍與其他指令的關係
 
@@ -185,7 +189,7 @@ v1.0.0 的 `add`、`upgrade`、`remove`、`dev`、`undev` 一次只處理一個[
 
 | 呼叫（前面加 `just vendor_kit`） | 功能 |
 |---|---|
-| `add <repo>`、`add <repo>@<tag>`、`add <repo> --image-path <registry>/<path>`、`add <repo> -i <image>` | 導入工具，可指定版本、image 路徑或離線來源；`--image-path` 名稱待確認 (N2b) |
+| `add <repo>`、`add <repo>@<tag>`、`add <repo> --image-path <registry>/<path>`、`add <repo> -i <image>` | 導入工具，可指定版本、image 路徑或離線來源 |
 | `upgrade <repo>`、`upgrade <repo>@<tag>` | 升降工具版本 |
 | `upgrade --engine`、`upgrade --engine=<tag>` | 升降引擎版本 |
 | `dev <repo> -p <dir>`、`dev --engine -i <image>` | 改用[本機開發來源](../../../GLOSSARY.md#版本與來源) |
@@ -224,7 +228,7 @@ just vendor_kit <cmd> [arguments] [options]
 
 | 版本組合不合時仍可用的類別 | 呼叫 |
 |---|---|
-| 操作 | `install`、`upgrade --engine`、`sync` |
+| 操作 | `install`、`upgrade --engine`、`sync`、`install --dry-run [-y]`、`upgrade --engine[=<tag>] --dry-run [-y]` |
 | 用法 | `just vendor_kit`、`just vendor_kit install -h`、`just vendor_kit upgrade --engine -h`、`just vendor_kit sync -h`（長選項同） |
 
 - 各指令的 `-h` / `--help` 印該指令用法，沒有 `help` 指令；只准與決定印哪份用法的 `--engine` 並用，`<repo>` 不算
@@ -237,6 +241,7 @@ just vendor_kit <cmd> [arguments] [options]
 參數與選項：
 
 - 位置參數只放工具名稱 [\<repo\>](../../../GLOSSARY.md#工具與出貨)；`test <path>` 是例外。`test dist` 是完整指令名，`dist` 不是工具名或 path
+- `<repo>` 必須是合法的 just 名稱；`add`、`remove`、`update`、`dev`、`undev`、`upgrade` 都在判用法時檢查，不合就是用法錯誤，排在 tag 格式與「工具在不在」之前
 - 其他值以選項帶入，例如 `-p <dir>`、`-i <image>`；選項可放位置參數前或後
 - 引擎一律用 `--engine`；帶版本只收 `--engine=<tag>`，不收 `--engine <tag>`；工具用 `<repo>@<tag>`
 - [選項結束標記](../../../GLOSSARY.md#執行與結果)為單獨的 `--`；之後一律當位置參數，即使以 `-` 開頭
@@ -244,7 +249,7 @@ just vendor_kit <cmd> [arguments] [options]
 | 形式 | 選項 |
 |---|---|
 | 短長都有 | `-h` / `--help`、`-y` / `--yes`、`-i` / `--image`、`-p` / `--path` |
-| 只有長 | `--engine`、`--registry-token-file`、`--repair`、`--image-path` (只有 [add](../../../GLOSSARY.md#vk-recipe-與用途) 接受，名稱待確認 (N2b))、`--dry-run` |
+| 只有長 | `--engine`、`--registry-token-file`、`--repair`、`--image-path` (只有 [add](../../../GLOSSARY.md#vk-recipe-與用途) 接受)、`--dry-run` |
 
 ### 指定版本
 
@@ -255,8 +260,9 @@ just vendor_kit <cmd> [arguments] [options]
 - 同一 tag 改指別的 digest 不算新版；最新版不限目前工具的 vX
 - 工具功能與工具間相容性的範圍見 [01 目的與承諾](../../contract/01_purpose.md#vk-不做的事)；交付格式與引擎相容性依 [02 不變量第 7 條](../../contract/02_invariants.md#7-工具-image-只承載交付資料引擎與工具不互相綁發版)
 - `upgrade <repo>@<tag>` 可指定舊版工具；`upgrade --engine=<tag>` 可指定舊版引擎，但須能無損讀取現有 [VK 檔](../../../GLOSSARY.md#repo-內的檔與狀態)，拒絕結果見[訊息表](../../contract/reason_codes.csv)
-- 待確認 (D7)：`add`、`upgrade` 指定 `@<tag>` 時，本機有該 image 就不連 registry；沒有才匿名取 digest，再 `pull <路徑>@<digest>`，不讀 token 檔；私有 package 在本機沒有 image 時，這條路目前停在 VK0055。不帶 tag 才讀 token 檔、列 tag 取最新版；本機有 image 時，拿 registry 的 digest 比對
-- 工具有逐檔紀錄時，在讀 token 檔、連 registry 前就停下；目前無法判定基準版是否落後
+- 不帶 tag 的 `upgrade <repo>` 與 `upgrade --engine`，發現 registry 最新版比鎖定版本舊時，以 VK0088 停下、不換版，報出兩個版本，用條件句提示 `upgrade <repo>@<tag>`／`upgrade --engine=<tag>`；引擎降版仍受 VK0007 限制
+- `add`、`upgrade` 指定 `@<tag>` 時，本機有該 image 就不連 registry；沒有時由主機 Docker 用使用者的登入下載 `<路徑>:<tag>`，從本機 image 的 RepoDigests 讀 digest 寫進鎖定行，缺少或互相衝突就拒絕；不讀 token 檔。不帶 tag 才讀 token 檔、列 tag 取最新版；本機有 image 時，拿 registry 的 digest 比對
+- `add`、`upgrade` 取到的 digest 不是多架構 index (OCI image index 或 Docker manifest list) 時，以 VK0089 停下，不寫鎖定行，訊息指名 image 與拿到的類型
 - 不另加 `init`、`ensure`、`diff`、`accept`、`rollback` 等別名或 `--purge`；用途由既有指令、選項或 git 處理
 
 ### 成對與無害
@@ -280,8 +286,8 @@ just vendor_kit <cmd> [arguments] [options]
 - 已完整且一致的 `add`、`install`、`upgrade`，stdout 說明未變更；`add` 要換 tag 時改用 `upgrade`，見訊息表
 - `remove` 後再 `add`：留下的初始檔照既有檔處理；已收回的 append 行重新詢問才加，未收回的內容不得無條件再 append
 - `sync`、`prune` 不改[追蹤檔](../../../GLOSSARY.md#repo-內的檔與狀態)
-- 待確認 (D14)：`prune` 成功後，啟動器清理容器已被這次 [prune](../../../GLOSSARY.md#vk-recipe-與用途) 刪光的殘留 session 目錄；stdout 不列、執行紀錄不記，判斷不出歸屬的目錄不清
-- `prune` 不詢問，stdout 列出清理內容：本安裝目錄 [cache/](../../../GLOSSARY.md#repo-內的檔與狀態) 中未鎖定的工具目錄、VK 暫存、VK 建立且可證明不再使用的已停止容器；image 無法證明無人使用就不刪
+- [prune](../../../GLOSSARY.md#vk-recipe-與用途) 的清理結果包含能證明屬於這個安裝目錄、而且這次確實刪掉的 repo 外 session 目錄，由引擎列在 stdout、寫進執行紀錄；刪不掉的列出路徑並報 VK0092，結束碼比照刪容器失敗。更早留下的殘留、其他 TMPDIR 底下的目錄不承諾清理；預演不刪除、也不列這些目錄
+- `prune` 不詢問，stdout 列出清理內容：本安裝目錄 [cache/](../../../GLOSSARY.md#repo-內的檔與狀態) 中未鎖定的工具目錄、VK 暫存 (含上一條的 session 目錄)、VK 建立且可證明不再使用的已停止容器；image 無法證明無人使用就不刪
 
 ### 本機覆寫
 
@@ -289,29 +295,30 @@ just vendor_kit <cmd> [arguments] [options]
 |---|---|
 | `dev <repo> -p <dir>` | 工具改用存在且符合交付格式的本機目錄；相對路徑以安裝目錄為準 |
 | `dev --engine -i <image>` | 引擎改用本機 image |
-| `undev <repo>`、`undev --engine` | 解除覆寫，隨即同步到當下鎖定版本；不需讀原來源 |
+| `undev <repo>`、`undev --engine` | 解除覆寫，隨即同步到當下鎖定版本；不需讀原來源。工具沒有鎖定行、只剩覆寫時，`undev <repo>` 只解除該覆寫，不新增鎖定行、不讀來源、不同步 |
 
 - 覆寫只作用於此工作目錄，worktree 各自一份，不跨 clone
 - 每次報告用了哪個覆寫，不加診斷前綴：`update` 到 stderr，其餘到 stdout
-- 除 `test` 外的一般 recipe 照常執行；覆寫來源失效只擋需讀它的動作，`update` 仍照鎖定行查，bootstrap 忽略覆寫
+- 除 `test` 外的一般 recipe 照常執行；例外是 `upgrade --engine` 的第二段 (含按診斷重跑)，一律由鎖定行那一版引擎做、不套用引擎覆寫，由引擎判斷，輸出說明這次沒有套用；覆寫來源失效只擋需讀它的動作，`update` 仍照鎖定行查，bootstrap 忽略覆寫
 - 重複 `dev` 同來源、或工具存在但無覆寫與未完成操作的 `undev`，stdout 說明未變更；不同來源、工具不存在等拒絕結果見[訊息表](../../contract/reason_codes.csv)
 - `undev` 同步未完成時，覆寫已解除，須重跑原 `undev`；`sync` 不代替完成或清掉其進度檔
 
 - 工具來源可以在安裝目錄外：`-p` 接受以 `..` 開頭的相對路徑或其他絕對路徑；啟動器複製進 session 後再驗，保存的值保留使用者寫法。值不是 UTF-8、含單引號、雙引號、反斜線或控制字元，或正規化後為 `/`，就停下
 - `sync`、`upgrade`、`add`、`remove` 重產入口檔時也讀安裝目錄外的覆寫；`add`、`remove` 套用其他工具的覆寫並在 stdout 報告，答否也報
 - `dev --engine -i <image>` 只用本機 image，不 pull；先讀 LABEL，確認引擎支援的介面版範圍（[最低介面版](../../../GLOSSARY.md#介面版與契約)到目前介面版）包含薄殼的[介面版](../../../GLOSSARY.md#介面版與契約)才寫覆寫，不含時回 VK0085。範圍包含薄殼介面版的較舊引擎也接受；同一 image 回未變更，不同 image 回 VK0050，入口檔不動
-- 待確認 (D18)：啟動器套用引擎覆寫時，本機必須已有 image，不 pull、不讀[介面版列表](../../../GLOSSARY.md#介面版與契約)；LABEL 所載引擎支援的介面版範圍（最低介面版到目前介面版）不含薄殼的介面版時回 VK0086。走救援路徑的呼叫也用覆寫 image，不判介面版；`undev --engine` 用鎖定引擎，bootstrap.sh 不套用覆寫
+- `dev --engine -i` 拒絕的分類：值不是合法的本機 image 名稱或 image ID 回 VK0026；確認本機沒有回 VK0036，不 pull；docker 查詢失敗或分不出有沒有回 VK0077 (`operation=inspect`，附 docker 原文)；LABEL 缺少或值不合法回 VK0090；區間有效但不含薄殼介面版照舊回 VK0085
+- 啟動器套用引擎覆寫時，本機必須已有 image，不 pull、不讀 `version.toml` 的 `vendor_kit_protocols`；LABEL 所載引擎支援的介面版範圍（最低介面版到目前介面版）不含薄殼的介面版時回 VK0086。走救援路徑的呼叫也用覆寫 image，不判介面版；`undev --engine` 用鎖定引擎，bootstrap.sh 不套用覆寫；`upgrade --engine` 第二段的例外見上
 - 用了引擎覆寫時，由引擎在輸出中報告
-- 待確認 (O1)：覆寫存在、版本鎖定行卻沒有對應工具時，`add`、`remove`、`sync`、`upgrade` 目前都先以 VK0056 停下，`test` 報 VK0071；是否允許修復未定
-- 待確認 (O2)：`add` 先讀全部覆寫，任一來源失效時，即使該工具已加入且未變更，也報 VK0052
+- 覆寫存在、版本鎖定行卻沒有對應工具時，`add`、`remove`、`sync`、`upgrade`、`test` 都以 VK0071 停下、不寫檔，下一步是 `just vendor_kit undev <repo>`
+- 已完整且一致、沒有待恢復操作的 `add` 不重產入口檔，也不讀其他工具的覆寫來源；stdout 說明未變更，並依 `version.local.toml` 記的值報告覆寫，以 `0` 結束。只有真的要導入、或恢復時要重產入口檔，才讀其他工具的覆寫，讀不到就在任何寫入之前報 VK0052
 
 ## 各指令專用選項
 
 ### add 的 image 路徑
 
-待確認 (N2b)：選項名為 `--image-path <registry>/<path>`，只收 `ghcr.io/<路徑>`，不帶 tag 或 digest；值不合或與 `-i` 並用回 VK0026。沒有鎖定行又沒給此選項時回 VK0025，`<argument>` 印 `--image-path`。
+選項名為 `--image-path <registry>/<path>`，只收 `ghcr.io/<路徑>`，不帶 tag 或 digest；值不合或與 `-i` 並用回 VK0026。沒有鎖定行又沒給此選項時回 VK0025，`<argument>` 印 `--image-path`。help 寫明值的格式是 `ghcr.io/<路徑>`，不含 tag 或 digest。
 
-待確認 (T2)：已有鎖定行時一律用鎖定行的路徑，給了不同值也忽略；不帶 tag 或指定同一 tag 時，stdout 說明未變更，不連 registry。
+已有鎖定行時，沒給 `--image-path` 或給的值跟鎖定行路徑相同，而且不帶 tag 或帶同一 tag，就在 stdout 說明未變更，以 `0` 結束，不連 registry；給了不同的值，回 VK0026，不寫檔、不連 registry；帶不同 tag 照舊回 VK0045。
 
 ### registry token 檔案
 
@@ -325,12 +332,12 @@ just vendor_kit <cmd> [arguments] [options]
 ### upgrade --engine
 
 1. 第一段換上目標引擎，尚未完成的結果見[訊息表](../../contract/reason_codes.csv)
-2. 按診斷句尾的完整指令手動重跑，由新引擎完成剩餘步驟；保留原 tag 與 `-y`
+2. 按診斷句尾的完整指令手動重跑，由新引擎完成剩餘步驟，開著引擎覆寫時同樣由鎖定行那一版做；保留原 tag 與 `-y`
 
 第二次呼叫答否，不撤回第一次已完成的換引擎，第一段的鎖定行與進度檔不動。
 
 - 鎖定行已是目標版、沒有進度檔，但薄殼或 VK 檔仍是舊版時，直接做第二段；全部已是這一版才回未變更
-- 第二段重產不一致的薄殼；`gen/.stamp` 不同才寫；VK 檔升到本引擎的[檔案版](../../../GLOSSARY.md#介面版與契約)上限，[介面版列表](../../../GLOSSARY.md#介面版與契約)改為本引擎支援的介面版範圍（最低介面版到目前介面版）
+- 第二段重產不一致的薄殼；`gen/.stamp` 不同才寫；VK 檔升到本引擎的[檔案版](../../../GLOSSARY.md#介面版與契約)上限，`version.toml` 的 `vendor_kit_protocols` 改為本引擎支援的介面版範圍（最低介面版到目前介面版）
 - `config.toml` 換版在第二段：新版等於基準版就不動、不問；使用者沒改過先問換版，雙方都改過先問合併；使用者刪了就不重建、記 `deleted`。題目併入第二段的一次問完；解析失敗的例外見[寫入既有檔的例外](#寫入既有檔的例外)
 - 第一段在進度檔已建、鎖定行未換時中斷，重跑原指令照進度檔的目標重做第一段，再報 VK0023；不帶 tag 也不列 registry
 - 引擎升版不讀 token 檔
@@ -338,7 +345,7 @@ just vendor_kit <cmd> [arguments] [options]
 ### sync
 
 1. 做主機前置檢查
-2. 在逐工具處理前判薄殼與版本組合；任一阻擋就不取件，兩者皆不符時都報告，結果依[訊息表](../../contract/reason_codes.csv)與 [03 結束碼](../../contract/03_output.md#結束碼)。待確認 (D4)：目前實作在薄殼的介面版不在引擎支援的介面版範圍（最低介面版到目前介面版）且薄殼為別版模板時，引擎只報 VK0006；這與兩者皆不符時都報告的定案不一致
+2. 在逐工具處理前判薄殼與版本組合；任一阻擋就不取件，兩者皆不符時都報告，結果依[訊息表](../../contract/reason_codes.csv)與 [03 結束碼](../../contract/03_output.md#結束碼)。`sync` 屬救援路徑，不以介面版阻擋，不報 VK0009；薄殼不符報 VK0006、不取件、以 `2` 結束，下一步只有 `--repair`；VK0006 與 VK0008 同時成立時兩條都印，取較大的 `3`
 3. 再逐工具同步；跨工具寫入界線依 [02 不變量第 4 條](../../contract/02_invariants.md#4-永不靜默失敗)，同階段判定與輸出順序不承諾
 
 | 同步對象 | 行為 |
@@ -377,8 +384,9 @@ vendor_kit current: v1.4.0 latest: v1.4.0
 | `add <repo> -i <image>` | 工具來源 |
 | `bootstrap.sh -i <image>` | 引擎來源 |
 
-- 待確認 (D3)：`-i` 的值以 `.tar` 結尾時當 image tar，其他當 image 引用；離線交付須附多架構 image index digest 資訊，tar 旁檔把 `.tar` 換成 `.digest`，例如 `foo.tar` 對應 `foo.digest`
-- 待確認 (B1)：classic image store 載入 tar 後沒有 RepoDigests，之後的 recipe 找不到鎖定引用會去 pull，離線時回 VK0036
+- `-i` 的值以 `.tar` 結尾時當 image tar，其他當 image 引用；離線交付須附多架構 image index digest 資訊，tar 旁檔把 `.tar` 換成 `.digest`，例如 `foo.tar` 對應 `foo.digest`
+- tar 只能有一個 image，名稱恰好一個 `ghcr.io/<路徑>:vX.Y.Z`；`add <repo> -i <image>` 給的 tar 不合就以 VK0091 停下，鎖定行不動。這時 docker load 已經成功，image 會留在本機，訊息不寫成「沒有載入」；`bootstrap.sh -i` 給的 tar 被拒絕時，結果見[訊息表](../../contract/reason_codes.csv)的 `source` 含 `bootstrap` 的列
+- 離線導入時，把載入的 image 記在本機、不進 git 的紀錄裡：鍵是版本鎖定行的完整引用，值是 image ID。之後找不到鎖定引用時先查這筆紀錄，引用相同而且 image 還在就直接用、不 pull；查不到才 pull，失敗仍報 VK0036 或 VK0055。classic 與 containerd 兩種 image store 都適用；不按 tag、版本名或最後載入的 image 挑選
 - 不要求 tar 本身保存 digest；不拿 tar 雜湊代替，也不退化成只寫 tag；線上與離線的鎖定行關係依 [02 不變量第 2 條](../../contract/02_invariants.md#2-一個來源版本鎖定行只有一份進-git)
 - digest 缺失或不符的結果見[訊息表](../../contract/reason_codes.csv)；既有安裝的額外核對見[用哪一版引擎](#用哪一版引擎)
 - v1.0.0 不承諾離線升版入口
@@ -393,7 +401,7 @@ vendor_kit current: v1.4.0 latest: v1.4.0
 | `lock_enabled` | 布林值；`false` 只給不支援檔案鎖的檔案系統，每次執行都[警告](../../../GLOSSARY.md#執行與結果) | `true` |
 | `[test]` | `image` 為非空字串；`command` 為由非空字串組成的非空陣列 | 無預設 runner；`test <path>` 停下並指名缺少的欄位；不帶 path 的 `test` 不需要 |
 
-`install` 按隨引擎出貨的模板新建 `config.toml`，記 `managed` 紀錄，基準版副本放 `baseline/.vendor_kit/config.toml`。已納管的檔被使用者刪掉時不重建；待確認 (D5)：檔已存在但沒有紀錄時，實作不碰、不記，也不停下。`uninstall` 保留它，在 stdout 只列一次。模板全文：
+`install` 按隨引擎出貨的模板新建 `config.toml`，記 `managed` 紀錄，基準版副本放 `baseline/.vendor_kit/config.toml`。已納管的檔被使用者刪掉時不重建；檔已存在但沒有紀錄時，不碰內容，記成未納管，以警告說明這個檔照常生效、但不參與換版合併，結束碼 `1`；之後 `upgrade --engine` 照未納管處理，不碰、不合併。`uninstall` 保留它，在 stdout 只列一次。模板全文：
 
 ```toml
 # vendor_kit settings for this install directory.
@@ -432,12 +440,6 @@ vendor_kit current: v1.4.0 latest: v1.4.0
 
 VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 寫出的版本鎖定行必須能由它辨識與修改。
 
-- `customType: "regex"`；`managerFilePatterns` 只比對 `.vendor_kit/version.toml`，不含 `version.local.toml`
-- `matchStrings` 一條抓行首裸鍵及 `"ghcr.io/<路徑>:vX.Y.Z@sha256:<64 hex>"`，群組為 `depName`、`currentValue`、`currentDigest`；不抓[介面版列表](../../../GLOSSARY.md#介面版與契約)（`vendor_kit_protocols` 那一行）
-- `datasourceTemplate: "docker"`；versioning 只收沒有前導零的 `vX.Y.Z`
-- preset 目前放在 [Renovate preset](../../../test/renovate/preset.json)，正式發布位置未定
-- 引擎 PR 在 PR 分支跑 `just vendor_kit upgrade --engine=<鎖定行 tag> -y`，commit 後 CI 通過才 merge
-
 ## 輸出
 
 串流、前綴、顏色與結果彙總見 [03 輸出](../../contract/03_output.md)；逐項診斷、處置與結束碼只見[訊息表](../../contract/reason_codes.csv)。這些承諾適用於已進入 VK 的呼叫。
@@ -464,7 +466,7 @@ VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 
 | append 型初始檔的首次導入 | 有檔先詢問再 append |
 | 已納管初始檔的基準版合併（設定檔同；TOML 與 just 的例外見下） | 未改過也先問是否換版；雙方都改過則先問是否合併，衝突留標記給使用者解 |
 
-[合併衝突](../../../GLOSSARY.md#初始檔與合併)的診斷與結束碼見[訊息表](../../contract/reason_codes.csv)。例外：基準版合併結果是 TOML (`*.toml`) 且解析不過，或是 just 檔（`justfile`、`.justfile`，檔名不分大小寫；`*.just`）且留下衝突標記時，留原檔、不詢問、基準版不推進，記進 metadata 的 `conflicts`；`config.toml` 記在 `baseline/.vendor_kit.toml`。之後換版或合併成功才拿掉。`config.toml` 一律適用此例外，不留衝突標記、不報 VK0021。這時的輸出、診斷與結束碼見 [03 輸出](../../contract/03_output.md#輸出)（待確認 (D2)）。
+[合併衝突](../../../GLOSSARY.md#初始檔與合併)的診斷與結束碼見[訊息表](../../contract/reason_codes.csv)。例外：基準版合併結果是 TOML (`*.toml`) 且解析不過，或是 just 檔（`justfile`、`.justfile`，檔名不分大小寫；`*.just`）且留下衝突標記時，留原檔、不詢問、基準版不推進，記進 metadata 的 `conflicts`；`config.toml` 記在 `baseline/.vendor_kit.toml`。之後換版或合併成功才拿掉。`config.toml` 一律適用此例外，不留衝突標記、不報 VK0021。這時的輸出、診斷與結束碼見 [03 輸出](../../contract/03_output.md#輸出)。
 
 - 幾乎一定已存在的初始檔只能用 append 型，例如根 `.gitignore`、`.dockerignore`、`.editorconfig`
 - 根 `justfile` 不存在時，以下全文中的 `default` 是例外，建立後按 repo 檔處理：
@@ -484,7 +486,7 @@ VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 
   .vendor_kit/log/
   .vendor_kit/version.local.toml
   ```
-- 待確認 (Y1)：`add` 要 append 進已存在、未納管的檔時，實作的 `-y` 不代答這幾題；有終端只問這幾題，答否為正常取消，沒有終端以 VK0084 停下。另一做法是 `-y` 照常代答這一題，或 `VK0002` 改給別的下一步；尚未選定方案
+- `add` 要 append 進既有、未納管的檔時，`-y` 不代答這題。有終端時照問，答否是正常取消；實際執行需要附加內容而不能互動時，不論有沒有帶 `-y`，都以 VK0084 停下 (失敗、`2`)，指名要附加的檔，一般建議是到終端重跑 `just vendor_kit add <repo>`。`--dry-run` 不詢問、不附加內容，不因這題報 VK0084。這種情況不報 VK0002；其他靠 `-y` 就能解決的詢問照舊報 VK0002
 - `add` 遇到不適用 append 的既有檔不納管、不覆蓋；v1.0.0 不提供改為納管的選項，後續不做基準版合併，結果見訊息表
 - `upgrade` 遇到新版不再提供的初始檔或使用者已刪的納管初始檔，不刪、不重建，只在 stdout 列清單
 - `remove`、`uninstall` 保留初始檔，保留清單印到 stdout
@@ -504,7 +506,7 @@ VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 
 
 `remove` 收回該工具的鎖定行、`cache/<repo>/`、基準版、印記、納管紀錄、[gen/](../../../GLOSSARY.md#repo-內的檔與狀態) 的命名空間載入行，以及同意且符合判準的 append 行；初始檔保留。工具開著覆寫時，先拿掉 `version.local.toml` 中該工具的行，不讀來源，來源失效也不阻擋；保留本機開發來源、其他工具與引擎的覆寫。全部解除後 `version.local.toml` 照留；stdout 報告解除的覆寫，再照常 [remove](../../../GLOSSARY.md#vk-recipe-與用途)。未完成的狀態重跑同一指令就補完。
 
-`uninstall` 的收回範圍與紀錄保存政策（下列）待確認 (N18)，見[介面修改討論](https://github.com/ycpss91255-research/vendor_kit/issues/47)；目前介面為：
+`uninstall` 的收回範圍與紀錄保存政策（下列）待確認 (N18)，見[介面修改討論](https://github.com/ycpss91255-research/vendor_kit/issues/47)；建議答案：(1) 確認下列目前介面。目前介面為：
 
 - 收回鎖定行、基準版、納管紀錄、印記、薄殼、cache、gen、進度檔，以及符合判準的根目錄與工具 append 行；未收回的位置列清單
 - 解除覆寫紀錄，不要求先 `undev`，保留本機開發來源
@@ -554,11 +556,11 @@ VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 
 
 - 一次只收一個 path，第一段必須是 `test`，從安裝目錄算起；不收絕對路徑、以 `.` 開頭或含 `..` 的路徑。單獨 `test` 選整個 `test/`；指定檔案只跑該檔，指定資料夾含子資料夾。指向資料夾的符號連結只檢查指向位置，不往下走；FIFO、socket 算無效選取檔。安裝目錄不在 repo 根目錄時，repo 根目錄的 `test/` 不屬於它
 - 依 VK 紀錄判定工具交付的測試；使用者改過也算。選中範圍含工具交付的內容（整份初始檔或插入行）就整次不跑；工具移除後才可按使用者測試處理
-- 完整安裝檢查的結果不是 `0` 就不啟動 runner，先列出每一項，再補 VK0062，整次以 `max(檢查碼, 2)` 結束；結果與下一步見訊息表
+- 完整安裝檢查的結果不是 `0` 就不啟動 runner (這個結果不含每次執行都印的整次警告，例如 VK0060)，先列出每一項，再補 VK0062，整次以 `max(檢查碼, 2)` 結束；結果與下一步見訊息表
 - 使用者依[設定](#設定)在 `[test]` 指定 `image` 與 `command`，VK 不內建 runner
 - 通過檢查後，在該 image 容器執行 command 並在最後加上 path，不經 shell；工作目錄為安裝目錄，repo 唯讀掛載，以空目錄遮住 `.vendor_kit/`，runner 另有容器內的可寫暫存空間，結束即丟，寫不進 repo
 - 測試 image 不限 registry，由主機 Docker 取得，也可用本機 image；image 與 command 實際執行什麼由使用者負責
 - 待確認 (D16)：image 引用帶不進協定 (例如 tag 含大寫) 時回 VK0066，續行印 `unavailable`
-- 待確認 (T1)：`lock_enabled = false` 時，VK0060 不算安裝檢查結果；整次結束碼取 1 與 runner 結果的較大者
+- `lock_enabled = false` 時，VK0060 不算安裝檢查結果；整次結束碼取 1 與 runner 結果的較大者
 - runner 的 stdout、stderr 原樣轉出，格式界線見 [03 輸出](../../contract/03_output.md#輸出)
 - path 無效、未選到測試、選到工具交付檔、runner 起不來或測試未通過的處置與結束碼，見[訊息表](../../contract/reason_codes.csv)

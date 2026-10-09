@@ -1,6 +1,4 @@
-<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除，程式碼區塊的改動改成 diff 區塊（+ 新增、- 刪除）；本檔進 git，定案時刪除該鍵的送審資料夾；基準是定案 commit 2425feb。正式內容看 /doc/contract/03_output.md 與 /doc/contract/reason_codes.csv -->
-
-> 注意：定案後又有改動，回到待審
+<!-- 標示版：綠底 <mark> 是新增、紅底 <mark> 是刪除，程式碼區塊的改動改成 diff 區塊（+ 新增、- 刪除）；本檔進 git，定案時刪除該鍵的送審資料夾；基準是維護者回覆過的送審 commit 2425feb。正式內容看 /doc/contract/03_output.md 與 /doc/contract/reason_codes.csv -->
 
 # 03 輸出
 
@@ -59,12 +57,12 @@ exit code: 2
   exit code: 2
   ```
 - <mark style="background-color:#f8c8c8">主機前置檢查（檢查主機上的 Docker 與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。各入口檢查哪幾項見 [04 使用者介面](../../contract/04_interface.md#bootstrapsh)</mark>
-- <mark style="background-color:#c8f0c8">主機前置檢查（檢查主機上的 Docker、Docker daemon 形態與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、偵測到不支援的 Docker daemon 形態（待確認 (N6b)）、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。建執行紀錄之後、業務操作之前的能力檢查失敗走一般失敗（待確認 (N6b)）。支援清單見 [04 主機需求](../../contract/04_interface.md#主機需求)；各入口檢查哪幾項見 [04 使用者介面](../../contract/04_interface.md#bootstrapsh)</mark>
+- <mark style="background-color:#c8f0c8">主機前置檢查（檢查主機上的 Docker、Docker daemon 形態與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、Docker daemon 形態不在支援清單內（報 `VK0081`）、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。建執行紀錄之後、業務操作之前的能力檢查失敗報 `VK0082`，走一般失敗。支援清單見 [04 主機需求](../../contract/04_interface.md#主機需求)；各入口檢查哪幾項見 [04 使用者介面](../../contract/04_interface.md#bootstrapsh)</mark>
 - `remove`/`uninstall` 依契約保留[初始檔](../../../GLOSSARY.md#初始檔與合併)時，把保留清單印到 stdout，沒有其他診斷時以 `0` 結束
 - <mark style="background-color:#f8c8c8">詢問時使用者明確回答「否」，是正常取消：不做變更，在 stdout 說明未變更，以 `0` 結束</mark>
 - <mark style="background-color:#c8f0c8">詢問時使用者明確回答「否」，是正常取消，以 `0` 結束；一般在 stdout 說明未變更。若需記下拒絕，只在 [metadata](../../../GLOSSARY.md#初始檔與合併) 記錄 `state=declined`、`declined_hash` 與必要的檔案識別，執行紀錄照寫，stdout 說明「未變更，已記下這次拒絕」。[repo 檔](../../../GLOSSARY.md#repo-內的檔與狀態)與工具不動，不推進[版本鎖定行](../../../GLOSSARY.md#版本與來源)或[基準版](../../../GLOSSARY.md#初始檔與合併)，不套用同一次呼叫裡已答允的項目，也不把還沒回答的題記成拒絕</mark>
-- <mark style="background-color:#c8f0c8">`--dry-run`（哪些指令接受見 [04 預演](../../contract/04_interface.md#預演)）在 stdout 用「Would …」字句列出會改的內容，一行一句，例如 `Would add …`、`Would create <file>`、`Would append to <file>`、`Would update <file>`、`Would merge <file>`、`Would lock …`、`Would write …`、`Would install …`。殘留[進度檔](../../../GLOSSARY.md#repo-內的檔與狀態)只印 `Would complete the interrupted <verb> of …`，不完成該次操作；最後一行固定是 `Dry run: no changes were made.`，未變更時也印。警告照常印到 stderr，結束碼依警告決定；沒有警告或其他失敗時以 `0` 結束（待確認 (D1)）</mark>
-- <mark style="background-color:#c8f0c8">[基準版合併](../../../GLOSSARY.md#初始檔與合併)的結果是 TOML (`*.toml`) 且解析不過，或是 just 檔（`justfile`、`.justfile`，檔名不分大小寫；`*.just`）且留下衝突標記時，保留原檔、不詢問、不推進基準版，記進 metadata 的 `conflicts`。待確認 (D2)，兩個方案尚未選定：(a) 現行實作只在 stdout 說明保留的檔案、合併結果無效的原因與已記入 `conflicts`，不印診斷，沒有其他警告或失敗時以 `0` 結束；此案與本頁「留下合併衝突，碼仍是 `1`」及 [02 不變量第 4 條](../../contract/02_invariants.md#4-永不靜默失敗)不一致。(b) 照 `VK0021` 的前例報 `VK0087` warn 診斷，沒有其他失敗時以 `1` 結束；stdout 說明是否保留也待確認。兩案都不報 `VK0021`</mark>
+- <mark style="background-color:#c8f0c8">`--dry-run`（哪些指令接受見 [04 預演](../../contract/04_interface.md#預演)）在 stdout 用「Would …」字句列出會改的內容，一行一句，例如 `Would add …`、`Would create <file>`、`Would append to <file>`、`Would update <file>`、`Would merge <file>`、`Would lock …`、`Would write …`、`Would install …`。殘留[進度檔](../../../GLOSSARY.md#repo-內的檔與狀態)只印 `Would complete the interrupted <verb> of …`，不完成該次操作；最後一行固定是 `Dry run: no changes were made.`，未變更時也印。警告照常印到 stderr，結束碼依警告決定；沒有警告或其他失敗時以 `0` 結束</mark>
+- <mark style="background-color:#c8f0c8">[基準版合併](../../../GLOSSARY.md#初始檔與合併)的結果是 TOML (`*.toml`) 且解析不過，或是 just 檔（`justfile`、`.justfile`，檔名不分大小寫；`*.just`）且留下衝突標記時，保留原檔、不詢問、不推進基準版，記進 metadata 的 `conflicts`。stderr 印 `VK0087` warn 診斷，指名檔案，說明原檔與基準版都保留了、路徑已記進 `conflicts`，下一步是手動處理；stdout 照印 `Kept <file>…` 那行；沒有其他失敗時以 `1` 結束。「已記進 `conflicts`」與 `Kept <file>…` 只適用實際執行。`--dry-run` 時也報 `VK0087`（warn、`1`），但不寫 metadata：stdout 用 `Would …` 字句列出這個檔，診斷只說明預計的處置，不聲稱已寫入。這種情況不報 `VK0021`</mark>
 - VK 自己印的字句，顏色照這幾條：
   - 只在那個輸出串流是終端 (TTY) 時上色；stdout 與 stderr 各自判斷
   - 環境變數 `NO_COLOR` 有值且不是空字串時，一律不上色 ([NO_COLOR](https://no-color.org/))
@@ -94,8 +92,7 @@ exit code: 2
 
 - 處置是診斷的屬性，不是嚴重度。待處理表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令；失敗不承諾可執行的修法，但可以附一般建議；warn 的列與用法錯誤留空
 - 下一步指令直接寫在本文句尾，占位符都由 VK 換成實際的值；待處理的本文必須以這條指令結尾，各語言的結尾指令逐字相同；做不到的診斷標失敗
-  - <mark style="background-color:#c8f0c8">待確認 (Y1)：[add](../../../GLOSSARY.md#vk-recipe-與用途) 要附加內容到既有、未[納管](../../../GLOSSARY.md#初始檔與合併)的檔時，[-y](../../../GLOSSARY.md#執行與結果) 不代答這些詢問。有終端時仍詢問，答否是正常取消；不能互動時，`VK0002` 給的下一步加上 `-y` 後仍會停下，草稿以 `VK0084` 表示這種情況，其處置也待確認 (Y1)；在無法提供可直接執行的下一步時，應標失敗，在終端重跑僅屬一般建議。另一個待確認方案是讓 `-y` 代答這些詢問，或讓 `VK0002` 改給別的下一步；尚未選定方案</mark>
-  - <mark style="background-color:#c8f0c8">待確認 (B2)：`bootstrap.sh` 起的 [install](../../../GLOSSARY.md#vk-recipe-與用途) 遇到 `VK0002` 時，`<command_with_y>` 目前是引擎重組的 `just vendor_kit install …`，不是以 `$0` 開頭的呼叫，且未保留 `-i`；要改引擎與協定，或調整訊息表的情況欄，尚待確認</mark>
+  - <mark style="background-color:#c8f0c8">[add](../../../GLOSSARY.md#vk-recipe-與用途) 要附加內容到既有、未[納管](../../../GLOSSARY.md#初始檔與合併)的檔時，[-y](../../../GLOSSARY.md#執行與結果) 不代答這題。有終端時照問，答否是正常取消；實際執行需要附加內容而不能互動時，不論有沒有帶 `-y`，都以 `VK0084`（失敗、`2`）停下，指名要附加的檔，一般建議是到終端重跑 `just vendor_kit add <repo>`。`--dry-run` 不詢問、不附加內容，不因這題報 `VK0084`。這種情況不報 `VK0002`；其他靠 `-y` 就能解決的詢問照舊報 `VK0002`</mark>
 - warn 要指名對象；有辦法處置就在本文寫出下一步
 
 代碼的停用與整理：
@@ -161,9 +158,9 @@ exit code: 2
 - `exit_code`：2
 - `disposition`：pending
 - `source`：bootstrap engine
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">操作需要詢問，但沒帶 -y 又不能互動（stdin 或 stderr 不是終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後；bootstrap.sh 首次導入時，&lt;command_with_y&gt; 以這次呼叫的腳本路徑 ($0) 開頭，後接這次的參數，依同一規則重組</mark> → <mark style="background-color:#c8f0c8">操作需要詢問，但沒帶 -y 又不能互動（stdin 或 stderr 不是終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後；bootstrap.sh 首次導入時，&lt;command_with_y&gt; 以這次呼叫的腳本路徑 ($0) 開頭，後接這次的參數，依同一規則重組；目前 bootstrap.sh 起的 install 由引擎重組 just vendor_kit install 指令、未保留 -i；待確認 (B2)</mark>
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">操作需要詢問，但沒帶 -y 又不能互動（stdin 或 stderr 不是終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後；bootstrap.sh 首次導入時，&lt;command_with_y&gt; 以這次呼叫的腳本路徑 ($0) 開頭，後接這次的參數，依同一規則重組</mark> → <mark style="background-color:#c8f0c8">操作需要詢問，但沒帶 -y 又不能互動（stdin 或 stderr 不是終端，或讀到輸入結束）；&lt;command_with_y&gt; 由這次執行的參數逐項重組、每項依 POSIX shell 的規則加引號，-y 插在單獨的 -- 之前，沒有 -- 時放在最後；bootstrap.sh 首次導入時，&lt;command_with_y&gt; 以這次呼叫的腳本路徑 ($0) 開頭，後接這次的參數，依同一規則重組；add 要 append 進已存在、未納管的檔而不能互動時不報此碼，改報 VK0084</mark>
 - `message.zh-TW`：需要確認，但沒有終端可以互動。除執行紀錄外，未修改任何檔。請在終端執行，或加上 -y 重新執行：&lt;command_with_y&gt;
-- `situation.en`：<mark style="background-color:#f8c8c8">An operation requires a prompt, but -y was not given and interaction is impossible (stdin or stderr is not a terminal, or end of input was read); &lt;command_with_y&gt; is rebuilt from this run's arguments one by one, each quoted by POSIX shell rules, with -y inserted before a standalone --, or appended at the end if there is no --; during initial import by bootstrap.sh, &lt;command_with_y&gt; starts with the script path ($0) of this invocation, followed by this run's arguments, rebuilt by the same rules</mark> → <mark style="background-color:#c8f0c8">An operation requires a prompt, but -y was not given and interaction is impossible (stdin or stderr is not a terminal, or end of input was read); &lt;command_with_y&gt; is rebuilt from this run's arguments one by one, each quoted by POSIX shell rules, with -y inserted before a standalone --, or appended at the end if there is no --; during initial import by bootstrap.sh, &lt;command_with_y&gt; starts with the script path ($0) of this invocation, followed by this run's arguments, rebuilt by the same rules; currently, install started by bootstrap.sh uses a just vendor_kit install command rebuilt by the engine, and does not preserve -i; Pending confirmation (B2)</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">An operation requires a prompt, but -y was not given and interaction is impossible (stdin or stderr is not a terminal, or end of input was read); &lt;command_with_y&gt; is rebuilt from this run's arguments one by one, each quoted by POSIX shell rules, with -y inserted before a standalone --, or appended at the end if there is no --; during initial import by bootstrap.sh, &lt;command_with_y&gt; starts with the script path ($0) of this invocation, followed by this run's arguments, rebuilt by the same rules</mark> → <mark style="background-color:#c8f0c8">An operation requires a prompt, but -y was not given and interaction is impossible (stdin or stderr is not a terminal, or end of input was read); &lt;command_with_y&gt; is rebuilt from this run's arguments one by one, each quoted by POSIX shell rules, with -y inserted before a standalone --, or appended at the end if there is no --; during initial import by bootstrap.sh, &lt;command_with_y&gt; starts with the script path ($0) of this invocation, followed by this run's arguments, rebuilt by the same rules; this code is not reported when add needs to append to an existing unmanaged file and interaction is impossible; VK0084 is reported instead</mark>
 - `message.en`：Confirmation is required, but no terminal is available for interaction. No files were modified except the run log. Run from a terminal, or rerun with -y: &lt;command_with_y&gt;
 
 #### VK0005
@@ -171,12 +168,12 @@ exit code: 2
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `disposition`：pending
+- `disposition`：<mark style="background-color:#f8c8c8">pending</mark> → <mark style="background-color:#c8f0c8">failed</mark>
 - `source`：bootstrap
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">bootstrap.sh 首次導入時發現主機的 just 低於 1.33.0；&lt;install_command&gt; 不覆蓋主機既有的 just，也不要求主機另裝其他工具</mark> → <mark style="background-color:#c8f0c8">bootstrap.sh 首次導入時發現主機的 just 低於 1.33.0；&lt;install_command&gt; 不覆蓋主機既有的 just，也不要求主機另裝其他工具；目前實作用 just 官方 install.sh（需要 curl），與此不符；待確認 (J1)</mark>
-- `message.zh-TW`：需要 just 1.33.0 或更新版本；目前版本為 &lt;version&gt;。請使用 GitHub release 版。<br>下載：&lt;download_url&gt;<br>安裝：&lt;install_command&gt;
-- `situation.en`：<mark style="background-color:#f8c8c8">During initial import, bootstrap.sh finds the host's just is older than 1.33.0; &lt;install_command&gt; does not overwrite the host's existing just and does not require the host to install any other tool</mark> → <mark style="background-color:#c8f0c8">During initial import, bootstrap.sh finds the host's just is older than 1.33.0; &lt;install_command&gt; does not overwrite the host's existing just and does not require the host to install any other tool; the current implementation uses the official just install.sh (requiring curl), which does not meet this requirement; Pending confirmation (J1)</mark>
-- `message.en`：just 1.33.0 or later is required; the current version is &lt;version&gt;. Use the GitHub release.<br>Download: &lt;download_url&gt;<br>Install: &lt;install_command&gt;
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">bootstrap.sh 首次導入時發現主機的 just 低於 1.33.0；&lt;install_command&gt; 不覆蓋主機既有的 just，也不要求主機另裝其他工具</mark> → <mark style="background-color:#c8f0c8">bootstrap.sh 首次導入時發現主機的 just 低於 1.33.0</mark>
+- `message.zh-TW`：<mark style="background-color:#f8c8c8">需要 just 1.33.0 或更新版本；目前版本為 &lt;version&gt;。請使用 GitHub release 版。<br>下載：&lt;download_url&gt;<br>安裝：&lt;install_command&gt;</mark> → <mark style="background-color:#c8f0c8">需要 just 1.33.0 或更新版本；目前版本為 &lt;version&gt;。請安裝 GitHub Release 版的 just 1.33.0 或更新版本，在目前的 shell 用 just --version 確認後，重新執行 bootstrap.sh。<br>下載：&lt;download_url&gt;</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">During initial import, bootstrap.sh finds the host's just is older than 1.33.0; &lt;install_command&gt; does not overwrite the host's existing just and does not require the host to install any other tool</mark> → <mark style="background-color:#c8f0c8">During initial import, bootstrap.sh finds the host's just is older than 1.33.0</mark>
+- `message.en`：<mark style="background-color:#f8c8c8">just 1.33.0 or later is required; the current version is &lt;version&gt;. Use the GitHub release.<br>Download: &lt;download_url&gt;<br>Install: &lt;install_command&gt;</mark> → <mark style="background-color:#c8f0c8">just 1.33.0 or later is required; the current version is &lt;version&gt;. Install a GitHub Release build of just 1.33.0 or later, confirm it with just --version in the current shell, and rerun bootstrap.sh.<br>Download: &lt;download_url&gt;</mark>
 
 #### VK0009
 
@@ -189,18 +186,6 @@ exit code: 2
 - `message.zh-TW`：薄殼介面版 &lt;P_shell&gt; 低於引擎 &lt;vY&gt; 一般 recipe 所需的版本。請先執行：just vendor_kit upgrade --engine
 - `situation.en`：<mark style="background-color:#f8c8c8">An old shell meets an engine with a newer major version X and runs a recipe outside the rescue path</mark> → <mark style="background-color:#c8f0c8">An old shell meets an engine with a newer major version X and runs a recipe outside the rescue path; for offline checks, &lt;vY&gt; comes from the tag of the pinned reference, or prints unknown if there is no tag; locally overridden engines use VK0086 instead</mark>
 - `message.en`：Shell interface version &lt;P_shell&gt; is older than required for general recipes in engine &lt;vY&gt;. Run first: just vendor_kit upgrade --engine
-
-#### VK0011
-
-- `status`：active
-- `level`：error
-- `exit_code`：2
-- `disposition`：failed
-- `source`：bootstrap launcher
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">docker --version 的輸出含 podman</mark> → <mark style="background-color:#c8f0c8">docker --version 的輸出含 podman；待確認 (N6b)</mark>
-- `message.zh-TW`：偵測到 Podman (docker --version)。vendor_kit 只支援 Docker。請改用 Docker（rootful 或 rootless）後重試。
-- `situation.en`：<mark style="background-color:#f8c8c8">The output of docker --version contains podman</mark> → <mark style="background-color:#c8f0c8">The output of docker --version contains podman; Pending confirmation (N6b)</mark>
-- `message.en`：Detected Podman (docker --version). vendor_kit supports only Docker. Switch to Docker (rootful or rootless) and retry.
 
 #### VK0013
 
@@ -220,10 +205,21 @@ exit code: 2
 - `level`：warn
 - `exit_code`：1
 - `source`：engine
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">sync 發現已鎖定工具的 cache/ 檔案集合或逐檔指紋不符，已依版本鎖定行重新取件；不在版本鎖定行的工具目錄不屬於這個情況</mark> → <mark style="background-color:#c8f0c8">sync 發現已鎖定工具的 cache/ 檔案集合或逐檔指紋不符，已依版本鎖定行重新取件；不在版本鎖定行的工具目錄不屬於這個情況；cache/&lt;repo&gt;/ 本身或底下的 symlink、socket、FIFO 等非一般檔視為多出的檔，重新取件</mark>
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">sync 發現已鎖定工具的 cache/ 檔案集合或逐檔指紋不符，已依版本鎖定行重新取件；不在版本鎖定行的工具目錄不屬於這個情況</mark> → <mark style="background-color:#c8f0c8">sync 或 undev 同步時發現已鎖定工具的 cache/ 檔案集合或逐檔指紋不符，已依版本鎖定行重新取件；不在版本鎖定行的工具目錄不屬於這個情況；cache/&lt;repo&gt;/ 本身或底下的 symlink、socket、FIFO 等非一般檔視為多出的檔，重新取件</mark>
 - `message.zh-TW`：&lt;repo&gt; 在 cache/ 的檔案集合或逐檔指紋不符；已依版本鎖定行重新取件。
-- `situation.en`：<mark style="background-color:#f8c8c8">sync finds the file set or per-file digests in cache/ for a locked tool do not match, and has refetched according to the lock version line; tool directories not in the lock version lines are not covered by this case</mark> → <mark style="background-color:#c8f0c8">sync finds the file set or per-file digests in cache/ for a locked tool do not match, and has refetched according to the lock version line; tool directories not in the lock version lines are not covered by this case; a symlink, socket, FIFO, or other non-regular entry at cache/&lt;repo&gt;/ itself or below it is treated as an extra file and triggers refetching</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">sync finds the file set or per-file digests in cache/ for a locked tool do not match, and has refetched according to the lock version line; tool directories not in the lock version lines are not covered by this case</mark> → <mark style="background-color:#c8f0c8">sync, or undev while syncing, finds the file set or per-file digests in cache/ for a locked tool do not match, and has refetched according to the lock version line; tool directories not in the lock version lines are not covered by this case; a symlink, socket, FIFO, or other non-regular entry at cache/&lt;repo&gt;/ itself or below it is treated as an extra file and triggers refetching</mark>
 - `message.en`：The file set or per-file digests in cache/ for &lt;repo&gt; did not match; refetched according to the lock version line.
+
+#### VK0018
+
+- `status`：active
+- `level`：warn
+- `exit_code`：1
+- `source`：engine
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">add 遇到已存在、尚未納管的檔</mark> → <mark style="background-color:#c8f0c8">add 遇到已存在、尚未納管的檔；install 遇到已存在、沒有紀錄的 .vendor_kit/config.toml 也報此碼：不碰內容，記成 unmanaged，這個檔照樣生效，只是不參與換版合併，本文的 &lt;file&gt; 印 .vendor_kit/config.toml，&lt;effect&gt; 填「這個檔照常生效，但不參與換版合併。」；add 的情境 &lt;effect&gt; 留空；之後的指令一律照未納管處理，upgrade --engine 不碰也不合併</mark>
+- `message.zh-TW`：<mark style="background-color:#f8c8c8">&lt;file&gt; 已存在且未納管；既未覆蓋，也未納入管理。</mark> → <mark style="background-color:#c8f0c8">&lt;file&gt; 已存在且未納管。&lt;effect&gt;既未覆蓋，也未納入管理。</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">add encounters a file that already exists and is not yet managed</mark> → <mark style="background-color:#c8f0c8">add encounters a file that already exists and is not yet managed; install also reports this code when .vendor_kit/config.toml already exists without a record: its content is left untouched and recorded as unmanaged, and the file still takes effect but does not take part in merges on version changes, and &lt;file&gt; in the message prints .vendor_kit/config.toml and &lt;effect&gt; is filled with " The file still takes effect but does not take part in merges on version changes." (with a leading space); in the add case &lt;effect&gt; is empty; later commands always treat it as unmanaged, and upgrade --engine neither touches nor merges it</mark>
+- `message.en`：<mark style="background-color:#f8c8c8">&lt;file&gt; already exists and is unmanaged; it was neither overwritten nor brought under management.</mark> → <mark style="background-color:#c8f0c8">&lt;file&gt; already exists and is unmanaged.&lt;effect&gt; It was neither overwritten nor brought under management.</mark>
 
 #### VK0021
 
@@ -254,9 +250,9 @@ exit code: 2
 - `level`：error
 - `exit_code`：2
 - `source`：bootstrap engine
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">用法錯誤：VK recipe 或 bootstrap.sh 缺少必要參數（含 bootstrap.sh 的 -i／--image 沒帶 image）</mark> → <mark style="background-color:#c8f0c8">用法錯誤：VK recipe 或 bootstrap.sh 缺少必要參數（含 bootstrap.sh 的 -i／--image 沒帶 image）；add 沒有版本鎖定行且沒給 --image-path 時也報此碼，&lt;argument&gt; 印 --image-path；待確認 (N2b)</mark>
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">用法錯誤：VK recipe 或 bootstrap.sh 缺少必要參數（含 bootstrap.sh 的 -i／--image 沒帶 image）</mark> → <mark style="background-color:#c8f0c8">用法錯誤：VK recipe 或 bootstrap.sh 缺少必要參數（含 bootstrap.sh 的 -i／--image 沒帶 image）；add 沒有版本鎖定行且沒給 --image-path 時也報此碼，&lt;argument&gt; 印 --image-path</mark>
 - `message.zh-TW`：缺少必要參數：&lt;argument&gt;。
-- `situation.en`：<mark style="background-color:#f8c8c8">Usage error: a VK recipe or bootstrap.sh is missing a required argument (including bootstrap.sh -i/--image given without an image)</mark> → <mark style="background-color:#c8f0c8">Usage error: a VK recipe or bootstrap.sh is missing a required argument (including bootstrap.sh -i/--image given without an image); When --image-path is absent and there is no lock version line, add also reports this code; &lt;argument&gt; prints --image-path; Pending confirmation (N2b)</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">Usage error: a VK recipe or bootstrap.sh is missing a required argument (including bootstrap.sh -i/--image given without an image)</mark> → <mark style="background-color:#c8f0c8">Usage error: a VK recipe or bootstrap.sh is missing a required argument (including bootstrap.sh -i/--image given without an image); When --image-path is absent and there is no lock version line, add also reports this code; &lt;argument&gt; prints --image-path</mark>
 - `message.en`：Required argument is missing: &lt;argument&gt;.
 
 #### VK0026
@@ -265,9 +261,9 @@ exit code: 2
 - `level`：error
 - `exit_code`：2
 - `source`：bootstrap engine test
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">用法錯誤：VK recipe 或 bootstrap.sh 帶了不認得的選項或多出的參數；bootstrap.sh 帶 --repair -y，或在既有安裝目錄帶 -y／--yes（排除 VK0037 所述、依執行紀錄判定的未完成首次導入），或 -h／--help 與其他參數並用；&lt;value&gt; 印第一個不認得或不允許的參數；-h／--help 與其他參數並用時，印第一個不是 -h／--help 的參數，若全部都是 -h／--help，則印第二個參數；VK recipe 的 -h／--help 與 --engine 以外的參數並用時，&lt;value&gt; 印第一個不是 -h／--help 或 --engine 的參數；包含 test 一次給兩個以上 path，或 path 與 test dist 混用；給兩個以上 path 時，&lt;value&gt; 印第二個 path（第一個多出的參數）；path 與 test dist 混用時，&lt;value&gt; 印所給的 path；包含 --registry-token-file 的值是單獨的 -（VK 不從 stdin 讀），此時 &lt;value&gt; 印 -；在 stderr 附上用法</mark> → <mark style="background-color:#c8f0c8">用法錯誤：VK recipe 或 bootstrap.sh 帶了不認得的選項或多出的參數；bootstrap.sh 帶 --repair -y，或在既有安裝目錄帶 -y／--yes（排除 VK0037 所述、依執行紀錄判定的未完成首次導入），或 -h／--help 與其他參數並用；&lt;value&gt; 印第一個不認得或不允許的參數；-h／--help 與其他參數並用時，印第一個不是 -h／--help 的參數，若全部都是 -h／--help，則印第二個參數；VK recipe 的 -h／--help 與 --engine 以外的參數並用時，&lt;value&gt; 印第一個不是 -h／--help 或 --engine 的參數；包含 test 一次給兩個以上 path，或 path 與 test dist 混用；給兩個以上 path 時，&lt;value&gt; 印第二個 path（第一個多出的參數）；path 與 test dist 混用時，&lt;value&gt; 印所給的 path；包含 --registry-token-file 的值是單獨的 -（VK 不從 stdin 讀），此時 &lt;value&gt; 印 -；在 stderr 附上用法；dev、undev、upgrade 的 &lt;repo&gt; 不是合法的 just 名稱時，&lt;value&gt; 印整個參數（含 @&lt;tag&gt;），先於 VK0027 判定；這一版 add、remove、update 不檢查工具名；待確認 (D17)；--image-path 的值不合或與 -i 並用；-y 給了不接受它的指令；--dry-run 給了不接受它的指令、給兩次、帶值或與 -h／--help 並用；待確認 (D1)</mark>
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">用法錯誤：VK recipe 或 bootstrap.sh 帶了不認得的選項或多出的參數；bootstrap.sh 帶 --repair -y，或在既有安裝目錄帶 -y／--yes（排除 VK0037 所述、依執行紀錄判定的未完成首次導入），或 -h／--help 與其他參數並用；&lt;value&gt; 印第一個不認得或不允許的參數；-h／--help 與其他參數並用時，印第一個不是 -h／--help 的參數，若全部都是 -h／--help，則印第二個參數；VK recipe 的 -h／--help 與 --engine 以外的參數並用時，&lt;value&gt; 印第一個不是 -h／--help 或 --engine 的參數；包含 test 一次給兩個以上 path，或 path 與 test dist 混用；給兩個以上 path 時，&lt;value&gt; 印第二個 path（第一個多出的參數）；path 與 test dist 混用時，&lt;value&gt; 印所給的 path；包含 --registry-token-file 的值是單獨的 -（VK 不從 stdin 讀），此時 &lt;value&gt; 印 -；在 stderr 附上用法</mark> → <mark style="background-color:#c8f0c8">用法錯誤：VK recipe 或 bootstrap.sh 帶了不認得的選項或多出的參數；bootstrap.sh 帶 --repair -y，或在既有安裝目錄帶 -y／--yes（排除 VK0037 所述、依執行紀錄判定的未完成首次導入），或 -h／--help 與其他參數並用；&lt;value&gt; 印第一個不認得或不允許的參數；-h／--help 與其他參數並用時，印第一個不是 -h／--help 的參數，若全部都是 -h／--help，則印第二個參數；VK recipe 的 -h／--help 與 --engine 以外的參數並用時，&lt;value&gt; 印第一個不是 -h／--help 或 --engine 的參數；包含 test 一次給兩個以上 path，或 path 與 test dist 混用；給兩個以上 path 時，&lt;value&gt; 印第二個 path（第一個多出的參數）；path 與 test dist 混用時，&lt;value&gt; 印所給的 path；包含 --registry-token-file 的值是單獨的 -（VK 不從 stdin 讀），此時 &lt;value&gt; 印 -；在 stderr 附上用法；add、remove、update、dev、undev、upgrade 的 &lt;repo&gt; 不是合法的 just 名稱時，&lt;value&gt; 印整個參數（含 @&lt;tag&gt;），先於 VK0027 判定；--image-path 的值不合或與 -i 並用；add 已有版本鎖定行時，--image-path 的值與鎖定行的路徑不同（只比本機的值，不連 registry）；dev --engine 的 -i 值不是合法的本機 image 名稱或 image ID；-y 給了不接受它的指令；--dry-run 給了不接受它的指令、給兩次、帶值或與 -h／--help 並用</mark>
 - `message.zh-TW`：不認得、多出或此處不允許的參數：&lt;value&gt;。
-- `situation.en`：<mark style="background-color:#f8c8c8">Usage error: a VK recipe or bootstrap.sh received an unknown option or an extra argument; bootstrap.sh given --repair -y, or -y/--yes in an existing install directory (excluding the incomplete initial import determined from the run log as described in VK0037), or -h/--help combined with other arguments; &lt;value&gt; prints the first unknown or disallowed argument; when -h/--help is combined with other arguments, it prints the first argument that is not -h/--help, or the second argument if all are -h/--help; when a VK recipe's -h/--help is combined with arguments other than --engine, &lt;value&gt; prints the first argument that is neither -h/--help nor --engine; this includes test given more than one path, or a path combined with test dist; for multiple paths, &lt;value&gt; prints the second path (the first extra argument); for a path combined with test dist, &lt;value&gt; prints the given path; this includes a --registry-token-file value that is a lone - (VK does not read stdin), where &lt;value&gt; prints -; usage is appended to stderr</mark> → <mark style="background-color:#c8f0c8">Usage error: a VK recipe or bootstrap.sh received an unknown option or an extra argument; bootstrap.sh given --repair -y, or -y/--yes in an existing install directory (excluding the incomplete initial import determined from the run log as described in VK0037), or -h/--help combined with other arguments; &lt;value&gt; prints the first unknown or disallowed argument; when -h/--help is combined with other arguments, it prints the first argument that is not -h/--help, or the second argument if all are -h/--help; when a VK recipe's -h/--help is combined with arguments other than --engine, &lt;value&gt; prints the first argument that is neither -h/--help nor --engine; this includes test given more than one path, or a path combined with test dist; for multiple paths, &lt;value&gt; prints the second path (the first extra argument); for a path combined with test dist, &lt;value&gt; prints the given path; this includes a --registry-token-file value that is a lone - (VK does not read stdin), where &lt;value&gt; prints -; usage is appended to stderr; an invalid just name for &lt;repo&gt; in dev, undev, or upgrade prints the entire argument (including @&lt;tag&gt;) as &lt;value&gt; and is checked before VK0027; this version does not check tool names in add, remove, or update; Pending confirmation (D17); an invalid --image-path value or --image-path combined with -i; -y given to a command that does not accept it; --dry-run given to a command that does not accept it, repeated, given a value, or combined with -h/--help; Pending confirmation (D1)</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">Usage error: a VK recipe or bootstrap.sh received an unknown option or an extra argument; bootstrap.sh given --repair -y, or -y/--yes in an existing install directory (excluding the incomplete initial import determined from the run log as described in VK0037), or -h/--help combined with other arguments; &lt;value&gt; prints the first unknown or disallowed argument; when -h/--help is combined with other arguments, it prints the first argument that is not -h/--help, or the second argument if all are -h/--help; when a VK recipe's -h/--help is combined with arguments other than --engine, &lt;value&gt; prints the first argument that is neither -h/--help nor --engine; this includes test given more than one path, or a path combined with test dist; for multiple paths, &lt;value&gt; prints the second path (the first extra argument); for a path combined with test dist, &lt;value&gt; prints the given path; this includes a --registry-token-file value that is a lone - (VK does not read stdin), where &lt;value&gt; prints -; usage is appended to stderr</mark> → <mark style="background-color:#c8f0c8">Usage error: a VK recipe or bootstrap.sh received an unknown option or an extra argument; bootstrap.sh given --repair -y, or -y/--yes in an existing install directory (excluding the incomplete initial import determined from the run log as described in VK0037), or -h/--help combined with other arguments; &lt;value&gt; prints the first unknown or disallowed argument; when -h/--help is combined with other arguments, it prints the first argument that is not -h/--help, or the second argument if all are -h/--help; when a VK recipe's -h/--help is combined with arguments other than --engine, &lt;value&gt; prints the first argument that is neither -h/--help nor --engine; this includes test given more than one path, or a path combined with test dist; for multiple paths, &lt;value&gt; prints the second path (the first extra argument); for a path combined with test dist, &lt;value&gt; prints the given path; this includes a --registry-token-file value that is a lone - (VK does not read stdin), where &lt;value&gt; prints -; usage is appended to stderr; an invalid just name for &lt;repo&gt; in add, remove, update, dev, undev, or upgrade prints the entire argument (including @&lt;tag&gt;) as &lt;value&gt; and is checked before VK0027; an invalid --image-path value or --image-path combined with -i; for add with an existing lock version line, an --image-path value that differs from the path in the lock version line (only the local value is compared, without contacting the registry); for dev --engine, an -i value that is not a valid local image name or image ID; -y given to a command that does not accept it; --dry-run given to a command that does not accept it, repeated, given a value, or combined with -h/--help</mark>
 - `message.en`：Unknown, extra, or disallowed argument: &lt;value&gt;.
 
 #### VK0030
@@ -299,12 +295,12 @@ exit code: 2
 - `status`：active
 - `level`：error
 - `exit_code`：2
-- `disposition`：pending
+- `disposition`：<mark style="background-color:#f8c8c8">pending</mark> → <mark style="background-color:#c8f0c8">failed</mark>
 - `source`：bootstrap
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">bootstrap.sh 首次導入時找不到主機的 just；&lt;install_command&gt; 由 VK 填好，可直接執行、不需使用者代換，不要求主機另裝其他工具</mark> → <mark style="background-color:#c8f0c8">bootstrap.sh 首次導入時找不到主機的 just；&lt;install_command&gt; 由 VK 填好，可直接執行、不需使用者代換，不要求主機另裝其他工具；目前實作用 just 官方 install.sh（需要 curl），與此不符；待確認 (J1)</mark>
-- `message.zh-TW`：主機上找不到 just。請使用 GitHub release 版。<br>下載：&lt;download_url&gt;<br>安裝：&lt;install_command&gt;
-- `situation.en`：<mark style="background-color:#f8c8c8">During initial import, bootstrap.sh cannot find just on the host; &lt;install_command&gt; is filled in by VK, runs directly with no substitution needed by the user, and does not require the host to install any other tool</mark> → <mark style="background-color:#c8f0c8">During initial import, bootstrap.sh cannot find just on the host; &lt;install_command&gt; is filled in by VK, runs directly with no substitution needed by the user, and does not require the host to install any other tool; the current implementation uses the official just install.sh (requiring curl), which does not meet this requirement; Pending confirmation (J1)</mark>
-- `message.en`：just was not found on the host. Use the GitHub release.<br>Download: &lt;download_url&gt;<br>Install: &lt;install_command&gt;
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">bootstrap.sh 首次導入時找不到主機的 just；&lt;install_command&gt; 由 VK 填好，可直接執行、不需使用者代換，不要求主機另裝其他工具</mark> → <mark style="background-color:#c8f0c8">bootstrap.sh 首次導入時找不到主機的 just</mark>
+- `message.zh-TW`：<mark style="background-color:#f8c8c8">主機上找不到 just。請使用 GitHub release 版。<br>下載：&lt;download_url&gt;<br>安裝：&lt;install_command&gt;</mark> → <mark style="background-color:#c8f0c8">主機上找不到 just。請安裝 GitHub Release 版的 just 1.33.0 或更新版本，在目前的 shell 用 just --version 確認後，重新執行 bootstrap.sh。<br>下載：&lt;download_url&gt;</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">During initial import, bootstrap.sh cannot find just on the host; &lt;install_command&gt; is filled in by VK, runs directly with no substitution needed by the user, and does not require the host to install any other tool</mark> → <mark style="background-color:#c8f0c8">During initial import, bootstrap.sh cannot find just on the host</mark>
+- `message.en`：<mark style="background-color:#f8c8c8">just was not found on the host. Use the GitHub release.<br>Download: &lt;download_url&gt;<br>Install: &lt;install_command&gt;</mark> → <mark style="background-color:#c8f0c8">just was not found on the host. Install a GitHub Release build of just 1.33.0 or later, confirm it with just --version in the current shell, and rerun bootstrap.sh.<br>Download: &lt;download_url&gt;</mark>
 
 #### VK0036
 
@@ -312,10 +308,10 @@ exit code: 2
 - `level`：error
 - `exit_code`：2
 - `disposition`：failed
-- `source`：bootstrap launcher
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">啟動器取不到要用的引擎 image（首次導入含未完成的首次導入時用內嵌版本；已有版本鎖定行時用它指定的版本）；不改用其他版本</mark> → <mark style="background-color:#c8f0c8">啟動器取不到要用的引擎 image（首次導入含未完成的首次導入時用內嵌版本；已有版本鎖定行時用它指定的版本）；不改用其他版本；啟動器套用引擎本機覆寫時，本機沒有指定的 image 也報此碼，不 pull</mark>
+- `source`：<mark style="background-color:#f8c8c8">bootstrap launcher</mark> → <mark style="background-color:#c8f0c8">bootstrap engine launcher</mark>
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">啟動器取不到要用的引擎 image（首次導入含未完成的首次導入時用內嵌版本；已有版本鎖定行時用它指定的版本）；不改用其他版本</mark> → <mark style="background-color:#c8f0c8">啟動器取不到要用的引擎 image（首次導入含未完成的首次導入時用內嵌版本；已有版本鎖定行時用它指定的版本；bootstrap.sh --finish-uninstall 不看鎖定行，用進度檔記下的版本）；不改用其他版本；啟動器套用引擎本機覆寫時，本機沒有指定的 image 也報此碼，不 pull；dev --engine 以 -i 指定的 image 確認本機沒有時也報此碼，不 pull</mark>
 - `message.zh-TW`：無法取得引擎 image &lt;image&gt;：&lt;reason&gt;。未改用其他引擎版本。
-- `situation.en`：<mark style="background-color:#f8c8c8">The launcher cannot obtain the engine image it needs (the embedded version for initial import, including an incomplete initial import; the version specified by the lock version line when one exists); no other version is used instead</mark> → <mark style="background-color:#c8f0c8">The launcher cannot obtain the engine image it needs (the embedded version for initial import, including an incomplete initial import; the version specified by the lock version line when one exists); no other version is used instead; when applying an engine local override, the launcher also reports this code if the specified image is not present locally, without pulling it</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">The launcher cannot obtain the engine image it needs (the embedded version for initial import, including an incomplete initial import; the version specified by the lock version line when one exists); no other version is used instead</mark> → <mark style="background-color:#c8f0c8">The launcher cannot obtain the engine image it needs (the embedded version for initial import, including an incomplete initial import; the version specified by the lock version line when one exists; for bootstrap.sh --finish-uninstall, the version recorded in the progress file, regardless of the lock version line); no other version is used instead; when applying an engine local override, the launcher also reports this code if the specified image is not present locally, without pulling it; for dev --engine, an image specified with -i that is confirmed absent locally also reports this code, without pulling it</mark>
 - `message.en`：Cannot obtain engine image &lt;image&gt;: &lt;reason&gt;. No alternative engine version was used.
 
 #### VK0037
@@ -325,9 +321,9 @@ exit code: 2
 - `exit_code`：2
 - `disposition`：failed
 - `source`：bootstrap
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">bootstrap.sh 發現目前目錄有 .vendor_kit/，但讀不到恰好一行有效的引擎版本鎖定行；停下，不改走首次導入；僅首次導入的呼叫（不帶參數、-y、-i，含對應長選項及其合法組合）排除可依執行紀錄唯一判定的未完成首次導入：最近一筆執行紀錄是首次導入，且 (a) 停在 VK0002、除執行紀錄外未修改任何檔，或 (b) 在建執行紀錄之後、寫入引擎版本鎖定行之前結束（不論是否已寫入其他檔）；這些狀態允許帶 -y 重跑首次導入，判定不靠檔案在不在，無法唯一判定時仍停下；--repair 在這些狀態下仍報 VK0037</mark> → <mark style="background-color:#c8f0c8">bootstrap.sh 發現目前目錄有 .vendor_kit/，但讀不到恰好一行有效的引擎版本鎖定行；停下，不改走首次導入；僅首次導入的呼叫（不帶參數、-y、-i，含對應長選項及其合法組合）排除可依執行紀錄唯一判定的未完成首次導入：最近一筆執行紀錄是首次導入，且 (a) 停在 VK0002、除執行紀錄外未修改任何檔，或 (b) 在建執行紀錄之後、寫入引擎版本鎖定行之前結束（不論是否已寫入其他檔）；這些狀態允許帶 -y 重跑首次導入，判定不靠檔案在不在，無法唯一判定時仍停下；--repair 在這些狀態下仍報 VK0037；偵測到 uninstall 未完成時，不走首次導入例外，改報 VK0083 並給完成模式指令；待確認 (N8b)</mark>
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">bootstrap.sh 發現目前目錄有 .vendor_kit/，但讀不到恰好一行有效的引擎版本鎖定行；停下，不改走首次導入；僅首次導入的呼叫（不帶參數、-y、-i，含對應長選項及其合法組合）排除可依執行紀錄唯一判定的未完成首次導入：最近一筆執行紀錄是首次導入，且 (a) 停在 VK0002、除執行紀錄外未修改任何檔，或 (b) 在建執行紀錄之後、寫入引擎版本鎖定行之前結束（不論是否已寫入其他檔）；這些狀態允許帶 -y 重跑首次導入，判定不靠檔案在不在，無法唯一判定時仍停下；--repair 在這些狀態下仍報 VK0037</mark> → <mark style="background-color:#c8f0c8">bootstrap.sh 發現目前目錄有 .vendor_kit/，但讀不到恰好一行有效的引擎版本鎖定行；停下，不改走首次導入；僅首次導入的呼叫（不帶參數、-y、-i，含對應長選項及其合法組合）排除可依執行紀錄唯一判定的未完成首次導入：最近一筆執行紀錄是首次導入，且 (a) 停在 VK0002、除執行紀錄外未修改任何檔，或 (b) 在建執行紀錄之後、寫入引擎版本鎖定行之前結束（不論是否已寫入其他檔）；這些狀態允許帶 -y 重跑首次導入，判定不靠檔案在不在，無法唯一判定時仍停下；--repair 在這些狀態下仍報 VK0037；偵測到 uninstall 未完成時，不走首次導入例外，改報 VK0083 並給完成模式指令；進度檔是缺完成資料的舊格式時改報 VK0094</mark>
 - `message.zh-TW`：無法從 .vendor_kit/version.toml 讀取恰好一行有效的引擎版本鎖定行。未嘗試首次導入。
-- `situation.en`：<mark style="background-color:#f8c8c8">bootstrap.sh finds .vendor_kit/ in the current directory but cannot read exactly one valid engine lock version line; it stops and does not fall back to initial import; only for initial-import invocations (no arguments, -y, -i, including the corresponding long options and their valid combinations), an incomplete initial import that can be uniquely determined from the run log is excluded: the most recent run log is an initial import, and either (a) it stopped at VK0002 with no files modified except the run log, or (b) it ended after the run log was created and before the engine lock version line was written (whether or not other files were written); these states allow rerunning initial import with -y, the determination does not rely on whether files exist, and it still stops when the state cannot be uniquely determined; --repair still reports VK0037 in these states</mark> → <mark style="background-color:#c8f0c8">bootstrap.sh finds .vendor_kit/ in the current directory but cannot read exactly one valid engine lock version line; it stops and does not fall back to initial import; only for initial-import invocations (no arguments, -y, -i, including the corresponding long options and their valid combinations), an incomplete initial import that can be uniquely determined from the run log is excluded: the most recent run log is an initial import, and either (a) it stopped at VK0002 with no files modified except the run log, or (b) it ended after the run log was created and before the engine lock version line was written (whether or not other files were written); these states allow rerunning initial import with -y, the determination does not rely on whether files exist, and it still stops when the state cannot be uniquely determined; --repair still reports VK0037 in these states; an incomplete uninstall is excluded from the initial-import exception and instead reports VK0083 with a completion-mode command; Pending confirmation (N8b)</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">bootstrap.sh finds .vendor_kit/ in the current directory but cannot read exactly one valid engine lock version line; it stops and does not fall back to initial import; only for initial-import invocations (no arguments, -y, -i, including the corresponding long options and their valid combinations), an incomplete initial import that can be uniquely determined from the run log is excluded: the most recent run log is an initial import, and either (a) it stopped at VK0002 with no files modified except the run log, or (b) it ended after the run log was created and before the engine lock version line was written (whether or not other files were written); these states allow rerunning initial import with -y, the determination does not rely on whether files exist, and it still stops when the state cannot be uniquely determined; --repair still reports VK0037 in these states</mark> → <mark style="background-color:#c8f0c8">bootstrap.sh finds .vendor_kit/ in the current directory but cannot read exactly one valid engine lock version line; it stops and does not fall back to initial import; only for initial-import invocations (no arguments, -y, -i, including the corresponding long options and their valid combinations), an incomplete initial import that can be uniquely determined from the run log is excluded: the most recent run log is an initial import, and either (a) it stopped at VK0002 with no files modified except the run log, or (b) it ended after the run log was created and before the engine lock version line was written (whether or not other files were written); these states allow rerunning initial import with -y, the determination does not rely on whether files exist, and it still stops when the state cannot be uniquely determined; --repair still reports VK0037 in these states; an incomplete uninstall is excluded from the initial-import exception and instead reports VK0083 with a completion-mode command, or VK0094 when the progress file is an old format lacking the completion data</mark>
 - `message.en`：Cannot read exactly one valid engine lock version line from .vendor_kit/version.toml. Initial import was not attempted.
 
 #### VK0043
@@ -342,6 +338,17 @@ exit code: 2
 - `situation.en`：<mark style="background-color:#f8c8c8">The tool image content downloaded by sync does not match the digest in the lock version line; this content is not treated as verified tool content, and VK0015 is not reported</mark> → <mark style="background-color:#c8f0c8">The tool image content downloaded by sync does not match the digest in the lock version line; this content is not treated as verified tool content, and VK0015 is not reported; content downloaded by add or upgrade that does not match the digest in the lock version line is also covered</mark>
 - `message.en`：Downloaded image &lt;image&gt; for &lt;repo&gt; does not match locked digest &lt;digest&gt;. Synchronization did not complete.
 
+#### VK0044
+
+- `status`：active
+- `level`：warn
+- `exit_code`：1
+- `source`：engine
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">sync 發現 &lt;repo&gt; 的既有印記損壞，已依版本鎖定行重新取件並重建印記；首次取件尚無印記不屬於此情況</mark> → <mark style="background-color:#c8f0c8">sync 或 undev 同步時發現 &lt;repo&gt; 的既有印記損壞，已依版本鎖定行重新取件並重建印記；首次取件尚無印記不屬於此情況</mark>
+- `message.zh-TW`：&lt;repo&gt; 的既有印記損壞；已依版本鎖定行重新取件並重建印記。
+- `situation.en`：<mark style="background-color:#f8c8c8">sync finds the existing stamp for &lt;repo&gt; corrupt, and has refetched according to the lock version line and rebuilt the stamp; a first fetch with no stamp yet is not covered by this case</mark> → <mark style="background-color:#c8f0c8">sync, or undev while syncing, finds the existing stamp for &lt;repo&gt; corrupt, and has refetched according to the lock version line and rebuilt the stamp; a first fetch with no stamp yet is not covered by this case</mark>
+- `message.en`：The existing stamp for &lt;repo&gt; was corrupt; refetched according to the lock version line and rebuilt the stamp.
+
 #### VK0046
 
 - `status`：active
@@ -349,9 +356,9 @@ exit code: 2
 - `exit_code`：2
 - `disposition`：failed
 - `source`：engine
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">remove、undev 或 update &lt;repo&gt; 指定的工具不在版本鎖定行；先辨識未完成進度，再判斷對象不存在</mark> → <mark style="background-color:#c8f0c8">remove、dev、undev、upgrade 或 update &lt;repo&gt; 指定的工具不在版本鎖定行；先辨識未完成進度，再判斷對象不存在</mark>
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">remove、undev 或 update &lt;repo&gt; 指定的工具不在版本鎖定行；先辨識未完成進度，再判斷對象不存在</mark> → <mark style="background-color:#c8f0c8">remove、dev、undev、upgrade 或 update &lt;repo&gt; 指定的工具不在版本鎖定行，也沒有該工具的本機覆寫；先辨識未完成進度，再判斷對象不存在</mark>
 - `message.zh-TW`：版本鎖定行中沒有工具 &lt;repo&gt;。要求的操作未完成。
-- `situation.en`：<mark style="background-color:#f8c8c8">The tool specified to remove, undev, or update &lt;repo&gt; is not in the lock version lines; incomplete progress is identified first, before determining that the target does not exist</mark> → <mark style="background-color:#c8f0c8">The tool specified to remove, dev, undev, upgrade, or update &lt;repo&gt; is not in the lock version lines; incomplete progress is identified first, before determining that the target does not exist</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">The tool specified to remove, undev, or update &lt;repo&gt; is not in the lock version lines; incomplete progress is identified first, before determining that the target does not exist</mark> → <mark style="background-color:#c8f0c8">The tool specified to remove, dev, undev, upgrade, or update &lt;repo&gt; is not in the lock version lines and has no local override; incomplete progress is identified first, before determining that the target does not exist</mark>
 - `message.en`：Tool &lt;repo&gt; is not in the lock version lines. The requested operation did not complete.
 
 #### VK0047
@@ -390,18 +397,6 @@ exit code: 2
 - `situation.en`：<mark style="background-color:#f8c8c8">An action that needs to read a local override source finds the source invalid; only actions that need to read it are blocked; undev can remove the override without reading the source, test still reports VK0032, bootstrap.sh ignores the override, and update checks versions according to the lock version line; &lt;undev_command&gt; is filled as just vendor_kit undev &lt;repo&gt; or just vendor_kit undev --engine, depending on the target</mark> → <mark style="background-color:#c8f0c8">An action that needs to read a local override source finds the source invalid; only actions that need to read it are blocked; undev can remove the override without reading the source, test still reports VK0032, bootstrap.sh ignores the override, and update checks versions according to the lock version line; &lt;undev_command&gt; is filled as just vendor_kit undev &lt;repo&gt; or just vendor_kit undev --engine, depending on the target; this includes add or remove reading other tools' override sources to regenerate entry files; for sync or upgrade reading overrides outside the install directory, the launcher cannot copy the source, its content format is invalid, or the path form is unsupported; failure to send stage-dir on a rescue path also reports this code</mark>
 - `message.en`：Cannot read the local override source &lt;source&gt; for &lt;target&gt;: &lt;reason&gt;. Run: &lt;undev_command&gt;
 
-#### VK0053
-
-- `status`：active
-- `level`：error
-- `exit_code`：2
-- `disposition`：pending
-- `source`：engine test
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">undev 解除覆寫後同步失敗，或唯讀 recipe 偵測到未完成的 undev 進度檔；sync 不代替 undev 清掉進度檔；&lt;undev_command&gt; 依進度檔填成原本的 just vendor_kit undev &lt;repo&gt; 或 just vendor_kit undev --engine</mark> → <mark style="background-color:#c8f0c8">undev 解除覆寫後同步失敗，或唯讀 recipe 偵測到未完成的 undev 進度檔；sync 不代替 undev 清掉進度檔；&lt;undev_command&gt; 依進度檔填成原本的 just vendor_kit undev &lt;repo&gt; 或 just vendor_kit undev --engine；dev、undev 遇到對象不同的 undev 殘留也報此碼；undev 取件因 docker 動作失敗或 digest 不符而失敗時，覆寫照留</mark>
-- `message.zh-TW`：&lt;target&gt; 的 undev 操作未完成。請再執行一次：&lt;undev_command&gt;
-- `situation.en`：<mark style="background-color:#f8c8c8">Synchronization fails after undev removes an override, or a read-only recipe detects an incomplete undev progress file; sync does not clear the progress file on undev's behalf; &lt;undev_command&gt; is filled from the progress file as the original just vendor_kit undev &lt;repo&gt; or just vendor_kit undev --engine</mark> → <mark style="background-color:#c8f0c8">Synchronization fails after undev removes an override, or a read-only recipe detects an incomplete undev progress file; sync does not clear the progress file on undev's behalf; &lt;undev_command&gt; is filled from the progress file as the original just vendor_kit undev &lt;repo&gt; or just vendor_kit undev --engine; dev or undev also reports this code when it encounters incomplete undev progress for a different target; if fetching for undev fails because of a Docker operation failure or a digest mismatch, the override is retained</mark>
-- `message.en`：The undev operation for &lt;target&gt; is incomplete. Run again: &lt;undev_command&gt;
-
 #### VK0054
 
 - `status`：active
@@ -409,9 +404,9 @@ exit code: 2
 - `exit_code`：2
 - `disposition`：pending
 - `source`：<mark style="background-color:#f8c8c8">engine test</mark> → <mark style="background-color:#c8f0c8">bootstrap engine test</mark>
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">唯讀 recipe 偵測到未完成導入、工具 upgrade、引擎 upgrade、undev 這四種以外的可寫 recipe（如 remove、install、uninstall、dev）未完成的進度檔；不恢復、不刪進度檔；bootstrap.sh 仍依 VK0037 與 VK0023 的既有判定，不擴大首次導入例外；&lt;original_command&gt; 由 VK 依進度檔重組原本完整指令，保留參數並依 POSIX shell 規則加引號</mark> → <mark style="background-color:#c8f0c8">唯讀 recipe 偵測到未完成導入、工具 upgrade、引擎 upgrade、undev 這四種以外的可寫 recipe（如 remove、install、uninstall、dev）未完成的進度檔，或 dev、undev 遇到對象不同的 dev 或其他可寫 recipe 殘留；待確認 (D17)；不恢復、不刪進度檔；bootstrap.sh 偵測引擎升級 (VK0023) 與 uninstall (VK0083) 以外的其他未完成操作時也報此碼；首次導入例外仍依 VK0037 判定；&lt;original_command&gt; 由 VK 依進度檔重組原本完整指令，保留參數並依 POSIX shell 規則加引號；待確認 (N8b)</mark>
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">唯讀 recipe 偵測到未完成導入、工具 upgrade、引擎 upgrade、undev 這四種以外的可寫 recipe（如 remove、install、uninstall、dev）未完成的進度檔；不恢復、不刪進度檔；bootstrap.sh 仍依 VK0037 與 VK0023 的既有判定，不擴大首次導入例外；&lt;original_command&gt; 由 VK 依進度檔重組原本完整指令，保留參數並依 POSIX shell 規則加引號</mark> → <mark style="background-color:#c8f0c8">唯讀 recipe 偵測到未完成導入、工具 upgrade、引擎 upgrade、undev 這四種以外的可寫 recipe（如 remove、install、uninstall、dev）未完成的進度檔；不恢復、不刪進度檔；bootstrap.sh 偵測引擎升級 (VK0023) 與 uninstall (VK0083、VK0094) 以外的其他未完成操作時也報此碼；首次導入例外仍依 VK0037 判定；&lt;original_command&gt; 由 VK 依進度檔重組原本完整指令，保留參數並依 POSIX shell 規則加引號</mark>
 - `message.zh-TW`：&lt;install_dir&gt; 中的 &lt;operation&gt; 操作未完成。請再執行一次：&lt;original_command&gt;
-- `situation.en`：<mark style="background-color:#f8c8c8">A read-only recipe detects a progress file for an incomplete writing recipe other than the four kinds (incomplete import, tool upgrade, engine upgrade, undev), such as remove, install, uninstall, or dev; it does not resume or delete the progress file; bootstrap.sh still follows the existing determinations of VK0037 and VK0023 and does not widen the initial-import exception; &lt;original_command&gt; is rebuilt by VK from the progress file as the original full command, keeping its arguments, quoted by POSIX shell rules</mark> → <mark style="background-color:#c8f0c8">A read-only recipe detects incomplete progress for a writing recipe other than incomplete import, tool upgrade, engine upgrade, or undev (such as remove, install, uninstall, or dev), or dev or undev encounters incomplete dev or other writing-recipe progress for a different target; Pending confirmation (D17); it does not resume or delete progress files; bootstrap.sh also reports this code for other incomplete operations except engine upgrades (VK0023) and uninstall (VK0083); the initial-import exception still follows VK0037; &lt;original_command&gt; is rebuilt by VK from the progress file as the original full command, preserving arguments and quoting by POSIX shell rules; Pending confirmation (N8b)</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">A read-only recipe detects a progress file for an incomplete writing recipe other than the four kinds (incomplete import, tool upgrade, engine upgrade, undev), such as remove, install, uninstall, or dev; it does not resume or delete the progress file; bootstrap.sh still follows the existing determinations of VK0037 and VK0023 and does not widen the initial-import exception; &lt;original_command&gt; is rebuilt by VK from the progress file as the original full command, keeping its arguments, quoted by POSIX shell rules</mark> → <mark style="background-color:#c8f0c8">A read-only recipe detects incomplete progress for a writing recipe other than incomplete import, tool upgrade, engine upgrade, or undev (such as remove, install, uninstall, or dev); it does not resume or delete progress files; bootstrap.sh also reports this code for other incomplete operations except engine upgrades (VK0023) and uninstall (VK0083 or VK0094); the initial-import exception still follows VK0037; &lt;original_command&gt; is rebuilt by VK from the progress file as the original full command, preserving arguments and quoting by POSIX shell rules</mark>
 - `message.en`：Operation &lt;operation&gt; in &lt;install_dir&gt; is incomplete. Run again: &lt;original_command&gt;
 
 #### VK0055
@@ -421,9 +416,9 @@ exit code: 2
 - `exit_code`：2
 - `disposition`：failed
 - `source`：engine
-- `situation.zh-TW`：<mark style="background-color:#f8c8c8">update、add、upgrade 或 sync 列 tag 或取得工具 image 時發生網路、registry 或認證錯誤（含逾時）；包括讀 --registry-token-file 指定的檔失敗（不存在、讀不到、空的），或 registry 拒絕帶入的 token；被拒後不改走匿名重試；列版本時 registry 要求讀取權限而沒有帶 --registry-token-file 仍報 VK0001；update 不以舊快取回報已是最新版，不跳出認證詢問</mark> → <mark style="background-color:#c8f0c8">update、add、upgrade 或 sync 列 tag 或取得工具 image 時發生網路、registry 或認證錯誤（含逾時）；包括讀 --registry-token-file 指定的檔失敗（不存在、讀不到、空的），或 registry 拒絕帶入的 token；被拒後不改走匿名重試；列版本時 registry 要求讀取權限而沒有帶 --registry-token-file 仍報 VK0001；update 不以舊快取回報已是最新版，不跳出認證詢問；upgrade --engine 列 tag 或取 digest 失敗（含要求認證）、update 查引擎失敗、registry 回 404 或回應不合協定也報此碼；tag 清單為空時，&lt;reason&gt; 填 the registry lists no tags；引擎升版不使用 VK0001；本機 docker 操作與外部程序失敗不屬此碼，改報 VK0077</mark>
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">update、add、upgrade 或 sync 列 tag 或取得工具 image 時發生網路、registry 或認證錯誤（含逾時）；包括讀 --registry-token-file 指定的檔失敗（不存在、讀不到、空的），或 registry 拒絕帶入的 token；被拒後不改走匿名重試；列版本時 registry 要求讀取權限而沒有帶 --registry-token-file 仍報 VK0001；update 不以舊快取回報已是最新版，不跳出認證詢問</mark> → <mark style="background-color:#c8f0c8">update、add、upgrade 或 sync 列 tag 或取得工具 image 時發生網路、registry 或認證錯誤（含逾時）；包括讀 --registry-token-file 指定的檔失敗（不存在、讀不到、空的），或 registry 拒絕帶入的 token；被拒後不改走匿名重試；列版本時 registry 要求讀取權限而沒有帶 --registry-token-file 仍報 VK0001；update 不以舊快取回報已是最新版，不跳出認證詢問；upgrade --engine 列 tag 或取 digest 失敗（含要求認證）、update 查引擎失敗、registry 回 404 或回應不合協定也報此碼；tag 清單為空時，&lt;reason&gt; 填 the registry lists no tags；引擎升版不使用 VK0001；add、upgrade 指定 tag 而本機沒有該 image 時，由主機 Docker 用使用者的登入下載 &lt;path&gt;:&lt;tag&gt;，registry 因認證或讀取權限拒絕時也報此碼，&lt;reason&gt; 寫明需要主機 Docker 對該 image 的讀取權限，下一步是用 docker login 登入 registry 後重跑，此時不報 VK0077；本機 docker 操作與外部程序失敗不屬此碼，改報 VK0077</mark>
 - `message.zh-TW`：無法存取 &lt;target&gt; 的 &lt;source&gt;：&lt;reason&gt;。要求的操作未完成。
-- `situation.en`：<mark style="background-color:#f8c8c8">A network, registry, or authentication error (including timeout) occurs while update, add, upgrade, or sync lists tags or obtains a tool image; this includes failure to read the file specified by --registry-token-file (missing, unreadable, or empty), or the registry rejecting the supplied token; a rejected token is not retried anonymously; listing versions when registry read access is required and --registry-token-file was not supplied still reports VK0001; update does not report up-to-date from a stale cache and does not prompt for authentication</mark> → <mark style="background-color:#c8f0c8">A network, registry, or authentication error (including timeout) occurs while update, add, upgrade, or sync lists tags or obtains a tool image; this includes failure to read the file specified by --registry-token-file (missing, unreadable, or empty), or the registry rejecting the supplied token; a rejected token is not retried anonymously; listing versions when registry read access is required and --registry-token-file was not supplied still reports VK0001; update does not report up-to-date from a stale cache and does not prompt for authentication; this also covers upgrade --engine failing to list tags or obtain a digest (including required authentication), update failing to query the engine, a registry returning 404, or a response violating the protocol; an empty tag list fills &lt;reason&gt; as the registry lists no tags; engine upgrades do not use VK0001; local Docker operations and external-process failures use VK0077 instead</mark>
+- `situation.en`：<mark style="background-color:#f8c8c8">A network, registry, or authentication error (including timeout) occurs while update, add, upgrade, or sync lists tags or obtains a tool image; this includes failure to read the file specified by --registry-token-file (missing, unreadable, or empty), or the registry rejecting the supplied token; a rejected token is not retried anonymously; listing versions when registry read access is required and --registry-token-file was not supplied still reports VK0001; update does not report up-to-date from a stale cache and does not prompt for authentication</mark> → <mark style="background-color:#c8f0c8">A network, registry, or authentication error (including timeout) occurs while update, add, upgrade, or sync lists tags or obtains a tool image; this includes failure to read the file specified by --registry-token-file (missing, unreadable, or empty), or the registry rejecting the supplied token; a rejected token is not retried anonymously; listing versions when registry read access is required and --registry-token-file was not supplied still reports VK0001; update does not report up-to-date from a stale cache and does not prompt for authentication; this also covers upgrade --engine failing to list tags or obtain a digest (including required authentication), update failing to query the engine, a registry returning 404, or a response violating the protocol; an empty tag list fills &lt;reason&gt; as the registry lists no tags; engine upgrades do not use VK0001; when add or upgrade specifies a tag and the image is not present locally, the host's Docker downloads &lt;path&gt;:&lt;tag&gt; with the user's login, and a registry rejection for authentication or read access also reports this code, with &lt;reason&gt; stating that the host's Docker needs read access to the image and that the next step is to log in to the registry with docker login and rerun, and VK0077 is not used in this case; local Docker operations and external-process failures use VK0077 instead</mark>
 - `message.en`：Cannot access &lt;source&gt; for &lt;target&gt;: &lt;reason&gt;. The requested operation did not complete.
 
 #### VK0058
@@ -437,6 +432,18 @@ exit code: 2
 - `message.zh-TW`：無法判定 &lt;repo&gt; 的最新版本：registry 有 tag，但沒有合法的 vX.Y.Z tag。查詢未完成。
 - `situation.en`：<mark style="background-color:#f8c8c8">update finds tags in the registry for the queried tool or engine, but none is a valid vX.Y.Z tag; the corresponding result line prints latest: none</mark> → <mark style="background-color:#c8f0c8">update, add, upgrade &lt;repo&gt;, or upgrade --engine finds tags in the registry for the queried tool or engine, but none is a valid vX.Y.Z tag; for update, the corresponding result line prints latest: none</mark>
 - `message.en`：Cannot determine the latest version of &lt;repo&gt;: the registry has tags, but none is a valid vX.Y.Z tag. The query did not complete.
+
+#### VK0062
+
+- `status`：active
+- `level`：error
+- `exit_code`：2
+- `disposition`：failed
+- `source`：test
+- `situation.zh-TW`：<mark style="background-color:#f8c8c8">test &lt;path&gt; 的完整安裝檢查結束碼不是 0；測試沒跑；整次以 max(檢查碼, 2) 結束，因此檢查碼為 3 時，除了此 error/2 診斷仍保留整次的結束碼 3</mark> → <mark style="background-color:#c8f0c8">test &lt;path&gt; 的完整安裝檢查結束碼不是 0；檢查碼不含每次執行都印的整次警告（例如 VK0060）；測試沒跑；整次以 max(檢查碼, 2) 結束，因此檢查碼為 3 時，除了此 error/2 診斷仍保留整次的結束碼 3</mark>
+- `message.zh-TW`：安裝檢查回傳 &lt;check_exit_code&gt;。&lt;path&gt; 的測試沒跑。請處理檢查診斷後重試。
+- `situation.en`：<mark style="background-color:#f8c8c8">test &lt;path&gt; completes the full installation checks with a nonzero check exit code; no tests are started; the execution ends with max(check exit code, 2), so a check exit code of 3 is preserved in addition to this error/2 diagnostic</mark> → <mark style="background-color:#c8f0c8">test &lt;path&gt; completes the full installation checks with a nonzero check exit code; the check exit code excludes run-wide warnings printed on every run (such as VK0060); no tests are started; the execution ends with max(check exit code, 2), so a check exit code of 3 is preserved in addition to this error/2 diagnostic</mark>
+- `message.en`：Installation checks returned &lt;check_exit_code&gt;. No tests were started for &lt;path&gt;. Resolve the check diagnostics and retry.
 
 #### VK0068
 <mark style="background-color:#c8f0c8">（本碼新增）</mark>
@@ -472,9 +479,9 @@ exit code: 2
 - `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
 - `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
 - `source`：<mark style="background-color:#c8f0c8">bootstrap engine launcher test</mark>
-- `situation.zh-TW`：<mark style="background-color:#c8f0c8">版本檔不合正規形：version.toml 讀不到、引擎行數不是 1、值不是 pinned 引用、介面版列表缺少或格式錯；bootstrap.sh 讀不到恰好一行有效的引擎版本鎖定行時依 VK0037 判定，不報此碼；version.local.toml 的引擎覆寫行超過 1 行、值不是雙引號裡的 image 引用或檔讀不到；含 test 讀到不合正規形的版本檔</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">版本檔不合正規形：version.toml 讀不到、引擎行數不是 1、值不是 pinned 引用、vendor_kit_protocols 缺少或格式錯；bootstrap.sh 讀不到恰好一行有效的引擎版本鎖定行時依 VK0037 判定，不報此碼；version.local.toml 的引擎覆寫行超過 1 行、值不是雙引號裡的 image 引用或檔讀不到；含 test 讀到不合正規形的版本檔</mark>
 - `message.zh-TW`：<mark style="background-color:#c8f0c8">版本檔 &lt;file&gt; 不合正規形：&lt;reason&gt;。要求的操作未完成。</mark>
-- `situation.en`：<mark style="background-color:#c8f0c8">A version file is not canonical: version.toml cannot be read, does not have exactly one engine line, its value is not a pinned reference, or the interface version list is missing or malformed; when bootstrap.sh cannot read exactly one valid engine lock version line, VK0037 determines the outcome and this code is not reported; version.local.toml has more than one engine override line, its value is not a double-quoted image reference, or the file cannot be read; this includes test reading a noncanonical version file</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">A version file is not canonical: version.toml cannot be read, does not have exactly one engine line, its value is not a pinned reference, or vendor_kit_protocols is missing or malformed; when bootstrap.sh cannot read exactly one valid engine lock version line, VK0037 determines the outcome and this code is not reported; version.local.toml has more than one engine override line, its value is not a double-quoted image reference, or the file cannot be read; this includes test reading a noncanonical version file</mark>
 - `message.en`：<mark style="background-color:#c8f0c8">Version file &lt;file&gt; is not canonical: &lt;reason&gt;. The requested operation did not complete.</mark>
 
 #### VK0071
@@ -483,12 +490,12 @@ exit code: 2
 - `status`：<mark style="background-color:#c8f0c8">active</mark>
 - `level`：<mark style="background-color:#c8f0c8">error</mark>
 - `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
-- `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">pending</mark>
 - `source`：<mark style="background-color:#c8f0c8">engine test</mark>
-- `situation.zh-TW`：<mark style="background-color:#c8f0c8">本機覆寫指到不在版本鎖定行的工具；add、remove、sync、upgrade 是否也使用此碼及能否修復仍待確認；待確認 (O1)</mark>
-- `message.zh-TW`：<mark style="background-color:#c8f0c8">工具 &lt;repo&gt; 的本機覆寫沒有對應的版本鎖定行。要求的操作未完成。</mark>
-- `situation.en`：<mark style="background-color:#c8f0c8">A local override refers to a tool absent from the lock version lines; use by add, remove, sync, and upgrade and whether repair is possible remain unresolved; Pending confirmation (O1)</mark>
-- `message.en`：<mark style="background-color:#c8f0c8">Local override for tool &lt;repo&gt; has no corresponding lock version line. The requested operation did not complete.</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">add、remove、sync、upgrade、test 遇到本機覆寫指到不在版本鎖定行的工具；不寫檔；&lt;repo&gt; 指名該工具；照下一步解除覆寫後即可重跑原指令</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">工具 &lt;repo&gt; 的本機覆寫沒有對應的版本鎖定行。要求的操作未完成。請執行：just vendor_kit undev &lt;repo&gt;</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">add, remove, sync, upgrade, or test encounters a local override for a tool absent from the lock version lines; no files are written; &lt;repo&gt; names the tool; after removing the override with the next step, the original command can be rerun</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">Local override for tool &lt;repo&gt; has no corresponding lock version line. The requested operation did not complete. Run: just vendor_kit undev &lt;repo&gt;</mark>
 
 #### VK0072
 <mark style="background-color:#c8f0c8">（本碼新增）</mark>
@@ -602,10 +609,10 @@ exit code: 2
 - `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
 - `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
 - `source`：<mark style="background-color:#c8f0c8">launcher</mark>
-- `situation.zh-TW`：<mark style="background-color:#c8f0c8">引擎 image 的 LABEL 介面版區間 [floor, current] 與 version.toml 旁記的介面版列表頭尾不符</mark>
-- `message.zh-TW`：<mark style="background-color:#c8f0c8">引擎 image &lt;image&gt; 的介面版區間與 version.toml 的介面版列表不符。未啟動引擎。</mark>
-- `situation.en`：<mark style="background-color:#c8f0c8">The interface version range [floor, current] in engine image labels differs from the endpoints of the interface version list recorded in version.toml</mark>
-- `message.en`：<mark style="background-color:#c8f0c8">The interface version range of engine image &lt;image&gt; differs from the interface version list in version.toml. The engine was not started.</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">引擎 image 的 LABEL 介面版區間 [floor, current] 與 version.toml 的 vendor_kit_protocols 頭尾不符</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">引擎 image &lt;image&gt; 的介面版區間與 version.toml 的 vendor_kit_protocols 不符。未啟動引擎。</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">The interface version range [floor, current] in engine image labels differs from the endpoints of vendor_kit_protocols in version.toml</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">The interface version range of engine image &lt;image&gt; differs from vendor_kit_protocols in version.toml. The engine was not started.</mark>
 
 #### VK0081
 <mark style="background-color:#c8f0c8">（本碼新增）</mark>
@@ -615,9 +622,9 @@ exit code: 2
 - `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
 - `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
 - `source`：<mark style="background-color:#c8f0c8">bootstrap launcher</mark>
-- `situation.zh-TW`：<mark style="background-color:#c8f0c8">Docker daemon 形態不支援，包括 userns-remap；不建立執行紀錄；待確認 (N6b)</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">Docker daemon 形態不支援，包括 userns-remap；不建立執行紀錄</mark>
 - `message.zh-TW`：<mark style="background-color:#c8f0c8">不支援 Docker daemon 形態 &lt;mode&gt;。請改用支援的 rootful 或 rootless Docker 後重試。</mark>
-- `situation.en`：<mark style="background-color:#c8f0c8">The Docker daemon configuration is unsupported, including userns-remap; no run log is created; Pending confirmation (N6b)</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">The Docker daemon configuration is unsupported, including userns-remap; no run log is created</mark>
 - `message.en`：<mark style="background-color:#c8f0c8">Docker daemon configuration &lt;mode&gt; is unsupported. Switch to supported rootful or rootless Docker and retry.</mark>
 
 #### VK0082
@@ -628,9 +635,9 @@ exit code: 2
 - `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
 - `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
 - `source`：<mark style="background-color:#c8f0c8">bootstrap launcher</mark>
-- `situation.zh-TW`：<mark style="background-color:#c8f0c8">建立執行紀錄後的能力檢查失敗；&lt;reason&gt; 指明缺少的能力；待確認 (N6b)</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">建立執行紀錄後的能力檢查失敗；&lt;reason&gt; 指明缺少的能力</mark>
 - `message.zh-TW`：<mark style="background-color:#c8f0c8">Docker 能力檢查失敗：&lt;reason&gt;。請修正環境後重試。</mark>
-- `situation.en`：<mark style="background-color:#c8f0c8">A capability check fails after creating the run log; &lt;reason&gt; identifies the missing capability; Pending confirmation (N6b)</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">A capability check fails after creating the run log; &lt;reason&gt; identifies the missing capability</mark>
 - `message.en`：<mark style="background-color:#c8f0c8">Docker capability check failed: &lt;reason&gt;. Fix the environment and retry.</mark>
 
 #### VK0083
@@ -641,9 +648,9 @@ exit code: 2
 - `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
 - `disposition`：<mark style="background-color:#c8f0c8">pending</mark>
 - `source`：<mark style="background-color:#c8f0c8">bootstrap</mark>
-- `situation.zh-TW`：<mark style="background-color:#c8f0c8">bootstrap.sh 偵測到 uninstall 未完成；&lt;completion_command&gt; 由 VK 填成可直接執行的完成模式指令，選項名與所用引擎版本尚未定；待確認 (N8b)</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">bootstrap.sh 偵測到 uninstall 未完成，且進度檔記有完成所需的資料（當初執行 uninstall 那一版引擎的引用，以及印保留清單所需的資料）；&lt;completion_command&gt; 由 VK 填成可直接執行的完成模式指令：以這次呼叫的腳本路徑 ($0) 開頭，後接 --finish-uninstall；完成時用進度檔記下的引擎引用；缺這些資料的舊格式進度檔改報 VK0094</mark>
 - `message.zh-TW`：<mark style="background-color:#c8f0c8">uninstall 未完成。請執行：&lt;completion_command&gt;</mark>
-- `situation.en`：<mark style="background-color:#c8f0c8">bootstrap.sh detects an incomplete uninstall; VK fills &lt;completion_command&gt; as an executable completion-mode command; the option name and engine version are unresolved; Pending confirmation (N8b)</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">bootstrap.sh detects an incomplete uninstall whose progress file records the data needed to finish (the reference of the engine version that originally ran uninstall, and the data needed to print the retained list); VK fills &lt;completion_command&gt; as an executable completion-mode command: the script path ($0) of this invocation followed by --finish-uninstall; completion uses the engine reference recorded in the progress file; an old-format progress file lacking this data reports VK0094 instead</mark>
 - `message.en`：<mark style="background-color:#c8f0c8">Uninstall is incomplete. Run: &lt;completion_command&gt;</mark>
 
 #### VK0084
@@ -652,12 +659,12 @@ exit code: 2
 - `status`：<mark style="background-color:#c8f0c8">active</mark>
 - `level`：<mark style="background-color:#c8f0c8">error</mark>
 - `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
-- `disposition`：<mark style="background-color:#c8f0c8">pending</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
 - `source`：<mark style="background-color:#c8f0c8">engine</mark>
-- `situation.zh-TW`：<mark style="background-color:#c8f0c8">add 帶 -y 又不能互動，卻需要 append 進已存在、未納管的檔；-y 不代答這些詢問；&lt;original_command&gt; 由 VK 重組原本完整指令，需在終端重跑；處置待確認 (Y1)，disposition 欄的 pending 只算暫填</mark>
-- `message.zh-TW`：<mark style="background-color:#c8f0c8">需要確認附加到既有未納管檔 &lt;file&gt; 的內容，但 -y 不代答且無法互動。請在終端執行：&lt;original_command&gt;</mark>
-- `situation.en`：<mark style="background-color:#c8f0c8">add receives -y and cannot interact, but needs to append to an existing unmanaged file; -y does not answer these prompts; VK rebuilds &lt;original_command&gt; as the original full command to rerun from a terminal; disposition is pending confirmation (Y1), and the disposition column is provisional</mark>
-- `message.en`：<mark style="background-color:#c8f0c8">Appending to existing unmanaged file &lt;file&gt; requires confirmation, but -y does not answer this prompt and interaction is unavailable. Run from a terminal: &lt;original_command&gt;</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">add 實際執行時要 append 進已存在、未納管的檔，但不能互動（不論有沒有帶 -y）；--dry-run 不詢問、不附加內容，不因這題報此碼；-y 不代答這題；&lt;file&gt; 指名要附加的檔，&lt;repo&gt; 印這次的工具；這種情況不報 VK0002</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">需要確認是否附加到既有未納管檔 &lt;file&gt;，但無法互動，-y 也不代答這題。請到終端重新執行 just vendor_kit add &lt;repo&gt;，在那裡回答這題。</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">In a real run, add needs to append to an existing unmanaged file, but interaction is impossible (whether or not -y was given); --dry-run neither prompts nor appends, and does not report this code for this prompt; -y does not answer this prompt; &lt;file&gt; names the file to append to, and &lt;repo&gt; prints the tool of this run; VK0002 is not reported in this case</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">Appending to existing unmanaged file &lt;file&gt; requires confirmation, but interaction is unavailable and -y does not answer this prompt. Rerun just vendor_kit add &lt;repo&gt; from a terminal and answer the prompt there.</mark>
 
 #### VK0085
 <mark style="background-color:#c8f0c8">（本碼新增）</mark>
@@ -692,9 +699,100 @@ exit code: 2
 - `level`：<mark style="background-color:#c8f0c8">warn</mark>
 - `exit_code`：<mark style="background-color:#c8f0c8">1</mark>
 - `source`：<mark style="background-color:#c8f0c8">engine</mark>
-- `situation.zh-TW`：<mark style="background-color:#c8f0c8">基準版合併結果是 TOML 或 just 卻解析不過：TOML 依 TOML 規格解析，不是 UTF-8 也算解析不過；just 檔（justfile、.justfile，檔名不分大小寫；*.just） 只檢查衝突標記；留原檔、基準版不推，路徑記進 metadata 的 conflicts；待確認 (D2)：目前實作不印此診斷、以 0 結束；嚴重度與結束碼未定，level 與 exit_code 欄只算暫填</mark>
-- `message.zh-TW`：<mark style="background-color:#c8f0c8">&lt;file&gt; 的基準版合併結果無法解析。已保留原檔與基準版，並記入 conflicts。請手動處理。</mark>
-- `situation.en`：<mark style="background-color:#c8f0c8">A baseline merge result is TOML or just but fails parsing: TOML is parsed per the TOML specification and non-UTF-8 also fails parsing; just files (justfile and .justfile, both filenames case-insensitive; *.just) are checked only for conflict markers; the original file and baseline are retained and the path is recorded in metadata conflicts; Pending confirmation (D2): the current implementation does not emit this diagnostic and exits with 0; severity and exit code are undecided, and the level and exit_code columns are provisional</mark>
-- `message.en`：<mark style="background-color:#c8f0c8">The baseline merge result for &lt;file&gt; cannot be parsed. The original file and baseline were retained, and the path was recorded in conflicts. Handle it manually.</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">基準版合併結果是 TOML 或 just 卻解析不過：TOML 依 TOML 規格解析，不是 UTF-8 也算解析不過；just 檔（justfile、.justfile，檔名不分大小寫；*.just） 只檢查衝突標記；留原檔、基準版不推；實際執行時路徑記進 metadata 的 conflicts，stdout 照印 Kept &lt;file&gt; 那行；預演時也報此碼，但不寫 metadata，stdout 改用 Would … 字句列出這個檔；&lt;outcome&gt; 正式執行時填「已保留原檔與基準版，並記入 conflicts。」，預演時填「會保留原檔與基準版，並記入 conflicts。」；本文的新版指這次換上的版本所帶的那一份（初始檔，或引擎的 config.toml 模板）；just 檔不做語法驗證，本文不寫成驗過語法</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">&lt;file&gt; 的基準版合併結果無效（TOML 解析不過，或 just 檔留有衝突標記）。&lt;outcome&gt;請手動把這次換上的版本所帶的新版內容合進 &lt;file&gt;。</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">A baseline merge result is TOML or just but fails parsing: TOML is parsed per the TOML specification and non-UTF-8 also fails parsing; just files (justfile and .justfile, both filenames case-insensitive; *.just) are checked only for conflict markers; the original file and baseline are retained; in a real run the path is recorded in metadata conflicts and stdout still prints the Kept &lt;file&gt; line; a dry run also reports this code but writes no metadata, and stdout lists the file with a Would … sentence instead; &lt;outcome&gt; is filled with "The original file and baseline were retained, and the path was recorded in conflicts." in a real run and with "The original file and baseline would be retained, and the path would be recorded in conflicts." in a dry run; the new version in the message is the one shipped with the version being switched to (an initial file, or the engine template for config.toml); just files are not syntax-checked, and the message does not claim that syntax was verified</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">The baseline merge result for &lt;file&gt; is invalid (TOML that fails to parse, or a just file with conflict markers). &lt;outcome&gt; Manually merge the new version shipped with the version being switched to into &lt;file&gt;.</mark>
 
-沒改動的代碼 42 個：VK0003、VK0004、VK0006、VK0007、VK0008、VK0010、VK0012、VK0014、VK0016、VK0017、VK0018、VK0019、VK0020、VK0022、VK0024、VK0027、VK0028、VK0029、VK0032、VK0033、VK0035、VK0038、VK0039、VK0040、VK0041、VK0042、VK0044、VK0045、VK0049、VK0050、VK0051、VK0056、VK0057、VK0059、VK0060、VK0061、VK0062、VK0063、VK0064、VK0065、VK0066、VK0067。
+#### VK0088
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
+- `source`：<mark style="background-color:#c8f0c8">engine</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">不帶 tag 的 upgrade &lt;repo&gt; 或 upgrade --engine 發現 registry 的最新版比版本鎖定行的版本舊；不換版、不合併、不改寫版本鎖定行，執行紀錄照寫；本文報出鎖定版本與 registry 最新版，不寫成 tag 已被刪除；&lt;command&gt; 是條件句的下一步：工具為 just vendor_kit upgrade &lt;repo&gt;@&lt;tag&gt;，引擎為 just vendor_kit upgrade --engine=&lt;tag&gt;，&lt;tag&gt; 都填 &lt;latest_tag&gt;；引擎降版仍受 VK0007 限制，不保證降版一定成功</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">&lt;target&gt; 的版本鎖定行是 &lt;locked_tag&gt;，但 registry 的最新版是較舊的 &lt;latest_tag&gt;。未換版。若要改用 &lt;latest_tag&gt;，請執行：&lt;command&gt;</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">upgrade &lt;repo&gt; or upgrade --engine without a tag finds the latest version in the registry is older than the version in the lock version line; no version change, merge, or lock version line rewrite is made, and the run log is written as usual; the message reports the locked version and the latest registry version and does not claim the tag was deleted; &lt;command&gt; is a conditional next step: for a tool, just vendor_kit upgrade &lt;repo&gt;@&lt;tag&gt;; for the engine, just vendor_kit upgrade --engine=&lt;tag&gt;; &lt;tag&gt; is filled with &lt;latest_tag&gt; in both; an engine downgrade is still subject to VK0007 and is not guaranteed to succeed</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">The lock version line for &lt;target&gt; is &lt;locked_tag&gt;, but the latest version in the registry is the older &lt;latest_tag&gt;. No version change was made. To switch to &lt;latest_tag&gt;, run: &lt;command&gt;</mark>
+
+#### VK0089
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
+- `source`：<mark style="background-color:#c8f0c8">engine</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">add 或 upgrade 取到的工具 image digest 不是多架構 index（既不是 OCI image index，也不是 Docker manifest list）；不寫版本鎖定行，導入或換版的結果都不落地；&lt;image&gt; 指名 image，&lt;media_type&gt; 印拿到的 media type</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">工具 image &lt;image&gt; 不是多架構 index（拿到的 media type 為 &lt;media_type&gt;）。未寫入版本鎖定行。</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">The tool image digest obtained by add or upgrade is not a multi-architecture index (neither an OCI image index nor a Docker manifest list); no lock version line is written and no import or version change takes effect; &lt;image&gt; names the image and &lt;media_type&gt; prints the media type received</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">Tool image &lt;image&gt; is not a multi-architecture index (received media type &lt;media_type&gt;). The lock version line was not written.</mark>
+
+#### VK0090
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
+- `source`：<mark style="background-color:#c8f0c8">engine</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">dev --engine 以 -i 指定的本機 image 不是 VK 引擎：介面版的 LABEL 缺鍵、格式錯，或 floor 大於 current；不寫本機覆寫；&lt;reason&gt; 寫明是哪一項；下一步是換一個合格的引擎 image；區間有效但不含薄殼的 P 時改報 VK0085</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">本機 image &lt;image&gt; 不是 vendor_kit 引擎：&lt;reason&gt;。未啟用本機覆寫。請換用合格的引擎 image。</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">The local image specified with -i for dev --engine is not a VK engine: an interface version LABEL key is missing or malformed, or floor is greater than current; no local override is written; &lt;reason&gt; states which; the next step is to use a valid engine image; a valid range that excludes shell version P reports VK0085 instead</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">Local image &lt;image&gt; is not a vendor_kit engine: &lt;reason&gt;. The local override was not enabled. Use a valid engine image.</mark>
+
+#### VK0091
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
+- `source`：<mark style="background-color:#c8f0c8">engine</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">add 以 -i 給的 tar 不合離線交付格式：tar 裡要剛好一個 image，名稱要剛好一個 ghcr.io/&lt;path&gt;:vX.Y.Z；&lt;file&gt; 印使用者給的 tar，&lt;reason&gt; 寫出違反哪條規則與實際看到什麼；版本鎖定行不動；docker load 已成功，image 會留在本機 Docker，本文不寫成未載入或沒有副作用</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">&lt;file&gt; 不合離線交付格式：&lt;reason&gt;。版本鎖定行未變更。</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">The tar given with -i to add does not match the offline delivery format: the tar must contain exactly one image with exactly one name of the form ghcr.io/&lt;path&gt;:vX.Y.Z; &lt;file&gt; prints the tar given by the user, and &lt;reason&gt; states which rule was violated and what was actually found; the lock version line is unchanged; docker load has succeeded and the image remains in the local Docker, so the message does not claim it was not loaded or had no side effects</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">&lt;file&gt; does not match the offline delivery format: &lt;reason&gt;. The lock version line was not changed.</mark>
+
+#### VK0092
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
+- `source`：<mark style="background-color:#c8f0c8">engine</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">prune 請啟動器刪除能證明屬於這個安裝目錄、而且這次可刪的 repo 外 session 目錄，但刪不掉；&lt;path&gt; 印該目錄，&lt;reason&gt; 附實際原因；其他項目照常清理，每個刪不掉的目錄各報一次；結束碼比照 VK0093</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">無法刪除 session 目錄 &lt;path&gt;：&lt;reason&gt;。其他項目已照常清理。</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">prune asks the launcher to delete a session directory outside the repo that is provably owned by this install directory and deletable in this run, but it cannot be deleted; &lt;path&gt; prints the directory and &lt;reason&gt; gives the actual cause; other items are cleaned as usual, and each directory that cannot be deleted is reported once; the exit code follows VK0093</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">Cannot delete session directory &lt;path&gt;: &lt;reason&gt;. Other items were cleaned as usual.</mark>
+
+#### VK0093
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
+- `source`：<mark style="background-color:#c8f0c8">engine</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">prune 請啟動器刪除可證明不再使用的已停止容器，但刪不掉；&lt;container&gt; 印容器 ID，&lt;reason&gt; 附實際原因；其他容器與項目照常清理，每個刪不掉的容器各報一次</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">無法刪除容器 &lt;container&gt;：&lt;reason&gt;。其他項目已照常清理。</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">prune asks the launcher to delete a stopped container that is provably no longer in use, but it cannot be deleted; &lt;container&gt; prints the container ID and &lt;reason&gt; gives the actual cause; other containers and items are cleaned as usual, and each container that cannot be deleted is reported once</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">Cannot delete container &lt;container&gt;: &lt;reason&gt;. Other items were cleaned as usual.</mark>
+
+#### VK0094
+<mark style="background-color:#c8f0c8">（本碼新增）</mark>
+
+- `status`：<mark style="background-color:#c8f0c8">active</mark>
+- `level`：<mark style="background-color:#c8f0c8">error</mark>
+- `exit_code`：<mark style="background-color:#c8f0c8">2</mark>
+- `disposition`：<mark style="background-color:#c8f0c8">failed</mark>
+- `source`：<mark style="background-color:#c8f0c8">bootstrap</mark>
+- `situation.zh-TW`：<mark style="background-color:#c8f0c8">bootstrap.sh 偵測到 uninstall 未完成，但進度檔是舊格式，沒有記下完成所需的引擎引用與印保留清單所需的資料；包括 --finish-uninstall 在內的所有呼叫都報此碼；仍辨識成 uninstall 未完成，不退回只報 VK0037，也不給 --finish-uninstall 指令；下一步是人工收完剩下的步驟</mark>
+- `message.zh-TW`：<mark style="background-color:#c8f0c8">uninstall 未完成，但進度檔是舊格式，沒有記下完成所需的引擎與保留清單資料，無法自動完成。請依 uninstall 的收回範圍手動收完剩下的步驟，再刪除 uninstall 進度檔。</mark>
+- `situation.en`：<mark style="background-color:#c8f0c8">bootstrap.sh detects an incomplete uninstall, but the progress file uses an old format that does not record the engine reference and the data needed to print the retained list; every invocation, including --finish-uninstall, reports this code; it is still recognized as an incomplete uninstall, does not fall back to reporting only VK0037, and no --finish-uninstall command is given; the next step is to finish the remaining steps manually</mark>
+- `message.en`：<mark style="background-color:#c8f0c8">Uninstall is incomplete, but its progress file uses an old format that does not record the engine and retained-list data needed to finish, so it cannot be completed automatically. Manually finish the remaining steps according to the uninstall removal scope, then delete the uninstall progress file.</mark>
+
+沒改動的代碼 41 個：VK0003、VK0004、VK0006、VK0007、VK0008、VK0010、VK0011、VK0012、VK0014、VK0016、VK0017、VK0019、VK0020、VK0022、VK0024、VK0027、VK0028、VK0029、VK0032、VK0033、VK0035、VK0038、VK0039、VK0040、VK0041、VK0042、VK0045、VK0049、VK0050、VK0051、VK0053、VK0056、VK0057、VK0059、VK0060、VK0061、VK0063、VK0064、VK0065、VK0066、VK0067。
