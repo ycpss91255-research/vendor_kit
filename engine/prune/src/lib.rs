@@ -65,6 +65,19 @@
 //!   `docker ps --no-trunc --format '{{.ID}}'`）；重複的只刪一次。
 //! - 刪容器排在刪路徑之後：路徑的刪除有進度檔保護，容器在主機上、不在進度檔裡。
 //!
+//! # session 目錄（D14）
+//!
+//! 主機上殘留的 session 目錄（`${TMPDIR:-/tmp}/vendor_kit.<run-id>/`）在 repo 外、由啟動器擁有（ADR-0006、
+//! ADR-0007），引擎看不到。刪的規則在啟動器（launcher/launch.sh，#574）：起引擎之前帶本安裝目錄 label 的容器、
+//! 現在一個都不剩、不是這次的 run，它的目錄（自己的實體目錄）才刪。容器在更早之前就已不在的、或建在別的
+//! `TMPDIR` 底下的目錄判斷不出屬於哪個安裝目錄，不清，也不停下。
+//!
+//! - 呼叫方的介面版 ≥ 2：刪完容器之後（這次至少刪掉一個才送），請啟動器 `rm-sessions`，它照上面的規則刪，
+//!   刪了哪些、哪些刪不掉寫在 `res.<seq>.out`（`plan::SessionRemoval`）。stdout 每個刪掉的印一行
+//!   （[`text::removed_session`]）；刪不掉的、或啟動器查不到容器（`failed`）各報一次 VK0056（沒有 prune 的碼，
+//!   見「缺口」）。預演不送。
+//! - 呼叫方的介面版是 1（舊薄殼的啟動器沒有 rm-sessions）：不送；啟動器在 `prune` 以 0 結束後自己清，不印。
+//!
 //! # 缺口（契約或其他 crate 沒定，不自己補規則；遇到就以 VK0056 停下並寫明原因）
 //!
 //! - 殘留的進度檔是其他 verb 的（`add`、`upgrade`、`remove` 等）：04 說可寫 recipe 先恢復未完成操作，但
@@ -76,11 +89,8 @@
 //! - 啟動器代做的 `ps`、`rm-container` 失敗：VK0055 只寫取工具 image 的 docker 動作，`prune` 沒有碼。`ps`
 //!   失敗時在刪任何東西之前停下；`rm-container` 失敗時其他容器照刪，每個失敗各報一次。
 //! - 刪 image：D2（#372 留言 issuecomment-5997655839）定協定不提供刪 image 的 op，這一版不刪，也不停下。
-//! - 主機上殘留的 session 目錄（`${TMPDIR:-/tmp}/vendor_kit.<run-id>/`）：在 repo 外、由啟動器擁有
-//!   （ADR-0006、ADR-0007），引擎看不到。`prune` 以 0 結束後，啟動器刪掉起引擎之前帶本安裝目錄 label 的
-//!   容器、現在一個都不剩的那幾個 run 的目錄（launcher/launch.sh，#574）；引擎不經手，協定沒有回報的 op，所以 stdout 不列、
-//!   執行紀錄不記。容器在更早之前就已不在的、或建在別的 `TMPDIR` 底下的目錄判斷不出屬於哪個安裝目錄，
-//!   不清，也不停下。
+//! - 主機上殘留的 session 目錄（`${TMPDIR:-/tmp}/vendor_kit.<run-id>/`）：見「session 目錄」。刪成功的只印在
+//!   stdout，執行紀錄沒有對應的事件種類（log-events 是封閉清單），所以不記；刪不掉的經診斷記進紀錄。
 //! - 中途刪檔失敗沒有代碼（G4）。
 //!
 //! 這裡不直接碰 docker：docker 動作一律是 `plan` 協定的 op，由啟動器代做。
@@ -100,7 +110,7 @@ use config::{Config, ConfigError};
 use diagnostics::{Diagnostic, Diagnostics, Message, Sink};
 use filelock::{Lock, Mode};
 use layout::InstallDir;
-use plan::{Channel, Container, Op, Outcome};
+use plan::{Channel, Container, Op, OpKind, Outcome, SessionRemoval};
 use progress::Progress;
 use txn::{Disk, Txn};
 use version_file::LockFile;
@@ -291,10 +301,14 @@ impl<W: Write, S: Sink, L: Write> Prune<'_, '_, W, S, L> {
             self.say(prompt::DRY_RUN_DONE);
             return Ok(());
         }
+        let mut removed_any = false;
         for c in &containers {
             let (_, outcome) = self.request(&Op::RmContainer(c.clone()))?;
             match outcome {
-                Outcome::Ok => self.say(&text::removed_container(c.as_str())),
+                Outcome::Ok => {
+                    removed_any = true;
+                    self.say(&text::removed_container(c.as_str()));
+                }
                 Outcome::Failed(rc) => {
                     let d = self.gap_diag(format_args!(
                         "reporting that {} for stopped container {} (no reason code for prune)",
@@ -305,6 +319,49 @@ impl<W: Write, S: Sink, L: Write> Prune<'_, '_, W, S, L> {
                 }
                 Outcome::Runner(_) => {
                     return Err(self.internal("rm-container returned a runner result"));
+                }
+            }
+        }
+        // 介面版 2 起：這次刪了容器，才請啟動器清它們留下的 session 目錄（模組說明「session 目錄」）。
+        if removed_any && self.env.channel.supports(OpKind::RmSessions) {
+            self.rm_sessions()?;
+        }
+        Ok(())
+    }
+
+    /// 請啟動器刪 session 目錄（rm-sessions，D14），stdout 每個刪掉的印一行；刪不掉的、或啟動器查不到容器而
+    /// 證明不了歸屬的，各報一次（沒有 prune 的碼，以 VK0056 報）。
+    fn rm_sessions(&mut self) -> Step<()> {
+        let (seq, outcome) = self.request(&Op::RmSessions)?;
+        match outcome {
+            Outcome::Ok => {}
+            Outcome::Failed(rc) => {
+                let d = self.gap_diag(format_args!(
+                    "reporting that the launcher could not list the containers to clean session \
+                     directories (rm-sessions failed with {rc}; no reason code for prune)"
+                ));
+                self.emit(d);
+                return Ok(());
+            }
+            Outcome::Runner(_) => return Err(self.internal("rm-sessions returned a runner result")),
+        }
+        let out = self.env.channel.output_path(seq);
+        let bytes = match fs::read(&out) {
+            Ok(b) => b,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(self.internal(format!("{}: {e}", out.display()))),
+        };
+        let removals = SessionRemoval::parse(&bytes).map_err(|e| self.internal(e.to_string()))?;
+        for r in removals {
+            match r {
+                SessionRemoval::Removed(id) => self.say(&text::removed_session(id.as_str())),
+                SessionRemoval::Failed(id) => {
+                    let d = self.gap_diag(format_args!(
+                        "reporting that the session directory of run {} could not be removed \
+                         (no reason code for prune)",
+                        id.as_str()
+                    ));
+                    self.emit(d);
                 }
             }
         }

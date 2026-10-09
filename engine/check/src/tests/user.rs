@@ -15,8 +15,8 @@ use crate::user_test::{self, Runner};
 const CONFIG: &str =
     "[test]\nimage = \"ghcr.io/acme/runner:v1\"\ncommand = [\"bats\", \"--tap\"]\n";
 
-fn header() -> Header {
-    Header::new(1, RunId::parse("r1").unwrap()).unwrap()
+fn header(protocol: u32) -> Header {
+    Header::new(protocol, RunId::parse("r1").unwrap()).unwrap()
 }
 
 /// 假啟動器：每個 request 都回 `outcome`，記下 op 行。
@@ -26,11 +26,11 @@ struct Peer {
 }
 
 impl Peer {
-    fn start(ctl: PathBuf, outcome: RunnerOutcome) -> Peer {
+    fn start(ctl: PathBuf, outcome: RunnerOutcome, protocol: u32) -> Peer {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
         let handle = thread::spawn(move || {
-            let header = header();
+            let header = header(protocol);
             let mut seen = Vec::new();
             let mut seq = 1u16;
             while !flag.load(Ordering::SeqCst) {
@@ -67,11 +67,16 @@ struct UserOut {
 }
 
 fn run_user(fx: &Fx, path: &str, outcome: RunnerOutcome) -> UserOut {
+    run_user_at(fx, path, outcome, 1)
+}
+
+/// 同 [`run_user`]，呼叫方的介面版是 `protocol`。
+fn run_user_at(fx: &Fx, path: &str, outcome: RunnerOutcome, protocol: u32) -> UserOut {
     let ctl = fx._tmp.path().join(format!("ctl-{}", fx.sessions()));
     fs::create_dir_all(&ctl).unwrap();
     let before = fx.snapshot();
-    let peer = Peer::start(ctl.clone(), outcome);
-    let mut channel = Channel::new(&ctl, header());
+    let peer = Peer::start(ctl.clone(), outcome, protocol);
+    let mut channel = Channel::new(&ctl, header(protocol));
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let code = {
@@ -390,6 +395,33 @@ fn image_the_protocol_cannot_carry_is_vk0066() {
     assert_eq!(r.out.code, 2);
     assert_eq!(codes(&r.out.stderr), ["VK0066"]);
     assert!(r.out.stderr.contains("Runner exit code: unavailable."));
+    assert!(r.ops.is_empty());
+}
+
+#[test]
+fn from_interface_version_2_the_image_is_a_free_text_field_and_docker_decides() {
+    let fx = Fx::with_tests(&[]);
+    fs::write(
+        fx.dir.config_toml(),
+        "[test]\nimage = \"ghcr.io/acme/runner:V1\"\ncommand = [\"bats\"]\n",
+    )
+    .unwrap();
+    let r = run_user_at(&fx, "test/unit", RunnerOutcome::Exited(0), 2);
+    assert_eq!(r.out.code, 0, "{}", r.out.stderr);
+    assert_eq!(
+        r.ops,
+        ["runner e:ghcr.io/acme/runner:V1 e:bats e:test/unit"]
+    );
+    // 以 - 開頭的會被 docker create 當成選項：照樣送不出，VK0066
+    fs::write(
+        fx.dir.config_toml(),
+        "[test]\nimage = \"--privileged\"\ncommand = [\"bats\"]\n",
+    )
+    .unwrap();
+    let r = run_user_at(&fx, "test/unit", RunnerOutcome::Exited(0), 2);
+    assert_eq!(r.out.code, 2);
+    assert_eq!(codes(&r.out.stderr), ["VK0066"]);
+    assert!(r.out.stderr.contains("must not be empty or start with -"));
     assert!(r.ops.is_empty());
 }
 

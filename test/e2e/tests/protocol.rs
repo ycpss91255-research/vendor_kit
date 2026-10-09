@@ -1,7 +1,7 @@
 //! 介面版（ADR-0008:26、#372 N61、N19）：薄殼的 P 超出引擎的區間時，救援呼叫照常、以薄殼的 P 回應；
 //! 其餘呼叫先報版本，不報用法錯誤，也不寫執行紀錄以外的檔。
 //!
-//! 這一版引擎只收 P=1，執行檔測得到的區間外只有 P 高於上限；那一邊還沒有專屬代碼（計畫缺口 G6），
+//! 這一版引擎收 P=1、2，執行檔測得到的區間外只有 P 高於上限（這裡用 3）；那一邊還沒有專屬代碼（計畫缺口 G6），
 //! 暫以 VK0056 停下。P 低於 floor 的 VK0009（fatal 3）在 engine/vendor_kit 的 unit 測試以注入的區間驗。
 //! 救援的 `sync` 實際跑完的案例在 `sync.rs`。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -68,19 +68,19 @@ fn written(m: &Mounts) -> Vec<String> {
     out
 }
 
-const NEWER_SHELL: &str = "vendor_kit: error[VK0056]: Internal vendor_kit error: interface version 2 is outside the supported range [1, 1]; reason code pending (G6).";
+const NEWER_SHELL: &str = "vendor_kit: error[VK0056]: Internal vendor_kit error: interface version 3 is outside the supported range [1, 2]; reason code pending (G6).";
 
 #[test]
 fn general_recipe_outside_the_range_reports_the_version_before_any_write() {
     let tmp = tempfile::tempdir().unwrap();
     let m = Mounts::create(tmp.path());
     install_dir(&m);
-    let (code, stdout, stderr, done) = launch(&m, 2, &["prune"]);
+    let (code, stdout, stderr, done) = launch(&m, 3, &["prune"]);
     assert_eq!(code, 2);
     assert_eq!(stdout, "");
     assert!(stderr.starts_with(NEWER_SHELL), "{stderr}");
     assert_eq!(stderr.lines().count(), 1, "{stderr}");
-    assert_eq!(done, "vk-resolve/2 r1 done 2\n");
+    assert_eq!(done, "vk-resolve/3 r1 done 2\n");
     assert!(written(&m).is_empty(), "{:?}", written(&m));
 }
 
@@ -104,11 +104,11 @@ fn rescue_candidate_with_a_usage_error_reports_the_version_first() {
     let tmp = tempfile::tempdir().unwrap();
     let m = Mounts::create(tmp.path());
     install_dir(&m);
-    let (code, _, stderr, done) = launch(&m, 2, &["upgrade", "--engine", "--bogus"]);
+    let (code, _, stderr, done) = launch(&m, 3, &["upgrade", "--engine", "--bogus"]);
     assert_eq!(code, 2);
     assert!(stderr.starts_with(NEWER_SHELL), "{stderr}");
     assert!(!stderr.contains("VK0026"), "{stderr}");
-    assert_eq!(done, "vk-resolve/2 r1 done 2\n");
+    assert_eq!(done, "vk-resolve/3 r1 done 2\n");
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn usage_call_outside_the_range_still_prints_usage() {
     let tmp = tempfile::tempdir().unwrap();
     let m = Mounts::create(tmp.path());
     install_dir(&m);
-    let (code, stdout, stderr, done) = launch(&m, 2, &[]);
+    let (code, stdout, stderr, done) = launch(&m, 3, &[]);
     assert_eq!(code, 2);
     assert_eq!(stdout, "");
     assert!(
@@ -124,5 +124,5 @@ fn usage_call_outside_the_range_still_prints_usage() {
         "{stderr}"
     );
     assert!(!stderr.contains("VK0056"), "{stderr}");
-    assert_eq!(done, "vk-resolve/2 r1 done 2\n");
+    assert_eq!(done, "vk-resolve/3 r1 done 2\n");
 }

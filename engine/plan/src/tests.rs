@@ -71,7 +71,7 @@ fn golden_ops() -> Vec<(Op, String)> {
         ),
         (
             Op::Runner {
-                image: image("ghcr.io/u/test:1"),
+                image: field("ghcr.io/u/test:1"),
                 command: field("pytest"),
                 args: vec![field("-q"), field(""), field("tests/a\\b.py")],
             },
@@ -81,16 +81,154 @@ fn golden_ops() -> Vec<(Op, String)> {
     ]
 }
 
+/// 介面版 2 起才有的 op 與 runner 的自由文字 image 欄，在 P=2、seq=3 的確切位元組
+/// （launcher/test/wire.bats 的同名測試照抄）。
+fn golden_ops_v2() -> Vec<(Op, String)> {
+    vec![
+        (
+            Op::PullTag(image("ghcr.io/acme/ros_tools:v1.2.0")),
+            "vk-resolve/2 r1 3\npull-tag ghcr.io/acme/ros_tools:v1.2.0\n".to_owned(),
+        ),
+        (
+            Op::RmSessions,
+            "vk-resolve/2 r1 3\nrm-sessions\n".to_owned(),
+        ),
+        (
+            Op::Runner {
+                image: field("ghcr.io/u/test:Nightly_1"),
+                command: field("pytest"),
+                args: vec![field("-q")],
+            },
+            "vk-resolve/2 r1 3\nrunner e:ghcr.io/u/test:Nightly_1 e:pytest e:-q\n".to_owned(),
+        ),
+    ]
+}
+
 #[test]
 fn every_op_has_exact_request_bytes_and_round_trips() {
     let ops = golden_ops();
-    let kinds: Vec<OpKind> = ops.iter().map(|(op, _)| op.kind()).collect();
+    let v2 = golden_ops_v2();
+    let mut kinds: Vec<OpKind> = ops.iter().map(|(op, _)| op.kind()).collect();
+    for (op, _) in &v2 {
+        if !kinds.contains(&op.kind()) {
+            kinds.push(op.kind());
+        }
+    }
     assert_eq!(kinds, OpKind::ALL, "每種 op 都要有 golden");
     for (op, want) in ops {
         assert_eq!(req(&op, 3), want);
         assert_eq!(
             Op::parse_request(want.as_bytes(), &header(1)).unwrap(),
             (seq(3), op)
+        );
+    }
+    for (op, want) in v2 {
+        let got = op.encode_request(&header(2), seq(3)).unwrap();
+        assert_eq!(String::from_utf8(got).unwrap(), want);
+        assert_eq!(
+            Op::parse_request(want.as_bytes(), &header(2)).unwrap(),
+            (seq(3), op)
+        );
+    }
+}
+
+#[test]
+fn version_2_ops_and_the_free_text_runner_image_need_interface_version_2() {
+    for kind in OpKind::ALL {
+        let want = if matches!(kind, OpKind::PullTag | OpKind::RmSessions) {
+            SINCE_V2
+        } else {
+            1
+        };
+        assert_eq!(kind.since(), want, "{}", kind.name());
+    }
+    // P=1 送不出、也不收新 op
+    for (op, golden) in golden_ops_v2() {
+        if op.kind() == OpKind::Runner {
+            continue;
+        }
+        assert!(op.encode_request(&header(1), seq(3)).is_err(), "{golden}");
+        let at1 = golden.replacen("vk-resolve/2", "vk-resolve/1", 1);
+        assert!(
+            Op::parse_request(at1.as_bytes(), &header(1)).is_err(),
+            "{at1}"
+        );
+    }
+    // runner：P=1 的 image 是 ref（大寫 tag 送不出）；P≥2 是 fld，P=1 的寫法在 P=2 不收
+    let upper = Op::Runner {
+        image: field("ghcr.io/u/test:Nightly_1"),
+        command: field("pytest"),
+        args: vec![],
+    };
+    assert!(upper.encode_request(&header(1), seq(3)).is_err());
+    assert!(
+        Op::parse_request(
+            b"vk-resolve/2 r1 3\nrunner ghcr.io/u/test:1 e:pytest\n",
+            &header(2)
+        )
+        .is_err()
+    );
+    for bad in ["", "-v", "--privileged"] {
+        let op = Op::Runner {
+            image: field(bad),
+            command: field("pytest"),
+            args: vec![],
+        };
+        assert!(op.encode_request(&header(2), seq(3)).is_err(), "{bad:?}");
+        assert!(!Op::runner_image_fits(bad.as_bytes(), 2), "{bad:?}");
+    }
+    assert!(Op::runner_image_fits(b"sha256:0123", 2));
+    assert!(Op::runner_image_fits(b"ghcr.io/u/test:1", 1));
+    assert!(!Op::runner_image_fits(b"ghcr.io/u/test:Nightly", 1));
+}
+
+#[test]
+fn pull_tag_only_takes_a_tag_without_a_digest() {
+    for good in [
+        "ghcr.io/acme/ros_tools:v1.2.0",
+        "localhost:5000/acme/ros_tools:v1.2.0",
+        "ros_tools:_x",
+    ] {
+        assert!(image(good).is_tagged(), "{good}");
+    }
+    for bad in [
+        pinned(),
+        "ghcr.io/acme/ros_tools".to_owned(),
+        "ghcr.io/acme/ros_tools:".to_owned(),
+        "localhost:5000/acme/ros_tools".to_owned(),
+        "ghcr.io/acme/ros_tools:.v1".to_owned(),
+        format!("ghcr.io/acme/ros_tools:{}", "a".repeat(129)),
+    ] {
+        assert!(!image(&bad).is_tagged(), "{bad}");
+        let op = Op::PullTag(image(&bad));
+        assert!(op.encode_request(&header(2), seq(1)).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn rm_sessions_output_lists_removed_and_failed_run_ids() {
+    assert_eq!(SessionRemoval::parse(b"").unwrap(), vec![]);
+    let id = |s: &str| RunId::parse(s).unwrap();
+    assert_eq!(
+        SessionRemoval::parse(b"removed oldrun\nfailed r-2\n").unwrap(),
+        vec![
+            SessionRemoval::Removed(id("oldrun")),
+            SessionRemoval::Failed(id("r-2"))
+        ]
+    );
+    for bad in [
+        &b"removed oldrun"[..],
+        b"removed\n",
+        b"removed Bad_Run\n",
+        b"gone oldrun\n",
+        b"removed  oldrun\n",
+        b"\n",
+        b"removed oldrun\n\n",
+    ] {
+        assert!(
+            SessionRemoval::parse(bad).is_err(),
+            "{}",
+            String::from_utf8_lossy(bad)
         );
     }
 }
@@ -110,7 +248,9 @@ fn op_names_are_the_closed_set() {
             "stage-dir",
             "ps",
             "rm-container",
-            "runner"
+            "runner",
+            "pull-tag",
+            "rm-sessions"
         ]
     );
 }
@@ -628,6 +768,28 @@ fn channel_does_not_write_invalid_requests() {
 }
 
 #[test]
+fn channel_supports_an_op_only_from_its_interface_version_and_not_outside_the_rescue_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let ch1 = Channel::new(dir.path(), header(1));
+    assert!(ch1.supports(OpKind::Pull));
+    assert!(ch1.supports(OpKind::Ps));
+    assert!(!ch1.supports(OpKind::PullTag));
+    assert!(!ch1.supports(OpKind::RmSessions));
+    let mut ch2 = Channel::new(dir.path(), header(2));
+    assert!(ch2.supports(OpKind::PullTag));
+    assert!(ch2.supports(OpKind::RmSessions));
+    ch2.restrict_to_rescue();
+    assert!(!ch2.supports(OpKind::PullTag));
+    assert!(!ch2.supports(OpKind::Ps));
+    assert!(ch2.supports(OpKind::Pull));
+    // P=1 送新 op 是協定不合，不寫檔、不佔 seq
+    let mut ch1 = Channel::new(dir.path(), header(1));
+    let e = ch1.send(&Op::RmSessions).unwrap_err();
+    assert!(matches!(e, ChannelError::Protocol(_)), "{e:?}");
+    assert!(listing(dir.path()).is_empty());
+}
+
+#[test]
 fn channel_restricted_to_rescue_only_sends_rescue_ops() {
     let dir = tempfile::tempdir().unwrap();
     let h = header(7);
@@ -692,6 +854,8 @@ fn rescue_constants_are_pinned() {
     );
     // in/ 裡啟動器寫的引擎引用檔（launcher/wire.sh 的 vk_wire_in_engine）。
     assert_eq!(files::IN_ENGINE, "engine");
+    // in/ 裡 bootstrap.sh 首次導入時寫的來源檔（launcher/wire.sh 的 vk_wire_in_bootstrap；install 讀，允許不存在）。
+    assert_eq!(files::IN_BOOTSTRAP, "bootstrap");
     // `--` 之後只有 bootstrap.sh 會送的保留入口（只檢查、修復）。
     assert_eq!(
         [entry::SHELL_CHECK, entry::SHELL_REPAIR],

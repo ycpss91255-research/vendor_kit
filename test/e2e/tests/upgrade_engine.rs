@@ -369,7 +369,7 @@ fn first_stage(m: &Mounts, rest: &[&str]) {
             "inspect" => {
                 fs::write(
                     ctl.join(format!("res.{}.out", req.seq)),
-                    inspect_labels(VERSION, 1, 1),
+                    inspect_labels(VERSION, shell::INTERFACE, 1),
                 )
                 .unwrap();
                 Reply::Ok
@@ -418,7 +418,7 @@ fn assert_completed(m: &Mounts, code: i32, stdout: &str, stderr: &str, wrote: &[
     assert_eq!(
         fs::read_to_string(vk.join("version.toml")).unwrap(),
         format!(
-            "vendor_kit = \"{}\"\nvendor_kit_protocols = \"1\"\nschema = 1\nwritten_by = \"{VERSION}\"\n\n[tools]\ntool = \"{TOOL}\"\n",
+            "vendor_kit = \"{}\"\nvendor_kit_protocols = \"1 2\"\nschema = 1\nwritten_by = \"{VERSION}\"\n\n[tools]\ntool = \"{TOOL}\"\n",
             self_locked()
         )
     );

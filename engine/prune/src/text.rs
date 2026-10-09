@@ -16,6 +16,11 @@ pub fn removed_container(id: &str) -> String {
     format!("Removed stopped container {id}.")
 }
 
+/// 請啟動器刪了一個殘留的 session 目錄（主機上的 `vendor_kit.<run-id>/`，介面版 2 起）。
+pub fn removed_session(run_id: &str) -> String {
+    format!("Removed leftover session directory vendor_kit.{run_id}/.")
+}
+
 /// 預演：會請啟動器刪的一個已停止的 VK 容器。
 pub fn would_remove_container(id: &str) -> String {
     format!("Would remove stopped container {id}.")

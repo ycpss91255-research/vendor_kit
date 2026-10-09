@@ -153,7 +153,11 @@ fn copy_dir(from: &Path, to: &Path) {
 }
 
 fn header() -> Header {
-    Header::new(1, RunId::parse("r1").unwrap()).unwrap()
+    header_at(1)
+}
+
+fn header_at(protocol: u32) -> Header {
+    Header::new(protocol, RunId::parse("r1").unwrap()).unwrap()
 }
 
 /// 假啟動器的行為。
@@ -191,13 +195,20 @@ struct Peer {
 
 impl Peer {
     fn start(fx: &Fx, script: Script) -> Peer {
+        Peer::start_at(fx, script, 1)
+    }
+
+    /// 同 [`Peer::start`]，呼叫方的介面版是 `protocol`。`pull-tag`（P ≥ 2）之後，`local: false` 的不帶 digest
+    /// inspect 也照常回（當成 pull 進來了）。
+    fn start_at(fx: &Fx, script: Script, protocol: u32) -> Peer {
         // 先清 ctl/ 再起執行緒：新的假啟動器不能讀到上一次的 req.1。
         fx.new_session();
         let (ctl, inbox, host) = (fx.ctl.clone(), fx.inbox.clone(), fx.host());
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
         let handle = thread::spawn(move || {
-            let header = header();
+            let header = header_at(protocol);
+            let mut pulled = false;
             let mut seen = Vec::new();
             let mut seq = 1u16;
             while !flag.load(Ordering::SeqCst) {
@@ -246,7 +257,13 @@ impl Peer {
                                 _ => Outcome::Failed(1),
                             }
                         }
-                        Op::Inspect(r) if !script.local && !r.is_pinned() => Outcome::Failed(1),
+                        Op::PullTag(_) => {
+                            pulled = true;
+                            Outcome::Ok
+                        }
+                        Op::Inspect(r) if !script.local && !r.is_pinned() && !pulled => {
+                            Outcome::Failed(1)
+                        }
                         Op::Inspect(_) => {
                             let ds: Vec<String> =
                                 script.digests.iter().map(|d| format!("\"{d}\"")).collect();
@@ -353,6 +370,19 @@ fn run_online(
     input: &str,
     online: &Online<'_>,
 ) -> Out {
+    run_online_at(fx, argv, init, tty, input, online, 1)
+}
+
+/// 同 [`run_online`]，呼叫方的介面版是 `protocol`。
+fn run_online_at(
+    fx: &Fx,
+    argv: &[&str],
+    init: Vec<OwnedInit>,
+    tty: Tty,
+    input: &str,
+    online: &Online<'_>,
+    protocol: u32,
+) -> Out {
     let target = argv[1];
     let (repo, tag) = match target.split_once('@') {
         Some((r, t)) => (r, Some(Tag::parse(t).unwrap())),
@@ -367,7 +397,7 @@ fn run_online(
     };
     let argv: Vec<String> = argv.iter().map(|s| (*s).to_owned()).collect();
     fx.assert_fresh_session();
-    let mut channel = Channel::new(&fx.ctl, header());
+    let mut channel = Channel::new(&fx.ctl, header_at(protocol));
     let mut stdin = Cursor::new(input.as_bytes().to_vec());
     let mut stdout = Vec::new();
     let shared = Shared::default();
