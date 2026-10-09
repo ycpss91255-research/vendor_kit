@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # vk-resolve/<P> 文法的啟動器端（wire.sh）：與 engine/plan 同一份規則。
-# 期待的位元組與拒絕清單照 engine/plan/src/tests.rs 的同名測試逐條抄過來（P=1、run-id r1）。
+# 期待的位元組與拒絕清單照 engine/plan/src/tests.rs 的同名測試逐條抄過來（run-id r1；介面版 2 的 golden 抄自 golden_ops_v2）。
 
 load helper
 
@@ -30,6 +30,10 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
         [[ $src == *'"runner stopped unavailable"'* ]]
     [[ $src == *'["/vk/root", "/vk/ctl", "/vk/in"]'* ]]
     [[ $src == *'["req.", "res.", ".out", "done", ".tmp"]'* ]]
+    # golden_ops_v2
+    [[ $src == *'"vk-resolve/2 r1 3\npull-tag ghcr.io/acme/ros_tools:v1.2.0\n"'* ]]
+    [[ $src == *'"vk-resolve/2 r1 3\nrm-sessions\n"'* ]]
+    [[ $src == *'"vk-resolve/2 r1 3\nrunner e:ghcr.io/u/test:Nightly_1 e:pytest e:-q\n"'* ]]
 }
 
 @test "every op in the rust golden parses to its operands" {
@@ -72,10 +76,8 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
     [ "${lines[5]}" = "pull-tag rm-sessions" ]
 }
 
-@test "the launcher ops equal the OPS of engine/plan in order, or add only the pending version-2 ops" {
+@test "the launcher ops equal the OPS of engine/plan in order" {
     # 兩邊各自寫一份；這裡從 engine/plan/src/lib.rs 讀 OPS，逐項依序比對。
-    # 啟動器先 merge、引擎後加 op（#724 先、#723 後；前例 stage-dir）時，兩邊有一段時間不相等：
-    # 這時啟動器的清單只准是 engine/plan 的 OPS 後面接上還沒落地的 pull-tag rm-sessions。
     local src re='pub const OPS: \[&str; [0-9]+\] = \[([^]]*)\]'
     src=$(<"$repo_root/engine/plan/src/lib.rs")
     [[ $src =~ $re ]]
@@ -84,7 +86,7 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
     [ "${#engine_ops[@]}" -gt 0 ]
     vk 'printf "%s\n" "${vk_wire_ops[@]}"'
     [ "$status" -eq 0 ]
-    [ "${lines[*]}" = "${engine_ops[*]}" ] || [ "${lines[*]}" = "${engine_ops[*]} pull-tag rm-sessions" ] || {
+    [ "${lines[*]}" = "${engine_ops[*]}" ] || {
         echo "launcher ops: ${lines[*]}; engine/plan OPS: ${engine_ops[*]}" >&2
         return 1
     }
@@ -92,10 +94,13 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
 
 @test "interface version 2 adds pull-tag, rm-sessions and a free-text runner image" {
     local -a cases=(
+        # golden_ops_v2
         'pull-tag ghcr.io/acme/ros_tools:v1.2.0' "pull-tag\nghcr.io/acme/ros_tools:v1.2.0"
-        'pull-tag localhost:5000/acme/ros_tools:v1.2.0' "pull-tag\nlocalhost:5000/acme/ros_tools:v1.2.0"
         'rm-sessions' 'rm-sessions'
         'runner e:ghcr.io/u/test:Nightly_1 e:pytest e:-q' "runner\nghcr.io/u/test:Nightly_1\npytest\n-q"
+        # pull_tag_only_takes_a_tag_without_a_digest 收的 image、runner_image_fits 收的 image
+        'pull-tag localhost:5000/acme/ros_tools:v1.2.0' "pull-tag\nlocalhost:5000/acme/ros_tools:v1.2.0"
+        'pull-tag ros_tools:_x' "pull-tag\nros_tools:_x"
         'runner e:sha256:0123 e:pytest' "runner\nsha256:0123\npytest"
     )
     local i want
@@ -119,11 +124,13 @@ show_req='vk_wire_parse_req "$PWD/req" 1 r1 3 || { printf "rejected: %s\n" "$REP
         'pull-tag localhost:5000/acme/ros_tools'
         'pull-tag ghcr.io/acme/ros_tools:V1.2.0'
         'pull-tag ghcr.io/acme/ros_tools:.v1'
+        "pull-tag ghcr.io/acme/ros_tools:$(printf 'a%.0s' {1..129})"
         'pull-tag ghcr.io/acme/ros_tools:v1.2.0 x'
         'pull-tag'
         'rm-sessions r1'
         'runner ghcr.io/u/test:1 e:pytest'
         'runner e: e:pytest'
+        'runner e:-v e:pytest'
         'runner e:--privileged e:pytest'
         'runner e:ghcr.io/u/test:1'
     )
