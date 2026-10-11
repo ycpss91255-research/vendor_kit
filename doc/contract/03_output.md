@@ -54,9 +54,11 @@ exit code: 2
   stderr: Usage: just vendor_kit <cmd> [arguments] [options]
   exit code: 2
   ```
-- 主機前置檢查（檢查主機上的 Docker 與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。各入口檢查哪幾項見 [04 使用者介面](04_interface.md#bootstrapsh)
+- 主機前置檢查（檢查主機上的 Docker、Docker daemon 形態與 just）排在建執行紀錄之前；找不到 docker、Docker 低於 19.03、`docker --version` 的輸出含 Podman、Docker daemon 形態不在支援清單內（報 `VK0081`）、找不到 just 或 just 低於 1.33.0 時，檢查不通過。不通過時不建執行紀錄、不動任何 VK 檔，只在 stderr 印診斷。建執行紀錄之後、業務操作之前的能力檢查失敗報 `VK0082`，走一般失敗。支援清單見 [04 主機需求](04_interface.md#主機需求)；各入口檢查哪幾項見 [04 使用者介面](04_interface.md#bootstrapsh)
 - `remove`/`uninstall` 依契約保留[初始檔](../../GLOSSARY.md#初始檔與合併)時，把保留清單印到 stdout，沒有其他診斷時以 `0` 結束
-- 詢問時使用者明確回答「否」，是正常取消：不做變更，在 stdout 說明未變更，以 `0` 結束
+- 詢問時使用者明確回答「否」，是正常取消，以 `0` 結束；一般在 stdout 說明未變更。若需記下拒絕，只在 [metadata](../../GLOSSARY.md#初始檔與合併) 記錄 `state=declined`、`declined_hash` 與必要的檔案識別，執行紀錄照寫，stdout 說明「未變更，已記下這次拒絕」。[repo 檔](../../GLOSSARY.md#repo-內的檔與狀態)與工具不動，不推進[版本鎖定行](../../GLOSSARY.md#版本與來源)或[基準版](../../GLOSSARY.md#初始檔與合併)，不套用同一次呼叫裡已答允的項目，也不把還沒回答的題記成拒絕
+- `--dry-run`（哪些指令接受見 [04 預演](04_interface.md#預演)）在 stdout 用「Would …」字句列出會改的內容，一行一句，例如 `Would add …`、`Would create <file>`、`Would append to <file>`、`Would update <file>`、`Would merge <file>`、`Would lock …`、`Would write …`、`Would install …`。殘留[進度檔](../../GLOSSARY.md#repo-內的檔與狀態)只印 `Would complete the interrupted <verb> of …`，不完成該次操作；最後一行固定是 `Dry run: no changes were made.`，未變更時也印。警告照常印到 stderr，結束碼依警告決定；沒有警告或其他失敗時以 `0` 結束
+- [基準版合併](../../GLOSSARY.md#初始檔與合併)的結果是 TOML (`*.toml`) 且解析不過，或是 just 檔（`justfile`、`.justfile`，檔名不分大小寫；`*.just`）且留下衝突標記時，保留原檔、不詢問、不推進基準版，記進 metadata 的 `conflicts`。stderr 印 `VK0087` warn 診斷，指名檔案，說明原檔與基準版都保留了、路徑已記進 `conflicts`，下一步是手動處理；stdout 照印 `Kept <file>…` 那行；沒有其他失敗時以 `1` 結束。「已記進 `conflicts`」與 `Kept <file>…` 只適用實際執行。`--dry-run` 時也報 `VK0087`（warn、`1`），但不寫 metadata：stdout 用 `Would …` 字句列出這個檔，診斷只說明預計的處置，不聲稱已寫入。這種情況不報 `VK0021`
 - VK 自己印的字句，顏色照這幾條：
   - 只在那個輸出串流是終端 (TTY) 時上色；stdout 與 stderr 各自判斷
   - 環境變數 `NO_COLOR` 有值且不是空字串時，一律不上色 ([NO_COLOR](https://no-color.org/))
@@ -86,6 +88,7 @@ exit code: 2
 
 - 處置是診斷的屬性，不是嚴重度。待處理表示這次執行沒有做完，而且 VK 已附上一條可直接執行、不需使用者代換的下一步指令；失敗不承諾可執行的修法，但可以附一般建議；warn 的列與用法錯誤留空
 - 下一步指令直接寫在本文句尾，占位符都由 VK 換成實際的值；待處理的本文必須以這條指令結尾，各語言的結尾指令逐字相同；做不到的診斷標失敗
+  - [add](../../GLOSSARY.md#vk-recipe-與用途) 要附加內容到既有、未[納管](../../GLOSSARY.md#初始檔與合併)的檔時，[-y](../../GLOSSARY.md#執行與結果) 不代答這題。有終端時照問，答否是正常取消；實際執行需要附加內容而不能互動時，不論有沒有帶 `-y`，都以 `VK0084`（失敗、`2`）停下，指名要附加的檔，一般建議是到終端重跑 `just vendor_kit add <repo>`。`--dry-run` 不詢問、不附加內容，不因這題報 `VK0084`。這種情況不報 `VK0002`；其他靠 `-y` 就能解決的詢問照舊報 `VK0002`
 - warn 要指名對象；有辦法處置就在本文寫出下一步
 
 代碼的停用與整理：
