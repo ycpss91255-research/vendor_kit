@@ -560,7 +560,7 @@ VK 提供 Renovate regex preset 追蹤工具與引擎的正式版 `vX.Y.Z`；VK 
 - 使用者依[設定](#設定)在 `[test]` 指定 `image` 與 `command`，VK 不內建 runner
 - 通過檢查後，在該 image 容器執行 command 並在最後加上 path，不經 shell；工作目錄為安裝目錄，repo 唯讀掛載，以空目錄遮住 `.vendor_kit/`，runner 另有容器內的可寫暫存空間，結束即丟，寫不進 repo
 - 測試 image 不限 registry，由主機 Docker 取得，也可用本機 image；image 與 command 實際執行什麼由使用者負責
-- 待確認 (D16)：image 引用帶不進協定 (例如 tag 含大寫) 時回 VK0066，續行印 `unavailable`
+- image 引用照原樣交給主機 Docker，Docker 接受的寫法 (例如 tag 含大寫) 都照常跑；以 `-` 開頭的引用 VK 不交給 Docker (會被當成選項)，這時回 VK0066，續行印 `unavailable`；Docker 本身不接受的引用由 Docker 報錯，照 runner 起不來處理
 - `lock_enabled = false` 時，VK0060 不算安裝檢查結果；整次結束碼取 1 與 runner 結果的較大者
 - runner 的 stdout、stderr 原樣轉出，格式界線見 [03 輸出](03_output.md#輸出)
 - path 無效、未選到測試、選到工具交付檔、runner 起不來或測試未通過的處置與結束碼，見[訊息表](reason_codes.csv)
