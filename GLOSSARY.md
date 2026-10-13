@@ -64,7 +64,7 @@ repo 交付給 VK 的工具出貨目錄。
 工具在 `dist/` 交付、展開後放進 `cache/` 的那些檔。
 
 **取件** (fetch)：
-把工具內容從工具 image 取出、寫進 `cache/` 的動作。
+把工具內容從工具 image 取出、驗過後寫進 `cache/` 的動作。
 
 **工具 image** (tool image)：
 封裝單一工具出貨內容的純資料容器 image；VK 不把它當程式執行。
